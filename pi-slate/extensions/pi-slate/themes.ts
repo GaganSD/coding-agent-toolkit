@@ -196,9 +196,10 @@ export function slateThemeVars(name: string | undefined): Record<string, string>
   return slateTheme(name)?.vars;
 }
 
-/** Syntax-highlighting theme whose palette matches the Slate theme. */
+/** Syntax-highlighting theme for a shipped theme, or the Slate default for external themes. */
 export function slateShikiTheme(name: string | undefined): string {
-  if (name?.startsWith("catppuccin-")) return "catppuccin-mocha";
-  if (name === "black-metal") return "github-dark";
+  const theme = slateTheme(name);
+  if (theme?.name.startsWith("catppuccin-")) return "catppuccin-mocha";
+  if (theme?.name === "black-metal") return "github-dark";
   return "tokyo-night";
 }

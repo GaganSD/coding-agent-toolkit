@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { allSlateThemes, slateShikiTheme } from "../extensions/pi-slate/themes.ts";
-import { diffColors, mixHex } from "../extensions/pi-slate/diff-config.ts";
+import { diffAppearance, diffColors, mixHex } from "../extensions/pi-slate/diff-config.ts";
 
 const THEMES_DIR = join(import.meta.dirname, "..", "themes");
 
@@ -47,6 +47,14 @@ test("shiki mapping follows the theme family", () => {
   assert.equal(slateShikiTheme("black-metal"), "github-dark");
   assert.equal(slateShikiTheme("tokyo-night"), "tokyo-night");
   assert.equal(slateShikiTheme(undefined), "tokyo-night");
+});
+
+test("unregistered themes use the same fallback for diff colors and syntax", () => {
+  const fallback = diffAppearance("tokyo-night");
+  for (const name of [undefined, "unknown", "catppuccin-latte-default", "catppuccin-mocha", "catppuccin-mocha-custom"]) {
+    assert.equal(slateShikiTheme(name), fallback.theme, name ?? "unnamed");
+    assert.deepEqual(diffAppearance(name), fallback, name ?? "unnamed");
+  }
 });
 
 test("mixHex blends foreground over background", () => {

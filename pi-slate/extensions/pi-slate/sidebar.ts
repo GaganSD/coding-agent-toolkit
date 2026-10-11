@@ -296,7 +296,7 @@ export class Sidebar implements Component {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
         const state = server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled";
-        rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", `${server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
+        rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
           action: () => this.actions?.inspect?.(server.name, `${state} (configuration, not connection status)\nSource: ${server.source}\nUse /mcp to manage this server.`) });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;

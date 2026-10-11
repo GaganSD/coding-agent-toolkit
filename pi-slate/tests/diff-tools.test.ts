@@ -10,7 +10,7 @@ import {
   type ExtensionAPI, type ExtensionContext, type ExtensionToolContext, type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Text, type Component } from "@earendil-works/pi-tui";
-import { DIFF_MAX_BYTES, readDiffConfig } from "../extensions/pi-slate/diff-config.ts";
+import { ansiColor, DIFF_MAX_BYTES, readDiffConfig } from "../extensions/pi-slate/diff-config.ts";
 import { DiffHighlighter } from "../extensions/pi-slate/diff-highlight.ts";
 import { DiffView } from "../extensions/pi-slate/diff-renderer.ts";
 import { createDiffTools, installDiff } from "../extensions/pi-slate/diff.ts";
@@ -380,6 +380,8 @@ test("edit and write render serialized native-backed details and reuse only matc
       assert.equal(view.patch, serializedPatch);
       assert.equal(view.path, path);
       assert.equal(view.kind, name);
+      assert.equal(view.themeName, "tokyo-night", "unnamed host themes use the Slate default");
+      assert.ok(view.render(120)[0]!.includes(ansiColor(config.colors.headerFg)));
       assert.match(plain(view), name === "edit" ? /diff · split/ : /diff · unified/);
       assert.equal(render(false, view), view);
       const expanded = render(true, view);

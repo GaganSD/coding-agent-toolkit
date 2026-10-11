@@ -69,7 +69,7 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
       if (options.isPartial) return new Text(theme.fg("muted", "Editing…"), 0, 0);
       const patch = result.details?.patch;
       if (!context.isError && typeof patch === "string") {
-        const themeName = theme.name ?? "black-metal";
+        const themeName = theme.name ?? "tokyo-night";
         const previous = context.lastComponent;
         if (previous instanceof DiffView && previous.patch === patch && previous.path === context.args?.path && previous.expanded === options.expanded && previous.themeName === themeName) return previous;
         return new DiffView(patch, context.args?.path ?? "", "edit", options.expanded, { ...config, ...diffAppearance(themeName) }, highlighter, context.invalidate, themeName);
@@ -104,7 +104,7 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
       if (options.isPartial) return new Text(theme.fg("muted", "Writing…"), 0, 0);
       const preview = result.details?.slateDiff;
       if (!context.isError && typeof preview?.patch === "string") {
-        const themeName = theme.name ?? "black-metal";
+        const themeName = theme.name ?? "tokyo-night";
         const previous = context.lastComponent;
         if (previous instanceof DiffView && previous.patch === preview.patch && previous.path === context.args?.path && previous.expanded === options.expanded && previous.themeName === themeName) return previous;
         return new DiffView(preview.patch, context.args?.path ?? "", "write", options.expanded, { ...config, ...diffAppearance(themeName) }, highlighter, context.invalidate, themeName);

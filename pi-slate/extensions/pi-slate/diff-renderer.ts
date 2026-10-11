@@ -101,7 +101,7 @@ export class DiffView implements Component {
     config: DiffConfig,
     highlighter: DiffHighlighter,
     requestRender: () => void,
-    themeName = "black-metal",
+    themeName = "tokyo-night",
   ) {
     this.patch = patch;
     this.path = path;

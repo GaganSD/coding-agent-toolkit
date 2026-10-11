@@ -203,6 +203,22 @@ test("a failed preference save cannot change the visible fold state", () => {
   assert.equal(sidebar.getFolds().skills, false);
 });
 
+test("resource status glyphs distinguish unknown MCP state without color or redundant labels", () => {
+  const { sidebar } = fixture(); const details: string[] = [];
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  sidebar.setResources({ ...resources, mcp: [
+    { name: "enabled-server", enabled: true, source: "global" },
+    { name: "disabled-server", enabled: false, source: "global" },
+    { name: "unknown-server", enabled: null, source: "extension" },
+  ] });
+  sidebar.setFolds({ mcp: true, skills: true, prompts: false });
+  const lines = plain(sidebar.render(80));
+  for (const expected of ["● enabled-server", "○ disabled-server", "— unknown-server", "● skill-0", "○ skill-1"])
+    assert(lines.some(line => line.trim() === expected), expected);
+  sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));
+  assert.match(details[0]!, /^— \(configuration, not connection status\)/);
+});
+
 test("MCP is limited to five rows; list wheel scroll does not move the session header", () => {
   const { sidebar } = fixture(); sidebar.setFolds({ mcp: true, skills: true, prompts: false });
   const before = plain(sidebar.render(40));

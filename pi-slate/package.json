@@ -44,7 +44,7 @@
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "npm pack --dry-run",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck",
-    "themes": "tsx scripts/build-themes.ts"
+    "themes": "node --experimental-strip-types scripts/build-themes.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

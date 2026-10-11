@@ -17,7 +17,7 @@ function view(t: test.TestContext, before: string, after: string, options: { kin
   const highlighter = new DiffHighlighter();
   t.after(() => highlighter.dispose());
   const live = readDiffConfig({}, options.themeName);
-  return new DiffView(patch(before, after), options.path ?? "example.ts", options.kind ?? "edit", options.expanded ?? true, live, highlighter, () => {}, options.themeName ?? "black-metal");
+  return new DiffView(patch(before, after), options.path ?? "example.ts", options.kind ?? "edit", options.expanded ?? true, live, highlighter, () => {}, options.themeName ?? "tokyo-night");
 }
 
 test("diff follows the Slate theme", () => {
