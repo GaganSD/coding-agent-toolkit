@@ -1,5 +1,5 @@
 import type { BundledTheme } from "shiki";
-import { catppuccinChrome } from "./catppuccin.ts";
+import { slateShikiTheme, slateTheme, type SlateThemeJson } from "./themes.ts";
 
 export type DiffColors = {
   fg: string;
@@ -19,35 +19,38 @@ export type DiffConfig = {
   colors: DiffColors;
 };
 
-const BLACK_METAL: DiffColors = {
-  fg: "#c1c1c1",
-  contextBg: "#0d0d0d",
-  addBg: "#132020",
-  removeBg: "#1a0d0d",
-  addWordBg: "#2a4445",
-  removeWordBg: "#6b3d3d",
-  lineNumberFg: "#888888",
-  borderFg: "#404040",
-  headerFg: "#dd9999",
-};
+/** Blend `fg` over `bg` at `alpha` — derives diff tints from any theme palette. */
+export function mixHex(fg: string, bg: string, alpha: number): string {
+  const channel = (hex: string, start: number) => parseInt(hex.slice(start, start + 2), 16);
+  const out = [1, 3, 5].map((start) => Math.round(channel(bg, start) + (channel(fg, start) - channel(bg, start)) * alpha));
+  return `#${out.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
 
-const MOCHA: Omit<DiffColors, "borderFg" | "headerFg"> = {
-  fg: "#cdd6f4",
-  contextBg: "#181825",
-  addBg: "#1e3128",
-  removeBg: "#351c24",
-  addWordBg: "#2d4f3a",
-  removeWordBg: "#6b2e3a",
-  lineNumberFg: "#7f849c",
-};
+/** Diff colors derive from the active theme's roles, so every Slate theme (and style switch) restyles diffs consistently. */
+export function diffColors(theme: SlateThemeJson): DiffColors {
+  const role = (name: string): string | undefined => {
+    const ref = theme.colors[name];
+    return ref ? theme.vars[ref] : undefined;
+  };
+  const bg = theme.vars.mantle ?? theme.vars.panelSoft ?? theme.vars.panel ?? theme.vars.bg ?? "#000000";
+  const green = role("success") ?? "#9ece6a";
+  const red = role("error") ?? "#f7768e";
+  return {
+    fg: role("text") ?? "#c0caf5",
+    contextBg: bg,
+    addBg: mixHex(green, bg, 0.1),
+    removeBg: mixHex(red, bg, 0.12),
+    addWordBg: mixHex(green, bg, 0.25),
+    removeWordBg: mixHex(red, bg, 0.3),
+    lineNumberFg: role("dim") ?? "#737aa2",
+    borderFg: role("border") ?? "#3b4261",
+    headerFg: role("accent") ?? "#7aa2f7",
+  };
+}
 
 export function diffAppearance(themeName?: string): Pick<DiffConfig, "theme" | "colors"> {
-  const chrome = catppuccinChrome(themeName);
-  if (!chrome) return { theme: "github-dark", colors: BLACK_METAL };
-  return {
-    theme: "catppuccin-mocha",
-    colors: { ...MOCHA, borderFg: chrome.border, headerFg: chrome.accent, fg: chrome.text, contextBg: chrome.mantle },
-  };
+  const theme = slateTheme(themeName) ?? slateTheme("tokyo-night")!;
+  return { theme: slateShikiTheme(themeName) as BundledTheme, colors: diffColors(theme) };
 }
 
 export function readDiffConfig(env: NodeJS.ProcessEnv = process.env, themeName?: string): DiffConfig {

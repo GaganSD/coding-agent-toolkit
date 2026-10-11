@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- All shipped themes are generated from a single registry (`extensions/pi-slate/themes.ts`): every hex lives in `vars`, and `colors` entries only reference palette vars. Inline code and links use the theme accent in every Slate theme, so tokyo-night no longer mixes cyan and blue. Regenerate theme files with `npm run themes`; `tests/themes.test.ts` fails on drift.
+- Diff colors derive from the active theme's palette (accent headers, dim line numbers, green/red blends for add/remove) instead of name-matched hardcoded tables; syntax highlighting follows the theme family (tokyo-night diffs use shiki's tokyo-night).
+- Sidebar MCP/Skills rows show only the status dot and name; redundant enabled/disabled/available labels and scroll-range rows are gone. Section headings and the context meter follow theme heading/accent colors.
+
 ## 0.1.13
 
 Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate, slim image preview, hide leftover peeks, and a single new-session chip. Settled sub-agents leave the roster and publish display-only dashboard snapshots.

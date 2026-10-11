@@ -47,7 +47,7 @@
     "mdHeading": "text",
     "mdLink": "accent",
     "mdLinkUrl": "dim",
-    "mdCode": "cyan",
+    "mdCode": "accent",
     "mdCodeBlock": "text",
     "mdCodeBlockBorder": "border",
     "mdQuote": "muted",

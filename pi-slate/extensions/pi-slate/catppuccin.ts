@@ -89,18 +89,7 @@ export function themeMessage(flavor: Flavor, style: Style): string {
   return `Theme set to ${FLAVOR_LABELS[flavor]} · ${STYLE_LABELS[style]}`;
 }
 
-export function catppuccinChrome(name?: string): { accent: string; border: string; text: string; mantle: string } | undefined {
-  const parsed = parseCatppuccinTheme(name);
-  if (!parsed) return undefined;
-  const palette = PALETTES[parsed.flavor];
-  const roles = STYLE_ROLES[parsed.style];
-  return {
-    accent: palette[roles.accent],
-    border: palette[roles.border],
-    text: palette.text,
-    mantle: palette.mantle,
-  };
-}
+export const THEME_SCHEMA = "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json";
 
 export type CatppuccinThemeJson = {
   $schema: string;
@@ -114,7 +103,7 @@ export function buildCatppuccinTheme(flavor: Flavor, style: Style): CatppuccinTh
   const palette = PALETTES[flavor];
   const roles = STYLE_ROLES[style];
   return {
-    $schema: "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+    $schema: THEME_SCHEMA,
     name: catppuccinThemeName(flavor, style),
     vars: {
       ...palette,
@@ -152,9 +141,9 @@ export function buildCatppuccinTheme(flavor: Flavor, style: Style): CatppuccinTh
       toolTitle: "text",
       toolOutput: "subtext0",
       mdHeading: "heading",
-      mdLink: "blue",
+      mdLink: "accent",
       mdLinkUrl: "overlay1",
-      mdCode: "peach",
+      mdCode: "accent",
       mdCodeBlock: "text",
       mdCodeBlockBorder: "overlay0",
       mdQuote: "overlay2",

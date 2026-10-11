@@ -21,8 +21,8 @@ function view(t: test.TestContext, before: string, after: string, options: { kin
 }
 
 test("diff follows the Slate theme", () => {
-  assert.equal(config.theme, "github-dark");
-  assert.equal(config.colors.headerFg, "#dd9999");
+  assert.equal(config.theme, "tokyo-night");
+  assert.equal(config.colors.headerFg, "#7aa2f7");
   const mauve = diffAppearance("catppuccin-mocha-mauve");
   const peach = diffAppearance("catppuccin-mocha-peach");
   assert.equal(mauve.theme, "catppuccin-mocha");
@@ -30,7 +30,7 @@ test("diff follows the Slate theme", () => {
   assert.equal(mauve.colors.headerFg, "#cba6f7");
   assert.equal(peach.colors.headerFg, "#fab387");
   assert.notEqual(mauve.colors.headerFg, config.colors.headerFg);
-  assert.equal(diffAppearance("unknown").theme, "github-dark");
+  assert.equal(diffAppearance("unknown").theme, "tokyo-night", "unknown themes fall back to the Slate default palette");
   assert.equal(readDiffConfig({ SLATE_DIFF_SPLIT_MIN_WIDTH: "120" }).splitMinWidth, 120);
   for (const width of ["0", "59", "501", "1.5", ""]) assert.equal(readDiffConfig({ SLATE_DIFF_SPLIT_MIN_WIDTH: width }).splitMinWidth, 100);
 });
