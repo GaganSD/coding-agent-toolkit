@@ -2,11 +2,18 @@
 
 ## Unreleased
 
+## 0.1.14
+
+Themes that actually look like your theme: every surface — sidebar, transcript, context bar, and diffs — now follows your theme's colors consistently, and the sidebar sheds redundant status text.
+
 ### Changed
 
-- All shipped themes are generated from a single registry (`extensions/pi-slate/themes.ts`): every hex lives in `vars`, and `colors` entries only reference palette vars. Inline code and links use the theme accent in every Slate theme, so tokyo-night no longer mixes cyan and blue. Regenerate theme files with `npm run themes`; `tests/themes.test.ts` fails on drift.
-- Diff colors derive from the active theme's palette (accent headers, dim line numbers, green/red blends for add/remove) instead of name-matched hardcoded tables; syntax highlighting follows the theme family (tokyo-night diffs use shiki's tokyo-night).
-- Sidebar MCP/Skills rows show only the status dot and name; redundant enabled/disabled/available labels and scroll-range rows are gone. Section headings and the context meter follow theme heading/accent colors.
+- Cleaner sidebar: MCP and Skills rows show just a status dot and the name. The redundant `enabled`/`disabled`/`available` labels and scroll counters are gone — the filled/empty dot and section counts say it all.
+- Switching themes now restyles the whole interface consistently: sidebar headings, inline code, links, and the context bar all follow your theme's accent color.
+- Tokyo Night: inline code uses the theme's signature blue instead of a mismatched cyan.
+- Black Metal: inline code and links use its rose accent, matching the rest of the theme.
+- Diffs follow your theme: headers, line numbers, and add/remove highlights are tinted from your palette, and syntax highlighting matches (Tokyo Night diffs use the real Tokyo Night palette).
+- Themes are now built from a single source of truth, so every shipped theme stays consistent going forward.
 
 ## 0.1.13
 

@@ -1,20 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "934925accfcd04a945ab9f180f52a1ffd00d4cbd",
-  "notes": "Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate, slim image preview, hide leftover peeks, and a single new-session chip. Settled sub-agents leave the roster and publish display-only dashboard snapshots.",
+  "sourceSha": "acfc780efe2bd83dd7e20075290a19bee4535e9e",
+  "notes": "Themes that actually look like your theme: every surface now follows your theme colors consistently, and the sidebar sheds redundant status text.",
   "packages": [
     {
       "path": "pi-slate",
       "name": "pi-slate",
-      "from": "0.1.12",
-      "to": "0.1.13",
-      "bump": "patch"
-    },
-    {
-      "path": "pi-subagents",
-      "name": "@gagansd/pi-subagents",
-      "from": "0.0.4",
-      "to": "0.0.5",
+      "from": "0.1.13",
+      "to": "0.1.14",
       "bump": "patch"
     }
   ]
