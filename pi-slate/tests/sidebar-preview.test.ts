@@ -119,13 +119,13 @@ test("context meter fills the rail with a shaded track and degrades gracefully w
   for (const line of plain(sidebar.render(3))) assert(visibleWidth(line) <= 1, "degenerate rail stays bounded");
 });
 
-test("context meter fill shifts to the warning tone at 80% and above", () => {
-  const codes: Record<string, number> = { muted: 90, dim: 2, success: 32, warning: 33, text: 37 };
+test("context meter fill follows the theme accent and shifts to the warning tone at 80% and above", () => {
+  const codes: Record<string, number> = { muted: 90, dim: 2, accent: 36, warning: 33, text: 37 };
   const toneTheme = { fg: (tone: string, text: string) => `\x1b[${codes[tone] ?? 0}m${text}\x1b[0m`, bold: (text: string) => text } as Theme;
   const { sidebar } = fixture();
   sidebar.setThemeProvider(() => toneTheme); sidebar.invalidate();
   const meterLine = () => sidebar.render(40).find(line => stripAnsi(line).includes("Context"))!;
-  for (const [percent, code] of [[0, 32], [79, 32], [80, 33], [100, 33]] as const) {
+  for (const [percent, code] of [[0, 36], [79, 36], [80, 33], [100, 33]] as const) {
     sidebar.setSession({ ...session, percent }); sidebar.invalidate();
     const line = meterLine();
     const fill = line.match(/█+/)?.[0] ?? "";
@@ -184,7 +184,7 @@ test("prompts section folds, scrolls, inspects and shows none when empty", () =>
   const promptRow = expanded.find(line => line.includes("prompt-0"))!;
   assert.equal(promptRow.trim(), "prompt-0", "prompt rows carry no redundant right-aligned source column");
   assert(!expanded.some(line => line.includes("prompt-3")), "only three visible");
-  assert(expanded.some(line => line.includes("1–3 / 6")));
+  assert(!expanded.some(line => line.includes("1–3 / 6")), "scroll range indicator removed");
   sidebar.handleMouse(mouse(row(sidebar, "prompt-0")));
   assert.deepEqual(inspected, ["prompt-0"]);
   assert(texts[0]!.includes("Prompt 0 description") && texts[0]!.includes("Source: prompt"));

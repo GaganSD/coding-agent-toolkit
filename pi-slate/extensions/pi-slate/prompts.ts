@@ -96,7 +96,7 @@ const buildContainer = (theme: Theme) => (search: Input, list: SelectList) => {
   const panel = new Container();
 
   panel.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
-  panel.addChild(new Text(theme.bold("Prompts"), 1, 0));
+  panel.addChild(new Text(theme.bold(theme.fg("mdHeading", "Prompts")), 1, 0));
 
   panel.addChild(search);
   panel.addChild(new Spacer(1));

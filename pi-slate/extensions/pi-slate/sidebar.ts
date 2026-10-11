@@ -216,7 +216,7 @@ export class Sidebar implements Component {
       if (row.list) this.listRows.push({ y, list: row.list });
     };
     for (const row of this.headerRows(inner).slice(0, slots.header)) add(row);
-    const middle = this.middle(inner);
+    const middle = this.middle();
     this.middleRows = middle.length; this.middleHeight = slots.middle; this.middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
     for (let i = 0; i < slots.middle; i++) add(middle[this.middleOffset + i] ?? { text: "" });
@@ -232,7 +232,7 @@ export class Sidebar implements Component {
   private headerRows(width: number): Row[] {
     const s = this.session;
     const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
-    const tone = percent !== null && percent >= 80 ? "warning" : "success";
+    const tone = percent !== null && percent >= 80 ? "warning" : "accent";
     const identity = `${sidebarText(s.id).slice(0, 8) || "—"} · pid ${s.pid}`;
     const occupancy = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}`
       + ` · ${sidebarCost(s.usage.cost)} · ${sidebarRate(s.rate)}`;
@@ -265,7 +265,7 @@ export class Sidebar implements Component {
       { text: this.paint("dim", "─".repeat(width)) },
     ];
   }
-  private middle(width: number): Row[] {
+  private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
     const unknown = this.resources.mcp.some(x => x.enabled === null);
     const loaded = this.resources.skills.filter(x => x.loaded).length;
@@ -277,15 +277,15 @@ export class Sidebar implements Component {
     }];
     if (this.folds.mcp) {
       if (this.resources.mcpError) rows.push({ text: this.paint("warning", this.resources.mcpError) });
-      rows.push(...this.resourceRows("mcp", width));
+      rows.push(...this.resourceRows("mcp"));
     }
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} loaded`), action: () => this.toggleSection("skills") });
-    if (this.folds.skills) rows.push(...this.resourceRows("skills", width));
+    if (this.folds.skills) rows.push(...this.resourceRows("skills"));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.prompts ? "⌄" : "›"} Prompts`, `${this.resources.prompts.length}`), action: () => this.toggleSection("prompts") });
-    if (this.folds.prompts) rows.push(...this.resourceRows("prompts", width));
+    if (this.folds.prompts) rows.push(...this.resourceRows("prompts"));
     return rows;
   }
-  private resourceRows(list: Exclude<ListName, "tasks">, width: number): Row[] {
+  private resourceRows(list: Exclude<ListName, "tasks">): Row[] {
     const items = this.resources[list];
     const visible = list === "mcp" ? 5 : 3;
     this.offsets[list] = sidebarListOffset(this.offsets[list], items.length, visible);
@@ -296,11 +296,11 @@ export class Sidebar implements Component {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
         const state = server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled";
-        rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", this.pair(`${server.enabled ? "●" : "○"} ${sidebarText(server.name)}`, state, width)), list, item: i,
+        rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", `${server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
           action: () => this.actions?.inspect?.(server.name, `${state} (configuration, not connection status)\nSource: ${server.source}\nUse /mcp to manage this server.`) });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;
-        rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", this.pair(`${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`, skill.loaded ? "loaded" : "available", width)), list, item: i,
+        rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", `${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`), list, item: i,
           action: () => this.actions?.inspect?.(skill.name, `${skill.loaded ? "Instructions observed loaded on this branch" : "Available; instructions not observed loaded"}\nSource: ${skill.source}\n${skill.path}`) });
       } else if (list === "prompts") {
         const prompt = this.resources.prompts[i]!;
@@ -309,7 +309,6 @@ export class Sidebar implements Component {
           action: () => this.actions?.inspect?.(prompt.name, `${prompt.description || "No description"}\nSource: ${prompt.source}\nInvoke as /${prompt.name}`) });
       }
     }
-    if (items.length > visible) rows.push({ text: this.paint("dim", `${start + 1}–${Math.min(items.length, start + visible)} / ${items.length}`), list });
     return rows;
   }
   private taskRows(width: number, height: number): Row[] {
@@ -369,8 +368,8 @@ export class Sidebar implements Component {
     const l = truncateToWidth(left, Math.max(0, width - visibleWidth(r) - 1), "…");
     return `${l}${" ".repeat(Math.max(0, width - visibleWidth(l) - visibleWidth(r)))}${r}`;
   }
-  private heading(text: string): string { const painted = this.paint("text", text); return this.theme?.bold?.(painted) ?? painted; }
-  private paint(tone: "text" | "muted" | "dim" | "success" | "warning" | "error" | "mdHeading", text: string): string { return this.theme?.fg(tone, text) ?? text; }
+  private heading(text: string): string { const painted = this.paint("mdHeading", text); return this.theme?.bold?.(painted) ?? painted; }
+  private paint(tone: "text" | "muted" | "dim" | "accent" | "success" | "warning" | "error" | "mdHeading", text: string): string { return this.theme?.fg(tone, text) ?? text; }
   private isDoubleClick(event: TuiMouseEvent, target: string): boolean {
     if (event.clickCount !== undefined) return event.clickCount === 2;
     const at = this.now(); const previous = this.lastClick;
