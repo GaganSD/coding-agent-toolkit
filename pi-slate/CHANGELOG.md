@@ -4,12 +4,10 @@
 
 ### Changed
 
-- Cleaner sidebar: MCP and Skills rows show just a status dot and the name — the redundant enabled/disabled/available labels and scroll counters are gone.
-- Switching themes now restyles the whole interface consistently: sidebar headings, inline code, links, and the context bar all follow your theme's accent color.
-- Tokyo Night: inline code uses the theme's signature blue instead of a mismatched cyan.
-- Black Metal: inline code and links use its rose accent, matching the rest of the theme.
-- Diffs follow your theme: headers, line numbers, and add/remove highlights are tinted from your palette, and syntax highlighting matches (Tokyo Night diffs use the real Tokyo Night palette).
-- Themes are now built from a single source of truth, so every shipped theme stays consistent going forward.
+- Cleaner sidebar: blends into the terminal with no panel background; a one-line context meter with a shaded track replaces the old context rows; MCP and Skills rows show just a status dot and the name — redundant enabled/disabled/available labels, source columns, and scroll counters are gone; Prompts section gains a keyboard fold menu and completions.
+- New working indicator: a rolling sine wave in the composer border replaces the status word, and the host working message returns when it stops.
+- Consistent theming: switching themes restyles the whole interface — sidebar headings, inline code, links, the context bar, and diffs all follow your theme's accent. Tokyo Night inline code uses its signature blue instead of a mismatched cyan; Black Metal code and links use its rose accent; diffs are tinted from your palette with matching syntax highlighting. Themes are now built from a single source of truth, keeping every shipped theme consistent.
+- Prompt editing: image placeholder tokens delete atomically, and select-all plus shift+backspace/delete clears the whole prompt.
 
 ## 0.1.13
 
