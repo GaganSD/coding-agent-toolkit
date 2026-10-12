@@ -37,11 +37,27 @@ and print/RPC/standalone hosts are not supported.
 
 - Delegate bounded work from one agent session to worker and reviewer sub-agents
 - Fresh native Pi sessions, session-bound, no nested delegation
-- `subagent` tool: run (1–4 tasks), list, status, steer, stop, reply
-- `/subagents` to attach, steer, reply, or stop
+- `subagent` tool: run (1–4 tasks), list, status, resume, steer, stop, reply
+- `/subagents` to attach, resume, steer, reply, or stop
 - Focusable worker roster and dedicated conversations; settled runs leave the roster
 - Supports Markdown agent profiles
 - Local reports and transcripts
+
+### Resuming failed sub-agents
+
+A run that fails on a transient provider or transport error (for example a 429,
+5xx, or a dropped connection after Pi's own retries are exhausted) can be
+resumed explicitly instead of relaunched from scratch. Resume reopens the saved
+native transcript under the same run ID and continues the task with the original
+tool loadout, model, thinking level, and launch diff baseline; completed tool
+calls are not replayed. Use `subagent` `action: "resume"` with the exact run ID,
+`/subagents resume <id>`, or the confirmed Resume action on a failed thread.
+
+Resume is only available while the owning Pi session still owns the run, the
+failure is classified as transient, cleanup completed, and the saved transcript
+exists. It is never automatic and is bounded per run (`minimalSubagents.maxResumes`,
+default 3, maximum 8). Cancelled, completed, cleanup-unknown, and reloaded
+sessions cannot be resumed; their artifacts remain evidence only.
 
 ### Model and thinking selection
 

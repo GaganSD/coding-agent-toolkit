@@ -217,4 +217,8 @@ artifacts as evidence rather than execution authority.
 ## 4. Change log and delivery endpoint
 
 - **2026-10-12** — Created this plan from issue #58, the current `pi-subagents` lifecycle, and the package vision.
+- **2026-10-12** — Phase 1 landed: public transcript restoration, transient classification, and launch baseline capture.
+- **2026-10-12** — Phase 2 landed: bounded same-runtime resume lifecycle with admission, workspace, and cleanup fences.
+- **2026-10-12** — Phase 3 landed: resume on the tool, slash command, and thread, with allowlisted receipts.
+- **2026-10-12** — Phase 4: vision, README, and changelog alignment in progress; validation and rollout follow.
 - **Delivery endpoint** — This plan concludes with the AI-attributed upstream PR in Phase 5, linked to issue #58 and reviewed by the human maintainer.
