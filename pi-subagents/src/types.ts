@@ -11,12 +11,19 @@ export interface Profile {
   source: string;
 }
 export interface Task { agent: string; task: string; cwd?: string; model?: string; thinking?: Thinking }
-export interface Config { maxConcurrent: number; maxRuns: number; timeoutMs: number }
+export interface Config { maxConcurrent: number; maxRuns: number; maxResumes: number; timeoutMs: number }
 export type State = "starting" | "resuming" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
 export type FailureKind = "transient_provider" | "provider" | "cancelled" | "startup" | "publication" | "cleanup" | "unknown";
 export interface FailureInfo { kind: FailureKind; resumable: boolean }
-export interface ResumeState { eligible: boolean; attempts: number; maxAttempts: number; failure?: FailureInfo }
+export interface ResumeAttempt { attempt: number; startedAt: string; endedAt?: string; state: State; error?: string; failure?: FailureInfo }
+export interface ResumeState {
+  eligible: boolean;
+  attempts: number;
+  maxAttempts: number;
+  failure?: FailureInfo;
+  history?: ResumeAttempt[];
+}
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
 export interface Question { id: string; message: string }
 /** Cached native SDK estimate, separate from cumulative billed Usage. */

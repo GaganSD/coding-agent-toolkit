@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ArtifactStore } from "./artifacts.ts";
-import { errorText, isLive, PREVIEW_LINES, type FailureInfo, type SubAgent, type Config, type PreparedTask, type Question, type RunRecord, type SessionStartOptions } from "./types.ts";
+import { errorText, isLive, PREVIEW_LINES, type FailureInfo, type ResumeAttempt, type SubAgent, type Config, type PreparedTask, type Question, type RunRecord, type SessionStartOptions } from "./types.ts";
 import { overlaps } from "./workspace.ts";
 import { text } from "./validation.ts";
 
@@ -10,7 +10,6 @@ interface PendingQuestion {
   resolve(message: string): void;
   reject(error: Error): void;
 }
-const DEFAULT_MAX_RESUMES = 3;
 interface Run {
   record: RunRecord;
   plan: PreparedTask;
@@ -101,7 +100,7 @@ export class RunManager {
           run.record.state = "failed";
           run.record.error = `Admission failed; sub-agent was not started: ${errorText(error)}`;
           run.record.endedAt = new Date().toISOString();
-          await this.persist(run);
+          return this.persist(run);
         }));
         throw error;
       }
@@ -113,6 +112,69 @@ export class RunManager {
       }
       this.changed();
       return staged.map(run => run.record.id);
+    } finally { release(); }
+  }
+
+  async resume(id: string): Promise<void> {
+    let release!: () => void;
+    const previous = this.admission;
+    this.admission = new Promise(resolve => { release = resolve; });
+    await previous;
+    try {
+      const run = this.owned(id);
+      const record = run.record;
+      const evidence = record.resume;
+      if (record.state !== "failed" || !evidence?.eligible || evidence.failure?.kind !== "transient_provider") {
+        throw new Error("Resume requires a failed transient provider run with confirmed cleanup and a saved transcript");
+      }
+      if (evidence.attempts - 1 >= evidence.maxAttempts) throw new Error("Resume allowance exhausted");
+      if (!record.sessionPath) throw new Error("Resume requires a saved native transcript");
+      this.assertLaunchable();
+      if (this.activeCount + 1 > this.options.config.maxConcurrent) throw new Error("Concurrent sub-agent limit reached; wait for existing results");
+      const live = [...this.runs.values()].filter(item => isLive(item.record.state)).map(item => item.record);
+      for (const other of live) {
+        if ((record.mode === "edit" || other.mode === "edit") && await overlaps(record.workspace, other.workspace)) {
+          throw new Error("Conflicting delegated workspaces: writers cannot overlap other readers or writers. Use separate existing worktrees.");
+        }
+      }
+      const startedAt = new Date().toISOString();
+      const resumeState = { ...evidence, eligible: false, attempts: evidence.attempts + 1, failure: undefined };
+      record.resume = resumeState;
+      record.state = "resuming";
+      record.startedAt = startedAt;
+      record.endedAt = undefined;
+      record.currentTool = undefined;
+      record.question = undefined;
+      record.reportPath = undefined;
+      record.error = undefined;
+      record.notificationError = undefined;
+      record.usage = undefined;
+      record.toolErrors = undefined;
+      record.contextUsage = undefined;
+      run.preview = [];
+      run.question = undefined;
+      run.subAgent = undefined;
+      run.controller = new AbortController();
+      run.work = Promise.resolve();
+      run.writes = Promise.resolve();
+      run.pendingWrites = new Set();
+      run.notified = false;
+      run.cleaned = false;
+      run.stopping = undefined;
+      run.aborting = undefined;
+      run.finishing = undefined;
+      try { await this.persist(run); }
+      catch (error) {
+        record.state = "failed";
+        record.endedAt = new Date().toISOString();
+        record.error = `Resume publication failed; sub-agent was not started: ${errorText(error)}`;
+        record.resume = { ...resumeState, eligible: false };
+        await this.persist(run).catch(() => {});
+        throw error;
+      }
+      run.timer = setTimeout(() => { void this.stop(record.id, "Run deadline exceeded").catch(() => {}); }, this.options.config.timeoutMs);
+      run.work = this.execute(run, run.plan, { resumeFrom: { sessionPath: record.sessionPath, launchHead: record.launchHead } });
+      this.changed();
     } finally { release(); }
   }
 
@@ -209,6 +271,10 @@ export class RunManager {
   private async execute(run: Run, plan: PreparedTask, startOptions?: SessionStartOptions): Promise<void> {
     let failed: string | undefined;
     let failure: FailureInfo | undefined;
+    const attempt = startOptions?.resumeFrom ? (run.record.resume?.attempts ?? 0) : (run.record.resume?.attempts ?? 0) + 1;
+    const maxAttempts = run.record.resume?.maxAttempts ?? this.options.config.maxResumes;
+    const startedAt = run.record.startedAt;
+    const history = startOptions?.resumeFrom ? run.record.resume?.history ?? [] : [];
     try {
       const subAgent = await plan.start({
         signal: run.controller.signal, directory: this.options.store.directory(run.record.id),
@@ -249,7 +315,9 @@ export class RunManager {
       await this.persist(run);
       this.changed();
       run.controller.signal.throwIfAborted();
-      const result = await run.subAgent.prompt();
+      const result = startOptions?.resumeFrom
+        ? await run.subAgent.prompt("Continue the original task from this saved conversation. A transient provider failure interrupted the previous attempt. Do not repeat completed tool calls; inspect the current state and finish the original task.")
+        : await run.subAgent.prompt();
       run.record.usage = result.usage;
       run.record.toolErrors = result.toolErrors;
       run.controller.signal.throwIfAborted();
@@ -274,11 +342,25 @@ export class RunManager {
     if (run.cleaned) run.subAgent = undefined; // Do not retain SDK transcripts through settled wrappers.
     if (unclean) this.poison(run, `Cleanup not confirmed: ${unclean}`);
     if (failed || failure) {
+      const entry = {
+        attempt, startedAt, endedAt: new Date().toISOString(),
+        state: (run.controller.signal.aborted ? "cancelled" : "failed") as RunRecord["state"],
+        ...(failed ? { error: failed } : {}), ...(failure ? { failure } : {}),
+      };
       run.record.resume = {
         eligible: Boolean(failure?.resumable && run.cleaned && run.record.sessionPath && !run.controller.signal.aborted),
-        attempts: run.record.resume?.attempts ?? 0,
-        maxAttempts: run.record.resume?.maxAttempts ?? DEFAULT_MAX_RESUMES,
+        attempts: attempt,
+        maxAttempts,
         ...(failure ? { failure } : {}),
+        history: [...history, entry].slice(-8),
+      };
+    } else if (history.length) {
+      const completed: ResumeAttempt = { attempt, startedAt, endedAt: new Date().toISOString(), state: "completed" };
+      run.record.resume = {
+        eligible: false,
+        attempts: attempt,
+        maxAttempts,
+        history: [...history, completed].slice(-8),
       };
     }
     // A stop deadline may have published failure or uncertainty already. Never promote it later.
