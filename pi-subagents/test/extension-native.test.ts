@@ -103,3 +103,78 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousDir;
   }
 });
+
+test("public tool: a transient native failure resumes through the tool on the same transcript", async t => {
+  const root = await temp(t), agentDir = path.join(root, "agent"), cwd = path.join(root, "repo");
+  await mkdir(agentDir); await mkdir(cwd);
+  await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false } }));
+  const runtime = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+  let calls = 0;
+  runtime.registerProvider("fixture", {
+    api: "openai-completions", baseUrl: "http://invalid.test", apiKey: "fake-only",
+    models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], cost, contextWindow: 64000, maxTokens: 2048 }],
+    streamSimple(model) {
+      const transient = ++calls === 1;
+      const message: AssistantMessage = {
+        role: "assistant", api: model.api, provider: model.provider, model: model.id,
+        content: transient ? [] : [{ type: "text", text: "Report recovered after resume." }],
+        usage: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 8, cost },
+        stopReason: transient ? "error" : "stop", timestamp: Date.now(),
+        ...(transient ? { errorMessage: "503 Service Unavailable" } : {}),
+      };
+      const stream = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        stream.push({ type: "start", partial: message });
+        if (transient) stream.push({ type: "error", reason: "error", error: message });
+        else stream.push({ type: "done", reason: "stop", message });
+        stream.end();
+      });
+      return stream;
+    },
+  });
+  const previousDir = process.env.PI_CODING_AGENT_DIR, create = ModelRuntime.create;
+  const hooks = new Map<string, () => Promise<void>>(), notices: string[] = [];
+  let tool!: ToolDefinition;
+  try {
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    ModelRuntime.create = async () => runtime;
+    register({
+      registerTool: (value: ToolDefinition) => { tool = value; }, registerCommand() {},
+      on: (name: string, handler: () => Promise<void>) => { hooks.set(name, handler); return () => {}; },
+      getThinkingLevel: () => "off", appendEntry() {},
+      sendMessage: (message: { content: string }) => { notices.push(message.content); },
+    } as unknown as ExtensionAPI);
+    const ctx = { cwd, mode: "tui", isProjectTrusted: () => true, scopedModels: [],
+      sessionManager: SessionManager.inMemory(cwd), ui: { setWidget() {} },
+    } as unknown as ExtensionToolContext;
+    const execute = (input: unknown) => tool.execute("public-call", input, undefined, undefined, ctx);
+    const launch = await execute({ action: "run", tasks: [{ agent: "reviewer", task: "Resume fixture", model: "fixture/test" }] });
+    const { runs: [receipt] } = launch.structuredContent as { runs: { id: string }[] };
+    await until(() => notices.some(message => message.includes('"state":"failed"')));
+    const failed = await execute({ action: "status", id: receipt!.id });
+    const failedRecord = failed.details as RunRecord;
+    assert.equal(failedRecord.state, "failed");
+    assert.equal(failedRecord.resume?.eligible, true);
+    assert.equal(failedRecord.resume?.failure?.kind, "transient_provider");
+    assert(Check(OutputSchema, failed.structuredContent));
+    const failedView = failed.structuredContent as { resume: { eligible: boolean; attempts: number; maxAttempts: number; kind: string } };
+    assert.deepEqual(failedView.resume, { eligible: true, attempts: 1, maxAttempts: 3, kind: "transient_provider" });
+    await assert.rejects(execute({ action: "resume", id: "foreign-run" }), /Unknown run ID/);
+    const resumed = await execute({ action: "resume", id: receipt!.id });
+    assert(Check(OutputSchema, resumed.structuredContent));
+    await until(() => notices.some(message => message.includes('"state":"completed"')));
+    const final = await execute({ action: "status", id: receipt!.id });
+    const record = final.details as RunRecord;
+    assert.equal(record.state, "completed");
+    assert.equal(record.sessionId, failedRecord.sessionId, "resume retains the native session identity");
+    assert.equal(record.resume?.attempts, 2);
+    assert.equal(record.usage!.input, 10, "usage accumulates across attempts");
+    assert.match(await readFile(record.reportPath!, "utf8"), /recovered after resume/);
+    assert.equal(calls, 2);
+  } finally {
+    await hooks.get("session_shutdown")?.();
+    ModelRuntime.create = create;
+    if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousDir;
+  }
+});

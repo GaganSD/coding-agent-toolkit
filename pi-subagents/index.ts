@@ -115,6 +115,7 @@ export default function subagents(pi: ExtensionAPI): void {
     const settings = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: ctx.isProjectTrusted() });
     const errors = settings.drainErrors();
     if (errors.length) throw new Error(`Invalid Pi settings: ${errors.map(error => error.error.message).join("; ")}`);
+    // SAFETY: Pi's settings type is opaque to extensions; narrow to a plain record and let parseConfig validate the shape.
     const config = parseConfig((settings.getSettings() as unknown as Record<string, unknown>).minimalSubagents);
     const admitted = admittedCount(ctx, owner);
     const ownerHash = createHash("sha256").update(owner).digest("hex").slice(0, 20);
@@ -155,6 +156,7 @@ export default function subagents(pi: ExtensionAPI): void {
       preview: id => manager.preview(id),
       steer: (id, message) => manager.steer(id, message),
       reply: (id, requestId, message) => manager.reply(id, requestId, message),
+      resume: id => manager.resume(id),
       stop: id => manager.stop(id),
       live: () => manager.live(),
       subscribe: listener => { inspectors.add(listener); return () => { inspectors.delete(listener); }; },
@@ -282,6 +284,12 @@ export default function subagents(pi: ExtensionAPI): void {
           details = record; result = presentRun(record);
           break;
         }
+        case "resume": {
+          await manager.resume(request.id);
+          const record = manager.status(request.id);
+          details = record; result = presentRun(record);
+          break;
+        }
         case "reply": await manager.reply(request.id, request.requestId, request.message); result = { ok: true }; break;
         case "run": {
           assertHealthy();
@@ -325,7 +333,7 @@ export default function subagents(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("subagents", {
-    description: "Inspect or take control: /subagents [id | stop <id> | steer <id> <text> | reply <id> <text>]",
+    description: "Inspect or take control: /subagents [id | resume <id> | stop <id> | steer <id> <text> | reply <id> <text>]",
     async handler(args, ctx) {
       try {
         const state = await current(ctx);
@@ -348,7 +356,8 @@ export default function subagents(pi: ExtensionAPI): void {
           return;
         }
         const id = resolveRun(manager.list(), request.id).id;
-        if (request.action === "stop") await manager.stop(id);
+        if (request.action === "resume") await manager.resume(id);
+        else if (request.action === "stop") await manager.stop(id);
         else if (request.action === "steer") await manager.steer(id, request.message);
         else if (request.action === "reply") {
           const question = manager.status(id).question;

@@ -7,7 +7,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { getKeybindings, setKeybindings, visibleWidth, TuiAltScreen, type TUI, type Terminal, type Focusable, type Component } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { InspectView, attach, type InspectActions } from "../src/inspect.ts";
-import { HumanState } from "../src/presentation.ts";
+import { HumanState, stateLabel } from "../src/presentation.ts";
 import { SubagentWidget } from "../src/ui.ts";
 import { readConversation } from "../src/conversation.ts";
 import type { RunRecord } from "../src/types.ts";
@@ -31,14 +31,16 @@ function harness(initial = record()) {
   const listeners = new Set<() => void>();
   const replies: { id: string; requestId: string; text: string }[] = [], steers: string[] = [];
   let stops = 0;
+  const resumes: string[] = [];
   const actions: InspectActions = {
     status: () => current, preview: () => ["Recent readable message"], live: () => [current],
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     async reply(id, requestId, text) { replies.push({ id, requestId, text }); },
+    async resume(id) { resumes.push(id); },
     async steer(_id, text) { steers.push(text); return "queued"; },
     async stop() { stops++; },
   };
-  return { actions, replies, steers, get stops() { return stops; }, get listeners() { return listeners.size; },
+  return { actions, replies, steers, resumes, get stops() { return stops; }, get listeners() { return listeners.size; },
     update(next: RunRecord) { current = next; for (const fn of listeners) fn(); } };
 }
 function type(view: InspectView, text: string) { for (const character of text) view.handleInput(character === "\n" ? "\x1b[13;2u" : character); }
@@ -189,6 +191,44 @@ test("Stop stays available during an in-flight send and requires separate confir
   type(view, "still sending"); view.handleInput("\r"); action(view, 5);
   assert.equal(h.stops, 0); view.handleInput("\r"); await tick(); assert.equal(h.stops, 1);
   delivered(); await tick();
+});
+
+function failedRecord(eligible: boolean): RunRecord {
+  return { ...record("failed-run", "failed"), endedAt: new Date(1).toISOString(),
+    resume: { eligible, attempts: 1, maxAttempts: 3, failure: { kind: "transient_provider", resumable: true } } };
+}
+
+test("Resume appears only for eligible failed runs and requires separate confirmation", async t => {
+  const eligible = failedRecord(true);
+  const h = harness(eligible), view = new InspectView(terminal(), theme, eligible.id, h.actions, () => {}); t.after(() => view.dispose());
+  assert.equal(stateLabel(eligible), "Failed · resumable");
+  const painted = view.render(140).join("\n");
+  assert(painted.includes("[Resume]"));
+  // Settled records open in the transcript zone: one Tab reaches actions.
+  const resumeAction = () => { view.handleInput("\t"); for (let i = 0; i < 6; i++) view.handleInput("\x1b[C"); view.handleInput("\r"); };
+  resumeAction();
+  assert(view.render(140).join("\n").includes("attempt 1 of 3"));
+  assert.equal(h.resumes.length, 0);
+  assert(view.render(140).join("\n").includes("Enter confirms"));
+  view.handleInput("\x1b");
+  assert(view.render(140).join("\n").includes("Resume cancelled"));
+  // The actions zone and index survive an Esc cancel: Enter re-arms, Enter confirms.
+  view.handleInput("\r"); view.handleInput("\r"); await tick();
+  assert.deepEqual(h.resumes, [eligible.id]);
+  const ineligible = failedRecord(false);
+  const other = new InspectView(terminal(), theme, ineligible.id, harness(ineligible).actions, () => {}); t.after(() => other.dispose());
+  assert(!other.render(140).join("\n").includes("[Resume]"));
+  assert.equal(stateLabel(ineligible), "Failed");
+});
+
+test("a Resume click that becomes stale before confirmation sends no request", async t => {
+  const eligible = failedRecord(true);
+  const h = harness(eligible), view = new InspectView(terminal(), theme, eligible.id, h.actions, () => {}); t.after(() => view.dispose());
+  view.handleInput("\t"); for (let i = 0; i < 6; i++) view.handleInput("\x1b[C"); view.handleInput("\r");
+  h.update({ ...eligible, state: "resuming" });
+  view.handleInput("\r"); await tick();
+  assert.equal(h.resumes.length, 0);
+  assert(view.render(140).join("\n").includes("Resume unavailable"));
 });
 
 test("completion does not clear an unsent draft, close the selected thread or permit late input", async t => {

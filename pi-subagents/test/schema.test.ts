@@ -14,6 +14,7 @@ const valid = [
   { action: "list" }, { action: "list", cwd: "../target" },
   { action: "status" }, { action: "status", id: "run-id" },
   { action: "stop", id: "run-id" },
+  { action: "resume", id: "run-id" },
   { action: "steer", id: "run-id", message: "Focus on tests" },
   { action: "reply", id: "run-id", requestId: "question-id", message: "Use the existing API" },
 ];
@@ -32,7 +33,9 @@ const invalid: unknown[] = [
   { action: "run", tasks: [{ ...task, extra: true }] },
   { action: "list", cwd: "" }, { action: "list", cwd: "x".repeat(4097) },
   { action: "status", id: "" }, { action: "status", id: "x".repeat(65) },
-  { action: "stop" }, { action: "steer", id: "run-id" },
+  { action: "stop" }, { action: "resume" }, { action: "resume", id: "" },
+  { action: "resume", id: "run-id", message: "x" },
+  { action: "steer", id: "run-id" },
   { action: "steer", message: "Focus" }, { action: "steer", id: "run-id", message: "" },
   { action: "steer", id: "run-id", message: "x".repeat(8193) },
   { action: "reply", requestId: "q", message: "Yes" },
@@ -49,12 +52,12 @@ const invalid: unknown[] = [
   { action: "reply", id: "run-id", requestId: "q", message: "Yes", tasks: [task] },
 ];
 
-test("input parameters retain an object root and six closed action branches; output stays a union", () => {
+test("input parameters retain an object root and seven closed action branches; output stays a union", () => {
   const schema = JSON.parse(JSON.stringify(Parameters));
   assert.equal(schema.type, "object");
-  assert.equal(schema.anyOf.length, 6);
+  assert.equal(schema.anyOf.length, 7);
   assert.deepEqual(schema.anyOf.map((branch: { properties: { action: { const: string } } }) => branch.properties.action.const),
-    ["run", "list", "status", "stop", "steer", "reply"]);
+    ["run", "list", "status", "stop", "resume", "steer", "reply"]);
   assert(schema.anyOf.every((branch: { type: string; additionalProperties: boolean }) => branch.type === "object" && branch.additionalProperties === false));
   assert.equal(schema.anyOf[0].properties.tasks.items.additionalProperties, false);
   assert.equal(JSON.parse(JSON.stringify(OutputSchema)).type, undefined);

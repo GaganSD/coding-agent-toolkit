@@ -6,6 +6,7 @@ import { HumanState, stateLabel } from "./presentation.ts";
 import { conversationText, readConversation, type ConversationMessage } from "./conversation.ts";
 
 export type HumanCommand = { action: "list" } | { action: "attach"; id: string } | { action: "stop"; id: string }
+  | { action: "resume"; id: string }
   | { action: "steer"; id: string; message: string } | { action: "reply"; id: string; message: string };
 export function parseCommand(args: string): HumanCommand {
   const trimmed = args.trim();
@@ -15,13 +16,17 @@ export function parseCommand(args: string): HumanCommand {
     if (words.length !== 2) throw new Error("Usage: /subagents stop <id>");
     return { action: "stop", id: words[1]! };
   }
+  if (head === "resume") {
+    if (words.length !== 2) throw new Error("Usage: /subagents resume <id>");
+    return { action: "resume", id: words[1]! };
+  }
   if (head === "steer" || head === "reply") {
     const rest = trimmed.slice(head.length).trimStart(), split = rest.search(/\s/);
     if (split < 1 || !rest.slice(split).trim()) throw new Error(`Usage: /subagents ${head} <id> <text>`);
     return { action: head, id: rest.slice(0, split), message: rest.slice(split).trim() };
   }
   if (words.length === 1 && /^[a-f0-9-]{8,36}$/i.test(head)) return { action: "attach", id: head };
-  throw new Error("Usage: /subagents [id | stop <id> | steer <id> <text> | reply <id> <text>]");
+  throw new Error("Usage: /subagents [id | resume <id> | stop <id> | steer <id> <text> | reply <id> <text>]");
 }
 export function resolveRun(runs: RunRecord[], ref: string): RunRecord {
   const exact = runs.find(run => run.id === ref);
@@ -36,6 +41,7 @@ export interface InspectActions {
   preview(id: string): string[];
   steer(id: string, message: string): Promise<string>;
   reply(id: string, requestId: string, message: string): Promise<void>;
+  resume(id: string): Promise<void>;
   stop(id: string): Promise<void>;
   subscribe(listener: () => void): () => void;
   live(): RunRecord[];
@@ -113,12 +119,13 @@ export class InspectView implements Component, Focusable {
   private readonly draft;
   private zone: "message" | "transcript" | "actions";
   private action = 0;
-  private readonly buttons = ["Back", "Details", "Tools", "Older", "Latest", "Stop"];
   private note = "Esc back · Tab focus · Enter send · Shift+Enter newline";
   private closed = false;
   private details = false;
   private confirmStop = false;
+  private confirmResume = false;
   private stopping = false;
+  private resuming = false;
   private inflight = false;
   private messages: ConversationMessage[] = [];
   private preview: string[] = [];
@@ -179,12 +186,23 @@ export class InspectView implements Component, Focusable {
     this.state.open = undefined;
     this.done();
   }
+  private get buttons(): string[] {
+    const record = this.safeStatus();
+    return record?.state === "failed" && record.resume?.eligible
+      ? ["Back", "Details", "Tools", "Older", "Latest", "Stop", "Resume"]
+      : ["Back", "Details", "Tools", "Older", "Latest", "Stop"];
+  }
   invalidate(): void { this.input.invalidate(); }
   handleInput(data: string): void {
     if (this.closed) return;
     if (this.confirmStop) {
       if (matchesKey(data, "escape")) { this.confirmStop = false; this.note = "Stop cancelled"; }
       else if (matchesKey(data, "enter")) { this.confirmStop = false; void this.halt(); }
+      this.tui.requestRender(); return;
+    }
+    if (this.confirmResume) {
+      if (matchesKey(data, "escape")) { this.confirmResume = false; this.note = "Resume cancelled"; }
+      else if (matchesKey(data, "enter")) { this.confirmResume = false; void this.restart(); }
       this.tui.requestRender(); return;
     }
     if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { this.dispose(); return; }
@@ -272,6 +290,7 @@ export class InspectView implements Component, Focusable {
       `Workspace: ${record.cwd}`, `Model: ${record.model} · ${record.thinking}`, `Context estimate: ${formatContext(record)}`,
       `Usage: ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
       `Report: ${record.reportPath ?? "not saved"}`, `Delivery warning: ${record.notificationError ?? "none"}`,
+      `Resume: ${record.resume ? `${record.resume.eligible ? "eligible" : "not eligible"} · attempt ${record.resume.attempts} of ${record.resume.maxAttempts}` : "not resumable"}`,
     ].join("\n")), width);
     const lines: string[] = [];
     if (this.history) lines.push(this.theme.fg("dim", "Earlier conversation page · Latest returns to live messages"));
@@ -344,6 +363,12 @@ export class InspectView implements Component, Focusable {
     if (index === 0) this.dispose();
     else if (index === 1) { this.details = !this.details; this.detailsScroll = 0; }
     else if (index === 2) this.draft.expanded = !this.draft.expanded;
+    else if (this.buttons[index] === "Resume") {
+      const record = this.safeStatus();
+      if (!record || record.state !== "failed" || !record.resume?.eligible) this.note = "Resume unavailable";
+      else if (this.resuming) this.note = "Resume already requested";
+      else { this.confirmResume = true; this.note = `Resume this worker (attempt ${record.resume.attempts} of ${record.resume.maxAttempts} used)? Enter confirms · Esc cancels`; }
+    }
     else if (index === 3) {
       const path = this.safeStatus()?.sessionPath;
       if (this.reading) this.note = "Loading conversation · try Older again when ready";
@@ -392,5 +417,14 @@ export class InspectView implements Component, Focusable {
     try { await this.actions.stop(this.id); this.note = "Stop requested"; }
     catch (error) { this.note = plain(errorText(error)); }
     finally { this.stopping = false; if (!this.closed) this.tui.requestRender(); }
+  }
+  private async restart(): Promise<void> {
+    if (this.closed || this.resuming) return;
+    const record = this.safeStatus();
+    if (!record || record.state !== "failed" || !record.resume?.eligible) { this.note = "Resume unavailable"; this.tui.requestRender(); return; }
+    this.resuming = true;
+    try { await this.actions.resume(this.id); this.note = "Resume requested"; }
+    catch (error) { this.note = plain(errorText(error)); }
+    finally { this.resuming = false; if (!this.closed) this.tui.requestRender(); }
   }
 }

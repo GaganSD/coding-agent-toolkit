@@ -16,7 +16,7 @@ test("requests reject invalid action/field combinations", () => {
   for (const input of [
     { agent: "worker", task: "Old direct syntax" }, { action: "run", workflow: true },
     { action: "run", tasks: [] }, { action: "run", tasks: Array(5).fill({ agent: "worker", task: "x" }) },
-    { action: "resume", id: "x" }, { action: "run", tasks: [{ agent: "worker", task: "x", async: true }] },
+    { action: "resume" }, { action: "resume", id: "x", message: "y" }, { action: "run", tasks: [{ agent: "worker", task: "x", async: true }] },
     { action: "list", config: {} }, { action: "stop" }, { action: "steer", id: "x" },
     { action: "reply", id: "x", message: "answer" }, { action: "run", tasks: [{ agent: "", task: "x" }] },
     { action: "run", tasks: [{ agent: "worker", task: "x", model: "alias" }] },
@@ -26,6 +26,7 @@ test("requests reject invalid action/field combinations", () => {
   assert.deepEqual(parseRequest({ action: "list", cwd: "../target" }), { action: "list", cwd: "../target" });
   assert.throws(() => parseRequest({ action: "status", cwd: "../target" }));
   assert.deepEqual(parseRequest({ action: "status" }), { action: "status" });
+  assert.deepEqual(parseRequest({ action: "resume", id: " run-a " }), { action: "resume", id: "run-a" });
   assert.deepEqual(parseRequest({ action: "reply", id: "a", requestId: "b", message: "yes" }), { action: "reply", id: "a", requestId: "b", message: "yes" });
 });
 
@@ -116,7 +117,10 @@ test("human command parse and unique prefix attach", () => {
   assert.deepEqual(parseCommand("reply 400163b5 use the existing API"), { action: "reply", id: "400163b5", message: "use the existing API" });
   // The id may be a substring of the head word; the message must still start after the id token.
   assert.deepEqual(parseCommand("steer ee focus the hero"), { action: "steer", id: "ee", message: "focus the hero" });
-  assert.throws(() => parseCommand("resume x"), /Usage/);
+  assert.deepEqual(parseCommand("resume 400163b5-6198-4959-83d3-952535a67ce3"), { action: "resume", id: "400163b5-6198-4959-83d3-952535a67ce3" });
+  assert.deepEqual(parseCommand("resume 400163b5"), { action: "resume", id: "400163b5" });
+  assert.throws(() => parseCommand("resume"), /Usage/);
+  assert.throws(() => parseCommand("resume a b"), /Usage/);
   const runs = ["aaaaaaaa-1111", "bbbbbbbb-2222"].map(id => ({
     id, owner: "p", agent: "worker", mode: "edit" as const, task: id, cwd: "/", workspace: "/",
     model: "fixture/test", thinking: "off" as const, state: "running" as const, startedAt: "t", elapsedMs: 1, metadataPath: "/m",

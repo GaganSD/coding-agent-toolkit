@@ -10,12 +10,13 @@ const TaskSchema = Type.Object({
   model: Type.Optional(Type.String({ minLength: 3, maxLength: 512 })),
   thinking: Type.Optional(ThinkingSchema),
 }, { additionalProperties: false });
-/** Object-root tool input with a closed per-action union; no cross-action field mixes. */
+/** Object-root tool input with seven closed per-action branches; no cross-action field mixes. */
 export const Parameters = Type.Union([
   Type.Object({ action: Type.Literal("run"), tasks: Type.Array(TaskSchema, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("list"), cwd: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Profile discovery directory for list" })) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("status"), id: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("stop"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
+  Type.Object({ action: Type.Literal("resume"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("steer"), id: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("reply"), id: Type.String({ minLength: 1, maxLength: 64 }), requestId: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
 ], { type: "object" });
@@ -25,6 +26,7 @@ export type Request =
   | { action: "list"; cwd?: string }
   | { action: "status"; id?: string }
   | { action: "stop"; id: string }
+  | { action: "resume"; id: string }
   | { action: "steer"; id: string; message: string }
   | { action: "reply"; id: string; requestId: string; message: string };
 
@@ -56,13 +58,16 @@ export function parseRequest(input: unknown): Request {
     case "stop":
       keys(value, ["action", "id"], "stop");
       return { action: "stop", id: text(value.id, "id", 64) };
+    case "resume":
+      keys(value, ["action", "id"], "resume");
+      return { action: "resume", id: text(value.id, "id", 64) };
     case "steer":
       keys(value, ["action", "id", "message"], "steer");
       return { action: "steer", id: text(value.id, "id", 64), message: text(value.message, "message", 8192) };
     case "reply":
       keys(value, ["action", "id", "requestId", "message"], "reply");
       return { action: "reply", id: text(value.id, "id", 64), requestId: text(value.requestId, "requestId", 64), message: text(value.message, "message", 8192) };
-    default: throw new Error("Unsupported action. Use run/list/status/steer/stop/reply.");
+    default: throw new Error("Unsupported action. Use run/list/status/resume/steer/stop/reply.");
   }
 }
 
@@ -77,6 +82,10 @@ export function presentRun(record: RunRecord) {
     ...(record.reportPath ? { reportPath: record.reportPath } : {}),
     ...(record.error ? { error: clip(record.error, 512) } : {}),
     ...(record.notificationError ? { notificationError: clip(record.notificationError, 512) } : {}),
+    ...(record.resume ? { resume: {
+      eligible: record.resume.eligible, attempts: record.resume.attempts, maxAttempts: record.resume.maxAttempts,
+      ...(record.resume.failure ? { kind: record.resume.failure.kind } : {}),
+    } } : {}),
     ...((record.question?.message.length ?? 0) > 2048 || (record.error?.length ?? 0) > 512 || (record.notificationError?.length ?? 0) > 512 ? { truncated: true as const } : {}),
   };
 }
@@ -142,7 +151,11 @@ export function resultPreview(result: unknown): string {
 
 const closed = { additionalProperties: false };
 const ModeSchema = Type.String({ enum: ["inspect", "edit"] });
-const StateSchema = Type.String({ enum: ["starting", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"] });
+const StateSchema = Type.String({ enum: ["starting", "resuming", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"] });
+const ResumeSchema = Type.Object({
+  eligible: Type.Boolean(), attempts: Type.Number(), maxAttempts: Type.Number(),
+  kind: Type.Optional(Type.String({ enum: ["transient_provider", "provider", "cancelled", "startup", "publication", "cleanup", "unknown"] })),
+}, closed);
 const RunSchema = Type.Object({
   id: Type.String(), state: StateSchema,
   agent: Type.Optional(Type.String()), taskPreview: Type.Optional(Type.String()),
@@ -150,6 +163,7 @@ const RunSchema = Type.Object({
   question: Type.Optional(Type.Object({ id: Type.String(), message: Type.String() }, closed)),
   reportPath: Type.Optional(Type.String()), metadataPath: Type.Optional(Type.String()),
   error: Type.Optional(Type.String()), notificationError: Type.Optional(Type.String()),
+  resume: Type.Optional(ResumeSchema),
   truncated: Type.Optional(Type.Literal(true)),
 }, closed);
 /** The same compact contract reaches the model and native/codemode callers. */
@@ -177,4 +191,5 @@ Use list with the target cwd to inspect profiles. Reserve returned workspaces un
 Questions/results wake this agent: yield, do not poll. Use exact run IDs; reply also needs the current question ID.
 status lists live/recent runs; status(id) gives control state, resolved model/thinking, and evidence paths. /subagents provides human control.
 Control receipts mean accepted, not compliance. Completed means settled and saved, not verified; read the report and validate.
-Committed-range review needs a supplied diff. No resume, model fallback, recursive delegation or workflow runner.`;
+resume <id> restarts a resumable failed run from its saved transcript.
+Committed-range review needs a supplied diff. No automatic retry, model fallback, recursive delegation, or workflow runner.`;
