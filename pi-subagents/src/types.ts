@@ -12,8 +12,11 @@ export interface Profile {
 }
 export interface Task { agent: string; task: string; cwd?: string; model?: string; thinking?: Thinking }
 export interface Config { maxConcurrent: number; maxRuns: number; timeoutMs: number }
-export type State = "starting" | "running" | "waiting_for_agent" | "cancelling"
+export type State = "starting" | "resuming" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
+export type FailureKind = "transient_provider" | "provider" | "cancelled" | "startup" | "publication" | "cleanup" | "unknown";
+export interface FailureInfo { kind: FailureKind; resumable: boolean }
+export interface ResumeState { eligible: boolean; attempts: number; maxAttempts: number; failure?: FailureInfo }
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
 export interface Question { id: string; message: string }
 /** Cached native SDK estimate, separate from cumulative billed Usage. */
@@ -37,6 +40,9 @@ export interface RunRecord {
   question?: Question;
   reportPath?: string;
   sessionPath?: string;
+  /** Git HEAD captured before the first native attempt; undefined means no repository HEAD. */
+  launchHead?: string;
+  resume?: ResumeState;
   metadataPath: string;
   error?: string;
   notificationError?: string;
@@ -50,9 +56,10 @@ export interface RunRecord {
 }
 export interface SubAgentResult { report: string; usage?: Usage; toolErrors: number }
 export interface SubAgent {
-  prompt(): Promise<SubAgentResult>;
+  prompt(message?: string): Promise<SubAgentResult>;
   steer(message: string): Promise<string>;
   abort(): Promise<void>;
+  failure?(): FailureInfo | undefined;
   evidence?(): Pick<SubAgentResult, "usage" | "toolErrors">;
   dispose(): void | Promise<void>;
 }
@@ -64,10 +71,15 @@ export interface RunContext {
   own(subAgent: SubAgent): void;
   /** Value snapshots only; UI must not retain or query native sessions. */
   telemetry?(snapshot: Telemetry): void;
+  /** Preserve launch-time review context without making it model-facing. */
+  baseline?(head: string | undefined): void;
   progress(tool?: string): void;
   preview(line: string): void;
   transcript(path: string): void;
   ask(message: string, signal?: AbortSignal): Promise<string>;
+}
+export interface SessionStartOptions {
+  resumeFrom?: { sessionPath: string; launchHead?: string };
 }
 export interface PreparedTask extends Task {
   mode: Mode;
@@ -75,7 +87,7 @@ export interface PreparedTask extends Task {
   workspace: string;
   model: string;
   thinking: Thinking;
-  start(context: RunContext): Promise<SubAgent>;
+  start(context: RunContext, options?: SessionStartOptions): Promise<SubAgent>;
 }
 export function errorText(error: unknown): string {
   return describe(error, 0);

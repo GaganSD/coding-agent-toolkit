@@ -12,7 +12,7 @@ import { DEFAULT_CONFIG } from "../src/config.ts";
 import { loadProfiles } from "../src/agents.ts";
 import { captureHead } from "../src/diff.ts";
 import { RunManager } from "../src/runs.ts";
-import { EDIT_TOOLS, INSPECT_TOOLS, prepareNative, type NativeOptions } from "../src/session.ts";
+import { EDIT_TOOLS, INSPECT_TOOLS, prepareNative, RESUME_PROMPT, type NativeOptions } from "../src/session.ts";
 import type { Telemetry } from "../src/types.ts";
 import { git } from "../src/workspace.ts";
 import { temp, until } from "./helpers.ts";
@@ -160,7 +160,50 @@ test("real SDK: provider errors and empty output cannot succeed", async t => {
     const [id] = await f.manager.launch([prepareNative(f.options)]);
     await f.manager.settled(id!);
     assert.equal(f.manager.status(id!).state, "failed", JSON.stringify(f.manager.status(id!)));
+    assert.equal(f.manager.status(id!).resume?.eligible, false);
   }
+});
+
+test("real SDK: transient provider failure restores one transcript without replaying a tool", async t => {
+  let calls = 0;
+  const f = await fixture(t, model => {
+    calls++;
+    if (calls === 1) return response(model, [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "fixture.txt" } }], "toolUse");
+    if (calls === 2) return response(model, [], "error", "503 Service Unavailable");
+    return response(model, [{ type: "text", text: "Resumed report" }]);
+  });
+  await git(f.cwd, ["init", "-q"]);
+  await writeFile(path.join(f.cwd, "tracked.txt"), "baseline\n");
+  await git(f.cwd, ["add", "tracked.txt"]);
+  await git(f.cwd, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline"]);
+  const launchHead = await captureHead(f.cwd);
+  await writeFile(path.join(f.cwd, "fixture.txt"), "fixture contents\n");
+  const [id] = await f.manager.launch([prepareNative(f.options)]);
+  await f.manager.settled(id!);
+  const failed = f.manager.status(id!);
+  assert.equal(failed.state, "failed", JSON.stringify(failed));
+  assert.equal(failed.resume?.eligible, true, JSON.stringify(failed));
+  assert.equal(failed.resume?.failure?.kind, "transient_provider");
+  assert.equal(failed.launchHead, launchHead);
+  assert(failed.sessionPath);
+  const before = await readFile(failed.sessionPath, "utf8");
+  const header = JSON.parse(before.split("\n", 1)[0]!);
+  let transcriptPath = "";
+  const resumed = await prepareNative(f.options).start({
+    signal: new AbortController().signal,
+    directory: path.join(f.root, "resume-wrapper"),
+    own() {}, progress() {}, preview() {}, transcript(file) { transcriptPath = file; },
+    ask: async () => "answer",
+    baseline(head) { assert.equal(head, failed.launchHead); },
+  }, { resumeFrom: { sessionPath: failed.sessionPath, launchHead: failed.launchHead } });
+  const result = await resumed.prompt(RESUME_PROMPT);
+  assert.equal(result.report, "Resumed report");
+  await resumed.dispose();
+  assert.equal(transcriptPath, failed.sessionPath);
+  assert.equal(calls, 3, "resume must continue instead of replaying the completed read tool");
+  const after = await readFile(failed.sessionPath, "utf8");
+  assert.equal(JSON.parse(after.split("\n", 1)[0]!).id, header.id);
+  assert(after.length > before.length, "resume appends to the existing transcript");
 });
 
 test("real SDK: disabled shell calls cannot mutate a review workspace", async t => {

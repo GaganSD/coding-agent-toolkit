@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import {
   createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager,
   type AgentSession, type ContextUsage, type ModelRuntime, type ToolDefinition,
@@ -7,7 +7,7 @@ import {
 import { Type } from "typebox";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
-import type { ContextEstimate, SubAgent, PreparedTask, Profile, RunContext, Task, Telemetry, Thinking } from "./types.ts";
+import type { ContextEstimate, FailureInfo, SubAgent, PreparedTask, Profile, RunContext, SessionStartOptions, Task, Telemetry, Thinking } from "./types.ts";
 
 export function contextEstimate(usage: ContextUsage | undefined, window?: number): ContextEstimate {
   const limit = usage?.contextWindow ?? window;
@@ -30,6 +30,16 @@ Use contact_agent for missing decisions; do not improvise around missing require
 Your tools run with the host's OS permissions, not in a sandbox. Stay in your assigned workspace and scope.
 Return your report normally. The host saves it; do not write a report file yourself or send a completion question.
 Do not claim checks passed without evidence. The agent, not you, decides acceptance.`;
+export const RESUME_PROMPT = "Continue the original task from this saved conversation. A transient provider failure interrupted the previous attempt. Do not repeat completed tool calls; inspect the current state and finish the original task.";
+
+export function classifySessionFailure(session: AgentSession, signal: AbortSignal, fromMessage = 0): FailureInfo {
+  const last = session.messages.slice(fromMessage).filter((message): message is AssistantMessage => message.role === "assistant").at(-1);
+  if (signal.aborted || last?.stopReason === "aborted") return { kind: "cancelled", resumable: false };
+  if (last?.stopReason === "error") return isRetryableAssistantError(last)
+    ? { kind: "transient_provider", resumable: true }
+    : { kind: "provider", resumable: false };
+  return { kind: "unknown", resumable: false };
+}
 
 export function contactAgentTool(context: RunContext): ToolDefinition<typeof QuestionParams> {
   return {
@@ -79,10 +89,12 @@ export function prepareNative(options: NativeOptions): PreparedTask {
   }, { projectTrusted: true });
   return {
     ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode,
-    async start(context) {
+    async start(context, startOptions?: SessionStartOptions) {
       context.signal.throwIfAborted();
       publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
-      const head = await captureHead(options.workspace, context.signal);
+      const resume = startOptions?.resumeFrom;
+      const head = resume ? resume.launchHead : await captureHead(options.workspace, context.signal);
+      context.baseline?.(head);
       const tools = profile.mode === "edit" ? EDIT_TOOLS : INSPECT_TOOLS;
       const loader = new DefaultResourceLoader({
         cwd: options.cwd, agentDir: options.agentDir, settingsManager: settings,
@@ -96,7 +108,9 @@ export function prepareNative(options: NativeOptions): PreparedTask {
         cwd: options.cwd, agentDir: options.agentDir, modelRuntime: runtime, model, thinkingLevel: thinking,
         settingsManager: settings, resourceLoader: loader, tools,
         customTools: [diffTool(options.workspace, head), contactAgentTool(context)],
-        sessionManager: SessionManager.create(options.cwd, path.join(context.directory, "transcript")),
+        sessionManager: resume
+          ? SessionManager.open(resume.sessionPath, path.dirname(resume.sessionPath), options.cwd)
+          : SessionManager.create(options.cwd, path.join(context.directory, "transcript")),
       });
       const subAgent = wrapSession(session, task.task, context);
       context.own(subAgent);
@@ -121,6 +135,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
 export function wrapSession(session: AgentSession, task: string, context: RunContext): SubAgent {
   let settled = false;
   let toolErrors = 0;
+  let failure: FailureInfo | undefined;
   let disposed = false;
   let refreshQueued = false;
   if (!context.signal.aborted) publishTelemetry(context, {
@@ -167,18 +182,26 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
   };
   return {
     evidence,
-    async prompt() {
+    failure: () => failure,
+    async prompt(message = task) {
       context.signal.throwIfAborted();
       settled = false; // Settlement is this turn's contract, not process lifetime.
-      // Bypass prompt-template expansion/extension commands for a literal brief.
-      await session.prompt(task, { expandPromptTemplates: false });
-      context.signal.throwIfAborted();
-      const last = session.messages.filter(message => message.role === "assistant").at(-1);
-      if (!settled) throw new Error("SDK prompt returned without final settlement evidence");
-      if (!last || last.stopReason === "error" || last.stopReason === "aborted") throw new Error(last?.errorMessage || "Sub-agent failed without a final assistant response");
-      const report = session.getLastAssistantText();
-      if (!report?.trim()) throw new Error("Sub-agent settled without a nonempty report");
-      return { report, toolErrors }; // Usage is collected once, during final cleanup.
+      failure = undefined;
+      const before = session.messages.length;
+      try {
+        // Bypass prompt-template expansion/extension commands for a literal brief.
+        await session.prompt(message, { expandPromptTemplates: false });
+        context.signal.throwIfAborted();
+        const last = session.messages.filter(message => message.role === "assistant").at(-1);
+        if (!settled) throw new Error("SDK prompt returned without final settlement evidence");
+        if (!last || last.stopReason === "error" || last.stopReason === "aborted") throw new Error(last?.errorMessage || "Sub-agent failed without a final assistant response");
+        const report = session.getLastAssistantText();
+        if (!report?.trim()) throw new Error("Sub-agent settled without a nonempty report");
+        return { report, toolErrors }; // Usage is collected once, during final cleanup.
+      } catch (error) {
+        failure = classifySessionFailure(session, context.signal, before);
+        throw error;
+      }
     },
     steer: message => session.steer(message),
     abort: () => session.abort(),

@@ -9,7 +9,7 @@ export function taskTitle(task: string): string {
 export function stateLabel(run: RunRecord): string {
   if (run.question) return "Needs reply";
   if (run.state === "completed" && run.notificationError) return "Finished · report saved · delivery warning";
-  return ({ starting: "Starting", running: "Running", waiting_for_agent: "Needs reply", cancelling: "Stopping",
+  return ({ starting: "Starting", resuming: "Resuming", running: "Running", waiting_for_agent: "Needs reply", cancelling: "Stopping",
     cleanup_unknown: "Cleanup unknown", completed: "Finished · report saved", failed: "Failed", cancelled: "Cancelled" })[run.state];
 }
 export interface Draft { text: string; questionId?: string; scroll: number; expanded: boolean; pageEnd?: number }

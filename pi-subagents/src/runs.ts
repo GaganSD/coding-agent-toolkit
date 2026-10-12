@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ArtifactStore } from "./artifacts.ts";
-import { errorText, isLive, PREVIEW_LINES, type SubAgent, type Config, type PreparedTask, type Question, type RunRecord } from "./types.ts";
+import { errorText, isLive, PREVIEW_LINES, type FailureInfo, type SubAgent, type Config, type PreparedTask, type Question, type RunRecord, type SessionStartOptions } from "./types.ts";
 import { overlaps } from "./workspace.ts";
 import { text } from "./validation.ts";
 
@@ -10,8 +10,10 @@ interface PendingQuestion {
   resolve(message: string): void;
   reject(error: Error): void;
 }
+const DEFAULT_MAX_RESUMES = 3;
 interface Run {
   record: RunRecord;
+  plan: PreparedTask;
   preview: string[];
   controller: AbortController;
   subAgent?: SubAgent;
@@ -86,7 +88,7 @@ export class RunManager {
             startedAt: new Date().toISOString(), elapsedMs: 0, pid: process.pid,
             metadataPath: path.join(this.options.store.directory(id), "run.json"),
           };
-          const run: Run = { record, preview: [], controller: new AbortController(), work: Promise.resolve(), writes: Promise.resolve(), notified: false, cleaned: false, pendingWrites: new Set() };
+          const run: Run = { record, plan, preview: [], controller: new AbortController(), work: Promise.resolve(), writes: Promise.resolve(), notified: false, cleaned: false, pendingWrites: new Set() };
           staged.push(run);
           await this.io(signal => this.options.store.create(record, signal));
         }
@@ -204,8 +206,9 @@ export class RunManager {
       .finally(() => { run.pendingWrites.delete(controller); });
   }
 
-  private async execute(run: Run, plan: PreparedTask): Promise<void> {
+  private async execute(run: Run, plan: PreparedTask, startOptions?: SessionStartOptions): Promise<void> {
     let failed: string | undefined;
+    let failure: FailureInfo | undefined;
     try {
       const subAgent = await plan.start({
         signal: run.controller.signal, directory: this.options.store.directory(run.record.id),
@@ -226,6 +229,10 @@ export class RunManager {
           run.record.contextUsage = { ...usage };
           this.changed(); // Cached UI update only; lifecycle writes persist the latest snapshot.
         },
+        baseline: head => {
+          if (startOptions?.resumeFrom && run.record.launchHead !== head) throw new Error("Resumed session changed its launch baseline");
+          if (!startOptions?.resumeFrom) run.record.launchHead = head;
+        },
         progress: tool => { if (!run.controller.signal.aborted) { run.record.currentTool = tool; this.changed(); } },
         preview: line => {
           run.preview.push(line.slice(0, 512));
@@ -234,7 +241,7 @@ export class RunManager {
         },
         transcript: file => { run.record.sessionPath = file; },
         ask: (message, signal) => this.ask(run, message, signal),
-      });
+      }, startOptions);
       if (run.subAgent && run.subAgent !== subAgent) throw new Error("Startup returned a different sub-agent than it owned");
       run.subAgent = subAgent;
       run.controller.signal.throwIfAborted();
@@ -248,6 +255,7 @@ export class RunManager {
       run.controller.signal.throwIfAborted();
       run.record.reportPath = await this.io(signal => this.options.store.report(run.record.id, result.report, signal));
     } catch (error) {
+      failure = run.subAgent?.failure?.();
       failed = errorText(error);
       run.record.error ??= failed;
     }
@@ -265,6 +273,14 @@ export class RunManager {
     run.cleaned = !unclean;
     if (run.cleaned) run.subAgent = undefined; // Do not retain SDK transcripts through settled wrappers.
     if (unclean) this.poison(run, `Cleanup not confirmed: ${unclean}`);
+    if (failed || failure) {
+      run.record.resume = {
+        eligible: Boolean(failure?.resumable && run.cleaned && run.record.sessionPath && !run.controller.signal.aborted),
+        attempts: run.record.resume?.attempts ?? 0,
+        maxAttempts: run.record.resume?.maxAttempts ?? DEFAULT_MAX_RESUMES,
+        ...(failure ? { failure } : {}),
+      };
+    }
     // A stop deadline may have published failure or uncertainty already. Never promote it later.
     if (run.record.state === "cleanup_unknown" || !isLive(run.record.state)) {
       clearTimeout(run.timer);
