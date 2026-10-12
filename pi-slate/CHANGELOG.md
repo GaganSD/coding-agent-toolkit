@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.15
+
+Pick the composer's working animation instead of always getting the wave.
+
 ### Added
 
 - Working indicator styles: `/slate progress [waves|dna-helix|snake|cylon-scanner]`, also in the `/slate` menu. `waves` stays the default; `dna-helix` turns a double helix, `snake` glides an ornate diamondback through the slot, and `cylon-scanner` sweeps an `==` eye along a bracketed track. The choice saves to `pi-slate.json` as `progress` and applies immediately.

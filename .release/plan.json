@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "2010f2f359f8b80d4742c2d81cafe2c9bb79381c",
-  "notes": "A cleaner, theme-consistent workbench.\n\n- Sidebar: blends into the terminal with no panel background, a one-line shaded context meter, de-cluttered MCP/Skills rows (just a status dot and name), and a foldable Prompts section with keyboard navigation\n- New working indicator: a rolling sine wave in the composer border, with the host working message restored when it stops\n- Switching themes restyles the whole interface consistently — headings, inline code, links, and the context bar all follow your theme's accent (Tokyo Night inline code is its signature blue again; Black Metal uses its rose accent)\n- Diffs follow your theme: tinted from your palette with matching syntax highlighting\n- Prompt editing: image placeholder tokens delete atomically, and select-all plus shift+backspace/delete clears the whole prompt",
+  "sourceSha": "d0ee9d022bbeaeedee041e6369069e8a74a8b79b",
+  "notes": "Pick the composer's working animation instead of always getting the wave.",
   "packages": [
     {
       "path": "pi-slate",
       "name": "pi-slate",
-      "from": "0.1.13",
-      "to": "0.1.14",
+      "from": "0.1.14",
+      "to": "0.1.15",
       "bump": "patch"
     }
   ]
