@@ -13,7 +13,9 @@ export function backgroundTaskSnapshot(sessionId: string, records: readonly RunR
     tasks: visible.slice(0, 64).map(record => ({
       id: record.id, label: `${record.agent}: ${record.task.replace(/\s+/g, " ").slice(0, 160)}`,
       kind: "subagent" as const, state: record.state === "waiting_for_agent" ? "waiting" : record.state,
-      startedAt: Date.parse(record.startedAt), ...(record.pid ? { pid: record.pid } : {}),
+      startedAt: Date.parse(record.startedAt),
+      ...(record.endedAt && Number.isFinite(Date.parse(record.endedAt)) ? { endedAt: Date.parse(record.endedAt) } : {}),
+      ...(record.pid ? { pid: record.pid } : {}),
       detail: `${record.model} · ${record.thinking}\n${record.currentTool ? `Tool: ${record.currentTool}\n` : ""}Native session: ${record.sessionId ?? "—"}\nPID is shared with the owning Pi process.\nInspect/control using /subagents ${record.id}.`,
     })),
   };

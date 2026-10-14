@@ -13,6 +13,8 @@ test("display snapshots preserve exact owner/id and state without exporting auth
   assert.deepEqual(snapshot.tasks.map(task => task.state), ["running", "waiting", "cleanup_unknown", "failed"]);
   assert.equal(snapshot.tasks[0]!.id, "running"); assert.equal(snapshot.tasks[0]!.pid, 42);
   assert.equal(snapshot.tasks[0]!.startedAt, Date.parse("2026-10-09T12:00:00.000Z"));
+  const failed = backgroundTaskSnapshot("owner", [{ ...run("failed"), endedAt: "2026-10-09T12:00:01.185Z" }]);
+  assert.equal(failed.tasks[0]!.endedAt, Date.parse("2026-10-09T12:00:01.185Z"));
   assert.match(snapshot.tasks[0]!.detail, /PID is shared/);
   const json = JSON.stringify(snapshot);
   for (const privateText of ["PRIVATE QUESTION", "metadataPath", "/private/run.json", "question", '"owner":', "workspace"]) assert(!json.includes(privateText));
