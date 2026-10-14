@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "sourceSha": "ddeb8c299bfb89169ea811d4f57b6f83f4b4eee0",
-  "notes": "Replace /web-search-settings with /web-search: a Status / Providers / Classifier menu. Color-coded provider key picker; classifier picker lists available classifiers first with the current pin highlighted; actionable /login guidance; one-line save confirmation.",
+  "sourceSha": "1c54f3f1334744a143eecfb0e1b9552321d6a735",
+  "notes": "Resume transiently failed sub-agents from their saved transcript instead of starting over.\n\n### Added\n\n- `subagent resume`, the `/subagents` roster, and the worker thread can resume a transiently failed sub-agent from its saved transcript and native session id, continuing the same conversation. Resume is bounded to three attempts per run and requires confirmation.\n- Only transient provider failures with an intact saved transcript are eligible; eligibility surfaces on `subagent list`, status notices, and thread actions. Missing, replaced, empty, or unreadable transcripts are refused, so resume can never silently relaunch a different conversation.\n\n### Fixed\n\n- Failed runs stay out of `pi:background-tasks` sidebar snapshots, and settled runs publish `endedAt`, so dashboards such as Slate stop counting wall time for failed work.",
   "packages": [
     {
-      "path": "pi-web-search",
-      "name": "@gagansd/pi-web-search",
-      "from": "0.2.1",
-      "to": "0.3.0",
-      "bump": "minor"
+      "path": "pi-subagents",
+      "name": "@gagansd/pi-subagents",
+      "from": "0.0.5",
+      "to": "0.0.6",
+      "bump": "patch"
     }
   ]
 }

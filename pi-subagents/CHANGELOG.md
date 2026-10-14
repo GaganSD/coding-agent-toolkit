@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.0.6
+
+Resume transiently failed sub-agents from their saved transcript instead of starting over.
+
+### Added
+
+- `subagent resume`, the `/subagents` roster, and the worker thread can resume a transiently failed sub-agent from its saved transcript and native session id, continuing the same conversation. Resume is bounded to three attempts per run and requires confirmation.
+- Only transient provider failures with an intact saved transcript are eligible; eligibility surfaces on `subagent list`, status notices, and thread actions. Missing, replaced, empty, or unreadable transcripts are refused, so resume can never silently relaunch a different conversation.
+
+### Fixed
+
+- Failed runs stay out of `pi:background-tasks` sidebar snapshots, and settled runs publish `endedAt`, so dashboards such as Slate stop counting wall time for failed work.
+
 ## 0.0.5
 
 Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate, slim image preview, hide leftover peeks, and a single new-session chip. Settled sub-agents leave the roster and publish display-only dashboard snapshots.
