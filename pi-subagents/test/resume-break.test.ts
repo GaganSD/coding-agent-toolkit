@@ -1,10 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import { chmod, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage, type AssistantMessageEventStream, type Model, type Api } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { mkdir, writeFile } from "node:fs/promises";
 import { FileArtifacts } from "../src/artifacts.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { loadProfiles } from "../src/agents.ts";
@@ -285,4 +284,105 @@ test("bonus: deleting the native transcript cannot complete a resume", async t =
   assert.match(after.error ?? "", /saved transcript; it is missing/);
   assert.equal(after.resume?.eligible, false);
   assert.equal(calls, 1, "missing transcript must not prompt the model");
+});
+
+async function nativeFailed(t: Parameters<typeof temp>[0], onCall?: (n: number, model: Model<Api>) => AssistantMessageEventStream) {
+  const root = await temp(t);
+  const cwd = path.join(root, "repo"), agentDir = path.join(root, "agent");
+  await mkdir(cwd); await mkdir(agentDir);
+  await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false } }));
+  const runtime = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: null, modelsStorePath: path.join(agentDir, "catalog.json"), refreshOnCreate: false });
+  let calls = 0;
+  runtime.registerProvider("fixture", {
+    api: "openai-completions", baseUrl: "http://invalid.test", apiKey: "fixture-not-a-secret",
+    models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], cost: zero, contextWindow: 64000, maxTokens: 2048 }],
+    streamSimple: model => {
+      calls++;
+      return onCall?.(calls, model) ?? (calls === 1
+        ? response(model, [], "error", "503 Service Unavailable")
+        : response(model, [{ type: "text", text: "should not complete a broken resume" }]));
+    },
+  });
+  const profiles = await loadProfiles(agentDir, cwd, true);
+  const options: NativeOptions = {
+    agentDir, cwd, workspace: cwd, runtime, task: { agent: "reviewer", task: "Review fixture" },
+    profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: [],
+  };
+  const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store: new FileArtifacts(path.join(root, "runs")) });
+  t.after(() => manager.shutdown());
+  const [id] = await manager.launch([prepareNative(options)]);
+  await manager.settled(id!);
+  const failed = manager.status(id!);
+  assert.equal(failed.state, "failed", failed.error ?? failed.state);
+  assert.equal(failed.resume?.eligible, true);
+  assert(failed.sessionPath);
+  assert(failed.sessionId);
+  return { calls: () => calls, failed, id: id!, manager, options };
+}
+
+async function resumeSettled(manager: RunManager, id: string) {
+  await manager.resume(id).catch(() => {});
+  await manager.settled(id);
+  return manager.status(id);
+}
+
+test("11 empty transcript cannot complete a resume", async t => {
+  const f = await nativeFailed(t);
+  await writeFile(f.failed.sessionPath!, "");
+  const after = await resumeSettled(f.manager, f.id);
+  assert.equal(after.state, "failed", after.error ?? after.state);
+  assert.match(after.error ?? "", /saved transcript; it is missing/);
+  assert.equal(f.calls(), 1);
+});
+
+test("12 a directory at the transcript path cannot complete a resume", async t => {
+  const f = await nativeFailed(t);
+  await rm(f.failed.sessionPath!);
+  await mkdir(f.failed.sessionPath!);
+  const after = await resumeSettled(f.manager, f.id);
+  assert.equal(after.state, "failed", after.error ?? after.state);
+  assert.match(after.error ?? "", /saved transcript; it is missing/);
+  assert.equal(f.calls(), 1);
+});
+
+test("13 garbage transcript cannot complete a resume", async t => {
+  const f = await nativeFailed(t);
+  await writeFile(f.failed.sessionPath!, "not-a-pi-session\n{broken\n");
+  const after = await resumeSettled(f.manager, f.id);
+  assert.equal(after.state, "failed", after.error ?? after.state);
+  assert.notEqual(after.state, "completed");
+  assert.equal(f.calls(), 1);
+});
+
+test("14 swapping another run's transcript cannot complete a resume", async t => {
+  const a = await nativeFailed(t);
+  const b = await nativeFailed(t);
+  await copyFile(b.failed.sessionPath!, a.failed.sessionPath!);
+  const after = await resumeSettled(a.manager, a.id);
+  assert.equal(after.state, "failed", after.error ?? after.state);
+  assert.match(after.error ?? "", /session identity changed/);
+  assert.equal(a.calls(), 1);
+});
+
+test("15 resume without a native session id cannot open a replacement transcript", async t => {
+  const a = await nativeFailed(t);
+  const b = await nativeFailed(t);
+  await copyFile(b.failed.sessionPath!, a.failed.sessionPath!);
+  await assert.rejects(prepareNative(a.options).start({
+    signal: new AbortController().signal,
+    directory: path.join(path.dirname(a.failed.sessionPath!), "orphan"),
+    own() {}, progress() {}, preview() {}, transcript() {},
+    ask: async () => "no",
+  }, { resumeFrom: { sessionPath: a.failed.sessionPath!, launchHead: a.failed.launchHead } }), /native session identity/);
+  assert.equal(a.calls(), 1);
+});
+
+test("16 unreadable transcript cannot complete a resume", async t => {
+  const f = await nativeFailed(t);
+  await chmod(f.failed.sessionPath!, 0);
+  t.after(() => chmod(f.failed.sessionPath!, 0o600).catch(() => {}));
+  const after = await resumeSettled(f.manager, f.id);
+  assert.equal(after.state, "failed", after.error ?? after.state);
+  assert.notEqual(after.state, "completed");
+  assert.equal(f.calls(), 1);
 });

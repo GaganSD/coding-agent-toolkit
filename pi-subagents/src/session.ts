@@ -91,6 +91,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
       const resume = startOptions?.resumeFrom;
       if (resume) {
+        if (!resume.sessionId) throw new Error("Resume requires the saved native session identity");
         let info;
         try { info = await stat(resume.sessionPath); }
         catch { throw new Error("Resume requires the saved transcript; it is missing"); }
@@ -122,9 +123,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
         if (!file || path.resolve(file) !== path.resolve(resume.sessionPath)) {
           throw new Error("Resumed session did not reopen the saved transcript");
         }
-        if (resume.sessionId && session.sessionId !== resume.sessionId) {
-          throw new Error("Resumed session identity changed");
-        }
+        if (session.sessionId !== resume.sessionId) throw new Error("Resumed session identity changed");
       }
       context.signal.throwIfAborted();
       // onError may fire outside the bindExtensions stack; record, then throw here.
