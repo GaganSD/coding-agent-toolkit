@@ -162,11 +162,18 @@ Repository files cannot configure npm account trust or create your GitHub App.
 Complete these steps before the first release:
 
 1. **Release GitHub App:** create/install an App on only this repository with
-   repository **Contents: read/write** and **Pull requests: read/write**.
+   repository **Contents: read/write**, **Pull requests: read/write**, and
+   **Issues: read/write** (the last two also serve the bot workflows below).
    Set repository variable `RELEASE_APP_ID` and Actions secret
    `RELEASE_APP_PRIVATE_KEY`. The short-lived App token lets the generated PR
    trigger normal PR CI. Do not use a long-lived npm token or put a private key
    in a repository file.
+
+   The same App identity backs `bot-review.yml` and `bot-triage.yml`: each run
+   mints a least-privilege token and calls an OpenAI-compatible chat endpoint
+   (`scripts/bot.mjs`). Set Actions secret `LLM_API_KEY` to enable them;
+   optional variables `LLM_BASE_URL` (default OpenRouter) and `LLM_MODEL`
+   select the provider. Until the key exists the LLM steps are skipped quietly.
 2. **Environment:** a GitHub environment named `npm`, restricted to the
    `main` branch, was created during setup. Preserve that restriction. An extra environment approval is optional; merging the
    release PR is the normal release decision.
