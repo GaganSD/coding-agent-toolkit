@@ -270,4 +270,8 @@ test("settled widgets unmount; an empty runtime stays unmounted", () => {
   syncWidget(ctx, [], false, () => {}, slot);
   assert.equal(clears, 1);
   assert.equal(slot.instance, undefined);
+  syncWidget(ctx, [{ ...a, state: "failed" }], false, () => {}, slot);
+  assert.equal(slot.instance, undefined);
+  syncWidget(ctx, [{ ...a, state: "starting" }], false, () => {}, slot);
+  assert.equal(mounts, 2, "resume must remount the roster when a failed run becomes live");
 });

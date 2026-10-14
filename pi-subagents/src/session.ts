@@ -8,7 +8,6 @@ import { Type } from "typebox";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
 import type { ContextEstimate, FailureInfo, SubAgent, PreparedTask, Profile, RunContext, SessionStartOptions, Task, Telemetry, Thinking } from "./types.ts";
-export { RESUME_PROMPT } from "./types.ts";
 
 export function contextEstimate(usage: ContextUsage | undefined, window?: number): ContextEstimate {
   const limit = usage?.contextWindow ?? window;
@@ -33,11 +32,9 @@ Return your report normally. The host saves it; do not write a report file yours
 Do not claim checks passed without evidence. The agent, not you, decides acceptance.`;
 export function classifySessionFailure(session: AgentSession, signal: AbortSignal, fromMessage = 0): FailureInfo {
   const last = session.messages.slice(fromMessage).filter((message): message is AssistantMessage => message.role === "assistant").at(-1);
-  if (signal.aborted || last?.stopReason === "aborted") return { kind: "cancelled", resumable: false };
-  if (last?.stopReason === "error") return isRetryableAssistantError(last)
-    ? { kind: "transient_provider", resumable: true }
-    : { kind: "provider", resumable: false };
-  return { kind: "unknown", resumable: false };
+  if (signal.aborted || last?.stopReason === "aborted") return { kind: "cancelled" };
+  if (last?.stopReason === "error") return { kind: isRetryableAssistantError(last) ? "transient_provider" : "provider" };
+  return { kind: "unknown" };
 }
 
 export function contactAgentTool(context: RunContext): ToolDefinition<typeof QuestionParams> {
@@ -93,7 +90,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
       const resume = startOptions?.resumeFrom;
       const head = resume ? resume.launchHead : await captureHead(options.workspace, context.signal);
-      context.baseline?.(head);
+      if (!resume) context.baseline?.(head);
       const tools = profile.mode === "edit" ? EDIT_TOOLS : INSPECT_TOOLS;
       const loader = new DefaultResourceLoader({
         cwd: options.cwd, agentDir: options.agentDir, settingsManager: settings,

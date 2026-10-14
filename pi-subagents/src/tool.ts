@@ -89,6 +89,11 @@ export function presentRun(record: RunRecord) {
     ...((record.question?.message.length ?? 0) > 2048 || (record.error?.length ?? 0) > 512 || (record.notificationError?.length ?? 0) > 512 ? { truncated: true as const } : {}),
   };
 }
+function presentResume(record: RunRecord) {
+  return record.resume?.eligible
+    ? { resume: { eligible: true as const, attempts: record.resume.attempts, maxAttempts: record.resume.maxAttempts } }
+    : {};
+}
 export function presentFinished(record: RunRecord) {
   return {
     id: record.id, state: record.state, agent: record.agent, taskPreview: clip(record.task, 80),
@@ -104,13 +109,17 @@ export function presentNotice(record: RunRecord) {
     id: record.id, state: record.state, agent: record.agent, taskPreview: clip(record.task, 80),
     ...(record.reportPath ? { reportPath: record.reportPath } : {}),
     ...(record.state !== "completed" ? { metadataPath: record.metadataPath } : {}),
+    ...presentResume(record),
   };
 }
 export function presentLaunch(records: RunRecord[]) {
   return { runs: records.map(({ id, cwd, workspace, model, thinking }) => ({ id, cwd, workspace, model, thinking })) };
 }
 export function presentSummary(record: RunRecord) {
-  return { id: record.id, agent: record.agent, state: record.state, taskPreview: clip(record.task, 80) };
+  return {
+    id: record.id, agent: record.agent, state: record.state, taskPreview: clip(record.task, 80),
+    ...presentResume(record),
+  };
 }
 // Escape display controls without changing the machine-readable string values.
 const serialize = (value: unknown) => JSON.stringify(value).replace(/[\u007f-\u009f\u061c\u200e-\u200f\u202a-\u202e\u2066-\u2069]/g,
@@ -171,7 +180,9 @@ export const OutputSchema = Type.Union([
   Type.Object({
     runs: Type.Array(Type.Union([
       Type.Object({ id: Type.String(), cwd: Type.String(), workspace: Type.String(), model: Type.String(), thinking: ThinkingSchema }, closed),
-      Type.Object({ id: Type.String(), agent: Type.String(), state: StateSchema, taskPreview: Type.String() }, closed),
+      Type.Object({ id: Type.String(), agent: Type.String(), state: StateSchema, taskPreview: Type.String(),
+        resume: Type.Optional(Type.Object({ eligible: Type.Literal(true), attempts: Type.Number(), maxAttempts: Type.Number() }, closed)),
+      }, closed),
     ])),
     blocked: Type.Optional(Type.Union([Type.Literal(true), Type.Object({ id: Type.String(), metadataPath: Type.String() }, closed)])),
   }, closed),

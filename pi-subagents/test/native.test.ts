@@ -12,8 +12,8 @@ import { DEFAULT_CONFIG } from "../src/config.ts";
 import { loadProfiles } from "../src/agents.ts";
 import { captureHead } from "../src/diff.ts";
 import { RunManager } from "../src/runs.ts";
-import { EDIT_TOOLS, INSPECT_TOOLS, prepareNative, RESUME_PROMPT, type NativeOptions } from "../src/session.ts";
-import type { Telemetry } from "../src/types.ts";
+import { EDIT_TOOLS, INSPECT_TOOLS, prepareNative, type NativeOptions } from "../src/session.ts";
+import { RESUME_PROMPT, type Telemetry } from "../src/types.ts";
 import { git } from "../src/workspace.ts";
 import { temp, until } from "./helpers.ts";
 
@@ -189,13 +189,15 @@ test("real SDK: transient provider failure restores one transcript without repla
   const before = await readFile(failed.sessionPath, "utf8");
   const header = JSON.parse(before.split("\n", 1)[0]!);
   let transcriptPath = "";
+  let baselined: string | undefined;
   const resumed = await prepareNative(f.options).start({
     signal: new AbortController().signal,
     directory: path.join(f.root, "resume-wrapper"),
     own() {}, progress() {}, preview() {}, transcript(file) { transcriptPath = file; },
     ask: async () => "answer",
-    baseline(head) { assert.equal(head, failed.launchHead); },
+    baseline(head) { baselined = head; },
   }, { resumeFrom: { sessionPath: failed.sessionPath, launchHead: failed.launchHead } });
+  assert.equal(baselined, undefined, "resume must keep the original launch baseline");
   const result = await resumed.prompt(RESUME_PROMPT);
   assert.equal(result.report, "Resumed report");
   await resumed.dispose();

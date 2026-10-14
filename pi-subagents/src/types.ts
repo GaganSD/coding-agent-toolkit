@@ -15,7 +15,7 @@ export interface Config { maxConcurrent: number; maxRuns: number; timeoutMs: num
 export type State = "starting" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
 export type FailureKind = "transient_provider" | "provider" | "cancelled" | "unknown";
-export interface FailureInfo { kind: FailureKind; resumable: boolean }
+export interface FailureInfo { kind: FailureKind }
 export interface ResumeState {
   eligible: boolean;
   attempts: number;

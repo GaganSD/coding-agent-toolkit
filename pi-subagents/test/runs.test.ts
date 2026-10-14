@@ -400,6 +400,7 @@ test("resume restarts an eligible failed run with the same ID, transcript, and b
   const task = plan(undefined, {
     async start(context) {
       context.transcript(context.directory + "/transcript/test.jsonl");
+      context.baseline?.("launch-head");
       const current = ++calls;
       return {
         prompt: async message => {
@@ -407,7 +408,7 @@ test("resume restarts an eligible failed run with the same ID, transcript, and b
           return { report: `Recovered by attempt ${current}${message ? " after resume" : ""}`, toolErrors: 0 };
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const, resumable: true } : undefined,
+        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
         dispose() {},
       };
     },
@@ -428,6 +429,7 @@ test("resume restarts an eligible failed run with the same ID, transcript, and b
   assert.equal(failed.resume?.attempts, 0);
   assert.equal(failed.resume?.maxAttempts, 3);
   assert.equal(failed.resume?.kind, "transient_provider");
+  assert.equal(failed.launchHead, "launch-head");
   assert.deepEqual(notifications.map(item => item.kind), ["finished"]);
   await manager.resume(id!);
   await manager.settled(id!);
@@ -436,6 +438,7 @@ test("resume restarts an eligible failed run with the same ID, transcript, and b
   assert.equal(completed.resume?.attempts, 1);
   assert.equal(completed.resume?.eligible, false);
   assert.equal(completed.resume?.kind, undefined);
+  assert.equal(completed.launchHead, "launch-head");
   assert.equal(calls, 2);
   assert.equal(prompts[0], "<original>");
   assert.match(prompts[1]!, /transient provider failure/);
@@ -477,7 +480,7 @@ function resumableEditTask(calls: { count: number }): PreparedTask {
           return { report: "Recovered", toolErrors: 0 };
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const, resumable: true } : undefined,
+        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
         dispose() {},
       };
     },
@@ -527,7 +530,7 @@ test("concurrent resume requests start one attempt and do not consume launch bud
           return { report: "Recovered", toolErrors: 0 };
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const, resumable: true } : undefined,
+        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
         dispose() {},
       };
     },
@@ -551,7 +554,7 @@ test("resume allowance exhausts even when failures stay transient", async () => 
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => ({ kind: "transient_provider" as const, resumable: true }),
+        failure: () => ({ kind: "transient_provider" as const }),
         dispose() {},
       };
     },
@@ -583,7 +586,7 @@ test("resume applies a fresh timeout to the new attempt", async () => {
           return waitForAbort(context).then(() => ({ report: "Must not finish", toolErrors: 0 }));
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const, resumable: true } : undefined,
+        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
         dispose() {},
       };
     },
@@ -612,7 +615,7 @@ test("stop and shutdown cannot start a queued resume", async () => {
             return { report: "Must not complete", toolErrors: 0 };
           },
           steer: async () => "queued", abort: async () => {},
-          failure: () => current === 1 ? { kind: "transient_provider" as const, resumable: true } : undefined,
+          failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
           dispose() {},
         };
       },
@@ -628,4 +631,77 @@ test("stop and shutdown cannot start a queued resume", async () => {
     assert.equal(calls, 2);
     assert.deepEqual(notifications.map(item => item.kind), mode === "stop" ? ["finished", "finished"] : ["finished"]);
   }
+});
+
+test("resume persist failure does not start a sub-agent or spend the allowance", async () => {
+  const { manager, store } = setup();
+  let starts = 0;
+  const [id] = await manager.launch([plan(undefined, {
+    async start(context) {
+      starts++;
+      context.transcript(context.directory + "/transcript/test.jsonl");
+      context.baseline?.("launch-head");
+      return {
+        prompt: async () => { throw new Error("503 Service Unavailable"); },
+        steer: async () => "queued", abort: async () => {},
+        failure: () => ({ kind: "transient_provider" as const }),
+        dispose() {},
+      };
+    },
+  })]);
+  await manager.settled(id!);
+  store.failSave = record => record.state === "starting";
+  await assert.rejects(manager.resume(id!), /disk full/);
+  const failed = manager.status(id!);
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.resume?.eligible, true);
+  assert.equal(failed.resume?.attempts, 0);
+  assert.equal(failed.launchHead, "launch-head");
+  assert.equal(starts, 1);
+  store.failSave = undefined;
+  await manager.resume(id!);
+  await manager.settled(id!);
+  assert.equal(starts, 2);
+  assert.equal(manager.status(id!).launchHead, "launch-head");
+});
+
+test("non-transient provider failures are not resumable", async () => {
+  const { manager } = setup();
+  let starts = 0;
+  const [id] = await manager.launch([plan(undefined, {
+    async start(context) {
+      starts++;
+      context.transcript(context.directory + "/transcript/test.jsonl");
+      return {
+        prompt: async () => { throw new Error("insufficient_quota"); },
+        steer: async () => "queued", abort: async () => {},
+        failure: () => ({ kind: "provider" as const }),
+        dispose() {},
+      };
+    },
+  })]);
+  await manager.settled(id!);
+  assert.equal(manager.status(id!).resume?.eligible, false);
+  assert.equal(manager.status(id!).resume?.kind, "provider");
+  await assert.rejects(manager.resume(id!), /failed transient provider/);
+  assert.equal(starts, 1);
+});
+
+test("a new manager cannot resume from leftover artifacts", async () => {
+  const { manager, store } = setup();
+  const [id] = await manager.launch([plan(undefined, {
+    async start(context) {
+      context.transcript(context.directory + "/transcript/test.jsonl");
+      return {
+        prompt: async () => { throw new Error("503 Service Unavailable"); },
+        steer: async () => "queued", abort: async () => {},
+        failure: () => ({ kind: "transient_provider" as const }),
+        dispose() {},
+      };
+    },
+  })]);
+  await manager.settled(id!);
+  const other = new RunManager({ owner: "test-agent", config: { ...DEFAULT_CONFIG }, store });
+  await assert.rejects(other.resume(id!), /Unknown run ID/);
+  assert.equal(manager.status(id!).resume?.eligible, true);
 });

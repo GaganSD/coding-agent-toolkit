@@ -141,6 +141,16 @@ export class RunManager {
           throw new Error("Conflicting delegated workspaces: writers cannot overlap other readers or writers. Use separate existing worktrees.");
         }
       }
+      const prior = {
+        record: this.snapshot(run),
+        preview: run.preview.slice(),
+        controller: run.controller,
+        notified: run.notified,
+        cleaned: run.cleaned,
+        stopping: run.stopping,
+        aborting: run.aborting,
+        finishing: run.finishing,
+      };
       const attempts = record.resume!.attempts + 1;
       record.resume = resumeState(attempts, false);
       record.state = "starting";
@@ -165,10 +175,14 @@ export class RunManager {
       run.finishing = undefined;
       try { await this.persist(run); }
       catch (error) {
-        record.state = "failed";
-        record.endedAt = new Date().toISOString();
-        record.error = `Resume publication failed; sub-agent was not started: ${errorText(error)}`;
-        record.resume = resumeState(attempts, false);
+        Object.assign(run.record, prior.record);
+        run.preview = prior.preview;
+        run.controller = prior.controller;
+        run.notified = prior.notified;
+        run.cleaned = prior.cleaned;
+        run.stopping = prior.stopping;
+        run.aborting = prior.aborting;
+        run.finishing = prior.finishing;
         await this.persist(run).catch(() => {});
         throw error;
       }
@@ -301,10 +315,7 @@ export class RunManager {
           run.record.contextUsage = { ...usage };
           this.changed(); // Cached UI update only; lifecycle writes persist the latest snapshot.
         },
-        baseline: head => {
-          if (startOptions?.resumeFrom && run.record.launchHead !== head) throw new Error("Resumed session changed its launch baseline");
-          if (!startOptions?.resumeFrom) run.record.launchHead = head;
-        },
+        baseline: head => { if (!startOptions?.resumeFrom) run.record.launchHead = head; },
         progress: tool => { if (!run.controller.signal.aborted) { run.record.currentTool = tool; this.changed(); } },
         preview: line => {
           run.preview.push(line.slice(0, 512));
@@ -348,7 +359,7 @@ export class RunManager {
     if (failed || failure) {
       run.record.resume = resumeState(
         attempts,
-        Boolean(failure?.resumable && run.cleaned && run.record.sessionPath && !run.controller.signal.aborted && attempts < MAX_RESUMES),
+        Boolean(failure?.kind === "transient_provider" && run.cleaned && run.record.sessionPath && !run.controller.signal.aborted && attempts < MAX_RESUMES),
         failure?.kind,
       );
     } else if (startOptions?.resumeFrom) {

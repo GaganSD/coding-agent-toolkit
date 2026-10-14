@@ -29,6 +29,7 @@ export class MemoryStore implements ArtifactStore {
   failCreate = false;
   failReport = false;
   failCompleted = false;
+  failSave?: (record: RunRecord) => boolean;
   directory(id: string) { return "/private-test-artifacts/" + id; }
   async create(record: RunRecord, signal?: AbortSignal) {
     signal?.throwIfAborted();
@@ -37,6 +38,7 @@ export class MemoryStore implements ArtifactStore {
   }
   async save(record: RunRecord, signal?: AbortSignal) {
     signal?.throwIfAborted();
+    if (this.failSave?.(record)) throw new Error("disk full");
     if (this.failCompleted && record.state === "completed") throw new Error("disk full");
     this.records.set(record.id, structuredClone(record));
   }
