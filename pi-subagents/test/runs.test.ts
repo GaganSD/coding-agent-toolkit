@@ -408,7 +408,7 @@ test("resume restarts an eligible failed run with the same ID, transcript, and b
           return { report: `Recovered by attempt ${current}${message ? " after resume" : ""}`, toolErrors: 0 };
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
+        failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
     },
@@ -480,7 +480,7 @@ function resumableEditTask(calls: { count: number }): PreparedTask {
           return { report: "Recovered", toolErrors: 0 };
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
+        failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
     },
@@ -530,7 +530,7 @@ test("concurrent resume requests start one attempt and do not consume launch bud
           return { report: "Recovered", toolErrors: 0 };
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
+        failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
     },
@@ -554,7 +554,7 @@ test("resume allowance exhausts even when failures stay transient", async () => 
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => ({ kind: "transient_provider" as const }),
+        failure: () => "transient_provider" as const,
         dispose() {},
       };
     },
@@ -586,7 +586,7 @@ test("resume applies a fresh timeout to the new attempt", async () => {
           return waitForAbort(context).then(() => ({ report: "Must not finish", toolErrors: 0 }));
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
+        failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
     },
@@ -615,7 +615,7 @@ test("stop and shutdown cannot start a queued resume", async () => {
             return { report: "Must not complete", toolErrors: 0 };
           },
           steer: async () => "queued", abort: async () => {},
-          failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
+          failure: () => current === 1 ? "transient_provider" as const : undefined,
           dispose() {},
         };
       },
@@ -644,7 +644,7 @@ test("resume persist failure does not start a sub-agent or spend the allowance",
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => ({ kind: "transient_provider" as const }),
+        failure: () => "transient_provider" as const,
         dispose() {},
       };
     },
@@ -675,7 +675,7 @@ test("non-transient provider failures are not resumable", async () => {
       return {
         prompt: async () => { throw new Error("insufficient_quota"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => ({ kind: "provider" as const }),
+        failure: () => "provider" as const,
         dispose() {},
       };
     },
@@ -695,7 +695,7 @@ test("a new manager cannot resume from leftover artifacts", async () => {
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => ({ kind: "transient_provider" as const }),
+        failure: () => "transient_provider" as const,
         dispose() {},
       };
     },

@@ -22,10 +22,10 @@ function setup(options: ConstructorParameters<typeof RunManager>[0] extends infe
 function transient(starts: { count: number }, workspace = "/repo", mode: "inspect" | "edit" = "inspect"): PreparedTask {
   return plan(undefined, {
     mode, agent: mode === "edit" ? "worker" : "reviewer", workspace, cwd: workspace,
-    async start(context, options) {
+    async start(context, resumeFrom) {
       starts.count++;
-      if (options?.resumeFrom && !options.resumeFrom.sessionPath.endsWith("test.jsonl")) {
-        throw new Error(`resume opened the wrong transcript: ${options.resumeFrom.sessionPath}`);
+      if (resumeFrom && !resumeFrom.sessionPath.endsWith("test.jsonl")) {
+        throw new Error(`resume opened the wrong transcript: ${resumeFrom.sessionPath}`);
       }
       context.transcript(context.directory + "/transcript/test.jsonl");
       const current = starts.count;
@@ -35,7 +35,7 @@ function transient(starts: { count: number }, workspace = "/repo", mode: "inspec
           return { report: `recovered-${current}`, toolErrors: 0 };
         },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current === 1 ? { kind: "transient_provider" as const } : undefined,
+        failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
     },
@@ -160,14 +160,14 @@ test("8 a thrown resume start must not stay starting or count as success", async
   const { manager } = setup();
   let starts = 0;
   const [id] = await manager.launch([plan(undefined, {
-    async start(context, options) {
+    async start(context, resumeFrom) {
       starts++;
       context.transcript(context.directory + "/transcript/test.jsonl");
-      if (options?.resumeFrom) throw new Error("ENOENT: transcript missing");
+      if (resumeFrom) throw new Error("ENOENT: transcript missing");
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => ({ kind: "transient_provider" as const }),
+        failure: () => "transient_provider" as const,
         dispose() {},
       };
     },
@@ -210,7 +210,7 @@ test("10 notice/list hide exhausted resume; a new manager cannot revive artifact
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => ({ kind: "transient_provider" as const }),
+        failure: () => "transient_provider" as const,
         dispose() {},
       };
     },
@@ -373,7 +373,7 @@ test("15 resume without a native session id cannot open a replacement transcript
     directory: path.join(path.dirname(a.failed.sessionPath!), "orphan"),
     own() {}, progress() {}, preview() {}, transcript() {},
     ask: async () => "no",
-  }, { resumeFrom: { sessionPath: a.failed.sessionPath!, launchHead: a.failed.launchHead } }), /native session identity/);
+  }, { sessionPath: a.failed.sessionPath!, launchHead: a.failed.launchHead }), /native session identity/);
   assert.equal(a.calls(), 1);
 });
 

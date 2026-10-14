@@ -8,7 +8,7 @@ import {
 import { Type } from "typebox";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
-import type { ContextEstimate, FailureInfo, SubAgent, PreparedTask, Profile, RunContext, SessionStartOptions, Task, Telemetry, Thinking } from "./types.ts";
+import type { ContextEstimate, FailureKind, SubAgent, PreparedTask, Profile, ResumeFrom, RunContext, Task, Telemetry, Thinking } from "./types.ts";
 
 export function contextEstimate(usage: ContextUsage | undefined, window?: number): ContextEstimate {
   const limit = usage?.contextWindow ?? window;
@@ -31,11 +31,11 @@ Use contact_agent for missing decisions; do not improvise around missing require
 Your tools run with the host's OS permissions, not in a sandbox. Stay in your assigned workspace and scope.
 Return your report normally. The host saves it; do not write a report file yourself or send a completion question.
 Do not claim checks passed without evidence. The agent, not you, decides acceptance.`;
-export function classifySessionFailure(session: AgentSession, signal: AbortSignal, fromMessage = 0): FailureInfo {
+export function classifySessionFailure(session: AgentSession, signal: AbortSignal, fromMessage = 0): FailureKind {
   const last = session.messages.slice(fromMessage).filter((message): message is AssistantMessage => message.role === "assistant").at(-1);
-  if (signal.aborted || last?.stopReason === "aborted") return { kind: "cancelled" };
-  if (last?.stopReason === "error") return { kind: isRetryableAssistantError(last) ? "transient_provider" : "provider" };
-  return { kind: "unknown" };
+  if (signal.aborted || last?.stopReason === "aborted") return "cancelled";
+  if (last?.stopReason === "error") return isRetryableAssistantError(last) ? "transient_provider" : "provider";
+  return "unknown";
 }
 
 export function contactAgentTool(context: RunContext): ToolDefinition<typeof QuestionParams> {
@@ -86,19 +86,19 @@ export function prepareNative(options: NativeOptions): PreparedTask {
   }, { projectTrusted: true });
   return {
     ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode,
-    async start(context, startOptions?: SessionStartOptions) {
+    async start(context, resumeFrom?: ResumeFrom) {
       context.signal.throwIfAborted();
       publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
-      const resume = startOptions?.resumeFrom;
-      if (resume) {
-        if (!resume.sessionId) throw new Error("Resume requires the saved native session identity");
+      if (resumeFrom) {
+        if (!resumeFrom.sessionId) throw new Error("Resume requires the saved native session identity");
         let info;
-        try { info = await stat(resume.sessionPath); }
+        try { info = await stat(resumeFrom.sessionPath); }
         catch { throw new Error("Resume requires the saved transcript; it is missing"); }
         if (!info.isFile() || info.size < 1) throw new Error("Resume requires the saved transcript; it is missing");
       }
-      const head = resume ? resume.launchHead : await captureHead(options.workspace, context.signal);
-      if (!resume) context.baseline?.(head);
+      // On resume the head is the original launch baseline; the manager keeps the first report.
+      const head = resumeFrom ? resumeFrom.launchHead : await captureHead(options.workspace, context.signal);
+      context.baseline?.(head);
       const tools = profile.mode === "edit" ? EDIT_TOOLS : INSPECT_TOOLS;
       const loader = new DefaultResourceLoader({
         cwd: options.cwd, agentDir: options.agentDir, settingsManager: settings,
@@ -112,18 +112,18 @@ export function prepareNative(options: NativeOptions): PreparedTask {
         cwd: options.cwd, agentDir: options.agentDir, modelRuntime: runtime, model, thinkingLevel: thinking,
         settingsManager: settings, resourceLoader: loader, tools,
         customTools: [diffTool(options.workspace, head), contactAgentTool(context)],
-        sessionManager: resume
-          ? SessionManager.open(resume.sessionPath, path.dirname(resume.sessionPath), options.cwd)
+        sessionManager: resumeFrom
+          ? SessionManager.open(resumeFrom.sessionPath, path.dirname(resumeFrom.sessionPath), options.cwd)
           : SessionManager.create(options.cwd, path.join(context.directory, "transcript")),
       });
       const subAgent = wrapSession(session, task.task, context);
       context.own(subAgent);
-      if (resume) {
+      if (resumeFrom) {
         const file = session.sessionManager.getSessionFile();
-        if (!file || path.resolve(file) !== path.resolve(resume.sessionPath)) {
+        if (!file || path.resolve(file) !== path.resolve(resumeFrom.sessionPath)) {
           throw new Error("Resumed session did not reopen the saved transcript");
         }
-        if (session.sessionId !== resume.sessionId) throw new Error("Resumed session identity changed");
+        if (session.sessionId !== resumeFrom.sessionId) throw new Error("Resumed session identity changed");
       }
       context.signal.throwIfAborted();
       // onError may fire outside the bindExtensions stack; record, then throw here.
@@ -146,7 +146,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
 export function wrapSession(session: AgentSession, task: string, context: RunContext): SubAgent {
   let settled = false;
   let toolErrors = 0;
-  let failure: FailureInfo | undefined;
+  let failure: FailureKind | undefined;
   let disposed = false;
   let refreshQueued = false;
   if (!context.signal.aborted) publishTelemetry(context, {

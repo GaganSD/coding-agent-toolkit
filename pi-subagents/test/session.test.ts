@@ -9,23 +9,23 @@ function session(messages: Array<{ role: string; stopReason?: string; errorMessa
 
 test("classifySessionFailure is fail-closed except retryable provider errors", () => {
   const live = new AbortController().signal;
-  assert.equal(classifySessionFailure(session([]), live).kind, "unknown");
-  assert.equal(classifySessionFailure(session([{ role: "user" }]), live).kind, "unknown");
-  assert.equal(classifySessionFailure(session([{ role: "assistant", stopReason: "stop" }]), live).kind, "unknown");
-  assert.equal(classifySessionFailure(session([{ role: "assistant", stopReason: "aborted" }]), live).kind, "cancelled");
+  assert.equal(classifySessionFailure(session([]), live), "unknown");
+  assert.equal(classifySessionFailure(session([{ role: "user" }]), live), "unknown");
+  assert.equal(classifySessionFailure(session([{ role: "assistant", stopReason: "stop" }]), live), "unknown");
+  assert.equal(classifySessionFailure(session([{ role: "assistant", stopReason: "aborted" }]), live), "cancelled");
   const cancelled = new AbortController();
   cancelled.abort();
   assert.equal(classifySessionFailure(session([{
     role: "assistant", stopReason: "error", errorMessage: "503 Service Unavailable",
-  }]), cancelled.signal).kind, "cancelled");
+  }]), cancelled.signal), "cancelled");
   assert.equal(classifySessionFailure(session([{
     role: "assistant", stopReason: "error", errorMessage: "503 Service Unavailable",
-  }]), live).kind, "transient_provider");
+  }]), live), "transient_provider");
   assert.equal(classifySessionFailure(session([{
     role: "assistant", stopReason: "error", errorMessage: "insufficient_quota",
-  }]), live).kind, "provider");
+  }]), live), "provider");
   assert.equal(classifySessionFailure(session([
     { role: "assistant", stopReason: "error", errorMessage: "503 Service Unavailable" },
     { role: "assistant", stopReason: "stop" },
-  ]), live, 1).kind, "unknown");
+  ]), live, 1), "unknown");
 });

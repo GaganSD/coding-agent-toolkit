@@ -15,7 +15,6 @@ export interface Config { maxConcurrent: number; maxRuns: number; timeoutMs: num
 export type State = "starting" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
 export type FailureKind = "transient_provider" | "provider" | "cancelled" | "unknown";
-export interface FailureInfo { kind: FailureKind }
 export interface ResumeState {
   eligible: boolean;
   attempts: number;
@@ -64,7 +63,7 @@ export interface SubAgent {
   prompt(message?: string): Promise<SubAgentResult>;
   steer(message: string): Promise<string>;
   abort(): Promise<void>;
-  failure?(): FailureInfo | undefined;
+  failure?(): FailureKind | undefined;
   evidence?(): Pick<SubAgentResult, "usage" | "toolErrors">;
   dispose(): void | Promise<void>;
 }
@@ -84,16 +83,14 @@ export interface RunContext {
   transcript(path: string): void;
   ask(message: string, signal?: AbortSignal): Promise<string>;
 }
-export interface SessionStartOptions {
-  resumeFrom?: { sessionPath: string; launchHead?: string; sessionId?: string };
-}
+export interface ResumeFrom { sessionPath: string; launchHead?: string; sessionId?: string }
 export interface PreparedTask extends Task {
   mode: Mode;
   cwd: string;
   workspace: string;
   model: string;
   thinking: Thinking;
-  start(context: RunContext, options?: SessionStartOptions): Promise<SubAgent>;
+  start(context: RunContext, resumeFrom?: ResumeFrom): Promise<SubAgent>;
 }
 export function errorText(error: unknown): string {
   return describe(error, 0);
