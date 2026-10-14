@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ArtifactStore } from "./artifacts.ts";
-import { errorText, isLive, PREVIEW_LINES, type FailureInfo, type ResumeAttempt, type SubAgent, type Config, type PreparedTask, type Question, type RunRecord, type SessionStartOptions } from "./types.ts";
+import { MAX_RESUMES } from "./config.ts";
+import { errorText, isLive, PREVIEW_LINES, RESUME_PROMPT, type FailureInfo, type FailureKind, type ResumeState, type SubAgent, type Config, type PreparedTask, type Question, type RunRecord, type SessionStartOptions } from "./types.ts";
 import { overlaps } from "./workspace.ts";
 import { text } from "./validation.ts";
+
+function resumeState(attempts: number, eligible: boolean, kind?: FailureKind): ResumeState {
+  return { eligible, attempts, maxAttempts: MAX_RESUMES, ...(kind ? { kind } : {}) };
+}
 
 interface PendingQuestion {
   question: Question;
@@ -100,7 +105,7 @@ export class RunManager {
           run.record.state = "failed";
           run.record.error = `Admission failed; sub-agent was not started: ${errorText(error)}`;
           run.record.endedAt = new Date().toISOString();
-          return this.persist(run);
+          await this.persist(run);
         }));
         throw error;
       }
@@ -122,26 +127,24 @@ export class RunManager {
     await previous;
     try {
       const run = this.owned(id);
-      const record = run.record;
-      const evidence = record.resume;
-      if (record.state !== "failed" || !evidence?.eligible || evidence.failure?.kind !== "transient_provider") {
-        throw new Error("Resume requires a failed transient provider run with confirmed cleanup and a saved transcript");
-      }
-      if (evidence.attempts - 1 >= evidence.maxAttempts) throw new Error("Resume allowance exhausted");
-      if (!record.sessionPath) throw new Error("Resume requires a saved native transcript");
+      this.assertResumable(run);
+      await run.work;
+      if (run.finishing) await run.finishing.catch(() => {});
+      await run.writes;
+      this.assertResumable(run);
       this.assertLaunchable();
       if (this.activeCount + 1 > this.options.config.maxConcurrent) throw new Error("Concurrent sub-agent limit reached; wait for existing results");
+      const record = run.record;
       const live = [...this.runs.values()].filter(item => isLive(item.record.state)).map(item => item.record);
       for (const other of live) {
         if ((record.mode === "edit" || other.mode === "edit") && await overlaps(record.workspace, other.workspace)) {
           throw new Error("Conflicting delegated workspaces: writers cannot overlap other readers or writers. Use separate existing worktrees.");
         }
       }
-      const startedAt = new Date().toISOString();
-      const resumeState = { ...evidence, eligible: false, attempts: evidence.attempts + 1, failure: undefined };
-      record.resume = resumeState;
-      record.state = "resuming";
-      record.startedAt = startedAt;
+      const attempts = record.resume!.attempts + 1;
+      record.resume = resumeState(attempts, false);
+      record.state = "starting";
+      record.startedAt = new Date().toISOString();
       record.endedAt = undefined;
       record.currentTool = undefined;
       record.question = undefined;
@@ -155,9 +158,6 @@ export class RunManager {
       run.question = undefined;
       run.subAgent = undefined;
       run.controller = new AbortController();
-      run.work = Promise.resolve();
-      run.writes = Promise.resolve();
-      run.pendingWrites = new Set();
       run.notified = false;
       run.cleaned = false;
       run.stopping = undefined;
@@ -168,12 +168,13 @@ export class RunManager {
         record.state = "failed";
         record.endedAt = new Date().toISOString();
         record.error = `Resume publication failed; sub-agent was not started: ${errorText(error)}`;
-        record.resume = { ...resumeState, eligible: false };
+        record.resume = resumeState(attempts, false);
         await this.persist(run).catch(() => {});
         throw error;
       }
+      clearTimeout(run.timer);
       run.timer = setTimeout(() => { void this.stop(record.id, "Run deadline exceeded").catch(() => {}); }, this.options.config.timeoutMs);
-      run.work = this.execute(run, run.plan, { resumeFrom: { sessionPath: record.sessionPath, launchHead: record.launchHead } });
+      run.work = this.execute(run, run.plan, { resumeFrom: { sessionPath: record.sessionPath!, launchHead: record.launchHead } });
       this.changed();
     } finally { release(); }
   }
@@ -241,6 +242,14 @@ export class RunManager {
     if (this.blocked) throw new Error(this.blocked);
     this.options.assertLaunchable?.();
   }
+  private assertResumable(run: Run): void {
+    const record = run.record;
+    const evidence = record.resume;
+    if (record.state !== "failed" || evidence?.kind !== "transient_provider" || !record.sessionPath) {
+      throw new Error("Resume requires a failed transient provider run with confirmed cleanup and a saved transcript");
+    }
+    if (!evidence.eligible || evidence.attempts >= evidence.maxAttempts) throw new Error("Resume allowance exhausted");
+  }
   private poison(run: Run, reason: string): void {
     if (run.record.state === "cleanup_unknown") return;
     run.record.state = "cleanup_unknown";
@@ -271,10 +280,7 @@ export class RunManager {
   private async execute(run: Run, plan: PreparedTask, startOptions?: SessionStartOptions): Promise<void> {
     let failed: string | undefined;
     let failure: FailureInfo | undefined;
-    const attempt = startOptions?.resumeFrom ? (run.record.resume?.attempts ?? 0) : (run.record.resume?.attempts ?? 0) + 1;
-    const maxAttempts = run.record.resume?.maxAttempts ?? this.options.config.maxResumes;
-    const startedAt = run.record.startedAt;
-    const history = startOptions?.resumeFrom ? run.record.resume?.history ?? [] : [];
+    const attempts = startOptions?.resumeFrom ? (run.record.resume?.attempts ?? 1) : 0;
     try {
       const subAgent = await plan.start({
         signal: run.controller.signal, directory: this.options.store.directory(run.record.id),
@@ -315,9 +321,7 @@ export class RunManager {
       await this.persist(run);
       this.changed();
       run.controller.signal.throwIfAborted();
-      const result = startOptions?.resumeFrom
-        ? await run.subAgent.prompt("Continue the original task from this saved conversation. A transient provider failure interrupted the previous attempt. Do not repeat completed tool calls; inspect the current state and finish the original task.")
-        : await run.subAgent.prompt();
+      const result = startOptions?.resumeFrom ? await run.subAgent.prompt(RESUME_PROMPT) : await run.subAgent.prompt();
       run.record.usage = result.usage;
       run.record.toolErrors = result.toolErrors;
       run.controller.signal.throwIfAborted();
@@ -342,26 +346,13 @@ export class RunManager {
     if (run.cleaned) run.subAgent = undefined; // Do not retain SDK transcripts through settled wrappers.
     if (unclean) this.poison(run, `Cleanup not confirmed: ${unclean}`);
     if (failed || failure) {
-      const entry = {
-        attempt, startedAt, endedAt: new Date().toISOString(),
-        state: (run.controller.signal.aborted ? "cancelled" : "failed") as RunRecord["state"],
-        ...(failed ? { error: failed } : {}), ...(failure ? { failure } : {}),
-      };
-      run.record.resume = {
-        eligible: Boolean(failure?.resumable && run.cleaned && run.record.sessionPath && !run.controller.signal.aborted),
-        attempts: attempt,
-        maxAttempts,
-        ...(failure ? { failure } : {}),
-        history: [...history, entry].slice(-8),
-      };
-    } else if (history.length) {
-      const completed: ResumeAttempt = { attempt, startedAt, endedAt: new Date().toISOString(), state: "completed" };
-      run.record.resume = {
-        eligible: false,
-        attempts: attempt,
-        maxAttempts,
-        history: [...history, completed].slice(-8),
-      };
+      run.record.resume = resumeState(
+        attempts,
+        Boolean(failure?.resumable && run.cleaned && run.record.sessionPath && !run.controller.signal.aborted && attempts < MAX_RESUMES),
+        failure?.kind,
+      );
+    } else if (startOptions?.resumeFrom) {
+      run.record.resume = resumeState(attempts, false);
     }
     // A stop deadline may have published failure or uncertainty already. Never promote it later.
     if (run.record.state === "cleanup_unknown" || !isLive(run.record.state)) {

@@ -84,7 +84,7 @@ export function presentRun(record: RunRecord) {
     ...(record.notificationError ? { notificationError: clip(record.notificationError, 512) } : {}),
     ...(record.resume ? { resume: {
       eligible: record.resume.eligible, attempts: record.resume.attempts, maxAttempts: record.resume.maxAttempts,
-      ...(record.resume.failure ? { kind: record.resume.failure.kind } : {}),
+      ...(record.resume.kind ? { kind: record.resume.kind } : {}),
     } } : {}),
     ...((record.question?.message.length ?? 0) > 2048 || (record.error?.length ?? 0) > 512 || (record.notificationError?.length ?? 0) > 512 ? { truncated: true as const } : {}),
   };
@@ -151,10 +151,10 @@ export function resultPreview(result: unknown): string {
 
 const closed = { additionalProperties: false };
 const ModeSchema = Type.String({ enum: ["inspect", "edit"] });
-const StateSchema = Type.String({ enum: ["starting", "resuming", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"] });
+const StateSchema = Type.String({ enum: ["starting", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"] });
 const ResumeSchema = Type.Object({
   eligible: Type.Boolean(), attempts: Type.Number(), maxAttempts: Type.Number(),
-  kind: Type.Optional(Type.String({ enum: ["transient_provider", "provider", "cancelled", "startup", "publication", "cleanup", "unknown"] })),
+  kind: Type.Optional(Type.String({ enum: ["transient_provider", "provider", "cancelled", "unknown"] })),
 }, closed);
 const RunSchema = Type.Object({
   id: Type.String(), state: StateSchema,

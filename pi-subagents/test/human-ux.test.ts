@@ -195,7 +195,7 @@ test("Stop stays available during an in-flight send and requires separate confir
 
 function failedRecord(eligible: boolean): RunRecord {
   return { ...record("failed-run", "failed"), endedAt: new Date(1).toISOString(),
-    resume: { eligible, attempts: 1, maxAttempts: 3, failure: { kind: "transient_provider", resumable: true } } };
+    resume: { eligible, attempts: 0, maxAttempts: 3, kind: "transient_provider" } };
 }
 
 test("Resume appears only for eligible failed runs and requires separate confirmation", async t => {
@@ -207,7 +207,7 @@ test("Resume appears only for eligible failed runs and requires separate confirm
   // Settled records open in the transcript zone: one Tab reaches actions.
   const resumeAction = () => { view.handleInput("\t"); for (let i = 0; i < 6; i++) view.handleInput("\x1b[C"); view.handleInput("\r"); };
   resumeAction();
-  assert(view.render(140).join("\n").includes("attempt 1 of 3"));
+  assert(view.render(140).join("\n").includes("0 of 3 resumes used"));
   assert.equal(h.resumes.length, 0);
   assert(view.render(140).join("\n").includes("Enter confirms"));
   view.handleInput("\x1b");
@@ -225,7 +225,7 @@ test("a Resume click that becomes stale before confirmation sends no request", a
   const eligible = failedRecord(true);
   const h = harness(eligible), view = new InspectView(terminal(), theme, eligible.id, h.actions, () => {}); t.after(() => view.dispose());
   view.handleInput("\t"); for (let i = 0; i < 6; i++) view.handleInput("\x1b[C"); view.handleInput("\r");
-  h.update({ ...eligible, state: "resuming" });
+  h.update({ ...eligible, state: "starting" });
   view.handleInput("\r"); await tick();
   assert.equal(h.resumes.length, 0);
   assert(view.render(140).join("\n").includes("Resume unavailable"));

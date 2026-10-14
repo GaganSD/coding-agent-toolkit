@@ -425,20 +425,17 @@ test("resume restarts an eligible failed run with the same ID, transcript, and b
   const failed = manager.status(id!);
   assert.equal(failed.state, "failed");
   assert.equal(failed.resume?.eligible, true);
-  assert.equal(failed.resume?.attempts, 1);
+  assert.equal(failed.resume?.attempts, 0);
   assert.equal(failed.resume?.maxAttempts, 3);
-  assert.equal(failed.resume?.failure?.kind, "transient_provider");
-  assert.equal(failed.resume?.history?.length, 1);
+  assert.equal(failed.resume?.kind, "transient_provider");
   assert.deepEqual(notifications.map(item => item.kind), ["finished"]);
   await manager.resume(id!);
   await manager.settled(id!);
   const completed = manager.status(id!);
   assert.equal(completed.state, "completed");
-  assert.equal(completed.resume?.attempts, 2);
-  assert.equal(completed.resume?.failure, undefined);
-  assert.equal(completed.resume?.history?.length, 2);
-  assert.equal(completed.resume?.history?.[0]?.state, "failed");
-  assert.equal(completed.resume?.history?.[1]?.state, "completed");
+  assert.equal(completed.resume?.attempts, 1);
+  assert.equal(completed.resume?.eligible, false);
+  assert.equal(completed.resume?.kind, undefined);
   assert.equal(calls, 2);
   assert.equal(prompts[0], "<original>");
   assert.match(prompts[1]!, /transient provider failure/);
@@ -545,30 +542,32 @@ test("concurrent resume requests start one attempt and do not consume launch bud
 });
 
 test("resume allowance exhausts even when failures stay transient", async () => {
-  const { manager } = setup({ config: { ...DEFAULT_CONFIG, maxResumes: 1 } });
-  let calls = 0;
+  const { manager } = setup();
+  let starts = 0;
   const [id] = await manager.launch([plan(undefined, {
     async start(context) {
+      starts++;
       context.transcript(context.directory + "/transcript/test.jsonl");
-      const current = ++calls;
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
         steer: async () => "queued", abort: async () => {},
-        failure: () => current <= 2 ? { kind: "transient_provider" as const, resumable: true } : undefined,
+        failure: () => ({ kind: "transient_provider" as const, resumable: true }),
         dispose() {},
       };
     },
   })]);
   await manager.settled(id!);
   assert.equal(manager.status(id!).resume?.eligible, true);
-  await manager.resume(id!);
-  await manager.settled(id!);
+  for (let used = 0; used < 3; used++) {
+    await manager.resume(id!);
+    await manager.settled(id!);
+  }
   const failed = manager.status(id!);
   assert.equal(failed.state, "failed");
-  assert.equal(failed.resume?.attempts, 2);
-  assert.equal(failed.resume?.eligible, true);
+  assert.equal(failed.resume?.attempts, 3);
+  assert.equal(failed.resume?.eligible, false);
   await assert.rejects(manager.resume(id!), /Resume allowance exhausted/);
-  assert.equal(calls, 2);
+  assert.equal(starts, 4);
 });
 
 test("resume applies a fresh timeout to the new attempt", async () => {

@@ -11,18 +11,16 @@ export interface Profile {
   source: string;
 }
 export interface Task { agent: string; task: string; cwd?: string; model?: string; thinking?: Thinking }
-export interface Config { maxConcurrent: number; maxRuns: number; maxResumes: number; timeoutMs: number }
-export type State = "starting" | "resuming" | "running" | "waiting_for_agent" | "cancelling"
+export interface Config { maxConcurrent: number; maxRuns: number; timeoutMs: number }
+export type State = "starting" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
-export type FailureKind = "transient_provider" | "provider" | "cancelled" | "startup" | "publication" | "cleanup" | "unknown";
+export type FailureKind = "transient_provider" | "provider" | "cancelled" | "unknown";
 export interface FailureInfo { kind: FailureKind; resumable: boolean }
-export interface ResumeAttempt { attempt: number; startedAt: string; endedAt?: string; state: State; error?: string; failure?: FailureInfo }
 export interface ResumeState {
   eligible: boolean;
   attempts: number;
   maxAttempts: number;
-  failure?: FailureInfo;
-  history?: ResumeAttempt[];
+  kind?: FailureKind;
 }
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
 export interface Question { id: string; message: string }
@@ -71,6 +69,7 @@ export interface SubAgent {
   dispose(): void | Promise<void>;
 }
 export const PREVIEW_LINES = 24;
+export const RESUME_PROMPT = "Continue the original task from this saved conversation. A transient provider failure interrupted the previous attempt. Do not repeat completed tool calls; inspect the current state and finish the original task.";
 export interface RunContext {
   signal: AbortSignal;
   directory: string;

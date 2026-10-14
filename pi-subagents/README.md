@@ -43,22 +43,6 @@ and print/RPC/standalone hosts are not supported.
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
-### Resuming failed sub-agents
-
-A run that fails on a transient provider or transport error (for example a 429,
-5xx, or a dropped connection after Pi's own retries are exhausted) can be
-resumed explicitly instead of relaunched from scratch. Resume reopens the saved
-native transcript under the same run ID and continues the task with the original
-tool loadout, model, thinking level, and launch diff baseline; completed tool
-calls are not replayed. Use `subagent` `action: "resume"` with the exact run ID,
-`/subagents resume <id>`, or the confirmed Resume action on a failed thread.
-
-Resume is only available while the owning Pi session still owns the run, the
-failure is classified as transient, cleanup completed, and the saved transcript
-exists. It is never automatic and is bounded per run (`minimalSubagents.maxResumes`,
-default 3, maximum 8). Cancelled, completed, cleanup-unknown, and reloaded
-sessions cannot be resumed; their artifacts remain evidence only.
-
 ### Model and thinking selection
 
 Model and thinking resolve from the task, then the profile, then the owning agent.
@@ -86,7 +70,8 @@ Run/session UUIDs and PID are not primary navigation labels.
   conversation and actions; **PageUp/PageDown** scrolls. **Esc/Back** returns.
 - **Details** exposes technical evidence; **Tools** expands tool output;
   **Older/Latest** pages conversation history. **Stop** requires confirmation and
-  stays available independently of an in-flight send.
+  stays available independently of an in-flight send. **Resume** appears only for
+  a transient provider failure with a saved transcript and also requires confirmation.
 
 The thread paints the whole conversation workspace, not a translucent diagnostic
 popup. With cooperative Slate and a compatible fullscreen Pi 1.1+ host, it borrows

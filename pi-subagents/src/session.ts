@@ -8,6 +8,7 @@ import { Type } from "typebox";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
 import type { ContextEstimate, FailureInfo, SubAgent, PreparedTask, Profile, RunContext, SessionStartOptions, Task, Telemetry, Thinking } from "./types.ts";
+export { RESUME_PROMPT } from "./types.ts";
 
 export function contextEstimate(usage: ContextUsage | undefined, window?: number): ContextEstimate {
   const limit = usage?.contextWindow ?? window;
@@ -30,8 +31,6 @@ Use contact_agent for missing decisions; do not improvise around missing require
 Your tools run with the host's OS permissions, not in a sandbox. Stay in your assigned workspace and scope.
 Return your report normally. The host saves it; do not write a report file yourself or send a completion question.
 Do not claim checks passed without evidence. The agent, not you, decides acceptance.`;
-export const RESUME_PROMPT = "Continue the original task from this saved conversation. A transient provider failure interrupted the previous attempt. Do not repeat completed tool calls; inspect the current state and finish the original task.";
-
 export function classifySessionFailure(session: AgentSession, signal: AbortSignal, fromMessage = 0): FailureInfo {
   const last = session.messages.slice(fromMessage).filter((message): message is AssistantMessage => message.role === "assistant").at(-1);
   if (signal.aborted || last?.stopReason === "aborted") return { kind: "cancelled", resumable: false };

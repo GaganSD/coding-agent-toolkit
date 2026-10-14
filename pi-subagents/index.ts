@@ -115,7 +115,6 @@ export default function subagents(pi: ExtensionAPI): void {
     const settings = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: ctx.isProjectTrusted() });
     const errors = settings.drainErrors();
     if (errors.length) throw new Error(`Invalid Pi settings: ${errors.map(error => error.error.message).join("; ")}`);
-    // SAFETY: Pi's settings type is opaque to extensions; narrow to a plain record and let parseConfig validate the shape.
     const config = parseConfig((settings.getSettings() as unknown as Record<string, unknown>).minimalSubagents);
     const admitted = admittedCount(ctx, owner);
     const ownerHash = createHash("sha256").update(owner).digest("hex").slice(0, 20);

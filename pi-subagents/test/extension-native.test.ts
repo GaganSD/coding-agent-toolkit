@@ -156,10 +156,10 @@ test("public tool: a transient native failure resumes through the tool on the sa
     const failedRecord = failed.details as RunRecord;
     assert.equal(failedRecord.state, "failed");
     assert.equal(failedRecord.resume?.eligible, true);
-    assert.equal(failedRecord.resume?.failure?.kind, "transient_provider");
+    assert.equal(failedRecord.resume?.kind, "transient_provider");
     assert(Check(OutputSchema, failed.structuredContent));
     const failedView = failed.structuredContent as { resume: { eligible: boolean; attempts: number; maxAttempts: number; kind: string } };
-    assert.deepEqual(failedView.resume, { eligible: true, attempts: 1, maxAttempts: 3, kind: "transient_provider" });
+    assert.deepEqual(failedView.resume, { eligible: true, attempts: 0, maxAttempts: 3, kind: "transient_provider" });
     await assert.rejects(execute({ action: "resume", id: "foreign-run" }), /Unknown run ID/);
     const resumed = await execute({ action: "resume", id: receipt!.id });
     assert(Check(OutputSchema, resumed.structuredContent));
@@ -168,7 +168,7 @@ test("public tool: a transient native failure resumes through the tool on the sa
     const record = final.details as RunRecord;
     assert.equal(record.state, "completed");
     assert.equal(record.sessionId, failedRecord.sessionId, "resume retains the native session identity");
-    assert.equal(record.resume?.attempts, 2);
+    assert.equal(record.resume?.attempts, 1);
     assert.equal(record.usage!.input, 10, "usage accumulates across attempts");
     assert.match(await readFile(record.reportPath!, "utf8"), /recovered after resume/);
     assert.equal(calls, 2);

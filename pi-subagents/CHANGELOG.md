@@ -2,19 +2,6 @@
 
 ## Unreleased
 
-### Added
-
-- Explicit resume for transient provider failures. A run whose final assistant
-  error is retryable (rate limit, 5xx, transport reset) can be continued from its
-  saved native transcript through `subagent` `action: "resume"`,
-  `/subagents resume <id>`, or the confirmed Resume action on a failed thread.
-  The attempt keeps the same run ID, native session identity, tool loadout, and
-  launch diff baseline, and completed tool calls are not replayed. Resume is
-  bounded per run (`minimalSubagents.maxResumes`, default 3, maximum 8), shares
-  launch admission (concurrency, workspace overlap, and cleanup fences), and is
-  same-runtime only: cancelled, completed, cleanup-unknown, and reloaded runs
-  cannot resume. Bounded attempt history is preserved in `run.json`.
-
 ## 0.0.5
 
 Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate, slim image preview, hide leftover peeks, and a single new-session chip. Settled sub-agents leave the roster and publish display-only dashboard snapshots.

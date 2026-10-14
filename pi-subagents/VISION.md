@@ -15,12 +15,7 @@ Markdown files, not new execution engines.
 There is one execution path: fresh Pi SDK sessions inside the owning agent
 process. Launches are asynchronous but session-bound. They do not survive agent
 exit, reload, or session replacement. Old artifacts are evidence, not permission
-to resume work. One bounded exception exists: while the owning runtime still owns
-the run, an explicit `resume` may continue a failed run from its saved transcript
-after a transient provider failure with confirmed cleanup. It keeps the same run
-ID, workspace reservation, and native session; it is never automatic, never
-applies to cancelled/completed/uncertain-cleanup runs, and never survives reload.
-There is no detached runner, durable queue, recursive delegation,
+to resume work. There is no detached runner, durable queue, recursive delegation,
 workflow language, mission ledger, scheduler, or external agent adapter.
 
 The supported host is stable local npm Pi 1.x (>=1.0.0, <2.0.0) on Node in

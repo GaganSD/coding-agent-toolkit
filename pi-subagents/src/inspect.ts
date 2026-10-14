@@ -202,7 +202,7 @@ export class InspectView implements Component, Focusable {
     }
     if (this.confirmResume) {
       if (matchesKey(data, "escape")) { this.confirmResume = false; this.note = "Resume cancelled"; }
-      else if (matchesKey(data, "enter")) { this.confirmResume = false; void this.restart(); }
+      else if (matchesKey(data, "enter")) { this.confirmResume = false; void this.resumeRun(); }
       this.tui.requestRender(); return;
     }
     if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { this.dispose(); return; }
@@ -290,7 +290,7 @@ export class InspectView implements Component, Focusable {
       `Workspace: ${record.cwd}`, `Model: ${record.model} · ${record.thinking}`, `Context estimate: ${formatContext(record)}`,
       `Usage: ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
       `Report: ${record.reportPath ?? "not saved"}`, `Delivery warning: ${record.notificationError ?? "none"}`,
-      `Resume: ${record.resume ? `${record.resume.eligible ? "eligible" : "not eligible"} · attempt ${record.resume.attempts} of ${record.resume.maxAttempts}` : "not resumable"}`,
+      `Resume: ${record.resume ? `${record.resume.eligible ? "eligible" : "not eligible"} · ${record.resume.attempts} of ${record.resume.maxAttempts} resumes used` : "not resumable"}`,
     ].join("\n")), width);
     const lines: string[] = [];
     if (this.history) lines.push(this.theme.fg("dim", "Earlier conversation page · Latest returns to live messages"));
@@ -367,7 +367,7 @@ export class InspectView implements Component, Focusable {
       const record = this.safeStatus();
       if (!record || record.state !== "failed" || !record.resume?.eligible) this.note = "Resume unavailable";
       else if (this.resuming) this.note = "Resume already requested";
-      else { this.confirmResume = true; this.note = `Resume this worker (attempt ${record.resume.attempts} of ${record.resume.maxAttempts} used)? Enter confirms · Esc cancels`; }
+      else { this.confirmResume = true; this.note = `Resume this worker (${record.resume.attempts} of ${record.resume.maxAttempts} resumes used)? Enter confirms · Esc cancels`; }
     }
     else if (index === 3) {
       const path = this.safeStatus()?.sessionPath;
@@ -418,7 +418,7 @@ export class InspectView implements Component, Focusable {
     catch (error) { this.note = plain(errorText(error)); }
     finally { this.stopping = false; if (!this.closed) this.tui.requestRender(); }
   }
-  private async restart(): Promise<void> {
+  private async resumeRun(): Promise<void> {
     if (this.closed || this.resuming) return;
     const record = this.safeStatus();
     if (!record || record.state !== "failed" || !record.resume?.eligible) { this.note = "Resume unavailable"; this.tui.requestRender(); return; }

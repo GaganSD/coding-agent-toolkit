@@ -183,7 +183,7 @@ test("real SDK: transient provider failure restores one transcript without repla
   const failed = f.manager.status(id!);
   assert.equal(failed.state, "failed", JSON.stringify(failed));
   assert.equal(failed.resume?.eligible, true, JSON.stringify(failed));
-  assert.equal(failed.resume?.failure?.kind, "transient_provider");
+  assert.equal(failed.resume?.kind, "transient_provider");
   assert.equal(failed.launchHead, launchHead);
   assert(failed.sessionPath);
   const before = await readFile(failed.sessionPath, "utf8");
