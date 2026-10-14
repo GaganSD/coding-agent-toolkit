@@ -10,11 +10,10 @@ function run(state: RunRecord["state"]): RunRecord {
 test("display snapshots preserve exact owner/id and state without exporting authority or private questions", () => {
   const snapshot = backgroundTaskSnapshot("owner", [run("running"), run("waiting_for_agent"), run("completed"), run("cancelled"), run("failed"), run("cleanup_unknown")]);
   assert.equal(snapshot.version, 1); assert.equal(snapshot.source, "pi-subagents"); assert.equal(snapshot.sessionId, "owner");
-  assert.deepEqual(snapshot.tasks.map(task => task.state), ["running", "waiting", "cleanup_unknown", "failed"]);
+  assert.deepEqual(snapshot.tasks.map(task => task.state), ["running", "waiting", "cleanup_unknown"]);
   assert.equal(snapshot.tasks[0]!.id, "running"); assert.equal(snapshot.tasks[0]!.pid, 42);
   assert.equal(snapshot.tasks[0]!.startedAt, Date.parse("2026-10-09T12:00:00.000Z"));
-  const failed = backgroundTaskSnapshot("owner", [{ ...run("failed"), endedAt: "2026-10-09T12:00:01.185Z" }]);
-  assert.equal(failed.tasks[0]!.endedAt, Date.parse("2026-10-09T12:00:01.185Z"));
+  assert.deepEqual(backgroundTaskSnapshot("owner", [run("failed")]).tasks, []);
   assert.match(snapshot.tasks[0]!.detail, /PID is shared/);
   const json = JSON.stringify(snapshot);
   for (const privateText of ["PRIVATE QUESTION", "metadataPath", "/private/run.json", "question", '"owner":', "workspace"]) assert(!json.includes(privateText));
@@ -30,7 +29,7 @@ test("a large failed history cannot displace live or uncertain runs or exceed th
   const history = Array.from({ length: 100 }, (_, i) => ({ ...run("failed"), id: `failed-${i}`, startedAt: new Date(1000 * i).toISOString() }));
   const records = [...history, run("running"), run("waiting_for_agent"), run("cleanup_unknown")];
   const tasks = backgroundTaskSnapshot("owner", records).tasks;
-  assert.equal(tasks.length, 64);
-  for (const id of ["running", "waiting_for_agent", "cleanup_unknown", "failed-99"]) assert(tasks.some(task => task.id === id));
-  assert(!tasks.some(task => task.id === "failed-0")); assert.equal(records[0]!.id, "failed-0", "manager records are not mutated");
+  assert.equal(tasks.length, 3);
+  for (const id of ["running", "waiting_for_agent", "cleanup_unknown"]) assert(tasks.some(task => task.id === id));
+  assert(!tasks.some(task => task.id.startsWith("failed-"))); assert.equal(records[0]!.id, "failed-0", "manager records are not mutated");
 });
