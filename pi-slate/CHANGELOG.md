@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.16
+
+Verification release; close without merging.
+
 ## 0.1.15
 
 Pick the composer's working animation instead of always getting the wave.
