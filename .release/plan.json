@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "sourceSha": "d0ee9d022bbeaeedee041e6369069e8a74a8b79b",
-  "notes": "Pick the composer's working animation instead of always getting the wave.",
+  "sourceSha": "ddeb8c299bfb89169ea811d4f57b6f83f4b4eee0",
+  "notes": "Replace /web-search-settings with /web-search: a Status / Providers / Classifier menu. Color-coded provider key picker; classifier picker lists available classifiers first with the current pin highlighted; actionable /login guidance; one-line save confirmation.",
   "packages": [
     {
-      "path": "pi-slate",
-      "name": "pi-slate",
-      "from": "0.1.14",
-      "to": "0.1.15",
-      "bump": "patch"
+      "path": "pi-web-search",
+      "name": "@gagansd/pi-web-search",
+      "from": "0.2.1",
+      "to": "0.3.0",
+      "bump": "minor"
     }
   ]
 }

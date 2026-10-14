@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0
+
+Replace /web-search-settings with /web-search: a Status / Providers / Classifier menu. Color-coded provider key picker; classifier picker lists available classifiers first with the current pin highlighted; actionable /login guidance; one-line save confirmation.
+
 - Replace `/web-search-settings` with `/web-search`. Empty invocation opens a Status / Providers / Classifier menu.
 - `/web-search provider` adds or modifies a retrieval API key and links to the provider's key page. The picker is color-coded: present, missing, or keyless.
 - `/web-search classifier` lists Pi's registered classifiers plus None, available first, with the current pin highlighted on top. Pins require the `classifier` keyword so pasted secrets are not written to `web-search.json`.
