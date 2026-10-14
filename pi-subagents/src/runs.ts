@@ -188,7 +188,7 @@ export class RunManager {
       }
       clearTimeout(run.timer);
       run.timer = setTimeout(() => { void this.stop(record.id, "Run deadline exceeded").catch(() => {}); }, this.options.config.timeoutMs);
-      run.work = this.execute(run, run.plan, { resumeFrom: { sessionPath: record.sessionPath!, launchHead: record.launchHead } });
+      run.work = this.execute(run, run.plan, { resumeFrom: { sessionPath: record.sessionPath!, launchHead: record.launchHead, sessionId: record.sessionId } });
       this.changed();
     } finally { release(); }
   }

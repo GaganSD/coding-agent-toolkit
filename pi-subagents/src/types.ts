@@ -85,7 +85,7 @@ export interface RunContext {
   ask(message: string, signal?: AbortSignal): Promise<string>;
 }
 export interface SessionStartOptions {
-  resumeFrom?: { sessionPath: string; launchHead?: string };
+  resumeFrom?: { sessionPath: string; launchHead?: string; sessionId?: string };
 }
 export interface PreparedTask extends Task {
   mode: Mode;

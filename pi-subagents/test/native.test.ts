@@ -196,7 +196,7 @@ test("real SDK: transient provider failure restores one transcript without repla
     own() {}, progress() {}, preview() {}, transcript(file) { transcriptPath = file; },
     ask: async () => "answer",
     baseline(head) { baselined = head; },
-  }, { resumeFrom: { sessionPath: failed.sessionPath, launchHead: failed.launchHead } });
+  }, { resumeFrom: { sessionPath: failed.sessionPath, launchHead: failed.launchHead, sessionId: failed.sessionId } });
   assert.equal(baselined, undefined, "resume must keep the original launch baseline");
   const result = await resumed.prompt(RESUME_PROMPT);
   assert.equal(result.report, "Resumed report");

@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { getSupportedThinkingLevels, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import {
@@ -89,6 +90,12 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       context.signal.throwIfAborted();
       publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
       const resume = startOptions?.resumeFrom;
+      if (resume) {
+        let info;
+        try { info = await stat(resume.sessionPath); }
+        catch { throw new Error("Resume requires the saved transcript; it is missing"); }
+        if (!info.isFile() || info.size < 1) throw new Error("Resume requires the saved transcript; it is missing");
+      }
       const head = resume ? resume.launchHead : await captureHead(options.workspace, context.signal);
       if (!resume) context.baseline?.(head);
       const tools = profile.mode === "edit" ? EDIT_TOOLS : INSPECT_TOOLS;
@@ -110,6 +117,15 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       });
       const subAgent = wrapSession(session, task.task, context);
       context.own(subAgent);
+      if (resume) {
+        const file = session.sessionManager.getSessionFile();
+        if (!file || path.resolve(file) !== path.resolve(resume.sessionPath)) {
+          throw new Error("Resumed session did not reopen the saved transcript");
+        }
+        if (resume.sessionId && session.sessionId !== resume.sessionId) {
+          throw new Error("Resumed session identity changed");
+        }
+      }
       context.signal.throwIfAborted();
       // onError may fire outside the bindExtensions stack; record, then throw here.
       let bindError: Error | undefined;
