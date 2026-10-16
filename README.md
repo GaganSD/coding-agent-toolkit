@@ -51,7 +51,7 @@ A monorepo of modular extensions engineered specifically for the Pi coding agent
 | [pi-subagents](./pi-subagents/) | Tiny, benchmarked subagent harness with 88% less token overhead ([benchmarks](./benchmarks/README.md)). | `pi install npm:@gagansd/pi-subagents` |
 | [pi-web-search](./pi-web-search/) | Cited public web and code search. Keyless by default with optional ranking. | `pi install npm:@gagansd/pi-web-search` |
 | [pi-ask](./pi-ask/) | Structured interactive TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
-| [pi-automode](./pi-automode/) | Parent-session permission gate: on/off, plain-text rules, local decision logs, verified launcher, shadow classifier review. | `pi install npm:@gagansd/pi-automode` |
+| [pi-automode](./pi-automode/) | Permission gate for Pi: risky calls stop for a local decision, protected paths block, exact rules cut repeated asks. | `pi install npm:@gagansd/pi-automode` |
 
 ---
 

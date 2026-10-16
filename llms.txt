@@ -1,16 +1,16 @@
 # Pi extensions
 
-> Extensions for the Pi coding agent: Slate (terminal UI), Ask (structured interviews), and Web Search (cited public retrieval).
+> Extensions for the Pi coding agent: Slate (terminal UI), Ask (structured interviews), Automode (permission gate), Subagents (delegation), and Web Search (cited public retrieval).
 
-Packages live at the repository root, not under `packages/`. Install each package separately. `pi-subagents/` and `pi-canvas-mode/` are empty placeholders.
-
-Search is not on npm; load `./pi-web-search` from a checkout. Slate and Ask are published. The root `package.json` collection manifest is not a search-only install.
+Packages live at the repository root, not under `packages/`. Install each package separately. All five are published on npm.
 
 ## Documentation
 
-- [Root README](README.md): package index, search checkout install, development
+- [Root README](README.md): package index, install, development
 - [Slate README](pi-slate/README.md): TUI setup, commands, themes, composer keys
 - [Ask README](pi-ask/README.md): `ask_user` contract, commands, TUI-only behavior
+- [Automode README](pi-automode/README.md): permission gate, commands, rules, verified launcher, classifier review
+- [Subagents README](pi-subagents/README.md): delegation contract and benchmarks
 - [Web Search README](pi-web-search/README.md): tools, native Parallel MCP, optional Pi-hosted Jev classifier, config, credentials, limits
 - [Web Search research](pi-web-search/docs/research.md): opt-in multi_search and Jev
 
@@ -19,7 +19,9 @@ Search is not on npm; load `./pi-web-search` from a checkout. Slate and Ask are 
 - [Root manifest](package.json): collection extensions, skills, and themes
 - [Slate package](pi-slate/package.json): `npm:pi-slate`
 - [Ask package](pi-ask/package.json): `npm:@gagansd/pi-ask`
-- [Web Search package](pi-web-search/package.json): unpublished; install from `./pi-web-search`
+- [Automode package](pi-automode/package.json): `npm:@gagansd/pi-automode`
+- [Subagents package](pi-subagents/package.json): `npm:@gagansd/pi-subagents`
+- [Web Search package](pi-web-search/package.json): `npm:@gagansd/pi-web-search`
 
 ## Agent indexes
 
@@ -31,5 +33,6 @@ Search is not on npm; load `./pi-web-search` from a checkout. Slate and Ask are 
 
 - [Ask skill](pi-ask/skills/ask-user/SKILL.md): when the agent should call `ask_user`
 - [Slate extension](pi-slate/extensions/pi-slate/index.ts): TUI replacement entry
+- [Automode launcher](pi-automode/bin/pi-automode.js): verified startup and replacement
 - [Web Search entry](pi-web-search/src/index.ts): tool registration and settings command
 - [License](LICENSE): MIT
