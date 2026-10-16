@@ -54,15 +54,15 @@
   "scripts": {
     "clean": "rm -rf dist",
     "compile": "tsc -p tsconfig.build.json",
-    "build": "npm run compile && node ../scripts/package.mjs pi-automode",
+    "build": "npm run clean && npm run compile && node ../scripts/package.mjs pi-automode",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0 --ignore-pattern dist",
     "test": "npm run compile && node scripts/run-tests.mjs",
     "test:unit": "npm run compile && node scripts/run-tests.mjs --suite unit",
     "test:integration": "npm run compile && node scripts/run-tests.mjs --suite integration",
     "check": "npm run typecheck && npm run build && npm test",
-    "pack:check": "npm run compile && node scripts/pack-check.mjs",
-    "prepublishOnly": "npm run typecheck && npm test && node scripts/pack-check.mjs"
+    "pack:check": "npm run clean && npm run compile && node scripts/pack-check.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run pack:check"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
