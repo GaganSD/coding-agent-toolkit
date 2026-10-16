@@ -1,9 +1,8 @@
 # Implementation plan
 
-> **Historical build record.** The package has moved from the private archive
-> to [`pi-extensions/pi-automode`](https://github.com/GaganSD/pi-extensions/tree/main/pi-automode)
-> and is published as `@gagansd/pi-automode` (MIT). Statements below about a
-> private, read-only checkout describe the original build environment.
+> **Build record.** The package lives in
+> [`pi-extensions/pi-automode`](https://github.com/GaganSD/pi-extensions/tree/main/pi-automode)
+> and is published as `@gagansd/pi-automode` (MIT).
 
 ## Scope being built
 
@@ -88,6 +87,6 @@ Review the current `src/reviewer.ts` and `src/classifier/envelope.ts`: atomic di
 
 Current main is staged, uncommitted, with fresh parent strict checks and **272/272** on Node **22.23.1** and **24.21.0**, zero failures/cancellations/skips. The final runner isolates each test HOME/agent directory and allowlists environment variables. Packaging is 62 files; actual extracted tarball CLI help/check already passed on both versions. Source-fed Grok reports completed for the critical runtime boundary (`ccd01254-8739-4db3-a0f3-c237c5d43123`), runtime lifecycle/read/CWD closure (`9cddfd43-58a0-4d19-87e3-163df0e4f569`), and repaired launcher (`d1e622b9-e491-4935-b445-efccf9867d17`). Their source-only limits and non-exiting trusted callback caveat are documented. Parent independently replayed native body omission, budget-one dispatch, and uncooperative concurrency fixes; those are not a substitute for the requested remaining independent review.
 
-Run checks from this package with `PI_AUTOMODE_TEST_TMPDIR="$PWD/../.cache/pi-automode-test/parent" npm run check` and `npm run pack-check`, selecting Node 22/24 on PATH. Evidence logs are under the repository's `.git/pi-automode-research/final-verification/`. Preserve staged work, newer README/design labels, unrelated history and untracked `.DS_Store`. No caches/dist/node_modules/worktrees in the commit. Only `misc-private` is writable; `pi-extensions` is read-only and local-model research stays unchanged. After native closure and any repair verification, update the verification record, check all links/whitespace, then make organized commits and push the confirmed private repository per existing authorization.
+Run checks from this package with `PI_AUTOMODE_TEST_TMPDIR="$PWD/../.cache/pi-automode-test/parent" npm run check` and `npm run pack-check`, selecting Node 22/24 on PATH. Keep caches, `dist`, `node_modules`, and worktrees out of commits.
 
 Read-only review profiles can inspect but cannot run shell proofs. Executable adversarial reviews therefore use shell-capable profiles constrained to isolated scratch artifacts, with no original-source edits. Broad reviews that reached the harness's 30-minute deadline are cancelled, not passes; replacement checks use bounded scopes. Reports distinguish static findings from executed reproductions; neither is treated as a completed release check by itself.

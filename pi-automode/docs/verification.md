@@ -165,15 +165,13 @@ This is an offline dependency-backed test suite; `npm ci` itself fetches
 packages when they are not cached. Building/installing this package does not
 install it into or change the user's Pi configuration automatically.
 
-## Monorepo integration (2026-10-16)
+## Repository checks (2026-10-16)
 
-The package moved from the private archive to
+The package lives in
 [`pi-extensions/pi-automode`](https://github.com/GaganSD/pi-extensions/tree/main/pi-automode)
 and is prepared for publication as `@gagansd/pi-automode` (MIT, `0.1.0`).
-Sources, tests, and docs carry over unchanged apart from behavior-neutral
-lint cleanups, publication metadata, `LICENSE`, `CHANGELOG.md`, and the CI
-suite scripts. Monorepo CI runs lint, typecheck, unit and integration suites,
-and a packed clean-consumer registration smoke for this package.
+Monorepo CI runs lint, typecheck, unit and integration suites, and a packed
+clean-consumer registration smoke for this package.
 
 Local pre-publication re-run: macOS, Node **24.21.0**, Pi **1.1.0**
 devDependency — strict typecheck, build, and **283/283** tests passed (zero

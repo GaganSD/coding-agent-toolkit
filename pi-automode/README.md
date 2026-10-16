@@ -1,185 +1,101 @@
 # pi-automode
 
-Formerly pi-autopilot; renamed to pi-automode and published from
-[pi-extensions](https://github.com/GaganSD/pi-extensions) as
-`@gagansd/pi-automode`.
+A permission gate for Pi. While On, it checks the final arguments of `read`,
+`edit`, `write`, and `bash` before they run, so risky actions stop for a local
+decision instead of executing silently.
 
-A **parent-session permission beta for Pi 1.1.0**. Five commands, plain-text
-rules, one settings JSON, and local decision logs.
+## Why use it
 
-**On** checks the final arguments of `read`, `edit`, `write`, and `bash`.
-**Off** deliberately disables Automode checks and logging for new calls;
-held calls are cancelled, not released. Neither state is a sandbox.
+- Quiet workspace, loud risks. Ordinary reads, edits, and writes inside the
+  workspace run on the file floor. Writes to the Pi agent directory, project
+  `.pi`, Git metadata, CI config, and secret or key names block. Unknown,
+  custom, child, codemode, and MCP tools block at the parent tool call.
+- Exact rules cut repeated asks. A command rule for `ls -la` lets that exact
+  invocation run; `ls -la; rm -rf dist` still asks because matching preserves
+  every byte.
+- Every decision is recorded locally. `/automode logs` shows the action,
+  outcome, source, matched rule, and time.
+- Optional classifier review. Select a classifier-typed model such as Jev from
+  Pi's own registry. Reviews are shadow-only and never approve an action.
 
-## Build and start
+## Demo
 
-Requires Node **22.19+** and Pi **1.1.0**. The beta is limited to macOS/Linux;
-verification on other operating systems is not claimed.
-
-```sh
-cd /absolute/path/to/pi-extensions/pi-automode
-npm ci --ignore-scripts
-npm run check
-
-node bin/pi-automode.js --check  # verify startup; no TUI or model requests
-node bin/pi-automode.js         # verified startup, then the Pi TUI
-node bin/pi-automode.js --help
+```text
+$ pi-automode --check
+pi-automode gate verified (generation 1)
+state: OFF
+tools: bash, edit, read, write (wrapped)
+workspace: /path/to/project
 ```
 
-The launcher isolates executable resources to Automode and the four supported
-tools. It verifies gate loading before starting the TUI and after runtime
-replacement. A missing or failed gate stops startup rather than silently
-removing checks. See [the launcher contract](docs/launcher.md).
+The launcher verifies the gate before starting the TUI and after every runtime
+replacement. A missing or failed gate stops startup.
 
-### Ordinary extension: supervised only
-
-Install the published package:
+## Install
 
 ```sh
 pi install npm:@gagansd/pi-automode
 ```
 
-Or, from a local checkout after `npm run build`, either load the extension
-explicitly:
+Restart Pi or run `/reload`. The gate starts Off and checks nothing until you
+enable it.
+
+For verified startup, run the bundled launcher instead of `pi`:
 
 ```sh
-pi --extension /absolute/path/to/pi-extensions/pi-automode/dist/index.js
+pi-automode          # verified startup, then the Pi TUI
+pi-automode --check  # startup check only, no TUI and no model requests
+pi-automode --help
 ```
 
-or install the local package:
+Requires Node 22.19+ and Pi 1.1.0 on macOS or Linux.
 
-```sh
-pi install /absolute/path/to/pi-extensions/pi-automode
-```
+## Usage
 
-Then use Pi's `/reload`. Stock Pi can skip failed extensions and continue;
-other executable extensions can also affect the tool stack. This entry point
-requires operator supervision and a trusted extension stack. Prefer the
-verified launcher when you need startup/replacement verification.
-
-## Five commands
-
-| Command | Purpose |
+| Command | Result |
 |---|---|
-| `/automode` | Panel: state, coverage, review selection/disclosure, usage |
-| `/automode on` | Enable checks after explicit local confirmation |
-| `/automode off` | Disable checks; cancel held work |
-| `/automode rules` | Add/edit/delete/enable plain-text allow/block rules |
-| `/automode logs` | Inspect or clear actual local decisions |
-
-Only a live local TUI plus an explicit host-owned confirmation can change
-authority. Command invocation alone is not consent; RPC, print mode, model
-text, and model-callable interview answers cannot approve. Decline/Cancel is
-the default. Escape, timeout, errors, and queue overflow never grant permission.
-
-## What On permits
-
-- Ordinary workspace **reads, edits, and writes** run quietly on the file
-  floor. This is broad workspace-write authority, not an understanding of
-  your task or a promise to preserve every uncommitted file.
-- Native writes to protected paths block: the Pi agent directory, Automode's
-  package, project `.pi`, Git metadata, CI configuration, and recognized
-  secret/key names. Protected/sensitive reads require local approval and are
-  not sent to the classifier. Name checks are a floor, not a complete secret
-  detector.
-- Command rules preserve every byte. Exact block matches block; exact allow
-  matches automate only the narrowly checked read-only invocation subset.
-  Opaque scripts, interpreters, package managers, Git commands, compositions,
-  and unresolved executable/configuration evidence still ask.
-- Message allow rules **do not auto-approve** in this beta. An enabled message
-  block remains unresolved and takes local Ask before any automatic floor or
-  command Allow; a classifier answer cannot clear it.
-- Exposed unknown/custom/child/codemode/MCP tools block at the parent tool-call
-  hook while On. There is no separate child-session or direct-service coverage.
-  This does **not** contain subprocesses launched inside an operator-approved
-  opaque shell command.
-
-**Important:** an approved shell command runs with your OS user's full
-permissions. It can access protected files, use the network, spawn children,
-or leave background processes. Native protected-file checks do not constrain
-those internals. Manual shell, coding-provider traffic, and trusted host code
-are outside the boundary. Cancellation is best-effort after execution starts;
-it cannot undo effects. Filesystem revalidation narrows but does not eliminate
-OS-level races. No unattended/full-harness or damage guarantee is made.
-
-## Native classifier: shadow only
-
-The picker uses classifier-typed entries in Pi's native registry, separately
-from the coding model. Pi owns credentials and transport; there is no separate
-provider SDK, auth file, provider cascade, chat self-review, or local fallback.
-
-A stored key is not upload consent. Consent binds to the exact selected
-provider/model pair, the normalized endpoint origin/path, and the canonical
-workspace; an approved value missing any binding is not consent. Changing any
-binding requires fresh confirmation. Requests omit argument values
-and source bodies; eligible metadata (the tool name, argument key names and
-path metadata) and message-rule text are disclosed only with bound consent.
-Retention follows the provider's current terms; no zero-retention claim is
-made. Consent can be withdrawn at any time from `/automode`, and withholding
-or withdrawing it never weakens deterministic rule enforcement. Do not put
-credentials in rules or endpoint URLs. The final provider-specific disclosure
-wording is recorded in [the launch decisions](docs/launch-decisions.md).
-
-Receipts contain actual typed answers and usage when reported. They **never
-create Allow or relax a block**. No measured/calibrated profile or verified
-provider-resolved model pin exists; moving aliases remain shadow-only.
-
-## One settings file
-
-`<agent-dir>/automode.json`, normally `~/.pi/agent/automode.json`:
-
-```json
-{
-  "version": 1,
-  "enabled": false,
-  "classifier": null,
-  "disclosureConsent": "none",
-  "disclosureProvider": null,
-  "disclosureModel": null,
-  "disclosureEndpoint": null,
-  "disclosureWorkspace": null,
-  "allowlist": [],
-  "blocklist": [],
-  "logRetentionDays": 7,
-  "logMaxEntries": 500,
-  "reviewTimeoutMs": 2000,
-  "reviewMaxRequests": 100,
-  "approvalTimeoutMs": 600000
-}
-```
-
-Missing settings start Off; the file is persisted on an operator change.
-Invalid or unexpected external changes halt checks until re-verified, never
-silently turn On into Off. Rules are `{ "type": "message" | "command",
-"text": "...", "enabled": true }`; omitted rule `enabled` means true.
-Credentials and unknown fields are rejected.
-
-`<agent-dir>/automode-logs.json` is **NDJSON**, despite its filename, and is
-an operational log, not another settings store. Entries record actual action
-text, decisions, sources, rules, times, and captured classifier metadata—not
-invented reasoning or proof that an allowed operation completed. Exact local
-action text can contain secrets. Storage uses restrictive permissions and
-age/entry/byte bounds; clearing requires local confirmation.
-
-## Verification and design
+| `/automode` | Panel with state, coverage, classifier selection, and usage |
+| `/automode on` | Enable checks after a local confirmation |
+| `/automode off` | Disable checks and cancel held calls |
+| `/automode rules` | Add, edit, delete, or disable allow and block rules |
+| `/automode logs` | Inspect or clear recorded decisions |
 
 ```sh
-npm run check       # strict typecheck, build, all offline tests
-npm run pack-check  # package manifest and tarball contents
+/automode on      # enable after a local confirmation
+/automode rules   # add an exact command allow rule, for example ls -la
+/automode logs    # inspect what the gate decided
 ```
 
-Tests use inert fixtures, fake classifier registries, and real Pi
-loader/session pipelines with an offline coding provider. They must not use
-real credentials, paid model requests, or destructive targets. Successful
-unit tests are not a calibration or benchmark result. See the
-[verification record](docs/verification.md) for commands, observed results,
-review status, and residual limits.
+A command rule matches the exact command text. The allow side automates only
+the narrowly checked read-only invocation subset. Opaque scripts,
+interpreters, package managers, Git commands, and compositions still ask.
 
-[Two offline UX alternatives](ux-mockups.html) preserve the accepted Control
-Room and Just-in-Time designs; the beta uses focused native dialogs.
-[Archived specification](docs/specification.md) preserves future goals, not
-shipped coverage. [Implementation plan](IMPLEMENTATION.md) records the
-boundary and verification work. [Launch decisions](docs/launch-decisions.md)
-close the specification's remaining launch decisions; [TESTS.md](TESTS.md)
-records the 20-case live shadow run evidence. The separate local-model
-research handoff remains a different project and is unchanged.
+Classifier review is optional. Open `/automode`, choose `Review (classifier)`,
+and select a classifier-typed model. A request goes out only after you approve
+consent for that exact model, endpoint, and workspace, and requests omit
+argument values and file bodies. Message allow rules never auto-approve, and a
+classifier answer cannot clear an enabled message block.
+
+## Settings and logs
+
+- `<agent-dir>/automode.json`, normally `~/.pi/agent/automode.json`, holds the
+  on/off state, classifier selection, consent binding, rules, and limits. A
+  missing file starts Off. Invalid external edits halt checks until verified.
+- `<agent-dir>/automode-logs.json` is a bounded NDJSON record of actual
+  decisions. It can contain exact action text, so treat it as sensitive.
+
+## Limits
+
+- Not a sandbox. An approved shell command runs with your full user
+  permissions and can reach protected files, the network, or child processes.
+  Off cancels held calls but does not sandbox the session.
+- Classifier receipts are shadow-only. They never create an Allow or clear an
+  enabled message block.
+- macOS and Linux only. Windows is unsupported.
+
+## Verification
+
+```sh
+npm run check       # strict typecheck, build, and the offline test suite
+npm run pack-check  # tarball contents
+```
