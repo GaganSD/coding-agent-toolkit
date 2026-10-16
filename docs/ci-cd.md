@@ -171,7 +171,8 @@ Complete these steps before the first release:
    `main` branch, was created during setup. Preserve that restriction. An extra environment approval is optional; merging the
    release PR is the normal release decision.
 3. **npm trusted publishers:** for each of `pi-slate`, `@gagansd/pi-ask`,
-   `@gagansd/pi-subagents`, and `@gagansd/pi-web-search`, configure:
+   `@gagansd/pi-subagents`, `@gagansd/pi-web-search`, and
+   `@gagansd/pi-automode`, configure:
    - GitHub owner: `GaganSD`
    - Repository: `pi-extensions`
    - Workflow filename: `publish.yml` (not the full path)

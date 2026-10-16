@@ -9,8 +9,8 @@
     "url": "git+https://github.com/GaganSD/pi-extensions.git"
   },
   "scripts": {
-    "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search && npm test --prefix pi-subagents",
-    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search && npm run typecheck --prefix pi-subagents",
+    "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search && npm test --prefix pi-subagents && npm test --prefix pi-automode",
+    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search && npm run typecheck --prefix pi-subagents && npm run typecheck --prefix pi-automode",
     "lint": "eslint . --max-warnings=0",
     "test:tooling": "node --test scripts/*.test.mjs",
     "secrets:scan": "bash scripts/secret-scan.sh",
@@ -25,7 +25,8 @@
       "./pi-slate/extensions/pi-slate/index.ts",
       "./pi-ask/src/index.ts",
       "./pi-web-search/src/index.ts",
-      "./pi-subagents/index.ts"
+      "./pi-subagents/index.ts",
+      "./pi-automode/src/index.ts"
     ],
     "skills": [
       "./pi-ask/skills"

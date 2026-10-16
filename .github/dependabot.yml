@@ -8,6 +8,7 @@ updates:
     directories:
       - /
       - /pi-ask
+      - /pi-automode
       - /pi-slate
       - /pi-subagents
       - /pi-web-search

@@ -51,6 +51,7 @@ A monorepo of modular extensions engineered specifically for the Pi coding agent
 | [pi-subagents](./pi-subagents/) | Tiny, benchmarked subagent harness with 88% less token overhead ([benchmarks](./benchmarks/README.md)). | `pi install npm:@gagansd/pi-subagents` |
 | [pi-web-search](./pi-web-search/) | Cited public web and code search. Keyless by default with optional ranking. | `pi install npm:@gagansd/pi-web-search` |
 | [pi-ask](./pi-ask/) | Structured interactive TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
+| [pi-automode](./pi-automode/) | Parent-session permission gate: on/off, plain-text rules, local decision logs, verified launcher, shadow classifier review. | `pi install npm:@gagansd/pi-automode` |
 
 ---
 
@@ -58,7 +59,7 @@ A monorepo of modular extensions engineered specifically for the Pi coding agent
 
 ### All-in-One Suite (Monorepo)
 
-Point Pi to a clone of this repository to register all 4 extensions, skills, and Slate themes simultaneously:
+Point Pi to a clone of this repository to register all 5 extensions, skills, and Slate themes simultaneously:
 
 ```bash
 git clone https://github.com/GaganSD/pi-extensions.git
@@ -77,6 +78,7 @@ pi install npm:pi-slate               # Terminal UI & themes
 pi install npm:@gagansd/pi-subagents  # Subagent delegation
 pi install npm:@gagansd/pi-web-search # Public web & code search
 pi install npm:@gagansd/pi-ask        # Clarification interviews
+pi install npm:@gagansd/pi-automode   # Permission gate (opt-in, off by default)
 ```
 
 ---
@@ -91,7 +93,7 @@ npm test              # unit & integration
 npm run typecheck
 npm run test:tooling
 npm run secrets:scan
-npm run build --prefix pi-slate       # or pi-subagents, pi-web-search, pi-ask
+npm run build --prefix pi-slate       # or pi-subagents, pi-web-search, pi-ask, pi-automode
 ```
 
 After `pi install .`, local edits apply on `/reload`.
@@ -121,6 +123,7 @@ pi-extensions/
 ├── pi-subagents/       # High-efficiency subagent delegation harness
 ├── pi-web-search/      # Multi-provider web & code search with classifier
 ├── pi-ask/             # Structured TUI interview & clarification modal
+├── pi-automode/        # Parent-session permission gate with verified launcher
 ├── benchmarks/         # Multi-model workflow benchmarking suite
 ├── docs/               # Architecture, CI/CD, and release guides
 └── scripts/            # Build, test, security scanning, and release tools

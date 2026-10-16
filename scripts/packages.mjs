@@ -5,6 +5,11 @@ export const packages = {
     integration: ["contract.test.ts", "ask-tool.test.ts", "answer-commands.test.ts", "config-store.test.ts"],
     commands: ["answer", "ask-settings"], tools: ["ask_user"],
   },
+  "pi-automode": {
+    name: "@gagansd/pi-automode", tests: "tests",
+    integration: ["gate.test.ts", "host-smoke.test.ts", "launcher.test.ts", "tools.test.ts", "ui.test.ts"],
+    commands: ["automode"], tools: ["read", "edit", "write", "bash"],
+  },
   "pi-slate": {
     name: "pi-slate", tests: "tests",
     integration: ["install-defaults.test.ts", "sidebar-split.test.ts", "diff-tools.test.ts", "read.test.ts", "git-diff.test.ts", "package.test.mjs", "prompts.test.ts"],
