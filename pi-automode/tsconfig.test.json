@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "noEmitOnError": true,
+    "allowImportingTsExtensions": false,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": "node_modules/.automode-test-tmp/test-tree",
+    "rootDir": "."
+  },
+  "include": ["src", "tests"]
+}

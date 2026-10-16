@@ -1,0 +1,80 @@
+{
+  "name": "@gagansd/pi-automode",
+  "version": "0.1.0",
+  "description": "Supervised on/off permission gate for Pi (parent-only beta): extension plus verified SDK launcher.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Gagan Devagiri",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "pi-extension",
+    "permission",
+    "automode",
+    "classifier",
+    "jev"
+  ],
+  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-automode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "directory": "pi-automode"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "bin": {
+    "pi-automode": "bin/pi-automode.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./launcher": "./dist/launcher.js"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "files": [
+    "bin",
+    "dist",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "compile": "tsc -p tsconfig.build.json",
+    "build": "npm run compile && node ../scripts/package.mjs pi-automode",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0 --ignore-pattern dist",
+    "test": "npm run compile && node scripts/run-tests.mjs",
+    "test:unit": "npm run compile && node scripts/run-tests.mjs --suite unit",
+    "test:integration": "npm run compile && node scripts/run-tests.mjs --suite integration",
+    "check": "npm run typecheck && npm run build && npm test",
+    "pack:check": "npm run compile && node scripts/pack-check.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && node scripts/pack-check.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@types/node": "24.10.1",
+    "typebox": "1.3.27",
+    "typescript": "5.9.3"
+  }
+}
