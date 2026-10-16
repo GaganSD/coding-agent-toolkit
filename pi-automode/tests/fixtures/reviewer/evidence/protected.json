@@ -1,0 +1,15 @@
+{
+	"action": {
+		"requestId": "req-4",
+		"tool": "write",
+		"args": { "path": "/workspace/project/.git/hooks/pre-push", "content": "#!/bin/sh\nexit 0\n" },
+		"cwd": "/workspace/project"
+	},
+	"workspace": "/workspace/project",
+	"canonicalPath": "/workspace/project/.git/hooks/pre-push",
+	"protectedReason": "execution configuration under .git/hooks",
+	"sensitive": false,
+	"complete": true,
+	"fingerprint": "sha256:protected-fixture",
+	"snapshots": []
+}

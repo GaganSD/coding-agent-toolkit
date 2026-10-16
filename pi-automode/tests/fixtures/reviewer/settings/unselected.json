@@ -1,0 +1,17 @@
+{
+	"version": 1,
+	"enabled": true,
+	"classifier": null,
+	"disclosureConsent": "none",
+	"disclosureEndpoint": null,
+	"disclosureWorkspace": null,
+	"allowlist": [],
+	"blocklist": [],
+	"logRetentionDays": 7,
+	"logMaxEntries": 500,
+	"reviewTimeoutMs": 2000,
+	"reviewMaxRequests": 100,
+	"approvalTimeoutMs": 600000,
+	"disclosureProvider": null,
+	"disclosureModel": null
+}

@@ -1,0 +1,14 @@
+{
+	"action": {
+		"requestId": "req-2",
+		"tool": "read",
+		"args": { "path": "/workspace/project/.env" },
+		"cwd": "/workspace/project"
+	},
+	"workspace": "/workspace/project",
+	"canonicalPath": "/workspace/project/.env",
+	"sensitive": true,
+	"complete": true,
+	"fingerprint": "sha256:sensitive-fixture",
+	"snapshots": []
+}

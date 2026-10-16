@@ -1,0 +1,7 @@
+{
+	"provider": "typesafe",
+	"model": "jev-1.13.0",
+	"stopReason": "error",
+	"errorMessage": "System One API error: System One API returned 429: rate limit exceeded",
+	"answers": {}
+}

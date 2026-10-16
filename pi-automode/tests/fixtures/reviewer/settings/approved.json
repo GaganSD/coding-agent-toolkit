@@ -1,0 +1,30 @@
+{
+	"version": 1,
+	"enabled": true,
+	"classifier": {
+		"provider": "typesafe",
+		"model": "jev-1.13.0"
+	},
+	"disclosureConsent": "approved",
+	"disclosureEndpoint": "https://api.typesafe.ai/v1",
+	"disclosureWorkspace": "/workspace/project",
+	"allowlist": [
+		{
+			"type": "message",
+			"text": "Run the parser test suite"
+		}
+	],
+	"blocklist": [
+		{
+			"type": "message",
+			"text": "Never deploy to production"
+		}
+	],
+	"logRetentionDays": 7,
+	"logMaxEntries": 500,
+	"reviewTimeoutMs": 2000,
+	"reviewMaxRequests": 100,
+	"approvalTimeoutMs": 600000,
+	"disclosureProvider": "typesafe",
+	"disclosureModel": "jev-1.13.0"
+}

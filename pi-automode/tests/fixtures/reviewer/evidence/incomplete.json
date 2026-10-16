@@ -1,0 +1,15 @@
+{
+	"action": {
+		"requestId": "req-3",
+		"tool": "bash",
+		"args": { "command": "node scripts/build.js" },
+		"cwd": "/workspace/project"
+	},
+	"workspace": "/workspace/project",
+	"sensitive": false,
+	"complete": false,
+	"fingerprint": "sha256:incomplete-fixture",
+	"reason": "script contents could not be resolved",
+	"snapshots": [{ "path": "/workspace/project/scripts/build.js", "canonicalPath": "/workspace/project/scripts/build.js", "kind": "file", "error": "read failed" }],
+	"shell": { "command": "node scripts/build.js", "resolvedExecutable": "/usr/local/bin/node" }
+}

@@ -1,0 +1,19 @@
+{
+	"provider": "typesafe",
+	"model": "jev-1.13.0",
+	"stopReason": "stop",
+	"answers": {
+		"block_match": {
+			"type": "choice",
+			"choice": "clear",
+			"probabilities": { "match": 0.02, "clear": 0.95, "uncertain": 0.03, "__proto__": 0.5 },
+			"confidence": 0.925
+		},
+		"allow_match": {
+			"type": "choice",
+			"choice": "match",
+			"probabilities": { "match": 0.9, "none": 0.05, "uncertain": 0.05 },
+			"confidence": 0.85
+		}
+	}
+}

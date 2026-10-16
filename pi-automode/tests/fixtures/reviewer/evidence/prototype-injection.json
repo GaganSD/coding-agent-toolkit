@@ -1,0 +1,17 @@
+{
+	"action": {
+		"requestId": "req-5",
+		"tool": "bash",
+		"args": {
+			"command": "npm test",
+			"__proto__": { "polluted": "args-proto" },
+			"nested": { "constructor": { "prototype": { "polluted": "nested-proto" } } }
+		},
+		"cwd": "/workspace/project"
+	},
+	"workspace": "/workspace/project",
+	"sensitive": false,
+	"complete": true,
+	"fingerprint": "sha256:injection-fixture",
+	"snapshots": []
+}

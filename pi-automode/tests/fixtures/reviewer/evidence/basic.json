@@ -1,0 +1,14 @@
+{
+	"action": {
+		"requestId": "req-1",
+		"tool": "bash",
+		"args": { "command": "npm test -- parser" },
+		"cwd": "/workspace/project"
+	},
+	"workspace": "/workspace/project",
+	"sensitive": false,
+	"complete": true,
+	"fingerprint": "sha256:basic-fixture",
+	"reason": "no rule or approval covers this action",
+	"snapshots": []
+}
