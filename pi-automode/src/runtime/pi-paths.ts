@@ -14,7 +14,8 @@ import { isAbsolute, join, resolve } from "node:path";
  * absolute path Pi's helper would resolve, feeds THAT path to evidence and to
  * the stock execute, and blocks rather than allowing any post-review fallback
  * (read's AM/PM, NFD and curly-quote variants) to redirect to a file that was
- * never reviewed. Off is untouched: wrappers delegate the raw args.
+ * never reviewed. Off is untouched: the hook has no opinion and the raw args
+ * execute.
  */
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;

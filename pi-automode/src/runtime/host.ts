@@ -1,7 +1,7 @@
 /**
  * Host shell/environment options read from Pi's effective settings
- * (pi.getSettings()). While Off, wrapped tools reproduce stock behavior with
- * exactly these options. While On, ambient shell startup customization makes
+ * (pi.getSettings()). While Off, the stock tools run unchanged with exactly
+ * these options. While On, ambient shell startup customization makes
  * deterministic shell review impossible, so bash is rejected instead.
  *
  * Disclosure endpoint/consent binding lives in core (../core/disclosure.js);

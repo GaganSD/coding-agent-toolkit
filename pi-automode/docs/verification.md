@@ -174,8 +174,9 @@ Monorepo CI runs lint, typecheck, unit and integration suites, and a packed
 clean-consumer registration smoke for this package.
 
 Local pre-publication re-run: macOS, Node **24.21.0**, Pi **1.1.0**
-devDependency — strict typecheck, build, and **283/283** tests passed (zero
+devDependency — strict typecheck, build, and **266/266** tests passed (zero
 failures, cancellations, or skips). The artifact smoke installed the packed
-tarball into a clean consumer and loaded the Pi registration (67 files,
-420602 bytes). Publication does not change the shadow-only status of
-semantic review.
+tarball into a clean consumer and loaded the Pi registration (65 files). The gate now loads alongside tool-providing extensions
+(for example Slate's custom `read`/`edit`/`write`) with zero loader errors or
+warnings, which the previous tool-override design could not. Publication does
+not change the shadow-only status of semantic review.

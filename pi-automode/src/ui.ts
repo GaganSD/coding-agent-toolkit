@@ -85,7 +85,7 @@ export interface UiDeps {
 	approval: UiApproval;
 	dirs: { agentDir: string; workspace: string; extensionDir: string };
 	host(): HostShellOptions;
-	wrappedTools: readonly string[];
+	guardedTools: readonly string[];
 	onHealth?: (health: AutomodeHealth) => void;
 }
 
@@ -183,7 +183,7 @@ async function saveSettings(
 	}
 	deps.onHealth?.({
 		initialized: true,
-		wrappedTools: [...deps.wrappedTools],
+		guardedTools: [...deps.guardedTools],
 		enabled: healthEnabled ?? next.enabled,
 		...(deps.settings.error ? { error: String(deps.settings.error) } : {}),
 	});
@@ -273,7 +273,7 @@ async function showPanel(deps: UiDeps, ctx: CommandCtx): Promise<void> {
 				`Rules    ${count(settings.blocklist)} block · ${count(settings.allowlist)} allow · logs ${settings.logRetentionDays}d/${settings.logMaxEntries}`,
 			);
 		}
-		lines.push(`Coverage parent tools ✓ (${deps.wrappedTools.join("/")}) · codemode ✗ blocked · children ✗ blocked`);
+		lines.push(`Coverage parent tools ✓ (${deps.guardedTools.join("/")}) · codemode ✗ blocked · children ✗ blocked`);
 		lines.push(`Pending  ${deps.gate.pendingManaged} managed · ${deps.approval.pendingCount} need you`);
 		lines.push(`Settings ${escapeOneLine(deps.dirs.agentDir)}/automode.json`);
 

@@ -14,22 +14,24 @@ import type { EvidenceContext } from "./evidence.js";
 import { escapeOneLine } from "./runtime/escape.js";
 
 /**
- * The enforcement engine. Owns the final execute boundary for the four
- * wrapped native tools while Automode is on.
+ * The enforcement engine. The ordinary extension reviews every
+ * read/edit/write/bash tool call at Pi's `tool_call` hook, before the host
+ * executes it, and writes the approved arguments back into the event input at
+ * the final boundary. The verified launcher additionally isolates the loaded
+ * resource set to this gate and the four native tools.
  *
  * Fail-closed rules (see IMPLEMENTATION.md):
- * - Off: the gate is never invoked; wrappers delegate to stock execution with
- *   the original args, host-configured shell options, no policy, no logs.
+ * - Off: the hook has no opinion; Pi executes its stock tools with the
+ *   original args, host-configured shell options, no policy, no logs.
  * - Halted (invalid/drifted config, unsupported platform while enabled):
  *   everything blocks until the operator re-verifies in the panel. Only an
  *   explicit confirmed operator Off removes checks mid-session; an externally
  *   written enabled=false file halts instead of silently opening the gate.
  * - Path translation: raw model paths are resolved with Pi's exact semantics
- *   iterated to a fixpoint, and the RESOLVED absolute path feeds both evidence
- *   and stock execution; read-fallback variants (AM/PM, NFD, curly quote) can
- *   never redirect a reviewed path — the On read delegate enforces the
- *   reviewed literal target at the native access/read/mime-detect IO boundary
- *   (see tools.ts), and a missing read target blocks outright.
+ *   iterated to a fixpoint, and the RESOLVED absolute path is written back
+ *   into the tool-call input so the host executes the reviewed target; a
+ *   missing read target blocks outright because Pi's read fallback variants
+ *   (AM/PM, NFD, curly quote) were never reviewed.
  * - Async boundaries: lifecycle epoch, settings epoch and a linked
  *   epoch+turn+deadline signal are captured at executeGuarded ENTRY, before
  *   the mutex. The approval deadline covers the entry/mutex queue, evidence,
@@ -94,15 +96,26 @@ export interface GateUiContext extends ApprovalContext {
 	modelRegistry?: unknown;
 	/** Session cwd the stock helper resolves against (ctx.cwd); defaults to the workspace. */
 	cwd?: unknown;
+	/** Current turn abort signal from the host context, when streaming. */
+	signal?: AbortSignal;
 }
 
-/** Execution-time guarantees the gate hands to the wrapper's run callback. */
+/** The host's mutable tool_call event, narrowed to what the gate needs. */
+export interface GateToolCallEvent {
+	toolName: string;
+	input: Record<string, unknown>;
+	toolCallId: string;
+	parentToolCallId?: string;
+}
+
+/** Final-boundary guarantees the gate hands to the caller's run callback. */
 export interface GuardExecution {
 	/**
-	 * Linked lifecycle-epoch + turn abort signal. Propagate to the stock
-	 * helper: after execution has started, invalidation kills the helper
-	 * best-effort (irreversible effects are NOT undone — this is no sandbox).
-	 * The entry deadline is deliberately NOT part of this signal.
+	 * Linked lifecycle-epoch + turn abort signal for a caller that owns the
+	 * execution. The hook path cannot cancel host execution after it starts;
+	 * it reviews immediately before returning, and later invalidation is
+	 * best-effort only (irreversible effects are NOT undone — this is no
+	 * sandbox). The entry deadline is deliberately NOT part of this signal.
 	 */
 	signal?: AbortSignal;
 	/** Canonical (realpath) target from the reviewed evidence, when known. */
@@ -122,7 +135,11 @@ export interface GateCall<T> {
 	requestId: string;
 	ctx: GateUiContext;
 	turnSignal?: AbortSignal;
-	/** Run stock execution with the frozen, approved (translated) arguments. */
+	/**
+	 * Run stock execution with the frozen, approved (translated) arguments.
+	 * The hook path captures them and writes them back into the host event;
+	 * an executor-owned caller may run the tool directly.
+	 */
 	run: (frozenArgs: Record<string, unknown>, guard?: GuardExecution) => Promise<T>;
 }
 
@@ -244,8 +261,8 @@ export class Gate {
 	/**
 	 * Coverage decision for the tool_call event (synchronous, no logging).
 	 * While on, unsupported tools and nested calls block here; supported tools
-	 * continue to the final execute boundary inside the wrapper. While off,
-	 * returns undefined (no opinion, no logging).
+	 * continue to reviewToolCall. While off, returns undefined (no opinion, no
+	 * logging).
 	 */
 	coverageHook(event: { toolName: string; parentToolCallId?: string }): { block: true; reason: string } | undefined {
 		const state = this.state;
@@ -295,7 +312,47 @@ export class Gate {
 		return decision;
 	}
 
-	/** Serialized managed execution for one wrapped tool call. Never used while Off. */
+	/**
+	 * Enforcement point for the ordinary extension: Pi's tool_call hook.
+	 * Coverage (halted, nested, unsupported) is decided first; supported calls
+	 * run the full guarded decision and, on allow, the reviewed arguments are
+	 * written back into `event.input` so the host executes the reviewed target.
+	 * Returns a block result instead of throwing so the host fails closed with
+	 * a visible reason. While Off this returns undefined and logs nothing.
+	 */
+	async reviewToolCall(
+		event: GateToolCallEvent,
+		ctx: GateUiContext,
+	): Promise<{ block: true; reason: string } | undefined> {
+		// Off is deliberate: no opinion, no logging, original args untouched.
+		if (this.state === "off") return undefined;
+		const coverage = await this.coverageHookAsync(event, ctx);
+		if (coverage !== undefined) return coverage;
+		let reviewed: Record<string, unknown> | undefined;
+		try {
+			await this.executeGuarded({
+				tool: event.toolName,
+				args: event.input,
+				requestId: event.toolCallId,
+				ctx,
+				...(ctx.signal !== undefined ? { turnSignal: ctx.signal } : {}),
+				run: (frozenArgs) => {
+					reviewed = frozenArgs;
+					return Promise.resolve();
+				},
+			});
+		} catch (error) {
+			if (error instanceof AutomodeBlockError) return { block: true, reason: error.reason };
+			return {
+				block: true,
+				reason: `Automode internal error: ${escapeOneLine(error instanceof Error ? error.message : String(error), 200)}`,
+			};
+		}
+		if (reviewed !== undefined) applyReviewedArgs(event.input, reviewed);
+		return undefined;
+	}
+
+	/** Serialized managed execution for one supported tool call. Never used while Off. */
 	async executeGuarded<T>(call: GateCall<T>): Promise<T> {
 		// Validate + freeze SYNCHRONOUSLY at entry: the args object is mutable
 		// and shared with earlier hooks, so no await may precede the freeze.
@@ -725,8 +782,9 @@ export class Gate {
 		}
 
 		// The entry deadline ends here: an approved long-running command is
-		// never killed by the TTL. Execution runs under the linked epoch+turn
-		// signal, so later invalidation aborts the helper best-effort.
+		// never killed by the TTL. The caller receives the linked epoch+turn
+		// signal at this final boundary; a caller that owns execution may
+		// propagate it, while the hook path reviews immediately before return.
 		scope.cancelDeadline();
 		const execSignal = AbortSignal.any(call.turnSignal ? [scope.epochSignal, call.turnSignal] : [scope.epochSignal]);
 		const guard: GuardExecution = { signal: execSignal, cwd: rec.cwd };
@@ -848,6 +906,21 @@ export class Gate {
 			};
 		}
 		await this.#deps.logs.append(entry, settings);
+	}
+}
+
+/**
+ * Write the reviewed bytes back into the host's mutable tool-call input at
+ * the final boundary. The object identity is preserved; validation carried
+ * unknown keys through, so the key set is unchanged and only values are
+ * replaced with the reviewed copies.
+ */
+function applyReviewedArgs(input: Record<string, unknown>, reviewed: Record<string, unknown>): void {
+	for (const key of Object.keys(input)) {
+		if (!Object.hasOwn(reviewed, key)) delete input[key];
+	}
+	for (const [key, value] of Object.entries(reviewed)) {
+		input[key] = value;
 	}
 }
 

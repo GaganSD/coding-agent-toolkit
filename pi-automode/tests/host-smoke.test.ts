@@ -27,7 +27,7 @@ import { createAutomodeExtension } from "../src/index.js";
  */
 const PKG_ROOT = process.env.PI_AUTOMODE_PACKAGE_ROOT ?? fileURLToPath(new URL("..", import.meta.url));
 import { createFakeProviderExtension, FAKE_MODEL_ID, FAKE_PROVIDER, type FakeTurn } from "./helpers/fake-provider.js";
-import { createArgsMutatorExtension, createTestGateProvider, type ExecutedCall } from "./helpers/test-gate.js";
+import { createTestGateProvider, type ExecutedCall } from "./helpers/test-gate.js";
 import { createTempEnv, type TempEnv } from "./helpers/temp-env.js";
 
 const execFileAsync = promisify(execFile);
@@ -113,35 +113,7 @@ test("host-smoke: missing health receipt fails --check", { timeout: 60_000 }, as
 	env.cleanup();
 });
 
-test("host-smoke: wrapper receives final post-hook arguments", { timeout: 60_000 }, async () => {
-	using env = createTempEnv({ agentSettings: fakeEnvSettings() });
-	const original = "printf 'original' > hook-target.txt";
-	const mutated = "printf 'mutated' > hook-target.txt";
-	const harness = createHarness({
-		env,
-		turns: [
-			{ kind: "toolCalls", calls: [{ name: "bash", args: { command: original } }] },
-			{ kind: "text", text: "done" },
-		],
-		extra: [createArgsMutatorExtension((input) => {
-			if (input.command === original) input.command = mutated;
-		})],
-	});
-	const { runtime } = await createVerifiedRuntime(harness.deps);
-	try {
-		await runtime.session.prompt("run the command");
-		const bashCalls = harness.executed.filter((call) => call.tool === "bash");
-		assert.equal(bashCalls.length, 1);
-		assert.equal(bashCalls[0]!.args.command, mutated, "wrapper must see the mutated final arguments");
-		const content = readFileSync(join(env.workspace, "hook-target.txt"), "utf8");
-		assert.equal(content, "mutated");
-	} finally {
-		await runtime.dispose();
-	}
-	env.cleanup();
-});
-
-test("host-smoke: gate block at the execute boundary prevents the executor", { timeout: 60_000 }, async () => {
+test("host-smoke: gate block at the tool_call boundary prevents the executor", { timeout: 60_000 }, async () => {
 	using env = createTempEnv({ agentSettings: fakeEnvSettings() });
 	const harness = createHarness({
 		env,
@@ -159,7 +131,7 @@ test("host-smoke: gate block at the execute boundary prevents the executor", { t
 	const { runtime } = await createVerifiedRuntime(harness.deps);
 	try {
 		await runtime.session.prompt("run the command");
-		assert.equal(harness.executed.length, 1, "wrapper observed the call before blocking");
+		assert.equal(harness.executed.length, 1, "gate observed the call before blocking");
 		assert.equal(existsSync(join(env.workspace, "blocked-marker.txt")), false, "blocked call reached the executor");
 	} finally {
 		await runtime.dispose();
@@ -537,9 +509,7 @@ test("host-smoke: a local install is discovered by the real loader via the pi.ex
 	const gateEntry = loaded.extensions.find((extension) => extension.path.includes("pi-automode"));
 	assert.ok(gateEntry, `gate not discovered; loaded: ${loaded.extensions.map((e) => e.path).join(", ")}; errors: ${loaded.errors.map((e) => e.error).join("; ")}`);
 	assert.equal(loaded.errors.length, 0, loaded.errors.map((e) => `${e.path}: ${e.error}`).join("; "));
-	for (const tool of GUARDED_TOOLS) {
-		assert.ok(gateEntry.tools.has(tool), `discovered gate did not register wrapper "${tool}"`);
-	}
+	assert.ok((gateEntry.handlers.get("tool_call") ?? []).length > 0, "discovered gate did not register its tool_call hook");
 	env.cleanup();
 });
 

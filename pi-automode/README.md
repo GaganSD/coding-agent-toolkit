@@ -24,7 +24,7 @@ decision instead of executing silently.
 $ pi-automode --check
 pi-automode gate verified (generation 1)
 state: OFF
-tools: bash, edit, read, write (wrapped)
+tools: bash, edit, read, write (guarded)
 workspace: /path/to/project
 ```
 
@@ -38,7 +38,9 @@ pi install npm:@gagansd/pi-automode
 ```
 
 Restart Pi or run `/reload`. The gate starts Off and checks nothing until you
-enable it.
+enable it. It reviews tool calls through Pi's `tool_call` hook, so it runs
+alongside extensions that customize `read`, `edit`, `write`, or `bash` instead
+of competing with them for the tool names.
 
 For verified startup, run the bundled launcher instead of `pi`:
 
@@ -89,6 +91,9 @@ classifier answer cannot clear an enabled message block.
 - Not a sandbox. An approved shell command runs with your full user
   permissions and can reach protected files, the network, or child processes.
   Off cancels held calls but does not sandbox the session.
+- The gate reviews at Pi's `tool_call` boundary. An extension that runs after
+  it can still change arguments before the tool executes, so use the bundled
+  launcher or a trusted extension stack.
 - Classifier receipts are shadow-only. They never create an Allow or clear an
   enabled message block.
 - macOS and Linux only. Windows is unsupported.

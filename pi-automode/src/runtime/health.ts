@@ -4,7 +4,7 @@
  */
 export interface AutomodeHealth {
 	initialized: boolean;
-	wrappedTools: string[];
+	guardedTools: string[];
 	enabled: boolean;
 	error?: string;
 }

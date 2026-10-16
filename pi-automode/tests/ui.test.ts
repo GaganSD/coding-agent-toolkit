@@ -101,7 +101,7 @@ function makeHarness(initial: Partial<AutomodeSettings> = {}, logEntries: Decisi
 		approval: { pendingCount: 0 },
 		dirs: { agentDir: "/agent", workspace: "/work", extensionDir: "/ext" },
 		host: () => ({}),
-		wrappedTools: ["read", "edit", "write", "bash"],
+		guardedTools: ["read", "edit", "write", "bash"],
 		onHealth: (h) => {
 			health.push(h);
 		},
@@ -205,7 +205,7 @@ test("confirmed toggle persists, invalidates held work and reports health", asyn
 	assert.equal(h.settings.updates.length, 1);
 	assert.equal(h.settings.current.enabled, true);
 	assert.equal(h.gate.operatorUpdates, 1);
-	assert.deepEqual(h.health.at(-1), { initialized: true, wrappedTools: ["read", "edit", "write", "bash"], enabled: true });
+	assert.deepEqual(h.health.at(-1), { initialized: true, guardedTools: ["read", "edit", "write", "bash"], enabled: true });
 
 	const ctx2 = h.makeCtx(["Turn off"]);
 	await handler("off", ctx2);

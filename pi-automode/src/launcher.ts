@@ -6,8 +6,8 @@
  *
  * - exactly one inline extension: the Automode gate (`createAutomodeExtension`
  *   from `./index.js`, injected by `bin/pi-automode.js`);
- * - exactly four model-facing tools: read, bash, edit, write (the gate's
- *   wrappers replace the built-ins by name);
+ * - exactly four model-facing tools: read, bash, edit, write, all reviewed by
+ *   the gate's `tool_call` hook;
  * - no user or project executable extensions, no built-in MCP/codemode/
  *   tool-search/llama.cpp extensions, no project settings (project trust is
  *   never requested and project settings are never merged).
@@ -36,7 +36,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
 
-/** Tools the gate wraps and the launcher allowlists. Order is stable. */
+/** Tools the gate covers and the launcher allowlists. Order is stable. */
 export const GUARDED_TOOLS = ["read", "bash", "edit", "write"] as const;
 
 /** Built-in Pi extensions the launcher never loads. */
@@ -54,7 +54,7 @@ export const GATE_EXTENSION_NAME = "automode";
  */
 export interface AutomodeHealth {
 	initialized: boolean;
-	wrappedTools: string[];
+	guardedTools: string[];
 	enabled: boolean;
 	error?: string;
 }
@@ -121,7 +121,7 @@ export function evaluateHealth(health: AutomodeHealth | undefined): string[] {
 	if (health === undefined) {
 		return ["gate did not report a health receipt"];
 	}
-	if (typeof health.initialized !== "boolean" || !Array.isArray(health.wrappedTools) || typeof health.enabled !== "boolean") {
+	if (typeof health.initialized !== "boolean" || !Array.isArray(health.guardedTools) || typeof health.enabled !== "boolean") {
 		problems.push("gate health receipt has an invalid shape");
 		return problems;
 	}
@@ -131,10 +131,10 @@ export function evaluateHealth(health: AutomodeHealth | undefined): string[] {
 	if (health.error !== undefined && health.error !== "") {
 		problems.push(`gate reported error: ${health.error}`);
 	}
-	const wrapped = new Set(health.wrappedTools);
+	const guarded = new Set(health.guardedTools);
 	for (const tool of GUARDED_TOOLS) {
-		if (!wrapped.has(tool)) {
-			problems.push(`gate does not wrap guarded tool "${tool}"`);
+		if (!guarded.has(tool)) {
+			problems.push(`gate does not guard tool "${tool}"`);
 		}
 	}
 	return problems;
@@ -231,13 +231,12 @@ export class GateSupervisor {
 	}
 
 	/**
-	 * Checkpoint A (load/wrapper boundary): runs inside the runtime factory,
-	 * before any TUI or prompt. Verifies the loader recorded no errors, the
-	 * gate extension is present, and it registered wrappers for all four
-	 * guarded tools.
+	 * Checkpoint A (load boundary): runs inside the runtime factory, before any
+	 * TUI or prompt. Verifies the loader recorded no errors, the gate extension
+	 * is present, and it registered its tool_call enforcement hook.
 	 */
 	verifyLoad(extensionsResult: {
-		extensions: Array<{ path: string; tools: Map<string, unknown> }>;
+		extensions: Array<{ path: string; tools: Map<string, unknown>; handlers: Map<string, unknown[]> }>;
 		errors: Array<{ path: string; error: string }>;
 	}): GateVerification {
 		const problems: string[] = [];
@@ -251,12 +250,8 @@ export class GateSupervisor {
 		const gate = extensionsResult.extensions.find((extension) => extension.path === `<inline:${GATE_EXTENSION_NAME}>`);
 		if (gate === undefined) {
 			problems.push(`gate extension <inline:${GATE_EXTENSION_NAME}> is not loaded`);
-		} else {
-			for (const tool of GUARDED_TOOLS) {
-				if (!gate.tools.has(tool)) {
-					problems.push(`gate did not register wrapper tool "${tool}"`);
-				}
-			}
+		} else if ((gate.handlers.get("tool_call") ?? []).length === 0) {
+			problems.push("gate did not register its tool_call enforcement hook");
 		}
 		// Health may legitimately arrive later (at session_start); if the gate
 		// already reported, validate now and fail early on a bad receipt.
@@ -353,7 +348,7 @@ export function createVerifiedRuntimeFactory(
 			services,
 			sessionManager,
 			...(sessionStartEvent !== undefined ? { sessionStartEvent } : {}),
-			// Plain-name allowlist: exactly the four wrapped tools are active.
+			// Plain-name allowlist: exactly the four guarded tools are active.
 			tools: [...GUARDED_TOOLS],
 		});
 		const verification = supervisor.verifyLoad(services.resourceLoader.getExtensions());
@@ -421,7 +416,7 @@ export async function runCheck(deps: LauncherDeps): Promise<CheckResult> {
 		const health = verification.health;
 		lines.push(`pi-automode gate verified (generation ${verification.generation})`);
 		lines.push(`state: ${health?.enabled ? "ON" : "OFF"}`);
-		lines.push(`tools: ${expected.join(", ")} (wrapped)`);
+		lines.push(`tools: ${expected.join(", ")} (guarded)`);
 		lines.push(`workspace: ${cwd}`);
 		return { code: 0, lines };
 	} catch (error) {
@@ -445,7 +440,7 @@ Usage:
   pi-automode --check   Verify gate startup and exit (no TUI, no model calls)
   pi-automode --help    Show this help
 
-The launcher loads only the Automode gate extension and the four wrapped
+The launcher loads only the Automode gate extension and the four guarded
 tools (read, bash, edit, write). User/project extensions, built-in MCP and
 codemode, and project settings are not loaded. This is supervision, not a
 sandbox; see README.md.

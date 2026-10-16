@@ -15,5 +15,8 @@ assert.deepEqual(result.warnings ?? [], []);
 assert.equal(result.extensions.length, 1);
 const extension = result.extensions[0];
 for (const name of config.tools) assert(extension.tools.has(name), `Missing tool: ${name}`);
+for (const name of config.hooks ?? []) {
+  assert((extension.handlers.get(name) ?? []).length > 0, `Missing hook: ${name}`);
+}
 for (const name of config.commands) assert(extension.commands.has(name), `Missing command: ${name}`);
 console.log(`Clean-consumer Pi registration passed: ${config.name}`);

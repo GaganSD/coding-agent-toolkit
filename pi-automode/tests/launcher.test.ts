@@ -15,7 +15,7 @@ import {
 
 const goodHealth: AutomodeHealth = {
 	initialized: true,
-	wrappedTools: [...GUARDED_TOOLS],
+	guardedTools: [...GUARDED_TOOLS],
 	enabled: true,
 };
 
@@ -38,10 +38,10 @@ test("evaluateHealth: rejects missing, uninitialized, errored, and partial recei
 	assert.deepEqual(evaluateHealth(undefined), ["gate did not report a health receipt"]);
 	assert.ok(evaluateHealth({ ...goodHealth, initialized: false }).some((p) => p.includes("initialized=false")));
 	assert.ok(evaluateHealth({ ...goodHealth, error: "boom" }).some((p) => p.includes("boom")));
-	const missing = evaluateHealth({ ...goodHealth, wrappedTools: ["read", "bash", "edit"] });
+	const missing = evaluateHealth({ ...goodHealth, guardedTools: ["read", "bash", "edit"] });
 	assert.ok(missing.some((p) => p.includes('"write"')));
 	assert.ok(
-		evaluateHealth({ initialized: "yes", wrappedTools: [], enabled: true } as unknown as AutomodeHealth).some((p) =>
+		evaluateHealth({ initialized: "yes", guardedTools: [], enabled: true } as unknown as AutomodeHealth).some((p) =>
 			p.includes("invalid shape"),
 		),
 	);
@@ -87,7 +87,7 @@ test("supervisor: healthy gate passes load and session_start verification", asyn
 	const pi = fakePi();
 	await (supervisor.inlineExtension() as { factory: (p: unknown) => Promise<void> }).factory(pi);
 	const load = supervisor.verifyLoad({
-		extensions: [{ path: "<inline:automode>", tools: new Map(GUARDED_TOOLS.map((t) => [t, {}])) }],
+		extensions: [{ path: "<inline:automode>", tools: new Map(), handlers: new Map([["tool_call", [() => undefined]]]) }],
 		errors: [],
 	});
 	assert.equal(load.ok, true, load.problems.join("; "));
@@ -172,18 +172,16 @@ test("supervisor: missing health receipt at session_start escalates to fatal", a
 	assert.ok(fatals[0]!.includes("health"));
 });
 
-test("supervisor: verifyLoad reports missing gate and missing wrappers", () => {
+test("supervisor: verifyLoad reports a missing gate and a missing enforcement hook", () => {
 	const { deps, fatals } = supervisorDeps();
 	const supervisor = new GateSupervisor(deps, (message) => fatals.push(message));
 	const noGate = supervisor.verifyLoad({ extensions: [], errors: [] });
 	assert.ok(noGate.problems.some((p) => p.includes("not loaded")));
-	const partial = supervisor.verifyLoad({
-		extensions: [{ path: "<inline:automode>", tools: new Map([["read", {}]]) }],
+	const noHook = supervisor.verifyLoad({
+		extensions: [{ path: "<inline:automode>", tools: new Map(), handlers: new Map() }],
 		errors: [],
 	});
-	for (const tool of ["bash", "edit", "write"]) {
-		assert.ok(partial.problems.some((p) => p.includes(`"${tool}"`)), tool);
-	}
+	assert.ok(noHook.problems.some((p) => p.includes("tool_call")), noHook.problems.join("; "));
 });
 
 test("supervisor: fatal fires at most once", async () => {

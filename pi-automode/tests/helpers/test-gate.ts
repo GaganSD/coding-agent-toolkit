@@ -1,21 +1,13 @@
 /**
  * Test gate: a stand-in for the real `createAutomodeExtension` that follows
  * the confirmed contract — options { agentDir, workspace, extensionDir,
- * onHealth }, wrapper tools for read/bash/edit/write, fail-closed tool_call
- * hook for every other route, health reported at session_start.
+ * onHealth }, a `tool_call` enforcement hook for the four guarded tools and a
+ * fail-closed block for every other route, health reported at session_start.
  *
- * It wraps the REAL Pi tool definitions, so delegation executes genuine
- * filesystem/shell operations inside the temp workspace.
+ * It reviews the host's real tool-call input, so the executions that follow
+ * perform genuine filesystem/shell operations inside the temp workspace.
  */
-import {
-	createBashToolDefinition,
-	createEditToolDefinition,
-	createReadToolDefinition,
-	createWriteToolDefinition,
-	type ExtensionFactory,
-	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import type { Static, TSchema } from "typebox";
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import {
 	GUARDED_TOOLS,
 	type AutomodeExtensionFactoryProvider,
@@ -25,7 +17,7 @@ import {
 
 export interface ExecutedCall {
 	tool: string;
-	/** Frozen final post-hook arguments exactly as the wrapper received them. */
+	/** Frozen final arguments exactly as the gate's tool_call hook reviewed them. */
 	args: Record<string, unknown>;
 }
 
@@ -38,9 +30,9 @@ export interface TestGateBehavior {
 	skipHealthOnGenerations?: number[];
 	/** Extra fields merged into every health receipt. */
 	healthOverrides?: Partial<AutomodeHealth>;
-	/** Policy hook: block selected calls at the wrapper's execute boundary. */
+	/** Policy hook: block selected calls at the tool_call boundary. */
 	decide?: (tool: string, args: Record<string, unknown>) => { block: boolean; reason?: string };
-	/** Observation hook for every call that reaches a wrapper. */
+	/** Observation hook for every call the gate reviews. */
 	onExecute?: (call: ExecutedCall) => void;
 }
 
@@ -54,30 +46,16 @@ export function createTestGateProvider(behavior: TestGateBehavior = {}): Automod
 				throw new Error(`test gate: deliberate load failure on generation ${current}`);
 			}
 			const guarded = new Set<string>(GUARDED_TOOLS);
-			const wrap = <TParams extends TSchema, TDetails>(
-				definition: ToolDefinition<TParams, TDetails>,
-			): ToolDefinition<TParams, TDetails> => ({
-				...definition,
-				execute: async (toolCallId, args, signal, onUpdate, ctx) => {
-					// Freeze the final post-hook arguments before any decision.
-					const frozen = structuredClone(args);
-					const record = frozen as Record<string, unknown>;
-					behavior.onExecute?.({ tool: definition.name, args: record });
-					const decision = behavior.decide?.(definition.name, record);
-					if (decision?.block) {
-						throw new Error(`blocked by test gate: ${decision.reason ?? "policy"}`);
-					}
-					return definition.execute(toolCallId, frozen as Static<TParams>, signal, onUpdate, ctx);
-				},
-			});
-			pi.registerTool(wrap(createReadToolDefinition(options.workspace)));
-			pi.registerTool(wrap(createBashToolDefinition(options.workspace)));
-			pi.registerTool(wrap(createEditToolDefinition(options.workspace)));
-			pi.registerTool(wrap(createWriteToolDefinition(options.workspace)));
-			// Fail closed on every route the gate does not wrap.
 			pi.on("tool_call", (event) => {
 				if (!guarded.has(event.toolName)) {
 					return { block: true, reason: `unsupported tool route: ${event.toolName}` };
+				}
+				// Freeze the reviewed arguments before any decision.
+				const frozen = structuredClone(event.input) as Record<string, unknown>;
+				behavior.onExecute?.({ tool: event.toolName, args: frozen });
+				const decision = behavior.decide?.(event.toolName, frozen);
+				if (decision?.block) {
+					return { block: true, reason: decision.reason ?? "policy" };
 				}
 				return undefined;
 			});
@@ -85,24 +63,11 @@ export function createTestGateProvider(behavior: TestGateBehavior = {}): Automod
 				if (behavior.skipHealthOnGenerations?.includes(current)) return;
 				options.onHealth({
 					initialized: true,
-					wrappedTools: [...GUARDED_TOOLS],
+					guardedTools: [...GUARDED_TOOLS],
 					enabled: behavior.enabled ?? true,
 					...behavior.healthOverrides,
 				});
 			});
 		};
-	};
-}
-
-/**
- * Inline extension that mutates `bash` arguments in a tool_call hook, to
- * prove wrapper execute() observes final post-hook arguments.
- */
-export function createArgsMutatorExtension(mutate: (input: Record<string, unknown>) => void): ExtensionFactory {
-	return (pi) => {
-		pi.on("tool_call", (event) => {
-			mutate(event.input as Record<string, unknown>);
-			return undefined;
-		});
 	};
 }

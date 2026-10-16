@@ -3,9 +3,9 @@
  *
  * Pi tool_call hooks receive and mutate the same args object that later flows
  * to tool execute(), and mutations are NOT re-validated by the host. The
- * wrapper execute boundary is the final authority: it must validate the
- * post-hook arguments itself and freeze a private copy before review, so no
- * later mutation can change what was approved versus what runs.
+ * gate's hook boundary must validate the arguments itself and freeze a private
+ * copy before review, so no later mutation can change what was approved
+ * versus what runs.
  */
 
 const SUPPORTED_TOOLS = ["read", "edit", "write", "bash"] as const;

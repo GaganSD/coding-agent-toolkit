@@ -7,8 +7,8 @@ export const packages = {
   },
   "pi-automode": {
     name: "@gagansd/pi-automode", tests: "tests",
-    integration: ["gate.test.ts", "host-smoke.test.ts", "launcher.test.ts", "tools.test.ts", "ui.test.ts"],
-    commands: ["automode"], tools: ["read", "edit", "write", "bash"],
+    integration: ["gate.test.ts", "host-smoke.test.ts", "launcher.test.ts", "ui.test.ts"],
+    commands: ["automode"], tools: [], hooks: ["tool_call"],
   },
   "pi-slate": {
     name: "pi-slate", tests: "tests",

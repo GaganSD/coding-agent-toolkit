@@ -2,11 +2,6 @@ import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	createBashToolDefinition,
-	createEditToolDefinition,
-	createReadToolDefinition,
-	createWriteToolDefinition,
-	detectSupportedImageMimeTypeFromFile,
 	getAgentDir,
 	type ExtensionAPI,
 	type ExtensionFactory,
@@ -17,8 +12,7 @@ import { buildEvidence } from "./evidence.js";
 import { evaluatePolicy } from "./policy.js";
 import { NativeReviewer } from "./reviewer.js";
 import { ApprovalManager } from "./approval.js";
-import { Gate, type GateReviewer } from "./gate.js";
-import { createWrappedTools, type StockToolFactories, type StockToolDefinition } from "./tools.js";
+import { Gate, type GateReviewer, type GateUiContext } from "./gate.js";
 import { createCommandHandler, refreshStatus, type CommandCtx } from "./ui.js";
 import { EpochController } from "./runtime/epoch.js";
 import { reportHealth, type AutomodeHealth } from "./runtime/health.js";
@@ -53,7 +47,7 @@ export interface AutomodeOptions {
 	onHealth?: (health: AutomodeHealth) => void;
 }
 
-const WRAPPED_TOOL_NAMES = ["read", "edit", "write", "bash"] as const;
+const GUARDED_TOOL_NAMES = ["read", "edit", "write", "bash"] as const;
 
 /** Platforms this beta is supported on. Anything else fails closed while On. */
 function platformError(): string | null {
@@ -80,7 +74,7 @@ export function createAutomodeExtension(options: AutomodeOptions = {}): Extensio
 			logs = new LogStore(join(agentDir, "automode-logs.json"));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			health({ initialized: false, wrappedTools: [], enabled: false, error: message });
+			health({ initialized: false, guardedTools: [], enabled: false, error: message });
 			// Surface the failure to the loader (and the launcher's errors check)
 			// rather than loading an unguarded extension.
 			throw error;
@@ -127,29 +121,30 @@ export function createAutomodeExtension(options: AutomodeOptions = {}): Extensio
 			environmentError: () => envError,
 		});
 
-		const factories: StockToolFactories = {
-			read: (cwd, opts) => createReadToolDefinition(cwd, opts) as unknown as StockToolDefinition,
-			edit: (cwd) => createEditToolDefinition(cwd) as unknown as StockToolDefinition,
-			write: (cwd) => createWriteToolDefinition(cwd) as unknown as StockToolDefinition,
-			bash: (cwd, opts) => createBashToolDefinition(cwd, opts) as unknown as StockToolDefinition,
-		};
-		const wrapped = createWrappedTools({
-			cwd: workspace,
-			gate,
-			factories,
-			host,
-			detectImageMimeType: detectSupportedImageMimeTypeFromFile,
-		});
-		for (const tool of wrapped) {
-			pi.registerTool(tool as never);
-		}
-
-		// Coverage hook: while On, unknown/custom tools and nested calls block;
-		// supported tools continue to the final execute boundary. While Off this
-		// hook has no opinion and logs nothing. The host awaits tool_call
-		// handlers, so the async variant can also record the actual block
-		// decision best-effort without weakening enforcement.
-		pi.on("tool_call", (event, ctx) => gate.coverageHookAsync(event, ctx));
+		// Enforcement rides Pi's tool_call hook: the host awaits this handler
+		// before executing, so the gate reviews the final arguments, blocks or
+		// asks locally, and writes the reviewed target back into the event input.
+		// No tool is registered, so the gate never conflicts with tool-providing
+		// extensions such as a custom read/edit/write implementation. While Off
+		// this hook has no opinion and logs nothing.
+		pi.on("tool_call", (event, ctx) =>
+			gate.reviewToolCall(
+				{
+					toolName: event.toolName,
+					input: event.input as Record<string, unknown>,
+					toolCallId: event.toolCallId,
+					...(event.parentToolCallId !== undefined ? { parentToolCallId: event.parentToolCallId } : {}),
+				},
+				{
+					mode: ctx.mode,
+					hasUI: ctx.hasUI,
+					ui: ctx.ui as GateUiContext["ui"],
+					modelRegistry: ctx.modelRegistry,
+					cwd: ctx.cwd,
+					...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
+				},
+			),
+		);
 
 		const invalidate = (reason: string) => gate.invalidate(reason);
 		pi.on("session_before_switch", () => invalidate("session switch"));
@@ -164,7 +159,7 @@ export function createAutomodeExtension(options: AutomodeOptions = {}): Extensio
 			approval,
 			dirs,
 			host,
-			wrappedTools: WRAPPED_TOOL_NAMES,
+			guardedTools: GUARDED_TOOL_NAMES,
 			...(options.onHealth ? { onHealth: (h: AutomodeHealth) => health(h) } : {}),
 		};
 		pi.registerCommand("automode", {
@@ -207,7 +202,7 @@ export function createAutomodeExtension(options: AutomodeOptions = {}): Extensio
 		const initialError = reviewerError ?? envError ?? (settings.error ? String(settings.error) : undefined);
 		health({
 			initialized: true,
-			wrappedTools: [...WRAPPED_TOOL_NAMES],
+			guardedTools: [...GUARDED_TOOL_NAMES],
 			enabled: settings.current?.enabled === true,
 			...(initialError ? { error: initialError } : {}),
 		});

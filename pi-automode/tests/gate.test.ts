@@ -969,6 +969,30 @@ test("coverage blocks are audited best-effort (actual decision, not silent)", as
 	assert.equal(after.length, 1, "Off coverage has no opinion and no log");
 });
 
+test("reviewToolCall: an allowed call writes the reviewed target back into the hook input", async () => {
+	writeFileSync(join(WS, "hook-read.txt"), "reviewed");
+	const h = await makeHarness({ settings: { enabled: true } });
+	const input: Record<string, unknown> = { path: "hook-read.txt" };
+	const result = await h.gate.reviewToolCall({ toolName: "read", input, toolCallId: "hook-1" }, h.ctx);
+	assert.equal(result, undefined);
+	assert.equal(input.path, join(WS, "hook-read.txt"), "the host executes the reviewed absolute target");
+	assert.equal(h.runs.length, 0, "the gate reviews; the host executes");
+});
+
+test("reviewToolCall: unsupported routes block, and Off leaves input untouched", async () => {
+	const h = await makeHarness({ settings: { enabled: true } });
+	const unknown: Record<string, unknown> = { script: "doThing()" };
+	const blocked = await h.gate.reviewToolCall({ toolName: "codemode", input: unknown, toolCallId: "hook-2" }, h.ctx);
+	assert.equal(blocked?.block, true);
+	assert.deepEqual(unknown, { script: "doThing()" }, "blocked calls are not rewritten");
+
+	await h.settings.update({ ...h.settings.current, enabled: false });
+	h.gate.operatorUpdated();
+	const offInput: Record<string, unknown> = { path: "hook-read.txt" };
+	assert.equal(await h.gate.reviewToolCall({ toolName: "read", input: offInput, toolCallId: "hook-3" }, h.ctx), undefined);
+	assert.deepEqual(offInput, { path: "hook-read.txt" }, "Off leaves the original args untouched");
+});
+
 test("audit records the frozen entry args; invalid args are explicitly not captured", async () => {
 	writeFileSync(join(WS, "frozen.txt"), "x");
 	const h = await makeHarness({ settings: { enabled: true } });

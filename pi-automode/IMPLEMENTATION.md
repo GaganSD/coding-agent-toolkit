@@ -14,7 +14,7 @@ Two entry points: the ordinary Pi extension, explicitly supervised because the h
 
 - `src/types.ts`, `settings.ts`, `evidence.ts`, `policy.ts`, `logs.ts`: validated data, atomic operator configuration, canonical paths/evidence, pure precedence, bounded actual-decision records.
 - `src/reviewer.ts`: native classifier adapter with consent, bounded disclosure, outer deadline, cancellation, exact typed-result validation and usage accounting. No provider cascade. **Shadow only in this beta**: no measured/calibrated profile exists yet; model output never creates Allow or clears an unresolved message block.
-- `src/approval.ts`, `gate.ts`, `tools.ts`, `ui.ts`, `index.ts`: serialized local operator dialogs, epochs/cancellation/revalidation, final-argument built-in wrappers, focused Pi-native dialogs, commands and lifecycle.
+- `src/approval.ts`, `gate.ts`, `ui.ts`, `index.ts`: serialized local operator dialogs, epochs/cancellation/revalidation, the `tool_call` enforcement hook, focused Pi-native dialogs, commands and lifecycle.
 - `src/launcher.ts` and `bin/`: verified SDK startup/replacement with only the gate's extension and four supported tools.
 - `tests/`: unit, real Pi-loader/session smoke, integration and adversarial regression tests. No paid model calls or live destructive scenarios.
 
@@ -35,8 +35,8 @@ All TypeScript modules use ESM `.js` import specifiers. Pure/core modules do not
 
 ## Enforcement invariants
 
-1. While Off, wrapped tools delegate to ordinary Pi helpers without Automode policy/logging. Off is deliberate, not outage fallback.
-2. While On, own the final execute boundary for native read/edit/write/bash using Pi tool-definition factories without shell-prefix/spawn customization. Freeze/copy the final arguments before review. Unsupported exposed parent-tool routes Block; one-shot approval cannot lift missing coverage. This is not separate child-session or direct-service interception.
+1. While Off, the `tool_call` hook has no opinion and Pi's stock tools run without Automode policy/logging. Off is deliberate, not outage fallback.
+2. While On, review every native read/edit/write/bash call at Pi's `tool_call` hook before execution, without replacing tool definitions or customizing shell prefixes/spawn behavior. Freeze a private copy of the final arguments before review, and on allow write the reviewed (path-translated) arguments back into the host event so the tool executes the reviewed target. Unsupported exposed parent-tool routes Block; one-shot approval cannot lift missing coverage. The hook boundary is not a sandbox: an extension loaded after the gate can still change arguments, so the launcher loads no other extensions and the supervised extension requires a trusted stack. This is not separate child-session or direct-service interception.
 3. Precedence: supported route/integrity → protected writes → exact block commands → unresolved message block (Ask) → workspace file floor and narrowly supported exact shell allows → Ask. Protected/sensitive reads are local Ask, never hosted. Path containment includes lexical protected names and canonical/symlink targets, new descendants and hard-link handling; unprovable cases ask/block.
 4. No blanket shell prefixes. Exact command rule matching preserves every byte. Opaque scripts, interpreters and compositions still Ask if executable evidence is incomplete. Explain this conservative beta limitation rather than pretending a matching command proves effects.
 5. All pending calls invalidate on policy/settings drift, On/Off changes, abort, session switch/tree/reload/shutdown. Off never releases held calls. Revalidate exact identity and filesystem evidence immediately before execution; consume one-shot approval once. Policy changes/decline cannot turn into a new automatic dialog loop.

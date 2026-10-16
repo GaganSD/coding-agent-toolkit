@@ -25,8 +25,9 @@ in-memory session and binds extensions headlessly so the gate's
   `createAutomodeExtension({ agentDir, workspace, extensionDir, onHealth })`
   from `./index.js` (injected by the bin entry).
 - Exactly four active tools: `read`, `bash`, `edit`, `write` — a plain-name
-  allowlist. The gate's wrappers replace the built-ins by name and own the
-  final execute boundary.
+  allowlist. The gate reviews each of them through Pi's `tool_call` hook; it
+  never replaces or re-registers the built-in tool definitions, so other
+  tool-providing extensions compose with it.
 - `noExtensions: true`: no user (`<agent-dir>/extensions`, settings-declared
   packages) and no project (`.pi/extensions`, project packages) executable
   extensions load. The built-in `mcp`, `codemode`, `tool-search`, and
@@ -47,11 +48,11 @@ cannot register tools or handlers.
 
 1. **Load checkpoint (inside the runtime factory, before any TUI or
    prompt):** the loader recorded zero extension errors, the gate extension
-   is present, and it registered wrappers for all four guarded tools. Any
+   is present, and it registered its `tool_call` enforcement hook. Any
    failure throws `GateVerificationError`; startup exits 1, and runtime
    replacements propagate the error to the caller.
 2. **Session-start checkpoint:** the gate reports
-   `{ initialized, wrappedTools, enabled, error? }` through `onHealth`, no
+   `{ initialized, guardedTools, enabled, error? }` through `onHealth`, no
    later than its `session_start` handler. The launcher validates the receipt
    from a handler registered after the gate's own. A missing or invalid
    receipt (including during `/reload`) escalates to a fatal: the launcher
@@ -62,9 +63,9 @@ cannot register tools or handlers.
    replacement re-creates services and re-invokes the gate factory with the
    new effective cwd as `workspace`.
 
-`enabled: false` (Automode Off) is a *healthy* state: wrappers delegate to
-the plain Pi tool definitions without policy or logging. Verification never
-treats Off as a failure, and failure never silently becomes Off.
+`enabled: false` (Automode Off) is a *healthy* state: the hook has no opinion
+and the plain Pi tool definitions run without policy or logging. Verification
+never treats Off as a failure, and failure never silently becomes Off.
 
 ## Why both an extension and a launcher
 
