@@ -1,65 +1,47 @@
-<table align="center"><tr><td>
+# pi-extensions
+
+Extensions, skills, and themes for the [Pi](https://pi.dev) coding agent. Five npm packages that share one goal: add capability without spending the agent's context window.
+
+## Why use it
+
+- **Small context footprint.** Prompts and tool schemas stay minimal. `@gagansd/pi-subagents` delegates a task in 718 tokens of overhead where the stock alternative spends 6,158 ([methodology](./benchmarks/README.md)).
+- **Keyless by default.** Public web and code search work with no API keys. Ranking and classification are opt-in.
+- **Pi-native.** Each package uses Pi's extension lifecycle, tools, slash commands, themes, and config store. No sidecar processes.
+- **One install for everything.** `pi install .` from a clone registers all 5 extensions, the skills, and the Slate themes.
+
+## What it looks like
+
+pi-slate replaces the default UI with a split layout: conversation left, session rail right.
 
 ```text
-    .--------------------------.
-   /                          /|
-  +--------------------------+ |
-  | .----------------------. | |
-  | | /> π_                | | |
-  | |                      | | |
-  | |                      | | |
-  | |                      | | |
-  | '----------------------' | |
-  |      [====]  (o)  (*)    |/
-  +--------------------------+
- /____________________________\
-'------------------------------'
+▀▀█   Pi Agent v1.3.0                      │ SESSION
+█▀ █  grok-4.6 (bedrock) · medium          │ pi-slate refactor
+      /pi-slate                            │ 01a14a53 · PID 47392
+                                           │
+› │                                        │ Context ▓▓▓░░░░░░░░ │ 16%
+                                           │ 31.6k / 200k · $0.12 · ~82/s
+                                           │
+                                           │ CACHED 48k        61.4k IN
+                                           │ UNCACHED 7.3k       876 OUT
+                                           │
+                                           │ › MCP · 2 Enabled
+                                           │ › Skills · 0 Loaded
+                                           │ › Prompts · 10
 ```
-
-</td></tr></table>
-
-<h1 align="center">pi-extensions</h1>
-
-<p align="center"><strong>High-performance, context-efficient tools for the <a href="https://pi.dev">Pi</a> agent harness.</strong></p>
-
-<p align="center">
-  <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/ci.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
-  <a href="https://snyk.io"><img src="https://img.shields.io/badge/security-snyk%20monitored-10b981?style=flat-square&labelColor=18181b&logo=snyk&logoColor=white" alt="Security: Snyk" /></a>
-  <a href="https://github.com/GaganSD/pi-extensions/actions"><img src="https://img.shields.io/badge/vulnerabilities-0%20reported-10b981?style=flat-square&labelColor=18181b" alt="Vulnerabilities: 0" /></a>
-  <br />
-  <a href="https://pi.dev"><img src="https://img.shields.io/badge/pi-%3E%3D1.0.0-27272a?style=flat-square&labelColor=18181b" alt="Pi >= 1.0.0" /></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-27272a?style=flat-square&labelColor=18181b" alt="License: MIT" /></a>
-</p>
-
----
-
-A monorepo of modular extensions engineered specifically for the Pi coding agent. Each package adheres to strict context-efficiency principles, zero-bloat architecture, and native Pi integration. Detailed subagent delegation benchmarks live in [`benchmarks/README.md`](./benchmarks/README.md).
-
-## Design Principles
-
-- **Minimal by Design** — Engineered for zero-context bloat and preserve the agent's context window. Prompts and schemas stay minimal while benchmaxxing every tool for effectiveness.
-- **Keyless by Default** — Essential utilities like public web and code retrieval work instantly out of the box.
-- **Pi-Native** — Built strictly around Pi's extension lifecycle, tools, custom slash commands, themes, and configuration store.
-
----
 
 ## Packages
 
-| Package | Description | Install |
+| Package | What it does | Install |
 | :--- | :--- | :--- |
-| [pi-slate](./pi-slate/) | Minimal full-screen terminal UI with split sidebars and media previews. Zero context bloat. | `pi install npm:pi-slate` |
-| [pi-subagents](./pi-subagents/) | Tiny, benchmarked subagent harness with 88% less token overhead ([benchmarks](./benchmarks/README.md)). | `pi install npm:@gagansd/pi-subagents` |
-| [pi-web-search](./pi-web-search/) | Cited public web and code search. Keyless by default with optional ranking. | `pi install npm:@gagansd/pi-web-search` |
-| [pi-ask](./pi-ask/) | Structured interactive TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
-| [pi-automode](./pi-automode/) | Permission gate for Pi: risky calls stop for a local decision, protected paths block, exact rules cut repeated asks. | `pi install npm:@gagansd/pi-automode` |
+| [pi-slate](./pi-slate/) | Full-screen terminal UI: split sidebars, session rail, diff viewers, media previews, themes. | `pi install npm:pi-slate` |
+| [pi-subagents](./pi-subagents/) | Benchmarked subagent delegation with 88% less token overhead. | `pi install npm:@gagansd/pi-subagents` |
+| [pi-web-search](./pi-web-search/) | Public web and code search with citations. Keyless by default. | `pi install npm:@gagansd/pi-web-search` |
+| [pi-ask](./pi-ask/) | Structured TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
+| [pi-automode](./pi-automode/) | Permission gate. Risky calls stop for a local decision; protected paths block; exact rules cut repeated asks. Off by default. | `pi install npm:@gagansd/pi-automode` |
 
----
+## Install
 
-## Installation
-
-### All-in-One Suite (Monorepo)
-
-Point Pi to a clone of this repository to register all 5 extensions, skills, and Slate themes simultaneously:
+Everything at once, from a clone:
 
 ```bash
 git clone https://github.com/GaganSD/pi-extensions.git
@@ -67,80 +49,53 @@ cd pi-extensions
 pi install .
 ```
 
-Then reload Pi with `/reload`.
+Or single packages from npm, per the table above. Reload Pi with `/reload` after installing.
 
-### Standalone (NPM)
+## Usage
 
-Install individual extensions directly:
+Delegate independent work to subagents and watch the cost stay flat:
 
-```bash
-pi install npm:pi-slate               # Terminal UI & themes
-pi install npm:@gagansd/pi-subagents  # Subagent delegation
-pi install npm:@gagansd/pi-web-search # Public web & code search
-pi install npm:@gagansd/pi-ask        # Clarification interviews
-pi install npm:@gagansd/pi-automode   # Permission gate (opt-in, off by default)
+```text
+/run tests, lint, and typecheck in parallel, one agent each
 ```
 
----
+Turn on the permission gate when the agent touches production-shaped paths:
 
-## Development & Building
+```text
+/automode on
+```
 
-**Prerequisites**: Node.js `>=22.19.0`, npm `>=10.0.0`, Pi `>=1.0.0`.
+## Development
+
+Prerequisites: Node.js >=22.19.0, npm >=10.0.0, Pi >=1.0.0.
 
 ```bash
 npm ci --ignore-scripts
-npm test              # unit & integration
+npm test              # all 5 packages
 npm run typecheck
-npm run test:tooling
+npm run test:tooling  # repo scripts
 npm run secrets:scan
-npm run build --prefix pi-slate       # or pi-subagents, pi-web-search, pi-ask, pi-automode
 ```
 
-After `pi install .`, local edits apply on `/reload`.
+Local edits apply on `/reload` when installed from a clone.
 
----
-
-## Benchmarks & Performance
-
-`@gagansd/pi-subagents` is continuously benchmarked against standard delegation alternatives on dynamic multi-step workflows (parallel join, bounded repair, conditional fanout):
-
-| Metric | `@gagansd/pi-subagents` | `pi-subagents` | Improvement |
-| :--- | :--- | :--- | :--- |
-| **Package Size** | **103.35 KB** | 11.60 MB | **99.11% reduction** |
-| **Initial Token Overhead** | **718** | 6,158 | **88.34% reduction** |
-| **Avg Tokens (5 tasks · Kimi-K3)** | **331,346** | 638,964 | **48.14% fewer tokens** |
-| **Avg Tokens (5 tasks · Grok-4.6)** | **256,451** | 979,286 | **73.81% fewer tokens** |
-
-See [`benchmarks/README.md`](./benchmarks/README.md) for full benchmark methodology, runner scripts, and scoring criteria.
-
----
-
-## Repository Structure
+## Repository layout
 
 ```text
-pi-extensions/
-├── pi-slate/           # Minimal TUI, custom surfaces, diff viewers & themes
-├── pi-subagents/       # High-efficiency subagent delegation harness
-├── pi-web-search/      # Multi-provider web & code search with classifier
-├── pi-ask/             # Structured TUI interview & clarification modal
-├── pi-automode/        # Parent-session permission gate with verified launcher
-├── benchmarks/         # Multi-model workflow benchmarking suite
-├── docs/               # Architecture, CI/CD, and release guides
-└── scripts/            # Build, test, security scanning, and release tools
+pi-slate/       Terminal UI, diff viewers, themes
+pi-subagents/   Subagent delegation harness
+pi-web-search/  Web and code search
+pi-ask/         TUI interview modal
+pi-automode/    Permission gate
+benchmarks/     Delegation benchmark suite
+docs/           Architecture, CI/CD, release guides
+scripts/        Build, test, security, release tooling
 ```
 
----
+## Quality
 
-## Quality & Security
-
-- **Continuous Integration**: Every change runs type checks, unit/integration suites, clean consumer installations, and secret scans via GitHub Actions.
-- **Secret Protection**: Automated pre-commit and CI scans with [Gitleaks](https://github.com/gitleaks/gitleaks) to prevent credential leaks.
-- **Dependency Auditing**: Vulnerability scans with Snyk and `npm audit`.
-
-See [CI/CD Documentation](./docs/ci-cd.md) for release workflows and release preparation details.
-
----
+Every pull request runs type checks, unit and integration suites, clean consumer installs, dependency audits, and a [Gitleaks](https://github.com/gitleaks/gitleaks) scan. Releases publish to npm from CI with provenance; see [docs/ci-cd.md](./docs/ci-cd.md).
 
 ## License
 
-[MIT](./LICENSE) © [Gagan Devagiri](https://github.com/GaganSD)
+[MIT](./LICENSE)
