@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.2.0
+
+Release the current extension updates together.
+
+### Security
+
+- Pin the transitive `undici` dependency to 8.12.2 in every package lock to clear critical and high-severity Snyk findings from the Pi SDK development tree.
+
+### Highlights
+
+- Slate adds the opt-in Claude Code-style tool transcript and focused prompt-layout refinements.
+- Automode releases its decision-model panel and safety updates, including the breaking beta configuration rename from classifier settings to `decisionModel`.
+- Ask, Subagents, and Web Search receive the dependency security refresh.
+
 - Rename the classifier to **Decision Models** throughout the extension: the
   panel entry, picker title, `automode.json` `decisionModel` key, decision-log
   field, module and type names. Pi's native `classifier` model type is

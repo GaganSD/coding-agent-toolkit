@@ -1,6 +1,6 @@
 {
   "name": "@gagansd/pi-automode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Supervised on/off permission gate for Pi (parent-only beta): extension plus verified SDK launcher.",
   "type": "module",
   "license": "MIT",

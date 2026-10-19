@@ -1,13 +1,41 @@
 {
   "schema": 1,
-  "sourceSha": "1c54f3f1334744a143eecfb0e1b9552321d6a735",
-  "notes": "Resume transiently failed sub-agents from their saved transcript instead of starting over.\n\n### Added\n\n- `subagent resume`, the `/subagents` roster, and the worker thread can resume a transiently failed sub-agent from its saved transcript and native session id, continuing the same conversation. Resume is bounded to three attempts per run and requires confirmation.\n- Only transient provider failures with an intact saved transcript are eligible; eligibility surfaces on `subagent list`, status notices, and thread actions. Missing, replaced, empty, or unreadable transcripts are refused, so resume can never silently relaunch a different conversation.\n\n### Fixed\n\n- Failed runs stay out of `pi:background-tasks` sidebar snapshots, and settled runs publish `endedAt`, so dashboards such as Slate stop counting wall time for failed work.",
+  "sourceSha": "db62b25c3524d57cf335185c91a476d481e8ef52",
+  "notes": "Release the current extension updates together.\n\n### Security\n\n- Pin the transitive `undici` dependency to 8.12.2 in every package lock to clear critical and high-severity Snyk findings from the Pi SDK development tree.\n\n### Highlights\n\n- Slate adds the opt-in Claude Code-style tool transcript and focused prompt-layout refinements.\n- Automode releases its decision-model panel and safety updates, including the breaking beta configuration rename from classifier settings to `decisionModel`.\n- Ask, Subagents, and Web Search receive the dependency security refresh.",
   "packages": [
+    {
+      "path": "pi-ask",
+      "name": "@gagansd/pi-ask",
+      "from": "0.1.3",
+      "to": "0.1.4",
+      "bump": "patch"
+    },
+    {
+      "path": "pi-automode",
+      "name": "@gagansd/pi-automode",
+      "from": "0.1.0",
+      "to": "0.2.0",
+      "bump": "minor"
+    },
+    {
+      "path": "pi-slate",
+      "name": "pi-slate",
+      "from": "0.1.15",
+      "to": "0.1.16",
+      "bump": "patch"
+    },
     {
       "path": "pi-subagents",
       "name": "@gagansd/pi-subagents",
-      "from": "0.0.5",
-      "to": "0.0.6",
+      "from": "0.0.6",
+      "to": "0.0.7",
+      "bump": "patch"
+    },
+    {
+      "path": "pi-web-search",
+      "name": "@gagansd/pi-web-search",
+      "from": "0.3.0",
+      "to": "0.3.1",
       "bump": "patch"
     }
   ]

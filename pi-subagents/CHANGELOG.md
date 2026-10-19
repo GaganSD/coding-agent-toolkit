@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.0.7
+
+Release the current extension updates together.
+
+### Security
+
+- Pin the transitive `undici` dependency to 8.12.2 in every package lock to clear critical and high-severity Snyk findings from the Pi SDK development tree.
+
+### Highlights
+
+- Slate adds the opt-in Claude Code-style tool transcript and focused prompt-layout refinements.
+- Automode releases its decision-model panel and safety updates, including the breaking beta configuration rename from classifier settings to `decisionModel`.
+- Ask, Subagents, and Web Search receive the dependency security refresh.
+
 ## 0.0.6
 
 Resume transiently failed sub-agents from their saved transcript instead of starting over.
