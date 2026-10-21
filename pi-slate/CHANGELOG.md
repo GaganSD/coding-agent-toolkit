@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.17
+
+Slimmer README with fast-loading screenshots and session lifecycle stability fixes.
+
 ### Changed
 
 - The Claude Code-style tool transcript is now the default for the `tool-cards` surface. Set `"toolStyle": "default"` in `pi-slate.json` and `/reload` to restore Slate's original cards.
