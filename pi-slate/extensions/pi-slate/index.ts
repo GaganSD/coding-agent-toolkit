@@ -89,6 +89,7 @@ import {
   type Style,
 } from "./catppuccin.ts";
 import { persistTheme, SLATE_NATIVE_THEME, SLATE_THEME } from "./install-defaults.ts";
+import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
   waves: "Waves",
@@ -108,6 +109,7 @@ type SlateConfig = SurfaceConfig & {
   progress?: ProgressStyle;
   toolStyle?: "default" | "claudecode";
   effortBorderColor?: boolean;
+  shortcuts?: SlateShortcuts;
   sidebarSections: SidebarFolds;
 };
 
@@ -147,6 +149,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
   const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
   const messageLength = loadMessageLength(value.messageLength);
   const modelDisplay = loadModelDisplay(value.modelDisplay);
+  const shortcuts = loadShortcuts(value.shortcuts);
   return {
     raw: parsed.ok && text !== undefined ? JSON.parse(text) as Record<string, unknown> : value,
     config: {
@@ -163,6 +166,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
       ...(value.logo === "minimal" || value.logo === "original" ? { logo: value.logo } : {}),
       ...(value.toolStyle === "default" ? { toolStyle: "default" as const } : {}),
       ...(isProgressStyle(value.progress) ? { progress: value.progress } : {}),
+      ...(shortcuts === undefined ? {} : { shortcuts }),
       sidebarSections: parseSidebarFolds(value.sidebarSections),
     },
     ...(!parsed.ok ? { error: parsed.error } : {}),
@@ -217,7 +221,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (claudeTools) installToolStyle(pi);
     else installRead(pi);
   }
-  if (owns("editor")) installPromptPicker(pi);
+  if (owns("editor")) installPromptPicker(pi, promptShortcutKey(config.shortcuts));
   installExitCommand(pi);
   const sidebar = new Sidebar();
   const images = owns("editor") ? installImagePlaceholders(pi, owns("sidebar") ? sidebar : undefined, () => editorActive()) : undefined;

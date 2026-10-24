@@ -26,7 +26,7 @@ type Picker = Component & Focusable & { handleInput(data: string): void };
 type Factory = (tui: TUI, theme: Theme, kb: KeybindingsManager, done: (value: string | undefined) => void) => Picker;
 const theme = { fg: (_name: string, text: string) => text, bold: (text: string) => text } as Theme;
 
-async function fixture(t: test.TestContext, files: Record<string, string>, kb = new KeybindingsManager()) {
+async function fixture(t: test.TestContext, files: Record<string, string>, kb = new KeybindingsManager(), chord?: string) {
   initTheme("dark", false);
   const dir = await mkdtemp(join(tmpdir(), "slate-prompts-"));
   const previous = getKeybindings();
@@ -35,6 +35,7 @@ async function fixture(t: test.TestContext, files: Record<string, string>, kb = 
   for (const [name, content] of Object.entries(files)) await writeFile(join(dir, `${name}.md`), content);
   let commands = Object.keys(files).map((name) => ({ name, source: "prompt", sourceInfo: { path: join(dir, `${name}.md`) } }));
   let handler!: (args: string, ctx: ExtensionContext) => Promise<void>;
+  let shortcut: string | undefined;
   const pasted: string[] = [];
   const notices: string[] = [];
   let opened = 0;
@@ -44,7 +45,8 @@ async function fixture(t: test.TestContext, files: Record<string, string>, kb = 
     on: (event: string, handler: () => void) => { assert.equal(event, "session_shutdown"); shutdown = handler; },
     getCommands: () => commands,
     registerCommand: (_name: string, command: { handler: typeof handler }) => { handler = command.handler; },
-  } as unknown as ExtensionAPI);
+    registerShortcut: (key: string) => { shortcut = key; },
+  } as unknown as ExtensionAPI, chord);
   const ctx = {
     mode: "tui",
     ui: {
@@ -61,6 +63,7 @@ async function fixture(t: test.TestContext, files: Record<string, string>, kb = 
   return {
     ctx, pasted, notices,
     get opened() { return opened; },
+    get shortcut() { return shortcut; },
     open: (context = ctx) => handler("", context),
     shutdown: () => shutdown(),
     interact: (next: typeof interact) => { interact = next; },
@@ -202,6 +205,13 @@ test("picker reads only prompt commands and uses the current resource list", asy
   f.commands([]);
   await f.open();
   assert.equal(f.opened, 1);
+});
+
+test("optional prompt shortcut registers only when configured", async (t) => {
+  const unset = await fixture(t, { example: "Body" });
+  assert.equal(unset.shortcut, undefined);
+  const bound = await fixture(t, { example: "Body" }, new KeybindingsManager(), "ctrl+alt+p");
+  assert.equal(bound.shortcut, "ctrl+alt+p");
 });
 
 test("picker can reopen after a failed custom UI interaction", async (t) => {

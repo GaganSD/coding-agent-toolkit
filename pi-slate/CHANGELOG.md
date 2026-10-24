@@ -2,17 +2,22 @@
 
 ## Unreleased
 
+Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.
+
 ### Added
 
-- Native-host regression coverage for Pi 1.4.0's stacked dialogs restoring the Slate composer, CJK emphasis and tables in split transcripts, and Rex image rendering with a text fallback.
+- Session title in the sidebar when `/name` or another extension sets one (Thanks @Benature for the PR)
+- `/slate effort-border [on|off]` paints the composer frame with a theme-native effort ramp. Off by default; applies live (Thanks @Benature for the PR)
 
 ### Changed
 
-- `/prompts` is the only way to open the prompt picker. Slate no longer registers `Ctrl+Alt+P`.
+- Black Metal is selectable again from `/slate theme` and the theme menu.
+- Sidebar token rate reads `~33 t/s`.
+- `/prompts` has no default shortcut. Bind one with `"shortcuts": { "prompts": "ctrl+alt+p" }` in `pi-slate.json`, or `false` / `"none"` for none (Thanks @EinErste for the issue)
 
 ### Fixed
 
-- Support Pi 1.4.0's native MCP configuration validation, removing the sidebar's false `1 Error` when no servers are configured. Accept BOM-prefixed MCP configuration files as Pi 1.4.0 does. Unsupported hosts keep configured entries unknown without reporting a validation error when there are no entries.
+- Pi 1.4.0: empty MCP config no longer shows a false sidebar error, BOM-prefixed MCP files work, and stacked dialogs restore the composer (Thanks @Benature for the PR)
 
 ## 0.1.17
 
