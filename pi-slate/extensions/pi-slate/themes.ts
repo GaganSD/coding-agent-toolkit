@@ -1,4 +1,5 @@
 import { allCatppuccinThemes, THEME_SCHEMA, type CatppuccinThemeJson } from "./catppuccin.ts";
+import { effortPalette } from "./theme-palette.ts";
 
 /**
  * Single registry for every theme Slate ships. All hex values live in `vars`;
@@ -10,10 +11,16 @@ import { allCatppuccinThemes, THEME_SCHEMA, type CatppuccinThemeJson } from "./c
 
 export type SlateThemeJson = CatppuccinThemeJson;
 
-type ThemeSpec = { name: string; vars: Record<string, string>; colors: Record<string, string>; export: { pageBg: string; cardBg: string; infoBg: string } };
+type ThemeSpec = { name: string; vars: Record<string, string>; colors: Record<string, string> & { border: string; borderAccent: string }; export: { pageBg: string; cardBg: string; infoBg: string } };
 
 function buildTheme(spec: ThemeSpec): SlateThemeJson {
-  return { $schema: THEME_SCHEMA, name: spec.name, vars: spec.vars, colors: spec.colors, export: spec.export };
+  const effort = effortPalette(spec.vars[spec.colors.border]!, spec.vars[spec.colors.borderAccent]!);
+  return {
+    $schema: THEME_SCHEMA, name: spec.name,
+    vars: { ...spec.vars, ...effort.vars },
+    colors: { ...spec.colors, ...effort.colors },
+    export: spec.export,
+  };
 }
 
 const TOKYO_NIGHT = buildTheme({
@@ -83,13 +90,6 @@ const TOKYO_NIGHT = buildTheme({
     syntaxType: "yellow",
     syntaxOperator: "cyan",
     syntaxPunctuation: "muted",
-    thinkingOff: "border",
-    thinkingMinimal: "dim",
-    thinkingLow: "muted",
-    thinkingMedium: "accent",
-    thinkingHigh: "cyan",
-    thinkingXhigh: "purple",
-    thinkingMax: "red",
     bashMode: "green",
   },
   export: { pageBg: "#1a1b26", cardBg: "#1a1b26", infoBg: "#1f2335" },
@@ -114,10 +114,6 @@ const BLACK_METAL = buildTheme({
     errorBg: "#1a0d0d",
     comment: "#666666",
     string: "#a0b4b5",
-    thinkOff: "#333333",
-    thinkMinimal: "#444444",
-    thinkLow: "#555555",
-    thinkMedium: "#777777",
   },
   colors: {
     accent: "accent",
@@ -168,21 +164,17 @@ const BLACK_METAL = buildTheme({
     syntaxType: "borderAccent",
     syntaxOperator: "muted",
     syntaxPunctuation: "dim",
-    thinkingOff: "thinkOff",
-    thinkingMinimal: "thinkMinimal",
-    thinkingLow: "thinkLow",
-    thinkingMedium: "thinkMedium",
-    thinkingHigh: "muted",
-    thinkingXhigh: "borderAccent",
-    thinkingMax: "text",
     bashMode: "green",
   },
   export: { pageBg: "#000000", cardBg: "#0d0d0d", infoBg: "#141414" },
 });
 
+// Build once: palette mixing must not repeat on runtime theme lookups.
+const SLATE_THEMES = [TOKYO_NIGHT, BLACK_METAL, ...allCatppuccinThemes()];
+
 /** Every theme Slate ships, in registry order. The committed JSON files must match this exactly. */
 export function allSlateThemes(): SlateThemeJson[] {
-  return [TOKYO_NIGHT, BLACK_METAL, ...allCatppuccinThemes()];
+  return [...SLATE_THEMES];
 }
 
 /** A shipped Slate theme by name, or undefined for external themes. */

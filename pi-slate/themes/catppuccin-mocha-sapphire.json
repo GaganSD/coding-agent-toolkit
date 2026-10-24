@@ -32,7 +32,14 @@
     "border": "#6c7086",
     "heading": "#74c7ec",
     "panel": "#181825",
-    "surface": "#313244"
+    "surface": "#313244",
+    "thinkingOff": "#6c7086",
+    "thinkingMinimal": "#6d7990",
+    "thinkingLow": "#6e819a",
+    "thinkingMedium": "#6f8ca7",
+    "thinkingHigh": "#7096b3",
+    "thinkingXhigh": "#71a2c0",
+    "thinkingMax": "#72adcd"
   },
   "colors": {
     "accent": "accent",
@@ -83,13 +90,13 @@
     "syntaxType": "yellow",
     "syntaxOperator": "sky",
     "syntaxPunctuation": "overlay2",
-    "thinkingOff": "overlay0",
-    "thinkingMinimal": "overlay1",
-    "thinkingLow": "overlay2",
-    "thinkingMedium": "subtext0",
-    "thinkingHigh": "subtext1",
-    "thinkingXhigh": "lavender",
-    "thinkingMax": "mauve",
+    "thinkingOff": "thinkingOff",
+    "thinkingMinimal": "thinkingMinimal",
+    "thinkingLow": "thinkingLow",
+    "thinkingMedium": "thinkingMedium",
+    "thinkingHigh": "thinkingHigh",
+    "thinkingXhigh": "thinkingXhigh",
+    "thinkingMax": "thinkingMax",
     "bashMode": "green"
   },
   "export": {

@@ -18,10 +18,13 @@
     "errorBg": "#1a0d0d",
     "comment": "#666666",
     "string": "#a0b4b5",
-    "thinkOff": "#333333",
-    "thinkMinimal": "#444444",
-    "thinkLow": "#555555",
-    "thinkMedium": "#777777"
+    "thinkingOff": "#404040",
+    "thinkingMinimal": "#4b4b4b",
+    "thinkingLow": "#555555",
+    "thinkingMedium": "#626262",
+    "thinkingHigh": "#6f6f6f",
+    "thinkingXhigh": "#7c7c7c",
+    "thinkingMax": "#8a8a8a"
   },
   "colors": {
     "accent": "accent",
@@ -72,14 +75,14 @@
     "syntaxType": "borderAccent",
     "syntaxOperator": "muted",
     "syntaxPunctuation": "dim",
-    "thinkingOff": "thinkOff",
-    "thinkingMinimal": "thinkMinimal",
-    "thinkingLow": "thinkLow",
-    "thinkingMedium": "thinkMedium",
-    "thinkingHigh": "muted",
-    "thinkingXhigh": "borderAccent",
-    "thinkingMax": "text",
-    "bashMode": "green"
+    "bashMode": "green",
+    "thinkingOff": "thinkingOff",
+    "thinkingMinimal": "thinkingMinimal",
+    "thinkingLow": "thinkingLow",
+    "thinkingMedium": "thinkingMedium",
+    "thinkingHigh": "thinkingHigh",
+    "thinkingXhigh": "thinkingXhigh",
+    "thinkingMax": "thinkingMax"
   },
   "export": {
     "pageBg": "#000000",

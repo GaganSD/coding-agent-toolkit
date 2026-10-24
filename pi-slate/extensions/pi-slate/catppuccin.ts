@@ -1,3 +1,5 @@
+import { effortPalette } from "./theme-palette.ts";
+
 export const FLAVORS = ["mocha"] as const;
 export const STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
 
@@ -102,6 +104,7 @@ export type CatppuccinThemeJson = {
 export function buildCatppuccinTheme(flavor: Flavor, style: Style): CatppuccinThemeJson {
   const palette = PALETTES[flavor];
   const roles = STYLE_ROLES[style];
+  const effort = effortPalette(palette[roles.border], palette[roles.accent]);
   return {
     $schema: THEME_SCHEMA,
     name: catppuccinThemeName(flavor, style),
@@ -112,6 +115,7 @@ export function buildCatppuccinTheme(flavor: Flavor, style: Style): CatppuccinTh
       heading: palette[roles.heading],
       panel: palette.mantle,
       surface: palette.surface0,
+      ...effort.vars,
     },
     colors: {
       accent: "accent",
@@ -162,13 +166,7 @@ export function buildCatppuccinTheme(flavor: Flavor, style: Style): CatppuccinTh
       syntaxType: "yellow",
       syntaxOperator: "sky",
       syntaxPunctuation: "overlay2",
-      thinkingOff: "overlay0",
-      thinkingMinimal: "overlay1",
-      thinkingLow: "overlay2",
-      thinkingMedium: "subtext0",
-      thinkingHigh: "subtext1",
-      thinkingXhigh: "lavender",
-      thinkingMax: "mauve",
+      ...effort.colors,
       bashMode: "green",
     },
     export: {

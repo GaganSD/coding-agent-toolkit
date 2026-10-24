@@ -477,3 +477,55 @@ test("a tall prompt scrolls by wheel and leaves a short prompt to the transcript
   assert.equal(scrollComposerByLines(editor, -1), false);
 });
 
+test("effort border color option lets Pi's thinking-level border colors through", () => {
+  const tui = { terminal: { rows: 24, columns: 80 }, requestRender() {} } as TUI;
+  const editorTheme = { borderColor: (text: string) => text } as EditorTheme;
+  const srcTheme = { fg: (_name: string, text: string) => text, italic: (text: string) => text } as Theme;
+  const source = () => ({ project: "slate", branch: null, model: undefined, footer: "standard" as const, theme: srcTheme });
+  const locked = new ComposerEditor(tui, editorTheme, new KeybindingsManager(), source);
+  const open = new ComposerEditor(tui, editorTheme, new KeybindingsManager(), () => ({ ...source(), effortBorderColor: true }));
+  locked.setText("prompt");
+  open.setText("prompt");
+
+  // Successive host writes (effort/theme/bash changes) must repaint the whole frame.
+  for (const color of ["\x1b[35m", "\x1b[36m"]) {
+    const effortPaint = (text: string) => `${color}${text}\x1b[0m`;
+    locked.borderColor = effortPaint;
+    open.borderColor = effortPaint;
+    assert.equal(locked.borderColor("x"), "x", "default frame ignores host writes");
+    assert.equal(open.borderColor("x"), effortPaint("x"));
+    for (const width of [40, 80]) {
+      const frame = open.render(width);
+      const neutral = locked.render(width);
+      for (const glyph of ["┌", "┐", "│", "└", "┘"]) {
+        assert.ok(frame.join("\n").includes(effortPaint(glyph)), `host color reaches ${glyph}`);
+      }
+      assert.deepEqual(frame.map(stripVTControlCharacters), neutral.map(stripVTControlCharacters));
+      assert.ok(frame.every(row => visibleWidth(row) <= width));
+      assert.ok(neutral.every(row => !row.includes(color)));
+    }
+  }
+});
+
+test("effort border toggles live and retains host updates received while neutral", () => {
+  const tui = { terminal: { rows: 24, columns: 80 }, requestRender() {} } as TUI;
+  const initialPaint = (text: string) => `initial:${text}`;
+  let border = "neutral";
+  const state = {
+    project: "slate", branch: null, model: undefined, footer: "standard" as const,
+    effortBorderColor: true,
+    theme: { fg: (_name: string, text: string) => `${border}:${text}` } as Theme,
+  };
+  const editor = new ComposerEditor(tui, { borderColor: initialPaint } as EditorTheme, new KeybindingsManager(), () => state);
+  assert.equal(editor.borderColor("x"), "initial:x", "native initial color is available before host writes");
+  state.effortBorderColor = false;
+  const latestPaint = (text: string) => `latest:${text}`;
+  editor.borderColor = latestPaint;
+  assert.equal(editor.borderColor("x"), "neutral:x");
+  border = "new-theme";
+  assert.equal(editor.borderColor("x"), "new-theme:x", "neutral chrome follows theme changes");
+  state.effortBorderColor = true;
+  assert.equal(editor.borderColor("x"), "latest:x", "enabling uses host updates stored while off");
+  state.effortBorderColor = false;
+  assert.equal(editor.borderColor("x"), "new-theme:x", "disabling immediately restores chrome");
+});

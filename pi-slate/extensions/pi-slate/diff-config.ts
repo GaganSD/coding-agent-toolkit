@@ -1,5 +1,6 @@
 import type { BundledTheme } from "shiki";
 import { slateShikiTheme, slateTheme, type SlateThemeJson } from "./themes.ts";
+import { mixHex } from "./theme-palette.ts";
 
 export type DiffColors = {
   fg: string;
@@ -18,13 +19,6 @@ export type DiffConfig = {
   splitMinWidth: number;
   colors: DiffColors;
 };
-
-/** Blend `fg` over `bg` at `alpha` — derives diff tints from any theme palette. */
-export function mixHex(fg: string, bg: string, alpha: number): string {
-  const channel = (hex: string, start: number) => parseInt(hex.slice(start, start + 2), 16);
-  const out = [1, 3, 5].map((start) => Math.round(channel(bg, start) + (channel(fg, start) - channel(bg, start)) * alpha));
-  return `#${out.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-}
 
 /** Diff colors derive from the active theme's roles, so every Slate theme (and style switch) restyles diffs consistently. */
 export function diffColors(theme: SlateThemeJson): DiffColors {

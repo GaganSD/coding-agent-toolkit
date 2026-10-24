@@ -15,7 +15,14 @@
     "yellow": "#e0af68",
     "orange": "#ff9e64",
     "purple": "#bb9af7",
-    "cyan": "#7dcfff"
+    "cyan": "#7dcfff",
+    "thinkingOff": "#3b4261",
+    "thinkingMinimal": "#414c70",
+    "thinkingLow": "#48557f",
+    "thinkingMedium": "#4f6191",
+    "thinkingHigh": "#576ca3",
+    "thinkingXhigh": "#5f79b7",
+    "thinkingMax": "#6785ca"
   },
   "colors": {
     "accent": "accent",
@@ -66,14 +73,14 @@
     "syntaxType": "yellow",
     "syntaxOperator": "cyan",
     "syntaxPunctuation": "muted",
-    "thinkingOff": "border",
-    "thinkingMinimal": "dim",
-    "thinkingLow": "muted",
-    "thinkingMedium": "accent",
-    "thinkingHigh": "cyan",
-    "thinkingXhigh": "purple",
-    "thinkingMax": "red",
-    "bashMode": "green"
+    "bashMode": "green",
+    "thinkingOff": "thinkingOff",
+    "thinkingMinimal": "thinkingMinimal",
+    "thinkingLow": "thinkingLow",
+    "thinkingMedium": "thinkingMedium",
+    "thinkingHigh": "thinkingHigh",
+    "thinkingXhigh": "thinkingXhigh",
+    "thinkingMax": "thinkingMax"
   },
   "export": {
     "pageBg": "#1a1b26",
