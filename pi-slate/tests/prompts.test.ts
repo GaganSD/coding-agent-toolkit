@@ -210,8 +210,8 @@ test("picker reads only prompt commands and uses the current resource list", asy
 test("optional prompt shortcut registers only when configured", async (t) => {
   const unset = await fixture(t, { example: "Body" });
   assert.equal(unset.shortcut, undefined);
-  const bound = await fixture(t, { example: "Body" }, new KeybindingsManager(), "ctrl+alt+p");
-  assert.equal(bound.shortcut, "ctrl+alt+p");
+  const bound = await fixture(t, { example: "Body" }, new KeybindingsManager(), "ctrl+alt+.");
+  assert.equal(bound.shortcut, "ctrl+alt+.");
 });
 
 test("picker can reopen after a failed custom UI interaction", async (t) => {

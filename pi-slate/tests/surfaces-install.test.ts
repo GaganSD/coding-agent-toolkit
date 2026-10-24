@@ -409,15 +409,15 @@ test("prompt shortcut stays unset unless shortcuts.prompts is a valid chord", as
   const unset = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
   assert.deepEqual(unset.shortcuts, []);
   assert.equal(JSON.parse(await readFile(unset.path, "utf8")).shortcuts, undefined);
-  for (const prompts of [false, "none", "", "p", "ctrl+alt+p extra"]) {
+  for (const prompts of [false, "none", "", "p", "ctrl+alt+. extra"]) {
     const f = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts: { prompts } }));
     assert.deepEqual(f.shortcuts, [], String(prompts));
   }
-  const bound = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts: { prompts: "Ctrl+Alt+P" } }));
-  assert.deepEqual(bound.shortcuts, ["ctrl+alt+p"]);
+  const bound = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts: { prompts: "Ctrl+Alt+." } }));
+  assert.deepEqual(bound.shortcuts, ["ctrl+alt+."]);
   await bound.commands.get("slate")!.handler("pid on", bound.ctx);
   const saved = JSON.parse(await readFile(bound.path, "utf8"));
-  assert.deepEqual(saved.shortcuts, { prompts: "ctrl+alt+p" });
+  assert.deepEqual(saved.shortcuts, { prompts: "ctrl+alt+." });
   assert.equal(saved.showPid, true);
 });
 

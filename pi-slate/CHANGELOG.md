@@ -13,7 +13,7 @@ Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer fr
 
 - Black Metal is selectable again from `/slate theme` and the theme menu.
 - Sidebar token rate reads `~33 t/s`.
-- `/prompts` has no default shortcut. Bind one with `"shortcuts": { "prompts": "ctrl+alt+p" }` in `pi-slate.json`, or `false` / `"none"` for none (Thanks @EinErste for the issue)
+- `/prompts` has no default shortcut. Optional `"shortcuts": { "prompts": "" }` in `pi-slate.json`; `false` / `"none"` also mean none (Thanks @EinErste for the issue)
 
 ### Fixed
 
