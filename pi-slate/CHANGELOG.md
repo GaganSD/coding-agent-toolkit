@@ -6,6 +6,10 @@
 
 - Native-host regression coverage for Pi 1.4.0's stacked dialogs restoring the Slate composer, CJK emphasis and tables in split transcripts, and Rex image rendering with a text fallback.
 
+### Changed
+
+- `/prompts` is the only way to open the prompt picker. Slate no longer registers `Ctrl+Alt+P`.
+
 ### Fixed
 
 - Support Pi 1.4.0's native MCP configuration validation, removing the sidebar's false `1 Error` when no servers are configured. Accept BOM-prefixed MCP configuration files as Pi 1.4.0 does. Unsupported hosts keep configured entries unknown without reporting a validation error when there are no entries.

@@ -53,7 +53,6 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const pi = {
     on(event: string, handler: Handler) { handlers.set(event, [...handlers.get(event) ?? [], handler]); },
     registerCommand(name: string, command: typeof commands extends Map<string, infer V> ? V : never) { commands.set(name, command); },
-    registerShortcut() {},
     registerTool(tool: ToolDefinition) { tools.push(tool); },
     registerToolRenderer() { calls.push("tool-renderer"); },
     getCommands: () => extraCommands,

@@ -201,9 +201,4 @@ export const installPromptPicker = (pi: ExtensionAPI): void => {
     description: "Pick a prompt",
     handler: async (_args, ctx) => handler(ctx),
   });
-
-  pi.registerShortcut("ctrl+alt+p", {
-    description: "Pick a prompt",
-    handler,
-  });
 };

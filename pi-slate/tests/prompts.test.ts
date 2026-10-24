@@ -13,13 +13,10 @@ import {
 import {
   CURSOR_MARKER,
   getKeybindings,
-  matchesKey,
   setKeybindings,
   visibleWidth,
   type Component,
   type Focusable,
-  type Keybinding,
-  type KeyId,
   type TUI,
 } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
@@ -38,8 +35,6 @@ async function fixture(t: test.TestContext, files: Record<string, string>, kb = 
   for (const [name, content] of Object.entries(files)) await writeFile(join(dir, `${name}.md`), content);
   let commands = Object.keys(files).map((name) => ({ name, source: "prompt", sourceInfo: { path: join(dir, `${name}.md`) } }));
   let handler!: (args: string, ctx: ExtensionContext) => Promise<void>;
-  let shortcut!: KeyId;
-  let shortcutHandler!: (ctx: ExtensionContext) => Promise<void>;
   const pasted: string[] = [];
   const notices: string[] = [];
   let opened = 0;
@@ -49,7 +44,6 @@ async function fixture(t: test.TestContext, files: Record<string, string>, kb = 
     on: (event: string, handler: () => void) => { assert.equal(event, "session_shutdown"); shutdown = handler; },
     getCommands: () => commands,
     registerCommand: (_name: string, command: { handler: typeof handler }) => { handler = command.handler; },
-    registerShortcut: (key: KeyId, entry: { handler: typeof shortcutHandler }) => { shortcut = key; shortcutHandler = entry.handler; },
   } as unknown as ExtensionAPI);
   const ctx = {
     mode: "tui",
@@ -67,9 +61,7 @@ async function fixture(t: test.TestContext, files: Record<string, string>, kb = 
   return {
     ctx, pasted, notices,
     get opened() { return opened; },
-    get shortcut() { return shortcut; },
     open: (context = ctx) => handler("", context),
-    shortcutOpen: (context = ctx) => shortcutHandler(context),
     shutdown: () => shutdown(),
     interact: (next: typeof interact) => { interact = next; },
     commands: (next: typeof commands) => { commands = next; },
@@ -170,7 +162,7 @@ test("picker is terminal-only and suppresses repeated opens until dismissal", as
   assert.equal(f.opened, 0);
   f.ctx.mode = "tui";
   f.interact((picker) => picker.handleInput("\x1b"));
-  await Promise.all([f.open(), f.shortcutOpen()]);
+  await Promise.all([f.open(), f.open()]);
   assert.equal(f.opened, 1);
   await f.open();
   assert.equal(f.opened, 2);
@@ -232,7 +224,7 @@ for (const guarded of [false, true]) {
         if (stale) throw new Error("This extension ctx is stale");
         return Reflect.get(target, key, receiver);
       } }) : f.ctx;
-      const pending = guarded ? f.open(ctx) : f.shortcutOpen(ctx);
+      const pending = f.open(ctx);
       f.shutdown(); stale = true;
       await pending;
       assert.equal(f.opened, 0);
@@ -250,7 +242,7 @@ for (const guarded of [false, true]) {
       return Reflect.get(target, key, receiver);
     } }) : f.ctx;
     f.interact((_picker, done) => { choose = done; opened(); });
-    const pending = guarded ? f.open(ctx) : f.shortcutOpen(ctx);
+    const pending = f.open(ctx);
     await ready;
     f.shutdown(); stale = true;
     choose("Body");
@@ -261,11 +253,3 @@ for (const guarded of [false, true]) {
     assert.deepEqual(f.pasted, ["Body"], "replacement picker can open normally");
   });
 }
-
-test("picker shortcut does not collide with any default Pi binding", async (t) => {
-  const f = await fixture(t, {});
-  const kb = new KeybindingsManager();
-  const data = "\x1b[112;7u"; // Kitty Ctrl+Alt+P.
-  assert.ok(matchesKey(data, f.shortcut));
-  for (const action of Object.keys(kb.getResolvedBindings()) as Keybinding[]) assert.ok(!kb.matches(data, action), action);
-});
