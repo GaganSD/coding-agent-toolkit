@@ -84,7 +84,7 @@ Open `/automode rules`, choose **Add rule**, then choose an effect and type:
   because local policy cannot interpret the instruction and the optional
   decision model cannot authorize anything.
 
-Verified system executables include Ubuntu 26's distribution-owned coreutils under `/usr/lib/cargo/bin/coreutils`, in addition to the standard system binary directories. User Cargo/PATH binaries and lookalike directories do not inherit that trust; program identity, executable permissions, flags, and operands must still pass verification.
+Verified system executables include Ubuntu 26's distribution-owned coreutils under `/usr/lib/cargo/bin/coreutils`, in addition to the standard system binary directories. User Cargo/PATH binaries and lookalike directories do not inherit that trust; program identity, executable permissions, flags, and operands must still pass verification. Verified system executables may be hard-linked, but their content and link metadata remain fingerprinted; hard-linked workspace operands still require approval.
 
 For example, allowing `ls -la` does not allow `ls -la; rm -rf dist`.
 Rules can be edited, disabled, moved between allow/block, or deleted.
