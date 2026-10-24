@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "47cc5537916016ef1052f5dc92a2dd907fc42369",
-  "notes": "\n- Add RPC dialog interviews with single/multi-select, free-text answers, back navigation, and review before submission.\n- Repair common malformed question payloads before validation.\n- Add Simplified Chinese dialog strings via `PI_ASK_LOCALE=zh`.\n- Reduce recurring tool context by about 44%.\n- Prioritize common keyboard hints in the footer.\n- Fix RPC cancellation races and unexpected dialog responses.",
+  "sourceSha": "aa5d6cfaa157c6f3688ebf732372609e2f4ff58b",
+  "notes": "Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.",
   "packages": [
     {
-      "path": "pi-ask",
-      "name": "@gagansd/pi-ask",
-      "from": "0.1.4",
-      "to": "0.1.5",
+      "path": "pi-slate",
+      "name": "pi-slate",
+      "from": "0.1.17",
+      "to": "0.1.18",
       "bump": "patch"
     }
   ]
