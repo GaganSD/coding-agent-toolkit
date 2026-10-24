@@ -16,6 +16,7 @@ import {
   SelectList,
   Spacer,
   Text,
+  type KeyId,
 } from "@earendil-works/pi-tui";
 
 type Prompt = {
@@ -172,7 +173,7 @@ const openPromptsOverlay =
     }
   };
 
-export const installPromptPicker = (pi: ExtensionAPI): void => {
+export const installPromptPicker = (pi: ExtensionAPI, shortcut?: string): void => {
   let open = false;
   let generation = 0;
   pi.on("session_shutdown", () => { generation += 1; open = false; });
@@ -201,9 +202,5 @@ export const installPromptPicker = (pi: ExtensionAPI): void => {
     description: "Pick a prompt",
     handler: async (_args, ctx) => handler(ctx),
   });
-
-  pi.registerShortcut("ctrl+alt+p", {
-    description: "Pick a prompt",
-    handler,
-  });
+  if (shortcut) pi.registerShortcut(shortcut as KeyId, { description: "Pick a prompt", handler });
 };

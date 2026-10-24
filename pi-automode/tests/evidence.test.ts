@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
+import { promises as fs, type PathLike } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,6 +41,29 @@ async function evidenceFor(
 ): Promise<ActionEvidence> {
   return buildEvidence(action(tool, args, cwd ?? fx.workspace), fx);
 }
+
+test("hard-linked verified system executables stay complete and link metadata stays fingerprinted", async t => {
+  const fx = await fixture();
+  const args = { command: "ls -la" };
+  const before = await evidenceFor(fx, "bash", args);
+  assert.equal(before.complete, true, before.reason ?? "system executable should be verifiable");
+  const executable = before.shell?.resolvedExecutable;
+  assert.ok(executable);
+  const previous = before.snapshots.find(snap => snap.canonicalPath === executable)!;
+  assert.equal(previous.kind, "file");
+  const lstat = fs.lstat;
+  t.mock.method(fs, "lstat", async (file: PathLike) => {
+    const stat = await lstat(file);
+    if (file === executable && stat.isFile()) stat.nlink = (previous.nlink ?? 1) + 1;
+    return stat;
+  });
+  const after = await evidenceFor(fx, "bash", args);
+  assert.equal(after.complete, true, after.reason ?? "system hard links should remain verifiable");
+  const snapshot = after.snapshots.find(snap => snap.canonicalPath === executable)!;
+  assert.ok(snapshot.nlink! > 1);
+  assert.equal(snapshot.sha256, previous.sha256, "system binary content remains snapshotted");
+  assert.notEqual(after.fingerprint, before.fingerprint, "link changes invalidate prior evidence");
+});
 
 test("plain workspace file read: canonical path, complete, not sensitive", async () => {
   const fx = await fixture();

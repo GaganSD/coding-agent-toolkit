@@ -71,6 +71,7 @@ Slate supports the following themes and can be changed with `/slate theme <name>
 | Themes | Accent |
 | --- | --- |
 | `tokyo-night` | 🟦 |
+| `black-metal` | ⬛ |
 | `quiet` | ⬜ |
 | `mauve` | 🟪 |
 | `sapphire` | 🟦 |
@@ -78,13 +79,19 @@ Slate supports the following themes and can be changed with `/slate theme <name>
 | `teal` | 🟩 |
 | `default` | Pi's system theme |
 
-Black Metal remains available in Pi's theme settings. Selection is saved and also appears in `/settings`.
+Black Metal is an optional bundled theme, not an install default: pick it with `/slate theme black-metal` or the `/slate theme` menu. Every selection is saved and also appears in `/settings`.
 
 With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin style, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; the effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
 
 ### Prompt Templates
 
-With `editor` selected, `/prompts` (or `Ctrl+Alt+P`) opens a searchable picker of Pi's prompt templates; Enter inserts at the composer cursor.
+With `editor` selected, `/prompts` opens a searchable picker of Pi's prompt templates; Enter inserts at the composer cursor. There is no default shortcut. Optional bind in `~/.pi/agent/pi-slate.json`, then `/reload`:
+
+```json
+{ "shortcuts": { "prompts": "" } }
+```
+
+`false` or `"none"` also mean none.
 
 ![Slate prompt template picker](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-prompts.png)
 
@@ -118,7 +125,7 @@ These work when `editor` is selected. No terminal configuration.
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. Not footer-slot ownership. |
-| Theme | `/slate theme [default\|tokyo-night\|quiet\|mauve\|sapphire\|peach\|teal]` | Default restores Pi's system theme. Tokyo Night is explicit; other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
+| Theme | `/slate theme [default\|tokyo-night\|black-metal\|quiet\|mauve\|sapphire\|peach\|teal]` | Default restores Pi's system theme. Tokyo Night and Black Metal are explicit; other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Independent Surfaces

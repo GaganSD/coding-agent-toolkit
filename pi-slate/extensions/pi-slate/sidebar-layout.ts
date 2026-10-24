@@ -37,7 +37,7 @@ export function sidebarUncached(usage: { input: number | null; cacheRead: number
 
 export function sidebarRate(rate: number | null): string {
   if (rate === null || !Number.isFinite(rate) || rate < 0) return "—";
-  return `~${Math.round(rate)}/s`;
+  return `~${Math.round(rate)} t/s`;
 }
 
 export function sidebarDuration(ms: number | null): string {

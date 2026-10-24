@@ -246,10 +246,13 @@ export async function buildEvidence(action: Action, ctx: EvidenceContext): Promi
         if (snap.error !== undefined) {
           problems.push(`referenced file snapshot incomplete: ${snap.error}`);
         }
-        // Hard-link handling (mirrors the native-tool rule): an nlink>1
-        // operand may alias a sensitive or out-of-workspace inode; the floor
-        // must not silently approve it.
-        if (snap.kind === "file" && (snap.nlink ?? 1) > 1) {
+        // Distro executables may be hard-linked (Ubuntu's multi-call coreutils).
+        // Only the fully verified system executable is exempt; workspace operands
+        // still cannot alias sensitive/outside inodes. Its hash and link metadata
+        // remain fingerprinted, so changes still invalidate prior evidence.
+        const verifiedExecutable = analysis.resolution.opaqueReason === undefined
+          && ref === analysis.resolution.resolvedExecutable;
+        if (snap.kind === "file" && (snap.nlink ?? 1) > 1 && !verifiedExecutable) {
           problems.push("referenced file has multiple hard links; workspace-local identity is unprovable");
         }
       }

@@ -7,7 +7,7 @@ import { loadThemeFromPath, SYSTEM_THEME_NAME } from "../node_modules/@earendil-
 import { ComposerEditor, type ComposerSource } from "../extensions/pi-slate/composer.ts";
 import { dashboardColumnWidth, formatCompactTokenCount, parseSlateArgs } from "../extensions/pi-slate/layout.ts";
 import { SLATE_NATIVE_THEME, SLATE_THEME } from "../extensions/pi-slate/install-defaults.ts";
-import { sessionSidebarSlots, sidebarCost } from "../extensions/pi-slate/sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarCost, sidebarRate } from "../extensions/pi-slate/sidebar-layout.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
 import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
 
@@ -73,7 +73,7 @@ test("growing usage and money keep a stable label lane and value edge with the r
       assert(occupancy, "occupancy line");
       if (width > 28) { // Below this, bounded values truncate instead of moving edges.
         for (const line of stats) assert.doesNotMatch(line, /…/, "values must not consume the label lane");
-        assert(occupancy.includes(`${sidebarCost(value)} · ~82/s`), `${sidebarCost(value)} on the occupancy line`);
+        assert(occupancy.includes(`${sidebarCost(value)} · ~82 t/s`), `${sidebarCost(value)} on the occupancy line`);
         assert.doesNotMatch(occupancy, /…/);
       }
     }
@@ -82,6 +82,9 @@ test("growing usage and money keep a stable label lane and value edge with the r
   assert.equal(sidebarCost(null), "—"); assert.equal(sidebarCost(Number.NaN), "—");
   assert.equal(sidebarCost(-1), "—"); assert.equal(sidebarCost(1.24), "$1.24");
   assert.equal(sidebarCost(1e308), "$1.0e+308");
+  assert.equal(sidebarRate(33.4), "~33 t/s"); assert.equal(sidebarRate(300), "~300 t/s");
+  assert.equal(sidebarRate(null), "—"); assert.equal(sidebarRate(Number.NaN), "—");
+  assert.equal(sidebarRate(-1), "—"); assert.equal(sidebarRate(Infinity), "—");
   sidebar.dispose();
 });
 

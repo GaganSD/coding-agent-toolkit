@@ -48,12 +48,13 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const inspected: string[] = [];
   const extraCommands: Array<{ name: string; source: string; sourceInfo: { path: string; scope: string } }> = [];
   let draft = "existing draft";
+  const shortcuts: string[] = [];
   t.mock.method(GitStatusPoller.prototype, "start", () => { calls.push("files-start"); });
   t.mock.method(GitStatusPoller.prototype, "refresh", async () => { calls.push("files-refresh"); });
   const pi = {
     on(event: string, handler: Handler) { handlers.set(event, [...handlers.get(event) ?? [], handler]); },
     registerCommand(name: string, command: typeof commands extends Map<string, infer V> ? V : never) { commands.set(name, command); },
-    registerShortcut() {},
+    registerShortcut(key: string) { shortcuts.push(key); },
     registerTool(tool: ToolDefinition) { tools.push(tool); },
     registerToolRenderer() { calls.push("tool-renderer"); },
     getCommands: () => extraCommands,
@@ -145,7 +146,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, commands, tools, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, bus, manager, draft: () => draft, eventBus: pi.events, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, bus, manager, draft: () => draft, eventBus: pi.events, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {
@@ -389,6 +390,35 @@ test("system default and explicit Tokyo Night preserve unrelated native settings
   saved = JSON.parse(await readFile(settingsPath, "utf8"));
   assert.equal(saved.theme, "tokyo-night"); assert.equal(saved.quietStartup, true);
   assert.deepEqual(saved.packages, ["keep-this-package"]);
+});
+
+test("Black Metal is selectable by command and from the theme picker", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const settingsPath = join(dirname(f.path), "settings.json");
+  const themes: string[] = [];
+  t.mock.method(f.ctx.ui, "setTheme", (name: string) => { themes.push(name); return { success: true }; });
+  await f.commands.get("slate")!.handler("theme black-metal", f.ctx);
+  assert.deepEqual(themes, ["black-metal"]);
+  assert.equal(JSON.parse(await readFile(settingsPath, "utf8")).theme, "black-metal");
+  f.choices.push("Black Metal");
+  await f.commands.get("slate")!.handler("theme", f.ctx);
+  assert.deepEqual(themes, ["black-metal", "black-metal"], "picker lists Black Metal");
+});
+
+test("prompt shortcut stays unset unless shortcuts.prompts is a valid chord", async t => {
+  const unset = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
+  assert.deepEqual(unset.shortcuts, []);
+  assert.equal(JSON.parse(await readFile(unset.path, "utf8")).shortcuts, undefined);
+  for (const prompts of [false, "none", "", "p", "ctrl+alt+. extra"]) {
+    const f = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts: { prompts } }));
+    assert.deepEqual(f.shortcuts, [], String(prompts));
+  }
+  const bound = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts: { prompts: "Ctrl+Alt+." } }));
+  assert.deepEqual(bound.shortcuts, ["ctrl+alt+."]);
+  await bound.commands.get("slate")!.handler("pid on", bound.ctx);
+  const saved = JSON.parse(await readFile(bound.path, "utf8"));
+  assert.deepEqual(saved.shortcuts, { prompts: "ctrl+alt+." });
+  assert.equal(saved.showPid, true);
 });
 
 test("rail omits the command catalog; /slate session still inserts without disturbing a pinned preview", async t => {

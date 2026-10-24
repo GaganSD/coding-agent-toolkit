@@ -43,7 +43,7 @@ function task(i: number): BackgroundTask {
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["Session session- · PID 8421", "sonnet-4.6", "16%", "31.6k / 200k · $0.12 · ~82/s", "61.4k In", "876 Out", "Cached 48k", "Uncached 7.3k", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
+  for (const label of ["Session session- · PID 8421", "sonnet-4.6", "16%", "31.6k / 200k · $0.12 · ~82 t/s", "61.4k In", "876 Out", "Cached 48k", "Uncached 7.3k", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
     assert(lines.some(line => line.includes(label)), label);
   for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0", "prompt-0"])
     assert(!lines.some(line => line.includes(label)), label);
@@ -154,7 +154,7 @@ test("usage is a single stable label/value lane; full accounting stays in detail
     const text = plain(sidebar.render(width)).join("\n");
     assert(text.includes("PID 8421"));
     if (width >= 28) for (const value of ["61.4k", "876", "48k", "7.3k", "$0.12"]) assert(text.includes(value), value);
-    if (width >= 40) assert(text.includes("~82/s")); // Narrow rails truncate the merged occupancy tail first.
+    if (width >= 40) assert(text.includes("~82 t/s")); // Narrow rails truncate the merged occupancy tail first.
   }
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
   assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
@@ -174,7 +174,7 @@ test("title precedes the session identity and the 11-row header matches its slot
   assert.equal(lines[1], "Slate session title");
   assert.equal(lines[2], "Session session- · PID 8421");
   assert(/^Context [━─]+ │ 16%$/.test(lines[5]!), "single context meter row");
-  assert(lines[6]!.includes("31.6k / 200k · $0.12 · ~82/s"), "merged occupancy line");
+  assert(lines[6]!.includes("31.6k / 200k · $0.12 · ~82 t/s"), "merged occupancy line");
   assert(lines[8]!.includes("61.4k In") && lines[8]!.includes("Cached 48k"));
   assert(lines[8]!.indexOf("Cached 48k") < lines[8]!.indexOf("61.4k In"), "Cached lanes left, In right with value first");
   assert(lines[9]!.includes("876 Out") && lines[9]!.includes("Uncached 7.3k"));
@@ -227,7 +227,7 @@ test("occupancy and stat rows keep the branch usage inspect action; nulls render
   const { sidebar } = fixture(); const inspected: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: title => inspected.push(title) });
   sidebar.setSession({ ...session, estimated: true, usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null } });
-  sidebar.handleMouse(mouse(row(sidebar, "~31.6k / 200k · — · ~82/s")));
+  sidebar.handleMouse(mouse(row(sidebar, "~31.6k / 200k · — · ~82 t/s")));
   sidebar.handleMouse(mouse(row(sidebar, "— In")));
   sidebar.handleMouse(mouse(row(sidebar, "Uncached —")));
   assert.deepEqual(inspected, ["Branch usage", "Branch usage", "Branch usage"]);
