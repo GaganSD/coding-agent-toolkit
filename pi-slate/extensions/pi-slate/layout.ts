@@ -303,7 +303,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|black-metal|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -354,6 +354,7 @@ const SLATE_COMPLETIONS = [
   "message-length all",
   "theme",
   "theme tokyo-night",
+  "theme black-metal",
   ...THEME_STYLES.map((style) => `theme ${style}`),
   "style",
   ...THEME_STYLES.map((style) => `style ${style}`),
@@ -378,7 +379,7 @@ export type SlateArgs =
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
-  | { ok: true; kind: "named-theme"; name: "system" | "tokyo-night" }
+  | { ok: true; kind: "named-theme"; name: "system" | "tokyo-night" | "black-metal" }
   | { ok: true; kind: "theme"; flavor?: Flavor; style?: Style }
   | { ok: true; kind: "style"; value?: Style }
   | { ok: true; kind: "bug-menu" }
@@ -409,6 +410,7 @@ export function parseSlateArgs(raw: string): SlateArgs {
     if (!tail) return { ok: true, kind: "theme-menu" };
     if (tail === "default" && !extra) return { ok: true, kind: "named-theme", name: "system" };
     if ((tail === "tokyo-night" || tail === "tokyonight") && !extra) return { ok: true, kind: "named-theme", name: "tokyo-night" };
+    if ((tail === "black-metal" || tail === "blackmetal") && !extra) return { ok: true, kind: "named-theme", name: "black-metal" };
     const flavor = parseFlavor(tail);
     if (flavor) {
       if (!extra) return { ok: true, kind: "theme", flavor };

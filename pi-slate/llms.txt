@@ -33,5 +33,5 @@ Header uses the stock Pi mark plus version, model, session dir as ~/<name>, and 
 - [Tool groups](extensions/pi-slate/tool-groups.ts): scoped chat-instance trees and native mouse routing
 - [Thinking status](extensions/pi-slate/thinking-fold.ts): live composer timing, native transcript fallback
 - [Tokyo Night theme](themes/tokyo-night.json): bundled explicit theme choice
-- [Black Metal theme](themes/black-metal.json): optional theme, not an install default
+- [Black Metal theme](themes/black-metal.json): optional theme, not an install default; selectable via `/slate theme black-metal` or the `/slate theme` menu
 - [Package manifest](package.json): `npm:pi-slate`

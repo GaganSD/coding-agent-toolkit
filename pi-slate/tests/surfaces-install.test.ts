@@ -391,6 +391,19 @@ test("system default and explicit Tokyo Night preserve unrelated native settings
   assert.deepEqual(saved.packages, ["keep-this-package"]);
 });
 
+test("Black Metal is selectable by command and from the theme picker", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const settingsPath = join(dirname(f.path), "settings.json");
+  const themes: string[] = [];
+  t.mock.method(f.ctx.ui, "setTheme", (name: string) => { themes.push(name); return { success: true }; });
+  await f.commands.get("slate")!.handler("theme black-metal", f.ctx);
+  assert.deepEqual(themes, ["black-metal"]);
+  assert.equal(JSON.parse(await readFile(settingsPath, "utf8")).theme, "black-metal");
+  f.choices.push("Black Metal");
+  await f.commands.get("slate")!.handler("theme", f.ctx);
+  assert.deepEqual(themes, ["black-metal", "black-metal"], "picker lists Black Metal");
+});
+
 test("rail omits the command catalog; /slate session still inserts without disturbing a pinned preview", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
   f.extraCommands.push({ name: "hello", source: "extension", sourceInfo: { path: "hello.ts", scope: "user" } });

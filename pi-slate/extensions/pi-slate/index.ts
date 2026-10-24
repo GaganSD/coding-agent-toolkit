@@ -892,12 +892,14 @@ export default function piSlate(pi: ExtensionAPI): void {
     const value = await ctx.ui.select("Theme", [
       withCurrent("System default", ctx.ui.theme.name === SLATE_NATIVE_THEME),
       withCurrent("Tokyo Night", ctx.ui.theme.name === SLATE_THEME),
+      withCurrent("Black Metal", ctx.ui.theme.name === "black-metal"),
       ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], ctx.ui.theme.name?.startsWith("catppuccin-") === true && style === mocha)),
     ]);
     if (!value) return;
     const key = withoutCurrent(value);
     if (key === "System default") { applyNamedTheme(ctx, SLATE_NATIVE_THEME); return; }
     if (key === "Tokyo Night") { applyNamedTheme(ctx, SLATE_THEME, "Theme set to Tokyo Night"); return; }
+    if (key === "Black Metal") { applyNamedTheme(ctx, "black-metal", "Theme set to Black Metal"); return; }
     const style = STYLES.find((item) => STYLE_LABELS[item] === key);
     if (style) applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
   };

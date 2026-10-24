@@ -262,6 +262,9 @@ test("/slate args route density, footer, and width", () => {
     { value: "progress snake", label: "progress snake" },
     { value: "progress cylon-scanner", label: "progress cylon-scanner" },
   ]);
+  assert.deepEqual(slateArgumentCompletions("theme b"), [
+    { value: "theme black-metal", label: "theme black-metal" },
+  ]);
   assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
   assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
   assert.deepEqual(parseSlateArgs("message-length 50"), { ok: true, kind: "message-length", value: 50 });
@@ -278,6 +281,9 @@ test("/slate args route density, footer, and width", () => {
     flavor: "mocha",
     style: "mauve",
   });
+  assert.deepEqual(parseSlateArgs("theme black-metal"), { ok: true, kind: "named-theme", name: "black-metal" });
+  assert.deepEqual(parseSlateArgs("theme blackmetal"), { ok: true, kind: "named-theme", name: "black-metal" });
+  assert.deepEqual(parseSlateArgs("theme black-metal extra"), { ok: false });
   assert.deepEqual(parseSlateArgs("theme pantera"), { ok: false });
   assert.deepEqual(parseSlateArgs("theme latte quiet"), { ok: false });
   assert.deepEqual(parseSlateArgs("flavor mocha"), { ok: false });
