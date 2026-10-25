@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Breaking
+
+- Replace the registered `web_search`, `code_search`, and opt-in `multi_search` tools with one `search` tool. Update custom prompts, tool allowlists, and scripts: use `query` for web search, `query` with `scope: "code"` for public code, and `effort: "thorough"` for opt-in multi-source retrieval. `scope: "both"` implies thorough retrieval; both require `research.enabled`.
+- Supply exactly one of `query`, `urls`, or `ref`. Unknown arguments and conflicting modes now fail explicitly. Legacy internal helpers are not registered tools.
+
+### Added
+
+- Read session-owned evidence locally with one-based refs, literal passage search, and copyable continuation cursors. Storage is bounded and memory-only; handles expire after 10 idle minutes, at most 60 minutes total, or on eviction/reload. Stored evidence is not guaranteed full-page content.
+- Optional keyed Brave search and keyless Jina URL extraction, with bounded concurrent thorough retrieval, short-lived direct-transport reuse, and rate-limit cooldowns. Native Parallel calls still pass through Pi's permission checks.
+
+### Changed
+
+- Bound direct and structured previews to 8,000 characters per output path, preserve complete citations and mixed-source coverage, and retain admitted evidence for local continuation.
+- Reduce the offline declaration estimate to 344 tokens and the representative structured fixture to 4,109 characters. Estimates use a character proxy, not billed tokenizer counts.
+
 ## 0.3.1
 
 Release the current extension updates together.

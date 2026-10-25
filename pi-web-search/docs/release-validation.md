@@ -1,6 +1,27 @@
-# Release checks: 0.2.0
+# Release validation
 
-Review date: 2026-10-02. These checks describe this release candidate, not a guarantee of future provider availability.
+## Next release: 0.4.0
+
+PR #90 replaces the model-facing tool names, so the next release is a **minor breaking 0.x release**, from `0.3.1` to `0.4.0`. The migration and release highlights are recorded in `CHANGELOG.md` under Unreleased.
+
+Keep the package and lockfile at `0.3.1` in the feature PR. The existing release checker accepts only generated, release-only metadata changes, and publication requires a merged `release/next` PR. Bundling the version bump or a release plan into #90 would fail those safeguards. Release notes and this handoff can ship in #90; publication cannot.
+
+After #90 is merged and main CI passes, run from the monorepo root:
+
+```bash
+npm run release:prepare -- \
+  --package pi-web-search:minor \
+  --notes 'Unify web/code search, URL extraction, and bounded local evidence continuation under search. Breaking: migrate legacy tool names and arguments; add optional Brave search and keyless Jina extraction with quota-aware retrieval.' \
+  --dry-run
+```
+
+Confirm the preview selects **only** `@gagansd/pi-web-search`, currently `0.3.1` → `0.4.0`, and includes the merged #90 source. Remove `--dry-run` to create/update the release PR. Preparation always uses remote main, not the current checkout; do not dispatch before #90 merges. If the package version or main changes, review the new preview and regenerate the release PR as needed. Review its generated changelog, let CI pass, then merge it to publish the validated artifact. No release is dispatched by #90 itself.
+
+Consumers should update custom prompts, tool allowlists, and scripts to `search` before upgrading, then reload Pi. Use `scope: "code"` for code queries, `effort: "thorough"` for opted-in multi-source retrieval, `urls` for extraction, and `ref` with optional `find` or `cursor` for local evidence. `scope: "both"` defaults to thorough; both require `research.enabled`. Do not pass the old `search_read` arguments (`resultId`, zero-based `index`, `offset`, or `limit`) to `search`; hit refs are one-based (`<resultId>:1`).
+
+## Historical review: 0.2.0
+
+Review date: 2026-10-02. The checks below describe the 0.2.0 release candidate, not a guarantee of future provider availability. See the repository's `docs/ci-cd.md` for the current CI and release gates.
 
 ## Security fixes
 
