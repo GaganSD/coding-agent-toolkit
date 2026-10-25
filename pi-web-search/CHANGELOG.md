@@ -5,10 +5,12 @@
 ### Highlights
 
 - **One search tool:** search the web, find public code, read URLs, and revisit results through `search`. Choose fast searches or opt into multi-source thorough searches.
-- **Less context overhead:** the tool and prompt footprint is approximately 16% smaller for default search and 44% smaller with research enabled (344 estimated tokens, down from 410 and 615). A representative result preview is 76% smaller (4,081 characters, down from 16,777). These are offline character-based estimates, not measured billing savings.
+- **Less context overhead:** approximately 16% smaller tool/prompt footprint by default, 44% smaller with research enabled, and a 76% smaller representative result preview.
 - **Read more without searching again:** open saved results, find passages, and continue reading locally. Results stay in session memory and expire; reloading clears them.
 - **More retrieval options:** read URLs without a key through Jina Reader, or add a Brave API key for web search. Repeated searches can reuse recent results to reduce duplicate requests.
 - **Optional result ranking:** Jev is now the default decision model when classification is enabled. Select another available model or disable classification through `/web-search classifier`.
+
+*Offline character-based measurements: 344 estimated tokens for the tool/prompt footprint (previously 410 by default or 615 with research enabled), and 4,081 characters for the result preview (previously 16,777). These are not measured billing savings.*
 
 ### Upgrading to 0.4.0
 
