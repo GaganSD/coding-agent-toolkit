@@ -28,7 +28,7 @@ test("missing file yields independent web/code defaults and research stays off",
 	assert.equal(settings.maxResults, 8);
 	assert.equal(settings.configPath, path);
 	assert.equal(settings.researchEnabled, false);
-	assert.equal(settings.jev.enabled, false);
+	assert.equal(settings.classifier.enabled, false);
 	for (const key of ["mode", "family", "provider", "fallback"]) assert.equal(key in settings, false);
 }));
 
@@ -101,22 +101,22 @@ test("malformed family and research blocks fail instead of silently defaulting",
 });
 
 test("misspelled judgment settings and weights fail explicitly", async () => {
-	for (const jev of [
+	for (const classifier of [
 		{ enabled: true, safetyTreshold: 0.95 }, { enabled: true, constructor: "not a setting" },
 		{ weights: { answer: 1 } }, { weights: { __unknown: 1 } }, { weights: [] },
 	]) {
-		await withConfig({ jev }, async (path) => {
+		await withConfig({ classifier }, async (path) => {
 			const settings = await resolveSettings(path);
 			assert.ok("error" in settings);
 			assert.equal(settings.error.code, "invalid_config");
 			assert.equal(settings.error.configPath, path);
 		});
 	}
-	await withConfig({ jev: { enabled: true, safetyThreshold: 0.95, weights: { answers: 0.6 } } }, async (path) => {
+	await withConfig({ classifier: { enabled: true, safetyThreshold: 0.95, weights: { answers: 0.6 } } }, async (path) => {
 		const settings = await resolveSettings(path);
 		assert.ok(!("error" in settings));
-		assert.equal(settings.jev.safetyThreshold, 0.95);
-		assert.equal(settings.jev.weights.answers, 0.6);
+		assert.equal(settings.classifier.safetyThreshold, 0.95);
+		assert.equal(settings.classifier.weights.answers, 0.6);
 	});
 });
 
@@ -161,16 +161,47 @@ test("only research.enabled opts in, and both resolvers agree", async () => {
 	}
 });
 
-test("legacy backend configs stay loadable and unpinned", () => withConfig({
-	research: { enabled: true }, jev: { enabled: true, backend: "openrouter" },
-}, async (path) => {
-	const settings = await resolveSettings(path);
-	assert.ok(!("error" in settings));
-	assert.equal(settings.jev.enabled, true);
-	assert.equal(settings.jev.provider, "");
-	assert.equal(settings.jev.model, "");
-	assert.match(settings.notices.join(" "), /backend/);
+test("legacy classifier config is rejected without aliases", async () => {
+	for (const config of [
+		{ jev: { enabled: true } },
+		{ classifier: { enabled: true, backend: "openrouter" } },
+	]) {
+		await withConfig(config, async (path) => {
+			const settings = await resolveSettings(path);
+			assert.ok("error" in settings);
+			assert.equal(settings.error.code, "invalid_config");
+			assert.ok("error" in resolveSettingsSync(path));
+		});
+	}
+});
+
+test("enabling judgment prefers Jev among multiple available classifiers", () => withConfig({}, async (path) => {
+	const prior = process.env.PI_WEB_SEARCH_CONFIG;
+	process.env.PI_WEB_SEARCH_CONFIG = path;
+	try {
+		await configureJudgment("on", [
+			{ provider: "openrouter", id: "openai/gpt-6-luna-decisions" },
+			{ provider: "openrouter", id: "~typesafe/jev-latest" },
+			{ provider: "vercel-ai-gateway", id: "typesafe-ai/jev" },
+		]);
+		const settings = await resolveSettings(path);
+		assert.ok(!("error" in settings));
+		assert.equal(settings.classifier.provider, "vercel-ai-gateway");
+		assert.equal(settings.classifier.model, "typesafe-ai/jev");
+		assert.equal(settings.classifier.enabled, true);
+	} finally {
+		if (prior === undefined) delete process.env.PI_WEB_SEARCH_CONFIG;
+		else process.env.PI_WEB_SEARCH_CONFIG = prior;
+	}
 }));
+
+test("partial explicit classifier pins do not inherit half the Jev default", () => {
+	for (const pin of [{ provider: "llama.cpp" }, { model: "custom" }]) {
+		const settings = applyConfig("/unused", { classifier: { enabled: true, ...pin } });
+		assert.match(settings.notices.join(" "), /unpinned/);
+		assert.notEqual(`${settings.classifier.provider}/${settings.classifier.model}`, "vercel-ai-gateway/typesafe-ai/jev");
+	}
+});
 
 test("parseJudgmentArgs accepts on, off, and an exact pin", () => {
 	assert.equal(parseJudgmentArgs(""), "status");
@@ -182,7 +213,7 @@ test("parseJudgmentArgs accepts on, off, and an exact pin", () => {
 });
 
 test("concurrent setup preserves settings and existing config symlinks", () => withConfig({
-	maxResults: 3, jev: { weights: { answers: 0.9 }, safetyThreshold: 0.8 },
+	maxResults: 3, classifier: { weights: { answers: 0.9 }, safetyThreshold: 0.8 },
 }, async (path) => {
 	// Windows file symlinks need elevated privileges; still exercise concurrent writes there.
 	const alias = process.platform === "win32" ? path : `${path}.link`;
@@ -198,10 +229,10 @@ test("concurrent setup preserves settings and existing config symlinks", () => w
 		const saved = JSON.parse(await readFile(path, "utf8"));
 		assert.equal(saved.maxResults, 3);
 		assert.equal(saved.research.enabled, true);
-		assert.deepEqual(saved.jev.weights, { answers: 0.9 });
-		assert.equal(saved.jev.safetyThreshold, 0.8);
-		assert.ok(["openrouter", "typesafe"].includes(saved.jev.provider));
-		assert.equal(saved.jev.model, saved.jev.provider === "openrouter" ? "~typesafe/jev-latest" : "jev-latest");
+		assert.deepEqual(saved.classifier.weights, { answers: 0.9 });
+		assert.equal(saved.classifier.safetyThreshold, 0.8);
+		assert.ok(["openrouter", "typesafe"].includes(saved.classifier.provider));
+		assert.equal(saved.classifier.model, saved.classifier.provider === "openrouter" ? "~typesafe/jev-latest" : "jev-latest");
 	} finally {
 		if (previous === undefined) delete process.env.PI_WEB_SEARCH_CONFIG;
 		else process.env.PI_WEB_SEARCH_CONFIG = previous;

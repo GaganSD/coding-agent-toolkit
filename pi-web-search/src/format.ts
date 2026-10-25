@@ -59,12 +59,12 @@ const DetailsSchema = Type.Object({
 	warnings: Type.Optional(Type.Array(Type.String())),
 	usage: Type.Optional(Type.Array(Type.Object({ name: Type.String(), count: Type.Number() }))),
 	grounded: Type.Optional(Type.Boolean()),
-	jev: Type.Optional(Type.Object({
+	classifier: Type.Optional(Type.Object({
 		sufficient: Type.Boolean(), lowConfidence: Type.Boolean(), suppressed: Type.Integer({ minimum: 0 }),
 		suppressedUrls: Type.Array(Type.String()),
 	})),
 	scope: Type.Optional(Type.Union([Type.Literal("web"), Type.Literal("code"), Type.Literal("both")])),
-	jevStatus: Type.Optional(Type.Union([Type.Literal("ran"), Type.Literal("disabled"), Type.Literal("unavailable"), Type.Literal("skipped")])),
+	classifierStatus: Type.Optional(Type.Union([Type.Literal("ran"), Type.Literal("disabled"), Type.Literal("unavailable"), Type.Literal("skipped")])),
 	error: Type.Optional(Type.Object({
 		code: Type.String(), message: Type.String(), status: Type.Optional(Type.Number()),
 		rpcCode: Type.Optional(Type.Number()), retryable: Type.Optional(Type.Boolean()), configPath: Type.Optional(Type.String()),
@@ -224,7 +224,7 @@ export function formatWebSearchResult(
 		searchResults: compact.searchResults?.map((hit, index) => ({ ...hit, ...(hits[index]?.ref ? { ref: hits[index].ref } : {}) })),
 		sources: compact.sources ?? [], warnings: compact.warnings ?? [],
 		providers: compact.providers, requestId: compact.requestId, usage: compact.usage,
-		grounded: cited.size > 0, scope: compact.scope, jev: compact.jev, jevStatus: compact.jevStatus,
+		grounded: cited.size > 0, scope: compact.scope, classifier: compact.classifier, classifierStatus: compact.classifierStatus,
 		resultCount: selected.length || sources.length,
 	}, limits);
 	output.structuredContent = structuredEvidence(visible, text);

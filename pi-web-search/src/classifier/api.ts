@@ -10,17 +10,17 @@ import { awaitWithSignal } from "../providers/http.ts";
 import type { Candidate } from "./judge.ts";
 
 /** Optional judging should not hold up a completed search. */
-export const JEV_TIMEOUT_MS = 8000;
+export const CLASSIFIER_TIMEOUT_MS = 8000;
 
 export type JudgeQuestion = ClassifierQuestion;
 export type JudgeAnswer = ClassifierAnswer;
 
-export interface JevResponse {
+export interface ClassifierResponse {
 	answers: Record<string, JudgeAnswer>;
 	usage?: Usage;
 }
 
-export interface JevOptions {
+export interface ClassifierOptions {
 	modelRegistry?: ExtensionContext["modelRegistry"];
 	/** Exact Pi catalog provider. Empty means unpinned. */
 	provider?: string;
@@ -60,22 +60,22 @@ export function classifierUnavailableMessage(
 ): string {
 	const pinned = pinnedRef(provider, model);
 	if (!pinned) {
-		return "jev judging unavailable: pin jev.provider and jev.model to a Pi classifier.";
+		return "classifier judging unavailable: pin classifier.provider and classifier.model to a Pi classifier.";
 	}
-	return `jev judging unavailable: Pi has no available classifier for ${pinned.provider}/${pinned.model}.`;
+	return `classifier judging unavailable: Pi has no available classifier for ${pinned.provider}/${pinned.model}.`;
 }
 
-export async function systemOne(
+export async function classifyEvidence(
 	state: { query: string; candidates: Candidate[] },
 	questions: Record<string, JudgeQuestion>,
-	options: JevOptions,
-): Promise<JevResponse> {
+	options: ClassifierOptions,
+): Promise<ClassifierResponse> {
 	if (options.signal?.aborted) throw options.signal.reason;
 	const registry = options.modelRegistry;
 	if (!registry) throw new Error("Pi modelRegistry is unavailable");
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(new Error("classifier deadline exceeded")),
-		options.timeoutMs ?? JEV_TIMEOUT_MS);
+		options.timeoutMs ?? CLASSIFIER_TIMEOUT_MS);
 	const parentAbort = () => controller.abort(options.signal?.reason);
 	options.signal?.addEventListener("abort", parentAbort, { once: true });
 	if (options.signal?.aborted) parentAbort();

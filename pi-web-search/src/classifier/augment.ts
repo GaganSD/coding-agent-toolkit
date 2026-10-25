@@ -1,7 +1,7 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import type { SearchRequest } from "../providers/index.ts";
 import { isProviderError, providerError, type StreamResult } from "../providers/types.ts";
-import { JEV_TIMEOUT_MS, type JevOptions, systemOne } from "./api.ts";
+import { CLASSIFIER_TIMEOUT_MS, type ClassifierOptions, classifyEvidence } from "./api.ts";
 import {
 	type Candidate,
 	type JudgeOutcome,
@@ -11,7 +11,7 @@ import {
 	toCandidates,
 } from "./judge.ts";
 
-export type AugmentOptions = JevOptions;
+export type AugmentOptions = ClassifierOptions;
 /** Own classifier usage, never nested tool usage; copy to AgentToolResult.usage after formatting. */
 export type AugmentedStreamResult = StreamResult & { classifierUsage?: Usage };
 
@@ -19,7 +19,7 @@ export type AugmentedStreamResult = StreamResult & { classifierUsage?: Usage };
  * Judges and reorders a result set in place.
  *
  * A decision-layer failure never fails a search: an unavailable Pi classifier,
- * an empty result set, an over-budget judged set, or a Jev deadline/provider
+ * an empty result set, an over-budget judged set, or a Classifier deadline/provider
  * error returns the input unchanged or with a warning. The one fatal
  * case is user cancellation. An operation deadline during optional judging
  * returns already-retrieved results with a warning, rather than discarding them.
@@ -31,35 +31,35 @@ export async function augmentResults(
 ): Promise<AugmentedStreamResult> {
 	if (req.signal?.aborted) {
 		if (isProviderError(req.signal.reason) && req.signal.reason.code === "timeout") {
-			return withWarning(result, "jev judging unavailable: operation timeout");
+			return withWarning(result, "classifier judging unavailable: operation timeout");
 		}
 		throw abortError(req.signal.reason);
 	}
-	const settings = req.settings.jev;
-	const judgeOptions: JevOptions = {
+	const settings = req.settings.classifier;
+	const judgeOptions: ClassifierOptions = {
 		...options,
 		provider: options.provider ?? settings.provider,
 		model: options.model ?? settings.model,
 	};
 	if (!settings.enabled) {
-		return { ...result, jevStatus: "disabled" };
+		return { ...result, classifierStatus: "disabled" };
 	}
 	const results = result.searchResults ?? [];
 	if (results.length === 0) {
-		return { ...result, jevStatus: "skipped" };
+		return { ...result, classifierStatus: "skipped" };
 	}
 
 	const candidates = toCandidates(results, results.length);
 	if (stateSize(candidates, req.query) > settings.maxStateChars) {
 		return withWarning(
 			result,
-			`jev skipped: the judged set exceeds ${settings.maxStateChars} characters.`,
+			`classifier skipped: the judged set exceeds ${settings.maxStateChars} characters.`,
 			"skipped",
 		);
 	}
 
 	try {
-		const response = await systemOne(
+		const response = await classifyEvidence(
 			{ query: req.query, candidates },
 			buildJudgeQuestions(candidates),
 			{
@@ -67,7 +67,7 @@ export async function augmentResults(
 				// The caller's abort must reach the judge, or a cancelled search
 				// keeps waiting on a judgment nobody will read.
 				signal: req.signal,
-				timeoutMs: options.timeoutMs ?? JEV_TIMEOUT_MS,
+				timeoutMs: options.timeoutMs ?? CLASSIFIER_TIMEOUT_MS,
 			},
 		);
 		const outcome = applyPolicy(candidates, response, settings);
@@ -76,12 +76,12 @@ export async function augmentResults(
 		// User cancellation is fatal; deadlines only skip optional judging.
 		if (req.signal?.aborted) {
 			if (isProviderError(req.signal.reason) && req.signal.reason.code === "timeout") {
-				return withWarning(result, "jev judging unavailable: operation timeout");
+				return withWarning(result, "classifier judging unavailable: operation timeout");
 			}
 			throw abortError(req.signal.reason);
 		}
 		const detail = describe(error);
-		return withWarning(result, detail.startsWith("jev judging unavailable:") ? detail : `jev judging unavailable: ${detail}`);
+		return withWarning(result, detail.startsWith("classifier judging unavailable:") ? detail : `classifier judging unavailable: ${detail}`);
 	}
 }
 
@@ -110,21 +110,21 @@ function merge(
 		...outcome.warnings,
 	];
 	if (outcome.suppressed > 0 && result.warnings?.length) {
-		warnings.push(`jev withheld ${result.warnings.length} provider warning(s) because they may quote suppressed evidence.`);
+		warnings.push(`classifier withheld ${result.warnings.length} provider warning(s) because they may quote suppressed evidence.`);
 	}
 	const withholdProse = outcome.suppressed > 0 && result.text.length > 0;
 	if (withholdProse) {
-		warnings.push("jev withheld aggregate provider prose because it may include suppressed evidence; use the admitted cited results instead.");
+		warnings.push("classifier withheld aggregate provider prose because it may include suppressed evidence; use the admitted cited results instead.");
 	}
 	if (!outcome.sufficient) {
 		warnings.push(
 			outcome.sufficiencyUnconfirmed
-				? "jev could not confirm these results answer the query after withholding unsafe evidence; treat the set as unverified."
-				: "jev judged these results insufficient to answer the query; consider a narrower or differently worded search.",
+				? "classifier could not confirm these results answer the query after withholding unsafe evidence; treat the set as unverified."
+				: "classifier judged these results insufficient to answer the query; consider a narrower or differently worded search.",
 		);
 	}
 	if (outcome.lowConfidence) {
-		warnings.push("jev ranked these results low-confidence for the query.");
+		warnings.push("classifier ranked these results low-confidence for the query.");
 	}
 
 	const usage = [...(result.usage ?? []), ...(outcome.usage ?? [])];
@@ -134,7 +134,7 @@ function merge(
 		// Aggregate prose cannot be attributed to individual candidates. Once a
 		// candidate is suppressed, it must not leak back through that prose.
 		text: withholdProse ? "" : result.text,
-		// Keep citation-bound results only. Do not hoist a Jev pick into an
+		// Keep citation-bound results only. Do not hoist a Classifier pick into an
 		// uncited top-level answer.
 		searchResults: results,
 		sources: results
@@ -142,8 +142,8 @@ function merge(
 			.filter((source) => source.url.length > 0),
 		...(warnings.length > 0 ? { warnings } : {}),
 		...(usage.length > 0 ? { usage } : {}),
-		jevStatus: "ran",
-		jev: {
+		classifierStatus: "ran",
+		classifier: {
 			sufficient: outcome.sufficient,
 			lowConfidence: outcome.lowConfidence,
 			suppressed: outcome.suppressed,
@@ -155,11 +155,11 @@ function merge(
 function withWarning(
 	result: StreamResult,
 	message: string,
-	jevStatus: StreamResult["jevStatus"] = "unavailable",
+	classifierStatus: StreamResult["classifierStatus"] = "unavailable",
 ): StreamResult {
 	return {
 		...result,
-		jevStatus,
+		classifierStatus,
 		warnings: [...(result.warnings ?? []), message],
 	};
 }
@@ -169,7 +169,7 @@ function abortError(reason: unknown): unknown {
 	if (isProviderError(reason)) {
 		return reason;
 	}
-	return providerError("aborted", "jev judging was aborted.");
+	return providerError("aborted", "classifier judging was aborted.");
 }
 
 function describe(error: unknown): string {

@@ -6,6 +6,7 @@
 
 - Replace the registered `web_search`, `code_search`, and opt-in `multi_search` tools with one `search` tool. Update custom prompts, tool allowlists, and scripts: use `query` for web search, `query` with `scope: "code"` for public code, and `effort: "thorough"` for opt-in multi-source retrieval. `scope: "both"` implies thorough retrieval; both require `research.enabled`.
 - Supply exactly one of `query`, `urls`, or `ref`. Unknown arguments and conflicting modes now fail explicitly.
+- Rename the decision-model subsystem and config from `jev` to `classifier`, including diagnostic fields and usage labels. Old `jev` config blocks and `backend` fields are rejected; no legacy files, aliases, or automatic migration.
 
 ### Added
 
@@ -15,6 +16,7 @@
 ### Changed
 
 - Bound direct and structured previews to 8,000 characters per output path, preserve complete citations and mixed-source coverage, and retain admitted evidence for local continuation.
+- Default opt-in classification to Jev (`vercel-ai-gateway/typesafe-ai/jev`), preserving exact explicit model pins. Add a four-call live classifier smoke suite.
 - Reduce the offline declaration estimate to 344 tokens and the representative structured fixture to 4,109 characters. Estimates use a character proxy, not billed tokenizer counts.
 
 ## 0.3.1

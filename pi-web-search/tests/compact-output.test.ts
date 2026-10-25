@@ -79,14 +79,14 @@ test("ordinary model text drops coverage boilerplate and keeps material clipping
 		text: "",
 		providerKind: "exa",
 		scope: "web",
-		jevStatus: "disabled",
+		classifierStatus: "disabled",
 		providers: ["exa"],
 		searchResults: [{ title: "Doc", url: "https://example.com", citedText: "word ".repeat(200) }],
 		warnings: ["Result excerpts truncated for 1 hit(s): citedText is a preview."],
 	});
 	const rendered = textOf(output);
 	assert.equal(rendered.includes("## Coverage"), false);
-	assert.equal(rendered.includes("jev: disabled"), false);
+	assert.equal(rendered.includes("classifier: disabled"), false);
 	assert.equal(rendered.includes("consulted:"), false);
 	assert.equal(rendered.includes("scope: web"), false);
 	assert.match(rendered, /excerpts truncated/);

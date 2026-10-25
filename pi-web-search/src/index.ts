@@ -153,8 +153,8 @@ function compactSummary(details: WebSearchDetails | undefined): string {
 	if (details.scope) {
 		parts.push(details.scope);
 	}
-	if (details.jevStatus && details.jevStatus !== "disabled") {
-		parts.push(`jev ${details.jevStatus}`);
+	if (details.classifierStatus && details.classifierStatus !== "disabled") {
+		parts.push(`classifier ${details.classifierStatus}`);
 	}
 	return parts.join(" · ");
 }

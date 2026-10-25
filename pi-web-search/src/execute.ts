@@ -7,7 +7,7 @@ import type {
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
 import { previewEvidence, uniqueEvidence } from "./providers/results.ts";
 import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
-import { augmentResults, type AugmentedStreamResult } from "./jev/augment.ts";
+import { augmentResults, type AugmentedStreamResult } from "./classifier/augment.ts";
 import { resolveSettings } from "./providers/config.ts";
 import { awaitWithSignal, withTimeout } from "./providers/http.ts";
 import { jinaFetch } from "./providers/jina.ts";
@@ -119,10 +119,10 @@ function createProgressObserver(
 
 /**
  * Shared tool runner. Family and cost policy are fixed by the caller; the
- * agent never chooses a provider or a Jev backend here.
+ * agent never chooses a provider or a classifier backend here.
  *
  * Failures return `isError: true` with a typed error payload for scripts and
- * renderers. The whole operation — retrieval plus optional Jev — shares one
+ * renderers. The whole operation — retrieval plus optional classification — shares one
  * bounded deadline composed with the caller's cancellation.
  */
 export async function executeSearch(
@@ -201,7 +201,7 @@ export async function executeSearch(
 				scope: params.scope,
 			};
 
-			const wantJudge = params.judge && resolved.jev.enabled;
+			const wantJudge = params.judge && resolved.classifier.enabled;
 			const judged: AugmentedStreamResult = wantJudge
 				? await augmentResults(
 						req,
@@ -209,8 +209,8 @@ export async function executeSearch(
 						{
 							signal: composed.signal,
 							modelRegistry: ctx.modelRegistry,
-							provider: resolved.jev.provider,
-							model: resolved.jev.model,
+							provider: resolved.classifier.provider,
+							model: resolved.classifier.model,
 						},
 					)
 				: withNotes;
@@ -249,7 +249,7 @@ export async function executeSearch(
 					...(dropped ? [dropped] : []),
 					...(preview.warnings ?? []),
 				],
-				jevStatus: jevStatus(wantJudge, judged),
+				classifierStatus: classifierStatus(wantJudge, judged),
 			}, undefined, continuation);
 			if (judged.classifierUsage) {
 				formatted.usage = judged.classifierUsage;
@@ -279,14 +279,14 @@ async function runUrlOnly(req: SearchRequest, options: RunSearchOptions, availab
 	}
 }
 
-function jevStatus(
+function classifierStatus(
 	requested: boolean,
 	result: StreamResult,
-): NonNullable<StreamResult["jevStatus"]> {
+): NonNullable<StreamResult["classifierStatus"]> {
 	if (!requested) {
 		return "disabled";
 	}
-	return result.jevStatus ?? (result.jev ? "ran" : "disabled");
+	return result.classifierStatus ?? (result.classifier ? "ran" : "disabled");
 }
 
 function abortedError(reason: unknown): unknown {

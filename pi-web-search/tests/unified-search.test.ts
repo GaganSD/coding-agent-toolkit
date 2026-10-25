@@ -91,7 +91,7 @@ test("fast web query uses the configured provider then its fallback", async () =
 		assert.equal(result.isError, false);
 		assert.equal(result.details.scope, "web");
 		assert.equal(result.details.provider, "parallel");
-		assert.equal(result.details.jevStatus, "disabled");
+		assert.equal(result.details.classifierStatus, "disabled");
 	});
 });
 
@@ -126,7 +126,7 @@ test("scope both defaults to thorough and fans out once research is enabled", as
 		assert.deepEqual(calls.sort(), ["exa", "grep"]);
 		assert.equal(result.isError, false);
 		assert.equal(result.details.scope, "both");
-		assert.equal(result.details.jevStatus, "disabled");
+		assert.equal(result.details.classifierStatus, "disabled");
 	});
 });
 

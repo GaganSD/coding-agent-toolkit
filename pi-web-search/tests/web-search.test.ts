@@ -199,7 +199,7 @@ test("successful URL extraction returns the formatted result and forwards the re
 		assert.equal(result.details.grounded, true);
 		assert.equal(result.details.resultCount, 1);
 		assert.equal(result.details.scope, "web");
-		assert.equal(result.details.jevStatus, "disabled");
+		assert.equal(result.details.classifierStatus, "disabled");
 		assert.match(textOf(result), /## Results/);
 		assert.match(textOf(result), /\[Exa\]\(https:\/\/exa\.ai\)/);
 		assert.match(textOf(result), /> search infra/);
@@ -253,7 +253,7 @@ test("code scope stays in the code family", async () => {
 		);
 		assert.equal(result.details.scope, "code");
 		assert.equal(result.details.provider, "grep");
-		assert.equal(result.details.jevStatus, "disabled");
+		assert.equal(result.details.classifierStatus, "disabled");
 	});
 });
 

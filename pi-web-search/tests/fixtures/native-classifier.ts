@@ -1,11 +1,11 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { JudgeAnswer, JevResponse } from "../../src/jev/api.ts";
+import type { JudgeAnswer, ClassifierResponse } from "../../src/classifier/api.ts";
 
 type Registry = ExtensionContext["modelRegistry"];
 const model = { provider: "typesafe", id: "jev-latest" };
 
 /** Adapt legacy policy specimens to Pi's typed classifier boundary, without HTTP/auth mocks. */
-export function classifierRegistry(response: JevResponse | (() => Promise<never>)): Registry {
+export function classifierRegistry(response: ClassifierResponse | (() => Promise<never>)): Registry {
 	return {
 		findOfType: () => model,
 		getAvailableOfType: async () => [model],

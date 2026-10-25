@@ -127,7 +127,7 @@ test("enabling an existing classifier pin does not discover or change providers"
 	const dir = await mkdtemp(join(tmpdir(), "pi-classifier-pin-"));
 	t.after(() => rm(dir, { recursive: true, force: true }));
 	const path = join(dir, "web-search.json");
-	await writeFile(path, JSON.stringify({ jev: { enabled: false, provider: "openrouter", model: "~typesafe/jev-latest" } }));
+	await writeFile(path, JSON.stringify({ classifier: { enabled: false, provider: "openrouter", model: "~typesafe/jev-latest" } }));
 	const previous = process.env.PI_WEB_SEARCH_CONFIG;
 	process.env.PI_WEB_SEARCH_CONFIG = path;
 	t.after(() => {
@@ -135,7 +135,7 @@ test("enabling an existing classifier pin does not discover or change providers"
 		else process.env.PI_WEB_SEARCH_CONFIG = previous;
 	});
 	await configureJudgment("on", () => { throw new Error("must not discover"); });
-	assert.deepEqual(JSON.parse(await readFile(path, "utf8")).jev, {
+	assert.deepEqual(JSON.parse(await readFile(path, "utf8")).classifier, {
 		enabled: true, provider: "openrouter", model: "~typesafe/jev-latest",
 	});
 	await writeFile(path, "{}");

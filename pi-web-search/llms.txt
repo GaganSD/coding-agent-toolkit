@@ -20,5 +20,5 @@ This file is a navigation index for agents, not an API specification. Paths are 
 - [Jina Reader](src/providers/jina.ts): keyless URL-only extraction; no search routing or extra tools.
 - [Sourcegraph](src/providers/sourcegraph.ts): keyless stream search.
 - [GitHub](src/providers/github.ts): authenticated REST; token or `gh auth`.
-- [Jev classifier](src/jev/api.ts): Pi model registry typed classification.
+- [Jev classifier](src/classifier/api.ts): Pi model registry typed classification.
 - [Structured output](src/format.ts): fields, previews, truncation, and errors.

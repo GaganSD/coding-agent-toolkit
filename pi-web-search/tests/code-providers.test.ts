@@ -86,29 +86,29 @@ test("a cross-family fallback entry is dropped with a visible notice", () => {
 	assert.deepEqual(settings.web.fallback, ["parallel"]);
 });
 
-test("config accepts scoped provider chains and a jev block", () => {
+test("config accepts scoped provider chains and a classifier block", () => {
 	const settings = applyConfig("/tmp/c.json", {
 		code: { provider: "github" },
-		jev: { enabled: true, safetyThreshold: 0.9 },
+		classifier: { enabled: true, safetyThreshold: 0.9 },
 	});
 	assert.equal(settings.code.provider, "github");
-	assert.equal(settings.jev.enabled, true);
-	assert.equal(settings.jev.safetyThreshold, 0.9);
+	assert.equal(settings.classifier.enabled, true);
+	assert.equal(settings.classifier.safetyThreshold, 0.9);
 	// Unspecified weights keep their defaults.
-	assert.equal(settings.jev.weights.answers, 0.45);
+	assert.equal(settings.classifier.weights.answers, 0.45);
 });
 
-test("jev stays off unless explicitly enabled", () => {
-	const settings = applyConfig("/tmp/c.json", { jev: {} });
-	assert.equal(settings.jev.enabled, false);
-	assert.equal(applyConfig("/tmp/c.json", {}).jev.enabled, false);
+test("classifier stays off unless explicitly enabled", () => {
+	const settings = applyConfig("/tmp/c.json", { classifier: {} });
+	assert.equal(settings.classifier.enabled, false);
+	assert.equal(applyConfig("/tmp/c.json", {}).classifier.enabled, false);
 });
 
-test("a bad jev value is a notice, not a thrown error", () => {
+test("a bad classifier value is a notice, not a thrown error", () => {
 	const settings = applyConfig("/tmp/c.json", {
-		jev: { safetyThreshold: "high" as unknown as number },
+		classifier: { safetyThreshold: "high" as unknown as number },
 	});
-	assert.equal(settings.jev.safetyThreshold, 0.75);
+	assert.equal(settings.classifier.safetyThreshold, 0.75);
 	assert.match(settings.notices[0], /safetyThreshold/);
 });
 

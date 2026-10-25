@@ -44,6 +44,7 @@
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "node --experimental-strip-types scripts/pack-check.ts",
     "smoke:live": "node --experimental-strip-types scripts/live-smoke.ts",
+    "smoke:classifier": "node --experimental-strip-types scripts/classifier-smoke.ts",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck && npm run pack:check"
   },
   "peerDependencies": {

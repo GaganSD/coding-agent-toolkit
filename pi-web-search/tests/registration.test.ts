@@ -178,8 +178,8 @@ test("Parallel registration is anonymous by default, or Bearer when a key alread
 			let report = "";
 			await commands[0].handler("status", { hasUI: true, ui: { notify: (text) => { report = text; } } });
 			assert.match(report, /parallel: missing \(optional key\)/);
-			assert.match(report, /jev: disabled/);
-			assert.doesNotMatch(report, /JEV_API_KEY|package-visible|Classifier authentication/);
+			assert.match(report, /classifier: disabled/);
+			assert.doesNotMatch(report, /CLASSIFIER_API_KEY|package-visible|Classifier authentication/);
 			assert.match(report, /\/reload after changing.*Parallel key/);
 		});
 		process.env.PARALLEL_API_KEY = "  configured-key  ";
@@ -319,15 +319,16 @@ test("classifier diagnostics use Pi's auth snapshot, including stored/runtime au
 			getAvailableOfType: () => { throw new Error("must not probe availability for diagnostics"); },
 		} as unknown as ExtensionContext["modelRegistry"];
 		await commands[0].handler("status", { hasUI: true, ui: { notify: (message) => { report = message; } }, modelRegistry });
-		assert.deepEqual(checked, []);
-		assert.match(report, /jev: disabled/);
-		assert.doesNotMatch(report, /classifier-secret|JEV_API_KEY|package-visible|typesafe:/);
+		assert.deepEqual(checked, ["vercel-ai-gateway"]);
+		assert.match(report, /classifier: disabled/);
+		assert.match(report, /typesafe-ai\/jev/);
+		assert.doesNotMatch(report, /classifier-secret|CLASSIFIER_API_KEY|package-visible|typesafe:/);
 	});
 });
 
 test("setup selects an explicit provider, preserves tuning/search settings, and never writes auth", async () => {
 	const initial = { web: { provider: "parallel", fallback: [] }, timeoutMs: 3456,
-		jev: { safetyThreshold: 0.9, weights: { answers: 0.8 } } };
+		classifier: { safetyThreshold: 0.9, weights: { answers: 0.8 } } };
 	const auth = { openrouter: { type: "api_key", key: "existing-harness-secret" } };
 	await loadExtension(JSON.stringify(initial), async ({ commands }, dir) => {
 		const authBefore = await readFile(join(dir, "auth.json"), "utf8");
@@ -342,13 +343,13 @@ test("setup selects an explicit provider, preserves tuning/search settings, and 
 			assert.deepEqual(saved.web, initial.web);
 			assert.equal(saved.timeoutMs, initial.timeoutMs);
 			assert.equal(saved.research.enabled, true);
-			assert.deepEqual(saved.jev, { ...initial.jev, enabled: true, provider: pin.provider, model: pin.id });
+			assert.deepEqual(saved.classifier, { ...initial.classifier, enabled: true, provider: pin.provider, model: pin.id });
 			assert.match(report, new RegExp(`Classifier pinned: ${pin.provider}/${pin.id}\\. Saved to .* — run /reload to apply\\.`));
 			assert.doesNotMatch(report, /existing-harness-secret/);
 		}
 		await commands[0].handler("off", { hasUI: false, ui: { notify: () => { throw new Error("headless"); } } });
 		const saved = JSON.parse(await readFile(join(dir, "web-search.json"), "utf8"));
-		assert.equal(saved.jev.enabled, false);
+		assert.equal(saved.classifier.enabled, false);
 		assert.equal(saved.research.enabled, true, "off disables judgment, not retrieval");
 		assert.equal(await readFile(join(dir, "auth.json"), "utf8"), authBefore);
 		assert.deepEqual((await readdir(dir)).sort(), ["auth.json", "web-search.json"]);
@@ -361,7 +362,7 @@ test("first-time headless setup creates the overridden config path without any k
 		process.env[CONFIG_PATH_ENV_VAR] = path;
 		await commands[0].handler("classifier openrouter/~typesafe/jev-latest", { hasUI: false, ui: { notify: () => { throw new Error("headless"); } } });
 		assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
-			research: { enabled: true }, jev: { enabled: true, provider: "openrouter", model: "~typesafe/jev-latest" },
+			research: { enabled: true }, classifier: { enabled: true, provider: "openrouter", model: "~typesafe/jev-latest" },
 		});
 		assert.equal(messages.length, 1);
 		assert.match(messages[0].content, /Classifier pinned: openrouter\/~typesafe\/jev-latest\. Saved to .* — run \/reload to apply\./);

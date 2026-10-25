@@ -82,9 +82,9 @@ export interface StreamResult {
 	usage?: { name: string; count: number }[];
 	warnings?: string[];
 	scope?: "web" | "code" | "both";
-	jevStatus?: "ran" | "disabled" | "unavailable" | "skipped";
-	/** Decision-layer audit trail; absent whenever jev did not run. */
-	jev?: {
+	classifierStatus?: "ran" | "disabled" | "unavailable" | "skipped";
+	/** Decision-layer audit trail; absent whenever classifier did not run. */
+	classifier?: {
 		sufficient: boolean;
 		lowConfidence: boolean;
 		/** Count withheld as unsafe. */

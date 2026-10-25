@@ -21,7 +21,7 @@ function textOf(result: { content: { type: string; text?: string }[] }): string 
 
 test("codemode gets schema-valid citation data, not a markdown-only result", () => {
 	const result = formatWebSearchResult({
-		text: "", providerKind: "grep", scope: "code", jevStatus: "disabled",
+		text: "", providerKind: "grep", scope: "code", classifierStatus: "disabled",
 		searchResults: [{ title: "Source", url: "https://example.com/code", citedText: "code".repeat(200), source: "grep", pageAge: null }],
 		sources: [{ title: "Source", url: "https://example.com/code" }],
 	});
@@ -33,7 +33,7 @@ test("codemode gets schema-valid citation data, not a markdown-only result", () 
 	assert.equal(data.searchResults[0].citedText, "code".repeat(100) + CLIP_MARKER);
 	assert.equal(result.details.searchResults?.[0].citedText?.length, 800);
 	assert.equal(textOf(result).includes("## Coverage"), false);
-	assert.equal(textOf(result).includes("jev: disabled"), false);
+	assert.equal(textOf(result).includes("classifier: disabled"), false);
 });
 
 test("truncated model output and structured text have identical markers", () => {
@@ -200,12 +200,12 @@ test("details carry usage when present", () => {
 	const result: StreamResult = {
 		text: "",
 		providerKind: "exa",
-		usage: [{ name: "jev_tokens", count: 1020 }],
+		usage: [{ name: "classifier_tokens", count: 1020 }],
 	};
 
 	const { details } = formatWebSearchResult(result);
 
-	assert.deepEqual(details.usage, [{ name: "jev_tokens", count: 1020 }]);
+	assert.deepEqual(details.usage, [{ name: "classifier_tokens", count: 1020 }]);
 });
 
 test("details carry the full result key set", () => {

@@ -10,7 +10,7 @@ import {
 	ModelRuntime, SessionManager, SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { PARALLEL_MCP_SERVER } from "../src/providers/parallel.ts";
-import { classifierRegistry } from "./fixtures/native-jev.ts";
+import { classifierRegistry } from "./fixtures/native-classifier.ts";
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const fixture = fileURLToPath(new URL("./fixtures/parallel-mcp-server.mjs", import.meta.url));
@@ -120,7 +120,7 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 		try {
 			await writeFile(join(root, "auth.json"), JSON.stringify(mode.endsWith("stored") ? { [provider]: { type: "api_key", key } } : {}));
 			await writeFile(configPath, JSON.stringify({ web: { provider: "parallel", fallback: [] },
-				research: { enabled: judge }, jev: { enabled: judge, ...(judge ? {
+				research: { enabled: judge }, classifier: { enabled: judge, ...(judge ? {
 					provider: nativeClassifier ? provider : "typesafe",
 					model: nativeClassifier ? (backend === "vercel" ? "typesafe-ai/jev" : "~typesafe/jev-latest") : "jev-latest",
 				} : {}) }, timeoutMs: 5000, maxResults: 2 }));
@@ -185,8 +185,8 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 			if (judge) {
 				const judged = await ctx.executeTool("search", { query, scope: "web", effort: "thorough" });
 				assert.equal(judged.isError, false, JSON.stringify(judged.result));
-				assert.equal((judged.result.details as { jevStatus?: string }).jevStatus, "ran");
-				assert.equal("jevStatus" in (judged.result.structuredContent as object), false, "classifier diagnostics stay outside model evidence");
+				assert.equal((judged.result.details as { classifierStatus?: string }).classifierStatus, "ran");
+				assert.equal("classifierStatus" in (judged.result.structuredContent as object), false, "classifier diagnostics stay outside model evidence");
 				assert.equal(judged.result.usage?.totalTokens, 11, "own classifier usage reaches AgentToolResult");
 				assert.equal(classifyCalls, 1);
 			}

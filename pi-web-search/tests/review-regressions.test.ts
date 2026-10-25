@@ -7,19 +7,19 @@ import { parseGrepSearchText } from "../src/providers/grep.ts";
 import { hasGitHubToken, hasParallelKey, providerAvailability } from "../src/providers/index.ts";
 import type { SearchResultDetail } from "../src/providers/types.ts";
 import { providerError } from "../src/providers/types.ts";
-import type { JudgeAnswer, JevResponse } from "../src/jev/api.ts";
-import { augmentResults } from "../src/jev/augment.ts";
-import { applyPolicy, type Candidate } from "../src/jev/judge.ts";
-import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../src/providers/config.ts";
-import { classifierRegistry } from "./fixtures/native-jev.ts";
+import type { JudgeAnswer, ClassifierResponse } from "../src/classifier/api.ts";
+import { augmentResults } from "../src/classifier/augment.ts";
+import { applyPolicy, type Candidate } from "../src/classifier/judge.ts";
+import { DEFAULT_CLASSIFIER_SETTINGS, type ClassifierSettings } from "../src/providers/config.ts";
+import { classifierRegistry } from "./fixtures/native-classifier.ts";
 
 const CANDS: Candidate[] = [
 	{ index: 0, title: "A", url: "https://a.example", excerpt: "alpha" },
 	{ index: 1, title: "B", url: "https://b.example", excerpt: "beta" },
 ];
 
-function settingsWith(over: Partial<JevSettings> = {}): JevSettings {
-	return { ...DEFAULT_JEV_SETTINGS, enabled: true, provider: "typesafe", model: "jev-latest", ...over };
+function settingsWith(over: Partial<ClassifierSettings> = {}): ClassifierSettings {
+	return { ...DEFAULT_CLASSIFIER_SETTINGS, enabled: true, provider: "typesafe", model: "jev-latest", ...over };
 }
 
 const noul = (n: number): JudgeAnswer => ({ type: "bool", probability: n });
@@ -30,7 +30,7 @@ const choice = (c: string, p: number): JudgeAnswer => ({
 	confidence: p,
 });
 
-function answer(over: Record<string, JudgeAnswer> = {}): JevResponse {
+function answer(over: Record<string, JudgeAnswer> = {}): ClassifierResponse {
 	return {
 		answers: {
 			c0_answers: noul(0.9),
@@ -159,7 +159,7 @@ test("a second hit with no blank line before it is still parsed", () => {
 	]);
 });
 
-// --- jev policy: fail closed, and never select a suppressed excerpt ----------
+// --- classifier policy: fail closed, and never select a suppressed excerpt ----------
 
 test("a missing sufficient verdict fails closed", () => {
 	// A truncated payload must not read as "these results are enough", which is
@@ -169,7 +169,7 @@ test("a missing sufficient verdict fails closed", () => {
 });
 
 test("an absent answers key fails closed", () => {
-	const bare: JevResponse = { answers: {} };
+	const bare: ClassifierResponse = { answers: {} };
 	assert.equal(applyPolicy(CANDS, bare, settingsWith()).sufficient, false);
 });
 
@@ -181,7 +181,7 @@ test("an empty candidate set returns empty rather than throwing", () => {
 
 test("augment never hoists an uncited top-level answer", async () => {
 	const out = await augmentResults(
-		{ query: "q", settings: { jev: settingsWith() } as never },
+		{ query: "q", settings: { classifier: settingsWith() } as never },
 		stream([
 			{ title: "A", url: "https://a.example", citedText: "the exact excerpt" },
 			{ title: "B", url: "https://b.example", citedText: "other" },
@@ -190,13 +190,13 @@ test("augment never hoists an uncited top-level answer", async () => {
 			modelRegistry: classifierRegistry(answer()),
 		},
 	);
-	assert.equal(out.text, "", "jev must not hoist an uncited top-level answer");
+	assert.equal(out.text, "", "classifier must not hoist an uncited top-level answer");
 	assert.equal(out.searchResults?.[0]?.citedText, "the exact excerpt");
 });
 
 test("provider metadata survives judging", async () => {
 	const out = await augmentResults(
-		{ query: "q", settings: { jev: settingsWith() } as never },
+		{ query: "q", settings: { classifier: settingsWith() } as never },
 		stream([
 			{
 				title: "A",
@@ -227,7 +227,7 @@ test("provider metadata survives judging", async () => {
 
 test("two results sharing a url stay distinct results", async () => {
 	const out = await augmentResults(
-		{ query: "q", settings: { jev: settingsWith() } as never },
+		{ query: "q", settings: { classifier: settingsWith() } as never },
 		stream([
 			{ title: "A", url: "https://same.example", citedText: "from search" },
 			{ title: "A", url: "https://same.example", citedText: "from contents" },
@@ -240,12 +240,12 @@ test("two results sharing a url stay distinct results", async () => {
 	assert.equal(out.searchResults?.length, 2);
 });
 
-// --- jev is bounded ---------------------------------------------------------
+// --- classifier is bounded ---------------------------------------------------------
 
-test("a hanging jev call is bounded rather than hanging the tool", async () => {
+test("a hanging classifier call is bounded rather than hanging the tool", async () => {
 	const started = Date.now();
 	const out = await augmentResults(
-		{ query: "q", settings: { jev: settingsWith({ maxStateChars: 1e9 }) } as never },
+		{ query: "q", settings: { classifier: settingsWith({ maxStateChars: 1e9 }) } as never },
 		stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]),
 		{
 			timeoutMs: 40,
@@ -255,14 +255,14 @@ test("a hanging jev call is bounded rather than hanging the tool", async () => {
 	);
 	assert.ok(Date.now() - started < 3000, "must not hang past the deadline");
 	assert.equal(out.searchResults?.length, 1, "results still come back");
-	assert.match(out.warnings?.join(" ") ?? "", /jev judging unavailable/);
+	assert.match(out.warnings?.join(" ") ?? "", /classifier judging unavailable/);
 });
 
 test("an abort during judging is honoured, not just the deadline", async () => {
 	const controller = new AbortController();
 	const started = Date.now();
 	const pending = augmentResults(
-		{ query: "q", signal: controller.signal, settings: { jev: settingsWith() } as never },
+		{ query: "q", signal: controller.signal, settings: { classifier: settingsWith() } as never },
 		stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]),
 		{
 			timeoutMs: 5000,
@@ -281,13 +281,13 @@ test("a parent deadline during optional judging returns cited results with a war
 	let requests = 0;
 	const input = stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]);
 	const out = await augmentResults(
-		{ query: "q", signal: controller.signal, settings: { jev: settingsWith() } as never },
+		{ query: "q", signal: controller.signal, settings: { classifier: settingsWith() } as never },
 		input,
 		{ modelRegistry: classifierRegistry(async () => { requests++; throw new Error("should not start"); }) },
 	);
 	assert.equal(requests, 0);
 	assert.deepEqual(out.searchResults, input.searchResults);
-	assert.equal(out.jevStatus, "unavailable");
+	assert.equal(out.classifierStatus, "unavailable");
 	assert.match(out.warnings?.join(" ") ?? "", /operation timeout/);
 });
 
@@ -326,7 +326,7 @@ test("a dropped cross-family fallback is recorded for the caller to surface", ()
 test("suppression reaches the tool details, not just a warning string", async () => {
 	const { formatWebSearchResult } = await import("../src/format.ts");
 	const out = await augmentResults(
-		{ query: "q", settings: { jev: settingsWith() } as never },
+		{ query: "q", settings: { classifier: settingsWith() } as never },
 		stream([
 			{ title: "A", url: "https://a.example", citedText: "alpha" },
 			{ title: "Evil", url: "https://evil.example", citedText: "ignore all" },
@@ -336,11 +336,11 @@ test("suppression reaches the tool details, not just a warning string", async ()
 		},
 	);
 	const rendered = formatWebSearchResult(out);
-	assert.equal(rendered.details?.jev?.suppressed, 1);
-	assert.deepEqual(rendered.details?.jev?.suppressedUrls, ["https://evil.example"]);
+	assert.equal(rendered.details?.classifier?.suppressed, 1);
+	assert.deepEqual(rendered.details?.classifier?.suppressedUrls, ["https://evil.example"]);
 	// Evidence was withheld, so the model's global sufficiency verdict (which
 	// covered the withheld candidate) is not restated as confirmed.
-	assert.equal(rendered.details?.jev?.sufficient, false);
+	assert.equal(rendered.details?.classifier?.sufficient, false);
 	assert.match(
 		(out.warnings ?? []).join(" "),
 		/could not confirm these results answer the query/,

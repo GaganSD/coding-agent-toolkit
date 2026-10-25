@@ -42,7 +42,7 @@ The classifier receives the query and candidate titles, URLs, and excerpts as st
 | --- | --- |
 | **Jev** via TypeSafe, Vercel AI Gateway, or OpenRouter | Available now; reuses Pi authentication. |
 | **Any Pi classifier** including llama.cpp | Pin its exact `provider`/`model`. |
-| **OpenAI Decisions API** | Planned adapter; official API contract and access still need verification. Not available today. |
+| **OpenAI Decisions and other decision models** | Supported when registered as a classifier in Pi; pin the exact provider/model. |
 
 The provider-independent boundary makes other classifiers possible without rewriting retrieval or ranking. Pin any registered Pi classifier with `/web-search classifier`.
 
@@ -61,14 +61,14 @@ For OpenRouter:
 | Vercel AI Gateway | `/web-search classifier vercel-ai-gateway/typesafe-ai/jev` | `typesafe-ai/jev` |
 | OpenRouter | `/web-search classifier openrouter/~typesafe/jev-latest` | `~typesafe/jev-latest` |
 | OpenCode | `/web-search classifier opencode/jev-1.13` | `jev-1.13` |
-| OpenAI Decisions | `/web-search classifier openai/gpt-6-luna` | `gpt-6-luna` |
+| OpenAI Decisions | `/web-search classifier vercel-ai-gateway/openai/gpt-6-luna-decisions` | `openai/gpt-6-luna-decisions` |
 | Cloudflare Workers AI | `/web-search classifier` and pick a listed Clef/Jev model | catalog |
 
 `/web-search classifier` lists every classifier Pi currently registers, plus **None**. Classifiers do not appear in `/model`; this picker is the search-specific pin. Pinning enables multi-source search and judgment in `web-search.json`, preserving your other settings. **No second API key is needed.** Pi reuses its stored, environment, runtime, or model authentication. If needed, use Pi's `/login` for that provider.
 
 `/web-search classifier none` disables judgment; search stays on. Hosted classification is billed to the pinned account.
 
-Classification is off by default. Failures keep retrieved evidence with warnings. Hosted classifiers receive excerpts before output clipping; safety judgments are not a security boundary. See [all settings and limits](docs/research.md).
+Classification is off by default. When enabled without an explicit provider/model pair, it uses **Jev** (`vercel-ai-gateway/typesafe-ai/jev`). Other Pi classifiers can be pinned explicitly. Configuration uses `classifier`; old `jev` blocks and `backend` fields are rejected, not migrated. Failures keep retrieved evidence with warnings. Hosted classifiers receive excerpts before output clipping; safety judgments are not a security boundary. See [all settings and limits](docs/research.md).
 
 ## Tool and examples
 
@@ -149,7 +149,7 @@ All fields are optional. Merge changes into the existing file. Network operation
 - `web` accepts `exa`, `parallel`, and `brave`. Jina is extraction-only, not a search-chain provider. `code` accepts `grep`, `sourcegraph`, and `github`.
 - `maxResults` truncates to an integer, then clamps to **1–20**. It limits both provider requests and the **global returned preview count**, including URL excerpts. Requested URL extracts are prioritized; additional admitted evidence is available through `search({ref})`. Providers may return fewer results or ignore the requested limit.
 - `timeoutMs` truncates to integer milliseconds. Positive values have a **1,000 ms minimum**. Nonpositive values use **20,000 ms**. These numeric adjustments emit no warnings.
-- Invalid JSON, unknown fields/providers, and malformed blocks produce `invalid_config`. Wrong-family providers trigger warnings and defaults or removal. Some invalid Jev values trigger defaults with warnings. Only literal `true` enables `jev.enabled`.
+- Invalid JSON, unknown fields/providers, and malformed blocks produce `invalid_config`. Wrong-family providers trigger warnings and defaults or removal. Some invalid classifier values trigger defaults with warnings. Only literal `true` enables `classifier.enabled`.
 
 See the [configuration resolver](src/providers/config.ts) for validation details.
 
@@ -161,7 +161,7 @@ See the [configuration resolver](src/providers/config.ts) for validation details
 
 `effort: "thorough"` sends the same query concurrently to the eligible sources in `scope`. Fan-out is bounded: at most **two actual transports per family** in configured order, and at most four for `both`; missing transports do not consume a slot. `fallback: []` does not exclude sources. It does not check agreement or initiate further searches. `scope: "both"` defaults to thorough; explicit `effort: "fast"` with `both` is rejected, and `research.enabled` must be true. Fast calls never fan out deliberately.
 
-Jev requires a separate opt-in. Anonymous retrieval needs no classifier credentials. See [classifier setup](docs/research.md#enable-external-judgment), [tuning](docs/research.md#all-jev-settings), and [failure behavior](docs/research.md#outcomes-and-limits).
+Jev requires a separate opt-in. Anonymous retrieval needs no classifier credentials. See [classifier setup](docs/research.md#enable-external-judgment), [tuning](docs/research.md#all-classifier-settings), and [failure behavior](docs/research.md#outcomes-and-limits).
 
 ## Credentials
 
@@ -247,7 +247,7 @@ Queries, URLs, errors, and excerpts can contain sensitive text.
 6. Run `npm run pack:check`.
 7. Run `npm run bench:context` for offline context-footprint measurements (character-proxy estimates, not billed tokenizer counts).
 
-Optional live check: `npm run smoke:live`. It sends public test queries without your credentials. See [release checks and limits](docs/release-validation.md).
+Optional retrieval check: `npm run smoke:live`. It sends public test queries without your credentials. Optional decision-model check: `npm run smoke:classifier` makes four live calls to the default Jev model using your Pi authentication (billing applies). It verifies ranking, injection suppression, insufficient evidence, and ordinary code. To test another exact pair, use `npm run smoke:classifier -- <provider> <model>`. See [release checks and limits](docs/release-validation.md).
 
 SDK users must load Pi's MCP extension for native Parallel calls and call `bindExtensions()`. Codemode is optional; direct `search` calls support continuation too. See the [SDK example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
