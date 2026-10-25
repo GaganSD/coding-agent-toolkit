@@ -12,7 +12,7 @@
     "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search && npm test --prefix pi-subagents && npm test --prefix pi-automode",
     "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search && npm run typecheck --prefix pi-subagents && npm run typecheck --prefix pi-automode",
     "lint": "eslint . --max-warnings=0",
-    "test:tooling": "node --test scripts/*.test.mjs",
+    "test:tooling": "node --test scripts/tests/*.test.mjs",
     "secrets:scan": "bash scripts/secret-scan.sh",
     "hooks:install": "bash scripts/install-hooks.sh",
     "release:prepare": "node scripts/release.mjs prepare",
@@ -39,6 +39,7 @@
     "@eslint/js": "10.0.1",
     "eslint": "10.12.0",
     "globals": "17.13.0",
+    "js-tiktoken": "1.0.21",
     "typescript-eslint": "8.71.2"
   }
 }
