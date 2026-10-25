@@ -80,6 +80,33 @@ test("successful providers are merged and failures become warnings", async () =>
 	assert.match(result.warnings?.join("\n") ?? "", /github returned no results/);
 });
 
+test("thorough retrieval bounds fan-out to two transports per family", async () => {
+	const called: ProviderKind[] = [];
+	const kinds: ProviderKind[] = ["exa", "parallel", "brave", "grep", "sourcegraph", "github"];
+	const result = await runParallelSearch({ query: "q", settings }, {
+		availability: Object.fromEntries(kinds.map((kind) => [kind, true])),
+		transports: Object.fromEntries(kinds.map((kind) => [kind, async () => {
+			called.push(kind);
+			return hit(kind, `${kind}-hit`);
+		}])),
+	});
+	assert.deepEqual(called, ["exa", "parallel", "grep", "sourcegraph"]);
+	assert.deepEqual(result.providers, called);
+});
+
+test("missing transports do not consume the family fan-out budget", async () => {
+	const called: ProviderKind[] = [];
+	await runParallelSearch({ query: "q", settings }, {
+		family: "web",
+		availability: { exa: true, parallel: true, brave: true },
+		transports: Object.fromEntries((["parallel", "brave"] as const).map((kind) => [kind, async () => {
+			called.push(kind);
+			return hit(kind, `${kind}-hit`);
+		}])),
+	});
+	assert.deepEqual(called, ["parallel", "brave"]);
+});
+
 test("one empty provider does not discard the others", async () => {
 	const result = await runParallelSearch(
 		{ query: "q", settings },

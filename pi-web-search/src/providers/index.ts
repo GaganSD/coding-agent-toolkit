@@ -270,7 +270,8 @@ export function hasGitHubToken(): boolean {
 }
 
 /**
- * Runs every available provider at once and merges what comes back.
+ * Runs at most two available transports per family concurrently, in configured
+ * preference order. Mixed retrieval reserves capacity for both web and code.
  *
  * Edge cases:
  * - missing credentials skip that source with a warning
@@ -309,11 +310,15 @@ export async function runParallelSearch(
 
 	const warnings: string[] = [...skipNotes];
 	const runnable: ProviderKind[] = [];
+	const counts = { web: 0, code: 0 };
 	for (const kind of kinds) {
 		if (!transports[kind]) {
 			warnings.push(`No transport is registered for ${kind}.`);
 			continue;
 		}
+		const family = providerFamily(kind);
+		if (counts[family] >= 2) continue;
+		counts[family]++;
 		runnable.push(kind);
 	}
 	if (runnable.length === 0) {
