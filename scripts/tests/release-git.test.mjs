@@ -4,9 +4,9 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { isolatedEnvironment, root } from "./lib.mjs";
-import { packages } from "./packages.mjs";
-import { checkRelease, makePlan, releaseFiles, selections } from "./release.mjs";
+import { isolatedEnvironment, root } from "../lib.mjs";
+import { packages } from "../packages.mjs";
+import { checkRelease, makePlan, releaseFiles, selections } from "../release.mjs";
 
 test("release checker validates actual git commits and treats subsequent normal merges as non-releases", () => {
   const temporary = mkdtempSync(join(tmpdir(), "pi-release-git-"));

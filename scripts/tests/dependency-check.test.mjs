@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareVersions, parseUses, parseVersion, renderReport } from "./dependency-check.mjs";
+import { compareVersions, parseUses, parseVersion, renderReport } from "../dependency-check.mjs";
 
 test("version parsing accepts plain tags and rejects ranges", () => {
   assert.deepEqual(parseVersion("v7.1.0"), [7, 1, 0]);

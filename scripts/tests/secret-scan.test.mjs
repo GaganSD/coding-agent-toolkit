@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { root } from "./lib.mjs";
+import { root } from "../lib.mjs";
 
 const available = spawnSync("gitleaks", ["version"]).status === 0;
 const scanArgs = ["git", "--pre-commit", "--staged", "--redact", "--no-banner", "--config", join(root, ".gitleaks.toml")];

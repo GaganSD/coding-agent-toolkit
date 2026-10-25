@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { packages } from "./packages.mjs";
-import { bumpVersion, checkRelease, isReleasePullRequest, makePlan, planPath, publicationState, releaseFiles, repository, selections, validatePlan, verifyArtifact, verifyUnpublished } from "./release.mjs";
+import { packages } from "../packages.mjs";
+import { bumpVersion, checkRelease, isReleasePullRequest, makePlan, planPath, publicationState, releaseFiles, repository, selections, validatePlan, verifyArtifact, verifyUnpublished } from "../release.mjs";
 
 const base = "a".repeat(40), head = "b".repeat(40);
 function fixture() {

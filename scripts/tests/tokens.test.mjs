@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { root } from "./lib.mjs";
-import { countTokens } from "./tokens.mjs";
+import { root } from "../lib.mjs";
+import { countTokens } from "../tokens.mjs";
 
 const cli = (args = [], input = "") => spawnSync(process.execPath, [join(root, "scripts/tokens.mjs"), ...args], { encoding: "utf8", input });
 

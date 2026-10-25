@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
-import { affectedPackages, ciMatrix } from "./ci.mjs";
-import { root } from "./lib.mjs";
-import { packages } from "./packages.mjs";
-import { validateContents } from "./package.mjs";
-import { selectTests, testFiles } from "./test-package.mjs";
+import { affectedPackages, ciMatrix } from "../ci.mjs";
+import { root } from "../lib.mjs";
+import { packages } from "../packages.mjs";
+import { validateContents } from "../package.mjs";
+import { selectTests, testFiles } from "../test-package.mjs";
 
 test("package changes select only their packages; shared changes select all", () => {
   assert.deepEqual(affectedPackages(["pi-ask/src/index.ts"]), ["pi-ask"]);
