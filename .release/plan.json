@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "sourceSha": "aa5d6cfaa157c6f3688ebf732372609e2f4ff58b",
-  "notes": "Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.",
+  "sourceSha": "429e1c85a7ec7d97171fb4e1ff131ade5a32c350",
+  "notes": "Search the web, public code, and URLs through one tool, with less context overhead and easier follow-up reading.",
   "packages": [
     {
-      "path": "pi-slate",
-      "name": "pi-slate",
-      "from": "0.1.17",
-      "to": "0.1.18",
-      "bump": "patch"
+      "path": "pi-web-search",
+      "name": "@gagansd/pi-web-search",
+      "from": "0.3.1",
+      "to": "0.4.0",
+      "bump": "minor"
     }
   ]
 }

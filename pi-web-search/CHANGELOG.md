@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.0
+
+Search the web, public code, and URLs through one tool, with less context overhead and easier follow-up reading.
+
 ### Highlights
 
 - **One search tool:** search the web, find public code, read URLs, and revisit results through `search`. Choose fast searches or opt into multi-source thorough searches.

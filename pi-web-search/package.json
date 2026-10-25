@@ -1,6 +1,6 @@
 {
   "name": "@gagansd/pi-web-search",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "One search tool for public web/code, URL extraction, and local evidence continuation. Cited, context-efficient, and keyless by default.",
   "type": "module",
   "engines": {
