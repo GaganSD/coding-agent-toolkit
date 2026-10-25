@@ -11,6 +11,8 @@ import {
 	formatWebSearchResult,
 	hitRef,
 } from "../src/format.ts";
+import { formatSearchError } from "../src/utils.ts";
+import { providerError } from "../src/providers/types.ts";
 import { mergeStreamResults, previewEvidence, uniqueEvidence } from "../src/providers/results.ts";
 
 function textOf(result: { content: { type: string; text?: string }[] }): string {
@@ -186,6 +188,46 @@ test("oversized standalone sources are omitted whole, never sliced mid-URL", () 
 	const output = formatWebSearchResult({ text: "", providerKind: "exa", sources: [{ title: "long", url }] });
 	assert.ok(!textOf(output).includes("https://example.com/"));
 	assert.match(textOf(output), /omitted/);
+	assert.ok(textOf(output).length <= OUTPUT_BUDGET_CHARS);
+});
+
+test("source-only records and fixed fields include JSON escaping in their budget", () => {
+	for (const input of [
+		{ text: "", providerKind: "exa" as const, sources: [{ title: "source", url: "https://example.com/?q=" + '"'.repeat(5000) }] },
+		{ text: "\u0001".repeat(1000), providerKind: "exa" as const, warnings: Array(6).fill("\u0001".repeat(200)) },
+	]) {
+		const output = formatWebSearchResult(input);
+		assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+		assert.ok(textOf(output).length <= OUTPUT_BUDGET_CHARS);
+		assert.ok(JSON.stringify(output.structuredContent).length <= OUTPUT_BUDGET_CHARS);
+	}
+});
+
+test("escaped failure envelopes fit without changing error identity or shortening paths", () => {
+	const error = Object.assign(providerError("http_error", "\u0001".repeat(1000), { status: 503 }), {
+		configPath: "\u0001".repeat(20_000),
+	});
+	const output = formatSearchError("search", error);
+	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+	assert.ok(JSON.stringify(output.structuredContent).length <= OUTPUT_BUDGET_CHARS);
+	assert.equal(output.details.error?.code, "http_error");
+	assert.equal(output.details.error?.status, 503);
+	assert.equal(output.details.error?.configPath, undefined);
+	assert.match(textOf(output), /Truncated/);
+	assert.match(output.details.warnings!.join(" "), /path omitted/);
+});
+
+test("mixed-family reservation survives final output packing with stable refs", () => {
+	const url = "https://w.example/?q=" + "w".repeat(6800);
+	const output = formatWebSearchResult({ text: "", providerKind: "exa", scope: "both", searchResults: [
+		{ title: "web", url, source: "exa", citedText: "w".repeat(400), ref: "stored:1" },
+		{ title: "code", url: "https://c.example/x", source: "grep", citedText: "c".repeat(400), ref: "stored:2" },
+	] });
+	const data = output.structuredContent as { searchResults: { ref: string; source: string; citedText: string }[] };
+	assert.deepEqual(data.searchResults.map((hit) => hit.source), ["exa", "grep"]);
+	assert.deepEqual(data.searchResults.map((hit) => hit.ref), ["stored:1", "stored:2"]);
+	assert.ok(textOf(output).includes(url), "a fitting citation stays complete");
+	assert.ok(JSON.stringify(data).length <= OUTPUT_BUDGET_CHARS);
 	assert.ok(textOf(output).length <= OUTPUT_BUDGET_CHARS);
 });
 

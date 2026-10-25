@@ -125,11 +125,13 @@ test("find is literal and case-insensitive; a miss reports not found in stored e
 	const found = searchReadRef({ ref: `${handle.resultId}:1`, find: "needle" }, ctx("s"), undefined, store);
 	assert.equal(found.isError, false);
 	assert.equal(detailsOf(found).passage!.matches, 1);
+	assert.equal((found.structuredContent as { matches?: number }).matches, 1, "scripts receive the match count too");
 	assert.match(detailsOf(found).searchResults![0].citedText!, /NEEDLE deep evidence/);
 	assert.match(textOf(found), /1 match\(es\)/, "match count is model-visible");
 	assert.ok(detailsOf(found).cursor, "find positions the window; the cursor continues reading");
 	const many = searchReadRef({ ref: `${handle.resultId}:1`, find: "tail" }, ctx("s"), undefined, store);
 	assert.equal(detailsOf(many).passage!.matches, 2000);
+	assert.equal((many.structuredContent as { matches?: number }).matches, 2000);
 	assert.match(textOf(many), /2000 match\(es\)/, "repeated matches are counted in the text");
 	const literal = searchReadRef({ ref: `${handle.resultId}:1`, find: ".*" }, ctx("s"), undefined, store);
 	assert.equal(detailsOf(literal).passage!.matches, 1);

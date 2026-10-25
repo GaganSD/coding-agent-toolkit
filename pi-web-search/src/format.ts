@@ -5,7 +5,7 @@ import {
 	DEFAULT_MAX_LINES,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
-import { isCodeSource } from "./providers/types.ts";
+import { isCodeSource, sourceFamily } from "./providers/types.ts";
 import type {
 	SearchResultDetail,
 	Source,
@@ -42,6 +42,7 @@ const DetailsSchema = Type.Object({
 	cursor: Type.Optional(Type.String()),
 	more: Type.Optional(Type.Boolean()),
 	truncated: Type.Optional(Type.Boolean()),
+	matches: Type.Optional(Type.Integer({ minimum: 0 })),
 	passage: Type.Optional(Type.Object({ index: Type.Integer(), offset: Type.Integer(), nextOffset: Type.Optional(Type.Integer()), totalChars: Type.Integer(), matches: Type.Optional(Type.Integer()) })),
 	provider: Type.Optional(ProviderSchema),
 	providers: Type.Optional(Type.Array(ProviderSchema)),
@@ -120,6 +121,7 @@ function structuredEvidence(details: WebSearchDetails, text: string) {
 		...(details.storedCount === undefined ? {} : { storedCount: details.storedCount }),
 		...(details.cursor ? { cursor: details.cursor } : {}),
 		...(details.more === undefined ? {} : { more: details.more }),
+		...(details.passage?.matches === undefined ? {} : { matches: details.passage.matches }),
 		...(details.truncated ? { truncated: true } : {}),
 		...(details.storedClipped ? { storedClipped: true } : {}),
 		...(details.warnings?.length ? { warnings: details.warnings } : {}),
@@ -141,14 +143,13 @@ export function formatWebSearchResult(
 		citedText: previewText(hit),
 	}));
 	const warnings = (compact.warnings ?? []).filter((warning) => !/ skipped: not available\.$/u.test(warning));
-	const notices = warnings.slice(0, 6).map((warning) => markedClip(warning, 200));
-	if (warnings.length > notices.length) notices.push("Additional diagnostics omitted.");
+	const notices: string[] = [];
 	let omitted = 0;
-	const selected: SearchResultDetail[] = [];
+	const selected: typeof hits = [];
 	const sources: Source[] = [];
 	// Reserve room for truthful omission notices and a continuation instruction.
 	const budget = OUTPUT_BUDGET_CHARS - 600;
-	const prose = markedClip(compact.text, 1000);
+	let prose = "";
 	const buildDetails = (): WebSearchDetails => ({
 		...continuation, provider: compact.providerKind,
 		...(continuation?.resultId ? { ref: continuation.resultId } : {}),
@@ -157,11 +158,49 @@ export function formatWebSearchResult(
 	const fits = () => {
 		const rendered = renderEvidence(prose, selected, sources, notices, continuation?.resultId);
 		return rendered.length <= budget && rendered.split("\n").length < DEFAULT_MAX_LINES - 10
-			&& JSON.stringify(structuredEvidence(buildDetails(), prose)).length <= budget;
+			&& JSON.stringify(structuredEvidence(buildDetails(), rendered)).length <= budget;
 	};
+	// Fit fixed fields too: JSON escaping counts, including text-only responses.
+	let hiddenWarnings = warnings.length;
+	for (const warning of warnings.slice(0, 6)) {
+		notices.push(markedClip(warning, 200));
+		if (!fits()) notices.pop(); else hiddenWarnings--;
+	}
+	if (hiddenWarnings) {
+		notices.push("Additional diagnostics omitted.");
+		while (!fits() && notices.length > 1) notices.splice(notices.length - 2, 1);
+	}
+	for (let limit = 1000; ; limit = Math.floor(limit / 2)) {
+		prose = limit ? markedClip(compact.text, limit) : "";
+		if (fits()) break;
+	}
+	// Reserve mixed-family records atomically. Only crowded previews use shorter
+	// snippets; a large first web hit must not silently consume the code slot.
+	let reduced = false;
+	if (compact.scope === "both") {
+		const representatives = ["web", "code"].map((family) => hits.find((hit) => sourceFamily(hit.source) === family)).filter((hit) => hit !== undefined);
+		if (representatives.length === 2) {
+			selected.push(...representatives);
+			if (!fits()) {
+				const originals = representatives.map((hit) => hit.citedText);
+				for (const hit of representatives) hit.citedText = markedClip(hit.citedText, 80);
+				if (fits()) reduced = true;
+				else {
+					representatives.forEach((hit, index) => { hit.citedText = originals[index]; });
+					selected.length = 0;
+				}
+			}
+		}
+	}
 	for (const hit of hits) {
+		if (selected.includes(hit)) continue;
 		selected.push(hit);
 		if (!fits()) { selected.pop(); omitted++; }
+	}
+	selected.sort((left, right) => hits.indexOf(left) - hits.indexOf(right));
+	if (compact.scope === "both" && ["web", "code"].some((family) =>
+		hits.some((hit) => sourceFamily(hit.source) === family) && !selected.some((hit) => sourceFamily(hit.source) === family))) {
+		notices.push("Mixed coverage limited by the output budget.");
 	}
 	const cited = new Set(selected.flatMap((hit) => hit.url ? [hit.url] : []));
 	const hitUrls = new Set(hits.flatMap((hit) => hit.url ? [hit.url] : []));
@@ -172,7 +211,7 @@ export function formatWebSearchResult(
 		if (!fits()) { sources.pop(); omitted++; } else cited.add(source.url);
 	}
 	if (omitted) notices.push(`${omitted} result/citation(s) omitted to fit the output budget.`);
-	const clipped = compact.text.length > 1000 || (compact.searchResults ?? []).some((hit) => normalizedText(hit).length > EXCERPT_MAX_CHARS);
+	const clipped = reduced || prose !== compact.text || (compact.searchResults ?? []).some((hit) => normalizedText(hit).length > EXCERPT_MAX_CHARS);
 	const text = renderEvidence(prose, selected, sources, notices, continuation?.resultId);
 	const visible = buildDetails();
 	visible.truncated = omitted > 0 || clipped || continuation?.storedClipped === true;
