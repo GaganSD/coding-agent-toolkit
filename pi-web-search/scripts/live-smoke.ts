@@ -15,7 +15,10 @@ const sourceRoot = resolve(dirname(script), "..");
 if (process.argv[2] !== "--child") {
 	const artifact = resolve(process.argv[2] ?? sourceRoot);
 	withTemporaryDirectory("pi-web-search-live space-", (root) => {
+		// Brave is optional and key-required: only this explicit opt-in reaches the child.
+		const braveKey = process.env.BRAVE_API_KEY?.trim();
 		const env = { ...isolatedEnvironment(root), PI_OFFLINE: "1", NODE_TEST_CONTEXT: "live-smoke",
+			...(braveKey ? { BRAVE_API_KEY: braveKey } : {}),
 			...(process.env.PI_WEB_SEARCH_SMOKE_FILTER ? { PI_WEB_SEARCH_SMOKE_FILTER: process.env.PI_WEB_SEARCH_SMOKE_FILTER } : {}) };
 		process.stdout.write(runCommand(process.execPath,
 			["--experimental-strip-types", script, "--child", artifact], root, env));
@@ -54,6 +57,11 @@ if (process.argv[2] !== "--child") {
 			{ name: "multi-source code", tool: "multi_search", config: { research: { enabled: true } },
 				args: { query: "useSyncExternalStore", scope: "code" } },
 		];
+		if (process.env.BRAVE_API_KEY) {
+			cases.push({ name: "optional Brave REST search", tool: "web_search", provider: "brave",
+				config: { web: { provider: "brave", fallback: [] } },
+				args: { query: "Node.js AbortSignal.timeout documentation" } });
+		}
 		const selected = cases.filter((sample) => !process.env.PI_WEB_SEARCH_SMOKE_FILTER || sample.name.includes(process.env.PI_WEB_SEARCH_SMOKE_FILTER));
 		assert.ok(selected.length, "Smoke filter matched no cases");
 		for (const [index, sample] of selected.entries()) {

@@ -40,6 +40,7 @@ npm run smoke:live
 - Package checks install the tarball without host peers. Pi loads its TypeScript entrypoint without compilation. Tests also run against extracted source.
 - The live smoke uses an isolated home and agent directory. It does not use your keys or GitHub CLI login.
 - Live checks cover Exa, grep.app, scoped Sourcegraph, native Parallel, URL extraction, and multi-source code search through Pi's SDK.
+- Brave is key-required, so its live case runs only when you opt in with `BRAVE_API_KEY=... npm run smoke:live`. The key is forwarded to the isolated child process and is never printed. Without it the Brave case is skipped.
 - Live checks send public test queries. They require network access and can fail when a provider is unavailable.
 - A terminal rehearsal checked local installation, first-run setup, settings display, and a second launch without the welcome prompt.
 - The compatibility lane has three jobs: Linux (Node 22.19.0, Pi 0.99), Windows (Node 24, Pi 0.99), and macOS (Node 24, Pi 1.0).
