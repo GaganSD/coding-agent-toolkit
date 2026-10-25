@@ -1,8 +1,8 @@
-import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../providers/config.ts";
+import { DEFAULT_CLASSIFIER_SETTINGS, type ClassifierSettings } from "../providers/config.ts";
 import type { SearchResultDetail, StreamResult } from "../providers/types.ts";
 import {
 	type JudgeQuestion,
-	type JevResponse,
+	type ClassifierResponse,
 	readBool,
 	readChoice,
 } from "./api.ts";
@@ -21,7 +21,7 @@ export type SafetyCategory = (typeof SAFETY_CATEGORIES)[number];
 export interface Judgement {
 	/** Position in the original result set, so ranking never loses provenance. */
 	index: number;
-	/** Composed in code from the nouls; the model never produces a rank score. */
+	/** Composed in code from boolean probabilities; the model never produces a rank score. */
 	score: number;
 	answers: number;
 	offtopic: number;
@@ -130,8 +130,8 @@ export function buildJudgeQuestions(
  */
 export function applyPolicy(
 	candidates: Candidate[],
-	response: JevResponse,
-	settings: JevSettings,
+	response: ClassifierResponse,
+	settings: ClassifierSettings,
 ): JudgeOutcome {
 	const { answers } = response;
 	if (candidates.length === 0) {
@@ -190,12 +190,12 @@ export function applyPolicy(
 		// Suppression is reported, never silent: an invisible drop cannot be
 		// diagnosed later.
 		warnings.push(
-			`jev suppressed ${suppressed.length} result(s) as unsafe: ${suppressedUrls.join(", ")}`,
+			`classifier suppressed ${suppressed.length} result(s) as unsafe: ${suppressedUrls.join(", ")}`,
 		);
 	}
 	if (held.length > 0) {
 		warnings.push(
-			`jev could not confidently clear ${held.length} result(s); treat their safety as unverified: ${heldUrls.join(", ")}`,
+			`classifier could not confidently clear ${held.length} result(s); treat their safety as unverified: ${heldUrls.join(", ")}`,
 		);
 	}
 
@@ -219,8 +219,8 @@ export function applyPolicy(
 
 function judgeOne(
 	candidate: Candidate,
-	answers: Record<string, JevResponse["answers"][string]>,
-	settings: JevSettings,
+	answers: Record<string, ClassifierResponse["answers"][string]>,
+	settings: ClassifierSettings,
 	threshold: number,
 ): Judgement {
 	const i = candidate.index;
@@ -266,16 +266,16 @@ function judgeOne(
  * Normalizes `safetyThreshold` to its legal [0, 1] range. Out-of-range values
  * are clamped rather than trusted; a non-finite value falls back to the default.
  */
-function normalizedSafetyThreshold(settings: JevSettings): number {
+function normalizedSafetyThreshold(settings: ClassifierSettings): number {
 	const value = settings.safetyThreshold;
 	if (!Number.isFinite(value)) {
-		return DEFAULT_JEV_SETTINGS.safetyThreshold;
+		return DEFAULT_CLASSIFIER_SETTINGS.safetyThreshold;
 	}
 	return Math.min(1, Math.max(0, value));
 }
 
 function readUsage(
-	response: JevResponse,
+	response: ClassifierResponse,
 ): { name: string; count: number }[] | undefined {
 	const usage = response.usage;
 	if (!usage) {
@@ -287,7 +287,7 @@ function readUsage(
 	if (total === undefined) {
 		return undefined;
 	}
-	return [{ name: "jev_tokens", count: total }];
+	return [{ name: "classifier_tokens", count: total }];
 }
 
 function finite(value: number | undefined): number | undefined {

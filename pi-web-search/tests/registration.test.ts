@@ -40,10 +40,12 @@ test("headless settings uses host messages rather than corrupting stdout", async
 });
 
 interface RegisteredTool {
+	exposure?: string;
 	name: string;
 	description: string;
 	promptSnippet?: string;
 	promptGuidelines?: string[];
+	reachesTools?: (input: Record<string, unknown>) => string[] | "all";
 	outputSchema?: TSchema;
 	namespace?: { name: string; description?: string };
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
@@ -122,34 +124,31 @@ async function loadExtension(
 }
 
 function names(registration: Pick<Registration, "tools" | "commands">): string[] {
-	return registration.tools.map((tool) => tool.name);
+	return registration.tools.filter((tool) => !tool.exposure || tool.exposure === "direct").map((tool) => tool.name);
 }
 
 const ctx = {} as unknown as ExtensionContext;
 
-test("a missing config registers web_search and code_search, not multi_search", async () => {
+test("a missing config registers only the unified search tool directly", async () => {
 	await loadExtension(undefined, ({ tools, commands, servers }) => {
 		assert.equal(servers[0]?.name, PARALLEL_MCP_SERVER);
-		assert.deepEqual(names({ tools, commands }), ["web_search", "code_search"]);
+		assert.deepEqual(names({ tools, commands }), ["search"]);
 		assert.ok(commands.some((command) => command.name === "web-search"));
 		assert.equal(commands.some((command) => command.name === "web-search-settings"), false);
-		for (const tool of tools) {
-			assert.ok(tool.promptSnippet, `${tool.name} must set promptSnippet`);
-			assert.ok(
-				tool.promptGuidelines?.length,
-				`${tool.name} must set promptGuidelines`,
-			);
-			assert.ok(
-				tool.promptGuidelines.some((line) => line.includes(`\`${tool.name}\``)),
-				`${tool.name} guidelines must reference the tool`,
-			);
-		}
+		assert.deepEqual(tools.map((tool) => tool.name), ["search"], "no hidden legacy aliases");
+		const search = tools.find((tool) => tool.name === "search");
+		assert.ok(search);
+		assert.ok(search.promptSnippet);
+		assert.ok(search.promptGuidelines?.length);
+		assert.ok(search.promptGuidelines.some((line) => line.includes("`query`")));
+		assert.ok(search.promptGuidelines.every((line) =>
+			!["web_search", "code_search", "multi_search"].some((legacy) => line.includes(legacy))));
 	});
 });
 
 test("all tools declare the modern Pi data and permission contracts", async () => {
 	await loadExtension(JSON.stringify({ research: { enabled: true } }), ({ tools }) => {
-		assert.equal(tools.length, 3);
+		assert.equal(tools.length, 1);
 		for (const tool of tools) {
 			assert.deepEqual(tool.outputSchema, SearchOutputSchema);
 			assert.equal(tool.namespace?.name, "search");
@@ -160,15 +159,12 @@ test("all tools declare the modern Pi data and permission contracts", async () =
 	});
 });
 
-test("research.enabled=true registers multi_search", async () => {
+test("research.enabled=true does not add a legacy multi_search registration", async () => {
 	await loadExtension(
 		JSON.stringify({ research: { enabled: true } }),
 		({ tools, commands }) => {
-			assert.deepEqual(names({ tools, commands }), [
-				"web_search",
-				"code_search",
-				"multi_search",
-			]);
+			assert.deepEqual(names({ tools, commands }), ["search"]);
+			assert.equal(tools.some((tool) => tool.name === "multi_search"), false);
 		},
 	);
 });
@@ -182,8 +178,8 @@ test("Parallel registration is anonymous by default, or Bearer when a key alread
 			let report = "";
 			await commands[0].handler("status", { hasUI: true, ui: { notify: (text) => { report = text; } } });
 			assert.match(report, /parallel: missing \(optional key\)/);
-			assert.match(report, /jev: disabled/);
-			assert.doesNotMatch(report, /JEV_API_KEY|package-visible|Classifier authentication/);
+			assert.match(report, /classifier: disabled/);
+			assert.doesNotMatch(report, /CLASSIFIER_API_KEY|package-visible|Classifier authentication/);
 			assert.match(report, /\/reload after changing.*Parallel key/);
 		});
 		process.env.PARALLEL_API_KEY = "  configured-key  ";
@@ -203,7 +199,7 @@ test("Parallel registration is anonymous by default, or Bearer when a key alread
 	}
 });
 
-test("registered web_search forwards the live tool context through the native pipeline", async () => {
+test("registered search forwards the live tool context through the native pipeline", async () => {
 	await loadExtension(JSON.stringify({ web: { provider: "parallel", fallback: [] } }), async ({ tools }) => {
 		const seen: string[] = [];
 		const runtime = {
@@ -215,28 +211,43 @@ test("registered web_search forwards the live tool context through the native pi
 				} } };
 			},
 		} as unknown as ExtensionContext;
-		const result = await tools[0].execute("call-1", { query: "native path" }, undefined, undefined, runtime);
+		const result = await tools.find((tool) => tool.name === "search")!.execute("call-1", { query: "native path" }, undefined, undefined, runtime);
 		assert.deepEqual(seen, [`mcp__${PARALLEL_MCP_SERVER}__web_search`]);
 		assert.equal(result.isError, false);
 		assert.equal(result.details.searchResults?.[0].citedText, "citation");
 	});
 });
 
-test("research.enabled=false does not register multi_search", async () => {
+test("registered search reaches MCP only for calls that can retrieve the web", async () => {
+	await loadExtension("{}", ({ tools }) => {
+		const search = tools.find((tool) => tool.name === "search");
+		assert.ok(search?.reachesTools);
+		assert.deepEqual(search.reachesTools({ ref: "0:1" }), []);
+		assert.deepEqual(search.reachesTools({ query: "id", scope: "code" }), []);
+		assert.deepEqual(search.reachesTools({ query: "id", scope: "web" }), [`mcp__${PARALLEL_MCP_SERVER}`]);
+		assert.deepEqual(search.reachesTools({ urls: ["https://example.test"] }), [`mcp__${PARALLEL_MCP_SERVER}`]);
+	});
+});
+
+test("research.enabled=false never registers legacy tools", async () => {
 	await loadExtension(JSON.stringify({ research: { enabled: false } }), ({ tools, commands }) => {
-		assert.equal(names({ tools, commands }).includes("multi_search"), false);
+		const registered = tools.map((tool) => tool.name);
+		for (const legacy of ["web_search", "code_search", "multi_search"]) {
+			assert.equal(registered.includes(legacy), false, `${legacy} must not be registered`);
+		}
+		assert.deepEqual(names({ tools, commands }), ["search"]);
 	});
 });
 
 test("invalid configuration is a structured failed tool call", async () => {
 	await loadExtension("{ not json", async ({ tools, commands }) => {
-		assert.deepEqual(names({ tools, commands }), ["web_search", "code_search"]);
-		const web = tools.find((tool) => tool.name === "web_search");
-		assert.ok(web);
-		const result = await web.execute("call_1", { query: "hi" }, undefined, undefined, ctx);
+		assert.deepEqual(names({ tools, commands }), ["search"]);
+		const search = tools.find((tool) => tool.name === "search");
+		assert.ok(search);
+		const result = await search.execute("call_1", { query: "hi" }, undefined, undefined, ctx);
 		assert.equal(result.isError, true);
 		assert.equal(result.details.error?.code, "invalid_config");
-		assert.match(result.details.error?.message ?? "", /^web_search failed \(invalid_config\): /);
+		assert.match(result.details.error?.message ?? "", /^search failed \(invalid_config\): /);
 	});
 });
 
@@ -284,7 +295,7 @@ test("the /web-search command reports presence without keys", async () => {
 			}
 
 			assert.match(report, /pi-web-search settings/);
-			assert.match(report, /multi_search: enabled/);
+			assert.match(report, /search\/thorough: enabled/);
 			assert.match(report, /github: present \(auth\.json\)/);
 			assert.match(report, /parallel: present \(PARALLEL_API_KEY\)/);
 			assert.match(report, /Install: pi install \.\/pi-web-search \(checkout\) or pi install npm:@gagansd\/pi-web-search \(release\)/);
@@ -308,15 +319,16 @@ test("classifier diagnostics use Pi's auth snapshot, including stored/runtime au
 			getAvailableOfType: () => { throw new Error("must not probe availability for diagnostics"); },
 		} as unknown as ExtensionContext["modelRegistry"];
 		await commands[0].handler("status", { hasUI: true, ui: { notify: (message) => { report = message; } }, modelRegistry });
-		assert.deepEqual(checked, []);
-		assert.match(report, /jev: disabled/);
-		assert.doesNotMatch(report, /classifier-secret|JEV_API_KEY|package-visible|typesafe:/);
+		assert.deepEqual(checked, ["vercel-ai-gateway"]);
+		assert.match(report, /classifier: disabled/);
+		assert.match(report, /typesafe-ai\/jev/);
+		assert.doesNotMatch(report, /classifier-secret|CLASSIFIER_API_KEY|package-visible|typesafe:/);
 	});
 });
 
 test("setup selects an explicit provider, preserves tuning/search settings, and never writes auth", async () => {
 	const initial = { web: { provider: "parallel", fallback: [] }, timeoutMs: 3456,
-		jev: { safetyThreshold: 0.9, weights: { answers: 0.8 } } };
+		classifier: { safetyThreshold: 0.9, weights: { answers: 0.8 } } };
 	const auth = { openrouter: { type: "api_key", key: "existing-harness-secret" } };
 	await loadExtension(JSON.stringify(initial), async ({ commands }, dir) => {
 		const authBefore = await readFile(join(dir, "auth.json"), "utf8");
@@ -331,13 +343,13 @@ test("setup selects an explicit provider, preserves tuning/search settings, and 
 			assert.deepEqual(saved.web, initial.web);
 			assert.equal(saved.timeoutMs, initial.timeoutMs);
 			assert.equal(saved.research.enabled, true);
-			assert.deepEqual(saved.jev, { ...initial.jev, enabled: true, provider: pin.provider, model: pin.id });
+			assert.deepEqual(saved.classifier, { ...initial.classifier, enabled: true, provider: pin.provider, model: pin.id });
 			assert.match(report, new RegExp(`Classifier pinned: ${pin.provider}/${pin.id}\\. Saved to .* — run /reload to apply\\.`));
 			assert.doesNotMatch(report, /existing-harness-secret/);
 		}
 		await commands[0].handler("off", { hasUI: false, ui: { notify: () => { throw new Error("headless"); } } });
 		const saved = JSON.parse(await readFile(join(dir, "web-search.json"), "utf8"));
-		assert.equal(saved.jev.enabled, false);
+		assert.equal(saved.classifier.enabled, false);
 		assert.equal(saved.research.enabled, true, "off disables judgment, not retrieval");
 		assert.equal(await readFile(join(dir, "auth.json"), "utf8"), authBefore);
 		assert.deepEqual((await readdir(dir)).sort(), ["auth.json", "web-search.json"]);
@@ -350,7 +362,7 @@ test("first-time headless setup creates the overridden config path without any k
 		process.env[CONFIG_PATH_ENV_VAR] = path;
 		await commands[0].handler("classifier openrouter/~typesafe/jev-latest", { hasUI: false, ui: { notify: () => { throw new Error("headless"); } } });
 		assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
-			research: { enabled: true }, jev: { enabled: true, provider: "openrouter", model: "~typesafe/jev-latest" },
+			research: { enabled: true }, classifier: { enabled: true, provider: "openrouter", model: "~typesafe/jev-latest" },
 		});
 		assert.equal(messages.length, 1);
 		assert.match(messages[0].content, /Classifier pinned: openrouter\/~typesafe\/jev-latest\. Saved to .* — run \/reload to apply\./);

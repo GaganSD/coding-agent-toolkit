@@ -5,8 +5,8 @@ import { applyConfig } from "../src/providers/config.ts";
 import {
 	classifierUnavailableMessage,
 	selectPinnedClassifier,
-	systemOne,
-} from "../src/jev/api.ts";
+	classifyEvidence,
+} from "../src/classifier/api.ts";
 
 type Registry = ExtensionContext["modelRegistry"];
 const typesafe = { provider: "typesafe", id: "jev-latest" };
@@ -48,19 +48,15 @@ test("only the exact pinned provider/model pair runs", async () => {
 	);
 });
 
-test("legacy backend configs load unpinned and do not remap models", () => {
-	const enabled = applyConfig("/unused", { jev: { enabled: true } });
-	assert.equal(enabled.jev.enabled, true);
-	assert.equal(enabled.jev.provider, "");
-	assert.equal(enabled.jev.model, "");
-	assert.match(enabled.notices.join(" "), /unpinned/);
-	const legacy = applyConfig("/unused", { jev: { enabled: true, backend: "openrouter", model: "jev-1.13.0" } });
-	assert.equal(legacy.jev.provider, "");
-	assert.equal(legacy.jev.model, "jev-1.13.0");
-	assert.match(legacy.notices.join(" "), /backend/);
-	const pinned = applyConfig("/unused", { jev: { enabled: true, provider: "llama.cpp", model: "qwen" } });
-	assert.equal(pinned.jev.provider, "llama.cpp");
-	assert.equal(pinned.jev.model, "qwen");
+test("Jev is the default but explicit pins remain exact", () => {
+	const enabled = applyConfig("/unused", { classifier: { enabled: true } });
+	assert.equal(enabled.classifier.enabled, true);
+	assert.equal(enabled.classifier.provider, "vercel-ai-gateway");
+	assert.equal(enabled.classifier.model, "typesafe-ai/jev");
+	assert.deepEqual(enabled.notices, []);
+	const pinned = applyConfig("/unused", { classifier: { enabled: true, provider: "llama.cpp", model: "qwen" } });
+	assert.equal(pinned.classifier.provider, "llama.cpp");
+	assert.equal(pinned.classifier.model, "qwen");
 	assert.deepEqual(pinned.notices, []);
 });
 
@@ -77,7 +73,7 @@ test("Pi receives bool and choice questions in one call", async () => {
 			risk: { type: "choice", choice: "safe", probabilities: { safe: 0.9 }, confidence: 0.9 },
 		} };
 	});
-	const response = await systemOne(state, questions, {
+	const response = await classifyEvidence(state, questions, {
 		modelRegistry, provider: "typesafe", model: "jev-latest",
 	});
 	assert.equal(calls, 1);
@@ -93,7 +89,7 @@ test("missing pin fails before catalog work", async () => {
 		getAvailableOfType: async () => { calls++; return [typesafe]; },
 		classify: async () => { calls++; throw new Error("must not classify"); },
 	} as unknown as Registry;
-	await assert.rejects(systemOne(state, questions, { modelRegistry }), /pin jev.provider/);
+	await assert.rejects(classifyEvidence(state, questions, { modelRegistry }), /pin classifier.provider/);
 	assert.equal(calls, 0);
 	assert.match(classifierUnavailableMessage("typesafe", "jev-latest"), /typesafe\/jev-latest/);
 });
@@ -102,7 +98,7 @@ test("missing or malformed classifier answers never become a policy verdict", as
 	for (const answers of [{}, { answer: { type: "bool", probability: Number.NaN } },
 		{ answer: { type: "bool", probability: 0.8 }, risk: { type: "choice", choice: "phishing", probabilities: { phishing: Infinity }, confidence: 1 } }]) {
 		const modelRegistry = registry([typesafe], async () => ({ stopReason: "stop", answers }));
-		await assert.rejects(systemOne(state, questions, {
+		await assert.rejects(classifyEvidence(state, questions, {
 			modelRegistry, provider: "typesafe", model: "jev-latest",
 		}), /malformed answers/);
 	}
@@ -118,7 +114,7 @@ test("pre-aborted judging never starts catalog or classifier work", async () => 
 		getAvailableOfType: async () => { calls++; return [typesafe]; },
 		classify: async () => { calls++; throw new Error("must not classify"); },
 	} as unknown as Registry;
-	await assert.rejects(systemOne(state, questions, {
+	await assert.rejects(classifyEvidence(state, questions, {
 		modelRegistry, provider: "typesafe", model: "jev-latest", signal: controller.signal,
 	}), /cancelled before judging/);
 	assert.equal(calls, 0);
@@ -139,7 +135,7 @@ test("synchronous cancellation during catalog lookup observes its late rejection
 			},
 			classify: () => { classifyCalls++; throw new Error("must not classify"); },
 		} as unknown as Registry;
-		await assert.rejects(systemOne(state, questions, {
+		await assert.rejects(classifyEvidence(state, questions, {
 			modelRegistry, provider: "typesafe", model: "jev-latest", signal: controller.signal,
 		}), /cancelled during availability/);
 		await new Promise<void>((resolve) => setImmediate(resolve));
@@ -159,7 +155,7 @@ test("late catalog resolution after deadline cannot launch a classifier", async 
 		getAvailableOfType: () => available,
 		classify: () => { classifyCalls++; throw new Error("must not classify"); },
 	} as unknown as Registry;
-	await assert.rejects(systemOne(state, questions, {
+	await assert.rejects(classifyEvidence(state, questions, {
 		modelRegistry, provider: "typesafe", model: "jev-latest", timeoutMs: 25,
 	}), /deadline/);
 	resolveAvailability([typesafe]);
@@ -170,12 +166,12 @@ test("late catalog resolution after deadline cannot launch a classifier", async 
 test("uncooperative native classifier is bounded, and caller abort is observed", async () => {
 	const modelRegistry = registry([typesafe], async () => new Promise(() => {}));
 	const started = Date.now();
-	await assert.rejects(systemOne(state, questions, {
+	await assert.rejects(classifyEvidence(state, questions, {
 		modelRegistry, provider: "typesafe", model: "jev-latest", timeoutMs: 25,
 	}), /deadline/);
 	assert.ok(Date.now() - started < 1000);
 	const controller = new AbortController();
-	const pending = systemOne(state, questions, {
+	const pending = classifyEvidence(state, questions, {
 		modelRegistry, provider: "typesafe", model: "jev-latest", signal: controller.signal, timeoutMs: 1000,
 	});
 	controller.abort(new Error("user cancelled"));

@@ -50,6 +50,7 @@ export const PROVIDER_AUTH: Record<
 	grep: { key: "none", summary: "keyless" },
 	sourcegraph: { key: "none", summary: "keyless" },
 	github: { key: "required", summary: "token or gh auth", keyUrl: "https://github.com/settings/tokens" },
+	brave: { key: "required", summary: "REST search; optional provider", keyUrl: "https://api-dashboard.search.brave.com/app/keys" },
 };
 
 export function parseWebSearchArgs(args: string): WebSearchAction {
@@ -307,8 +308,8 @@ async function pickClassifier(
 		return undefined;
 	}
 	const resolved = await resolveSettings();
-	const current = !("error" in resolved) && resolved.jev.provider && resolved.jev.model
-		? `${resolved.jev.provider}/${resolved.jev.model}`
+	const current = !("error" in resolved) && resolved.classifier.provider && resolved.classifier.model
+		? `${resolved.classifier.provider}/${resolved.classifier.model}`
 		: undefined;
 	const models = await listSupportedClassifiers(ctx.modelRegistry, ctx.signal);
 	// Available classifiers first, current pin at the very top; stable otherwise.
@@ -397,18 +398,18 @@ export async function buildSettingsReport(registry: ExtensionContext["modelRegis
 		].join("\n");
 	}
 
-	const pin = resolved.jev.provider && resolved.jev.model
-		? `${resolved.jev.provider}/${resolved.jev.model}`
+	const pin = resolved.classifier.provider && resolved.classifier.model
+		? `${resolved.classifier.provider}/${resolved.classifier.model}`
 		: "unpinned";
 	const list = (kinds: readonly string[]) =>
 		kinds.length > 0 ? kinds.join(", ") : "none";
 	const lines: string[] = [
 		"pi-web-search settings",
 		`config: ${resolved.configPath}`,
-		`web_search: ${resolved.web.provider} (fallback: ${list(resolved.web.fallback)})`,
-		`code_search: ${resolved.code.provider} (fallback: ${list(resolved.code.fallback)})`,
-		`multi_search: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
-		`jev: ${resolved.jev.enabled ? `enabled (${pin})` : "disabled"}`,
+		`search/web: ${resolved.web.provider} (fallback: ${list(resolved.web.fallback)})`,
+		`search/code: ${resolved.code.provider} (fallback: ${list(resolved.code.fallback)})`,
+		`search/thorough: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
+		`classifier: ${resolved.classifier.enabled ? `enabled (${pin})` : "disabled"}`,
 		"",
 		"Search credentials (presence only; keys are never shown):",
 	];
@@ -421,18 +422,18 @@ export async function buildSettingsReport(registry: ExtensionContext["modelRegis
 		const source = credentialSource(id as CredentialProviderId);
 		lines.push(`- ${id}: ${source ? `present (${source})` : `missing (${auth.key} key)`}`);
 	}
-	if (resolved.jev.provider && resolved.jev.model) {
-		const auth = registry?.getProviderAuthStatus?.(resolved.jev.provider);
-		const registered = registry?.findOfType?.("classifier", resolved.jev.provider, resolved.jev.model);
+	if (resolved.classifier.provider && resolved.classifier.model) {
+		const auth = registry?.getProviderAuthStatus?.(resolved.classifier.provider);
+		const registered = registry?.findOfType?.("classifier", resolved.classifier.provider, resolved.classifier.model);
 		const authText = auth === undefined
 			? "auth status unknown"
 			: auth.configured
 				? "credentials configured"
-				: `no credentials — run /login ${resolved.jev.provider}`;
+				: `no credentials — run /login ${resolved.classifier.provider}`;
 		lines.push(
 			"",
 			"Pinned classifier (Pi auth snapshot, not a live test):",
-			`- ${resolved.jev.provider}/${resolved.jev.model}: ${authText}; ${registered === undefined ? "registration unknown" : registered ? "registered" : "not registered"}.`,
+			`- ${resolved.classifier.provider}/${resolved.classifier.model}: ${authText}; ${registered === undefined ? "registration unknown" : registered ? "registered" : "not registered"}.`,
 		);
 	}
 	const envNames = CREDENTIAL_PROVIDER_IDS
@@ -444,7 +445,7 @@ export async function buildSettingsReport(registry: ExtensionContext["modelRegis
 		`- /web-search provider <name>: add or modify a key in auth.json. Env vars also work: ${envNames}.`,
 		"- /web-search classifier: pick a Pi classifier, or none to disable. /model does not list classifiers; the pinned provider's billing applies.",
 		"- Nonsecret settings live in web-search.json.",
-		"- Run /reload after changing multi_search or a Parallel key (its MCP header is captured at registration).",
+		"- Run /reload after changing thorough search or a Parallel key (its MCP header is captured at registration).",
 		"- Install: pi install ./pi-web-search (checkout) or pi install npm:@gagansd/pi-web-search (release).",
 	);
 	return lines.join("\n");

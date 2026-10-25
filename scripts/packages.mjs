@@ -23,7 +23,7 @@ export const packages = {
   "pi-web-search": {
     name: "@gagansd/pi-web-search", tests: "tests",
     integration: ["integration.test.ts", "registration.test.ts", "native-sdk.test.ts", "package/package-content.test.ts", "package/validation.test.ts"],
-    commands: ["web-search"], tools: ["web_search", "code_search"],
+    commands: ["web-search"], tools: ["search"],
   },
 };
 

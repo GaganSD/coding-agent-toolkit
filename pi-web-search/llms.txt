@@ -1,20 +1,24 @@
 # pi-web-search
 
-> Pi tools for best-effort public web (keyless Exa and native Parallel MCP fallback) and public code (grep.app, Sourcegraph, optional GitHub). Research and external Jev judgment are separate opt-ins, off by default.
+> Pi's unified `search` tool for best-effort public web (keyless Exa and native Parallel MCP fallback), public code (grep.app, Sourcegraph, optional GitHub), URL-only extraction, and local evidence continuation. Fast effort is one provider plus fallback; thorough effort fans out across sources and is gated by `research.enabled`. External Jev judgment is a separate opt-in.
 
 This file is a navigation index for agents, not an API specification. Paths are relative to this package. For the monorepo, see [root llms.txt](../llms.txt).
 
 ## Documentation
 
-- [Package README](README.md): install, tools, defaults, optional setup, config, and code-search notes.
+- [Package README](README.md): install, unified schema, defaults, optional setup, config, and code-search notes.
+- [Efficiency and continuation](docs/efficiency.md): URL-only fetch, local evidence refs, preview budgets, reuse/cooldowns, and context benchmarks.
 - [Multi-source search and Jev](docs/research.md): judgment settings, exact Pi classifier pin, and fail-open behavior.
 
 ## Source contracts
 
-- [Tool registration](src/index.ts): tools, first-run welcome, and `/web-search`.
+- [Tool registration](src/index.ts): the single registered `search` tool, first-run welcome, and `/web-search`.
+- [Unified routing](src/search.ts): flat schema, query/URLs/ref exclusivity, fast versus thorough gating, and `reachesTools`.
 - [Configuration resolver](src/providers/config.ts): accepted settings and defaults.
-- [Provider orchestration](src/providers/index.ts): ordinary chains versus research fan-out.
+- [Provider orchestration](src/providers/index.ts): ordinary chains versus bounded thorough fan-out.
+- [Brave](src/providers/brave.ts): optional keyed REST search, compact snippets only.
+- [Jina Reader](src/providers/jina.ts): keyless URL-only extraction; no search routing or extra tools.
 - [Sourcegraph](src/providers/sourcegraph.ts): keyless stream search.
 - [GitHub](src/providers/github.ts): authenticated REST; token or `gh auth`.
-- [Jev classifier](src/jev/api.ts): Pi model registry typed classification.
+- [Jev classifier](src/classifier/api.ts): Pi model registry typed classification.
 - [Structured output](src/format.ts): fields, previews, truncation, and errors.

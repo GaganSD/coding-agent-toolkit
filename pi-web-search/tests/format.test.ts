@@ -3,6 +3,7 @@ import test from "node:test";
 import { Check } from "typebox/value";
 
 import {
+	CLIP_MARKER,
 	EXCERPT_MAX_CHARS,
 	RESULTS_HEADING,
 	SOURCES_HEADING,
@@ -20,16 +21,19 @@ function textOf(result: { content: { type: string; text?: string }[] }): string 
 
 test("codemode gets schema-valid citation data, not a markdown-only result", () => {
 	const result = formatWebSearchResult({
-		text: "", providerKind: "grep", scope: "code", jevStatus: "disabled",
+		text: "", providerKind: "grep", scope: "code", classifierStatus: "disabled",
 		searchResults: [{ title: "Source", url: "https://example.com/code", citedText: "code".repeat(200), source: "grep", pageAge: null }],
 		sources: [{ title: "Source", url: "https://example.com/code" }],
 	});
 	assert.equal(result.isError, false);
 	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
-	const data = result.structuredContent as { status: string; text: string; searchResults: Array<{ citedText: string }> };
+	const data = result.structuredContent as { status: string; text?: string; searchResults: Array<{ citedText?: string }> };
 	assert.equal(data.status, "success");
-	assert.equal(data.text, textOf(result));
-	assert.equal(data.searchResults[0].citedText.length, 800);
+	assert.equal("text" in data, false);
+	assert.equal(data.searchResults[0].citedText, "code".repeat(100) + CLIP_MARKER);
+	assert.equal(result.details.searchResults?.[0].citedText?.length, 800);
+	assert.equal(textOf(result).includes("## Coverage"), false);
+	assert.equal(textOf(result).includes("classifier: disabled"), false);
 });
 
 test("truncated model output and structured text have identical markers", () => {
@@ -94,8 +98,9 @@ test("excerpts are capped at 400 characters with whitespace collapsed", () => {
 	assert.ok(quote !== undefined);
 	const excerpt = quote.slice(2);
 
-	assert.equal(excerpt.length, EXCERPT_MAX_CHARS);
-	assert.equal(excerpt, citedText.replace(/\s+/g, " ").trim().slice(0, EXCERPT_MAX_CHARS));
+	assert.equal(excerpt.endsWith(CLIP_MARKER), true);
+	assert.equal(excerpt.slice(0, -CLIP_MARKER.length).length, EXCERPT_MAX_CHARS);
+	assert.equal(excerpt.slice(0, -CLIP_MARKER.length), citedText.replace(/\s+/g, " ").trim().slice(0, EXCERPT_MAX_CHARS));
 	assert.equal(excerpt.includes("\n"), false);
 });
 
@@ -195,12 +200,12 @@ test("details carry usage when present", () => {
 	const result: StreamResult = {
 		text: "",
 		providerKind: "exa",
-		usage: [{ name: "jev_tokens", count: 1020 }],
+		usage: [{ name: "classifier_tokens", count: 1020 }],
 	};
 
 	const { details } = formatWebSearchResult(result);
 
-	assert.deepEqual(details.usage, [{ name: "jev_tokens", count: 1020 }]);
+	assert.deepEqual(details.usage, [{ name: "classifier_tokens", count: 1020 }]);
 });
 
 test("details carry the full result key set", () => {

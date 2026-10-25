@@ -15,7 +15,11 @@ const sourceRoot = resolve(dirname(script), "..");
 if (process.argv[2] !== "--child") {
 	const artifact = resolve(process.argv[2] ?? sourceRoot);
 	withTemporaryDirectory("pi-web-search-live space-", (root) => {
-		const env = { ...isolatedEnvironment(root), PI_OFFLINE: "1", NODE_TEST_CONTEXT: "live-smoke" };
+		// Brave is optional and key-required: only this explicit opt-in reaches the child.
+		const braveKey = process.env.BRAVE_API_KEY?.trim();
+		const env = { ...isolatedEnvironment(root), PI_OFFLINE: "1", NODE_TEST_CONTEXT: "live-smoke",
+			...(braveKey ? { BRAVE_API_KEY: braveKey } : {}),
+			...(process.env.PI_WEB_SEARCH_SMOKE_FILTER ? { PI_WEB_SEARCH_SMOKE_FILTER: process.env.PI_WEB_SEARCH_SMOKE_FILTER } : {}) };
 		process.stdout.write(runCommand(process.execPath,
 			["--experimental-strip-types", script, "--child", artifact], root, env));
 	});
@@ -26,7 +30,7 @@ if (process.argv[2] !== "--child") {
 	const save = (config: object) => writeFileSync(configPath, JSON.stringify(config));
 	save({ research: { enabled: true } });
 	writeFileSync(join(root, "auth.json"), "{}");
-	const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", "code_search", "multi_search"],
+	const settingsManager = SettingsManager.inMemory({ defaultTools: ["search"],
 		compaction: { enabled: false }, retry: { enabled: false } });
 	const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
 		noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
@@ -41,17 +45,26 @@ if (process.argv[2] !== "--child") {
 	try {
 		await session.bindExtensions({});
 		const cases: Array<{ name: string; tool: string; provider?: string; config: object; args: Record<string, string | string[]> }> = [
-			{ name: "default web and URL extraction", tool: "web_search", provider: "exa", config: {},
-				args: { query: "Node.js AbortSignal.timeout documentation", urls: ["https://nodejs.org/api/globals.html"] } },
-			{ name: "default code", tool: "code_search", provider: "grep", config: {}, args: { query: "useSyncExternalStore" } },
-			{ name: "scoped Sourcegraph", tool: "code_search", provider: "sourcegraph", config: { code: { provider: "sourcegraph", fallback: [] } },
-				args: { query: "createServer repo:nodejs/node" } },
-			{ name: "native Parallel search and extraction", tool: "web_search", provider: "parallel", config: { web: { provider: "parallel", fallback: [] } },
-				args: { query: "Node.js AbortSignal.timeout documentation", urls: ["https://nodejs.org/api/globals.html"] } },
-			{ name: "multi-source code", tool: "multi_search", config: { research: { enabled: true } },
-				args: { query: "useSyncExternalStore", scope: "code" } },
+			{ name: "default web", tool: "search", provider: "exa", config: {},
+				args: { query: "Node.js AbortSignal.timeout documentation" } },
+			{ name: "URL-only keyless Jina extraction", tool: "search", provider: "jina", config: {},
+				args: { urls: ["https://example.com"] } },
+			{ name: "default code", tool: "search", provider: "grep", config: {}, args: { query: "useSyncExternalStore", scope: "code" } },
+			{ name: "scoped Sourcegraph", tool: "search", provider: "sourcegraph", config: { code: { provider: "sourcegraph", fallback: [] } },
+				args: { query: "createServer repo:nodejs/node", scope: "code" } },
+			{ name: "native Parallel search", tool: "search", provider: "parallel", config: { web: { provider: "parallel", fallback: [] } },
+				args: { query: "Node.js AbortSignal.timeout documentation" } },
+			{ name: "multi-source code", tool: "search", config: { research: { enabled: true } },
+				args: { query: "useSyncExternalStore", scope: "code", effort: "thorough" } },
 		];
-		for (const [index, sample] of cases.entries()) {
+		if (process.env.BRAVE_API_KEY) {
+			cases.push({ name: "optional Brave REST search", tool: "search", provider: "brave",
+				config: { web: { provider: "brave", fallback: [] } },
+				args: { query: "Node.js AbortSignal.timeout documentation" } });
+		}
+		const selected = cases.filter((sample) => !process.env.PI_WEB_SEARCH_SMOKE_FILTER || sample.name.includes(process.env.PI_WEB_SEARCH_SMOKE_FILTER));
+		assert.ok(selected.length, "Smoke filter matched no cases");
+		for (const [index, sample] of selected.entries()) {
 			save({ ...sample.config, timeoutMs: 15_000 });
 			const id = `live-smoke-${index}`;
 			session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id, name: sample.tool, arguments: sample.args }],
@@ -63,8 +76,8 @@ if (process.argv[2] !== "--child") {
 			const ctx = session.extensionRunner.createToolContext(id, AbortSignal.timeout(20_000));
 			const response = await ctx.executeTool(sample.tool, sample.args);
 			const data = response.result.structuredContent as {
-				provider?: string; resultCount?: number; warnings?: string[]; error?: unknown;
-				searchResults?: Array<{ url?: string; type?: string; citedText?: string }>;
+				resultId?: string; provider?: string; resultCount?: number; warnings?: string[]; error?: unknown;
+				searchResults?: Array<{ ref?: string; url?: string; type?: string; citedText?: string }>;
 			};
 			console.log(JSON.stringify({ check: sample.name, ms: Date.now() - started, provider: data.provider,
 				count: data.resultCount, warnings: data.warnings, error: data.error }));
@@ -75,6 +88,14 @@ if (process.argv[2] !== "--child") {
 				const requested = sample.args.urls;
 				assert.ok(data.searchResults?.some((hit) => hit.url && requested.includes(hit.url) &&
 					["extract", "content"].includes(hit.type ?? "") && hit.citedText), "URL extraction missing");
+			}
+			if (sample.name.startsWith("URL-only")) {
+				assert.ok(data.resultId, "URL-only extraction must offer local continuation");
+				const ref = data.searchResults?.[0]?.ref;
+				assert.ok(ref, "URL extraction must expose a stable result ref");
+				const continued = await ctx.executeTool("search", { ref });
+				assert.equal(continued.isError, false, "local continuation failed");
+				console.log(JSON.stringify({ check: "local evidence continuation", status: "passed" }));
 			}
 			if (sample.name === "scoped Sourcegraph") {
 				assert.ok(data.searchResults?.every((hit) => hit.url?.startsWith("https://github.com/nodejs/node/blob/")));

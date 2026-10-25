@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Highlights
+
+- **One search tool:** search the web, find public code, read URLs, and revisit results through `search`. Choose fast searches or opt into multi-source thorough searches.
+- **Less context overhead:** approximately 16% smaller tool/prompt footprint by default, 44% smaller with research enabled, and a 76% smaller representative result preview.
+- **Read more without searching again:** open saved results, find passages, and continue reading locally. Results stay in session memory and expire; reloading clears them.
+- **More retrieval options:** read URLs without a key through Jina Reader, or add a Brave API key for web search. Repeated searches can reuse recent results to reduce duplicate requests.
+- **Optional result ranking:** Jev is now the default decision model when classification is enabled. Select another available model or disable classification through `/web-search classifier`.
+
+*Offline character-based measurements: 344 estimated tokens for the tool/prompt footprint (previously 410 by default or 615 with research enabled), and 4,081 characters for the result preview (previously 16,777). These are not measured billing savings.*
+
+### Upgrading to 0.4.0
+
+- Replace `web_search`, `code_search`, and `multi_search` in custom prompts, tool permissions, and scripts with `search`. Use `scope: "code"` for code or `effort: "thorough"` for multi-source search; thorough search requires `research.enabled`.
+- Supply one of `query`, `urls`, or `ref` per call. Use returned refs to revisit results; previous `search_read` arguments are not supported.
+- Rename the `jev` block in `web-search.json` to `classifier` and remove `backend`. Old settings are rejected rather than migrated. Explicit provider/model selections are preserved. Reload Pi after updating.
+
 ## 0.3.1
 
 Release the current extension updates together.
