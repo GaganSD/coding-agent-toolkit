@@ -20,7 +20,6 @@ import {
 	runSearch,
 } from "./providers/index.ts";
 import {
-	DEFAULT_CHAIN,
 	type ProviderFamily,
 	type ProviderKind,
 	type StreamResult,
@@ -186,10 +185,6 @@ export async function executeSearch(
 			};
 
 			const availability = options.availability ?? providerAvailability(family);
-			const skipped = params.parallel
-				? skippedSources(params.scope, availability)
-				: [];
-
 			const raw = params.fetchOnly && (options.fetchUrls || (!options.transports && !options.loadTransports))
 				? await runUrlOnly(req, options, availability)
 				: params.parallel
@@ -204,7 +199,6 @@ export async function executeSearch(
 			const withNotes: StreamResult = {
 				...raw,
 				scope: params.scope,
-				skipped,
 			};
 
 			const wantJudge = params.judge && resolved.jev.enabled;
@@ -283,23 +277,6 @@ async function runUrlOnly(req: SearchRequest, options: RunSearchOptions, availab
 		const result = await runSearch(req, { ...options, family: "web", availability: { ...availability, brave: false } });
 		return { ...result, warnings: [`Jina URL extraction failed (${error.code}); used fallback.`, ...(result.warnings ?? [])] };
 	}
-}
-
-function skippedSources(
-	scope: SearchScope,
-	availability: Partial<Record<ProviderKind, boolean>>,
-): string[] {
-	const requested: ProviderKind[] =
-		scope === "both"
-			? [...DEFAULT_CHAIN.web, ...DEFAULT_CHAIN.code]
-			: DEFAULT_CHAIN[scope];
-	const notes: string[] = [];
-	for (const kind of requested) {
-		if (availability[kind] !== true) {
-			notes.push(`${kind} skipped: not available.`);
-		}
-	}
-	return notes;
 }
 
 function jevStatus(

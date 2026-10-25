@@ -5,7 +5,7 @@
 ### Breaking
 
 - Replace the registered `web_search`, `code_search`, and opt-in `multi_search` tools with one `search` tool. Update custom prompts, tool allowlists, and scripts: use `query` for web search, `query` with `scope: "code"` for public code, and `effort: "thorough"` for opt-in multi-source retrieval. `scope: "both"` implies thorough retrieval; both require `research.enabled`.
-- Supply exactly one of `query`, `urls`, or `ref`. Unknown arguments and conflicting modes now fail explicitly. Legacy internal helpers are not registered tools.
+- Supply exactly one of `query`, `urls`, or `ref`. Unknown arguments and conflicting modes now fail explicitly.
 
 ### Added
 

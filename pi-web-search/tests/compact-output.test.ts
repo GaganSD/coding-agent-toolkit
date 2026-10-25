@@ -81,7 +81,6 @@ test("ordinary model text drops coverage boilerplate and keeps material clipping
 		scope: "web",
 		jevStatus: "disabled",
 		providers: ["exa"],
-		skipped: ["parallel skipped: not available."],
 		searchResults: [{ title: "Doc", url: "https://example.com", citedText: "word ".repeat(200) }],
 		warnings: ["Result excerpts truncated for 1 hit(s): citedText is a preview."],
 	});

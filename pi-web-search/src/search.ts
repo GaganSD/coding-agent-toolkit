@@ -69,7 +69,7 @@ export interface UnifiedSearchOptions extends RunSearchOptions {
 
 const SEARCH_PARAMS = Object.keys(SearchSchema.properties);
 
-/** The registered unified tool; legacy names stay available to internal modules. */
+/** The registered unified tool. */
 const SEARCH_TOOL: SearchToolName = "search";
 
 type ValidatedSearch =

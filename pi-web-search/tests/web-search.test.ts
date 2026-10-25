@@ -16,13 +16,11 @@ import {
 } from "../src/providers/config.ts";
 import type { SearchTransport } from "../src/providers/index.ts";
 import { type StreamResult, providerError } from "../src/providers/types.ts";
-import { CodeSearchSchema, codeSearch } from "../src/code_search.ts";
 import { MCP_PROTOCOL_VERSION } from "../src/providers/mcp.ts";
 import type { FetchLike } from "../src/providers/http.ts";
 import { droppedParamsWarning } from "../src/utils.ts";
 import { exaObjective } from "../src/providers/exa.ts";
-import { MultiSearchSchema, multiSearch } from "../src/multi_search.ts";
-import { WebSearchSchema, type WebSearchInput, webSearch } from "../src/web_search.ts";
+import { SearchSchema, type SearchInput, search } from "../src/search.ts";
 
 const VALID_CONFIG = JSON.stringify({ web: { provider: "exa", fallback: [] } });
 
@@ -87,11 +85,11 @@ function recordingTransport(
 	};
 }
 
-test("the tool schema exposes only query and urls, and bounds the query", () => {
-	const urls = WebSearchSchema.properties.urls as { maxItems?: number };
-	const query = WebSearchSchema.properties.query as { maxLength?: number };
-	assert.deepEqual(Object.keys(WebSearchSchema.properties), ["query", "urls"]);
-	assert.equal((WebSearchSchema.required as string[] | undefined)?.includes("query") ?? false, false);
+test("the unified schema exposes retrieval and continuation modes and bounds the query", () => {
+	const urls = SearchSchema.properties.urls as { maxItems?: number };
+	const query = SearchSchema.properties.query as { maxLength?: number };
+	assert.deepEqual(Object.keys(SearchSchema.properties), ["query", "scope", "urls", "ref", "find", "cursor", "effort"]);
+	assert.equal((SearchSchema.required as string[] | undefined)?.includes("query") ?? false, false);
 	assert.equal(urls.maxItems, 20);
 	assert.equal(query.maxLength, MAX_QUERY_CHARS);
 	// The crafted Exa objective must stay below the server's 4096-char limit.
@@ -105,7 +103,7 @@ test("an invalid config file returns structured failure with invalid_config with
 	let transportCalls = 0;
 	await withConfigFile("{ not json", async (configPath) => {
 		await assertToolError(
-			webSearch(
+			search(
 				"call_1",
 				{ query: "hi" },
 				undefined,
@@ -116,7 +114,7 @@ test("an invalid config file returns structured failure with invalid_config with
 			(error: { code?: string; configPath?: string; message?: string }) => {
 				assert.equal(error.code, "invalid_config");
 				assert.equal(error.configPath, configPath);
-				assert.match(String(error.message), /^web_search failed \(invalid_config\): /);
+				assert.match(String(error.message), /^search failed \(invalid_config\): /);
 				return true;
 			},
 		);
@@ -127,7 +125,7 @@ test("an invalid config file returns structured failure with invalid_config with
 test("a search failure returns structured failure naming the originating tool", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		await assertToolError(
-			webSearch(
+			search(
 				"call_1",
 				{ query: "hi" },
 				undefined,
@@ -144,7 +142,7 @@ test("a search failure returns structured failure naming the originating tool", 
 			(error: { code?: string; status?: number; message?: string }) => {
 				assert.equal(error.code, "http_error");
 				assert.equal(error.status, 503);
-				assert.equal(error.message, "web_search failed (http_error): Exa is down.");
+				assert.equal(error.message, "search failed (http_error): Exa is down.");
 				return true;
 			},
 		);
@@ -154,7 +152,7 @@ test("a search failure returns structured failure naming the originating tool", 
 test("a non-provider throw returns structured failure as unknown under the tool name", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		await assertToolError(
-			webSearch(
+			search(
 				"call_1",
 				{ query: "hi" },
 				undefined,
@@ -170,14 +168,14 @@ test("a non-provider throw returns structured failure as unknown under the tool 
 			),
 			(error: { code?: string; message?: string }) => {
 				assert.equal(error.code, "unknown");
-				assert.equal(error.message, "web_search failed (unknown): not an error");
+				assert.equal(error.message, "search failed (unknown): not an error");
 				return true;
 			},
 		);
 	});
 });
 
-test("a successful search returns the formatted result and forwards the request", async () => {
+test("successful URL extraction returns the formatted result and forwards the request", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		const calls: { query: string; urls?: string[]; maxResults: number }[] = [];
 		const updates: string[] = [];
@@ -185,9 +183,9 @@ test("a successful search returns the formatted result and forwards the request"
 			const part = partial.content[0];
 			updates.push(part?.type === "text" ? part.text : "");
 		};
-		const params: WebSearchInput = { query: "what is exa", urls: ["https://exa.ai"] };
+		const params: SearchInput = { urls: ["https://exa.ai"] };
 
-		const result = await webSearch(
+		const result = await search(
 			"call_1",
 			params,
 			undefined,
@@ -206,9 +204,9 @@ test("a successful search returns the formatted result and forwards the request"
 		assert.match(textOf(result), /\[Exa\]\(https:\/\/exa\.ai\)/);
 		assert.match(textOf(result), /> search infra/);
 		assert.deepEqual(calls, [
-			{ query: "what is exa", urls: ["https://exa.ai"], maxResults: 8 },
+			{ query: "", urls: ["https://exa.ai"], maxResults: 8 },
 		]);
-		assert.deepEqual(updates, ["Searching and analyzing 1 URL(s)..."]);
+		assert.deepEqual(updates, ["Fetching 1 URL(s)..."]);
 	});
 });
 
@@ -221,21 +219,20 @@ test("the progress update names the query when no URLs are given", async () => {
 			updates.push(part?.type === "text" ? part.text : "");
 		};
 
-		await webSearch("call_1", { query: "pi" }, undefined, onUpdate, ctx, {
+		await search("call_1", { query: "pi" }, undefined, onUpdate, ctx, {
 			transports: { exa: recordingTransport(SEARCH_RESULT, calls) },
 		});
 
-		assert.deepEqual(updates, ['Searching for "pi"...']);
+		assert.deepEqual(updates, ['Searching the web for "pi"...']);
 		assert.deepEqual(calls, [{ query: "pi", urls: undefined, maxResults: 8 }]);
 	});
 });
 
-test("code_search is query-only and stays in the code family", async () => {
-	assert.deepEqual(Object.keys(CodeSearchSchema.properties), ["query"]);
+test("code scope stays in the code family", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
-		const result = await codeSearch(
+		const result = await search(
 			"call_1",
-			{ query: "AbortSignal.timeout" },
+			{ query: "AbortSignal.timeout", scope: "code" },
 			undefined,
 			undefined,
 			ctx,
@@ -260,12 +257,12 @@ test("code_search is query-only and stays in the code family", async () => {
 	});
 });
 
-test("multi_search returns structured failure when research is not enabled", async () => {
+test("thorough search returns structured failure when research is not enabled", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		await assertToolError(
-			multiSearch(
+			search(
 				"call_1",
-				{ query: "AbortSignal.any", scope: "web" },
+				{ query: "AbortSignal.any", scope: "web", effort: "thorough" },
 				undefined,
 				undefined,
 				ctx,
@@ -273,20 +270,19 @@ test("multi_search returns structured failure when research is not enabled", asy
 			),
 			(error: { code?: string; message?: string }) => {
 				assert.equal(error.code, "invalid_config");
-				assert.match(String(error.message), /^multi_search failed \(invalid_config\): /);
-				assert.match(String(error.message), /multi_search is disabled/);
+				assert.match(String(error.message), /^search failed \(invalid_config\): /);
+				assert.match(String(error.message), /thorough search is disabled/);
 				return true;
 			},
 		);
 	});
 });
 
-test("multi_search fans out in the requested scope", async () => {
-	assert.ok("scope" in MultiSearchSchema.properties);
+test("thorough search fans out in the requested scope", async () => {
 	await withConfigFile(
 		JSON.stringify({ research: { enabled: true }, web: { provider: "exa", fallback: [] } }),
 		async () => {
-			const result = await multiSearch(
+			const result = await search(
 				"call_1",
 				{ query: "AbortSignal.any", scope: "both" },
 				undefined,
@@ -316,22 +312,23 @@ test("multi_search fans out in the requested scope", async () => {
 	);
 });
 
-test("an unknown parameter is ignored, reported, and the search still runs", async () => {
+test("an unknown parameter fails before a search transport runs", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		// The host leaves undeclared keys in the argument object, so the tool
 		// sees `top_n` here exactly as it does in production.
-		const result = await codeSearch(
+		let transportCalls = 0;
+		const result = await search(
 			"call_1",
-			{ query: "parseArgs", top_n: 20, path: "/" } as unknown as { query: string },
+			{ query: "parseArgs", scope: "code", top_n: 20, path: "/" } as unknown as { query: string },
 			undefined,
 			undefined,
 			ctx,
-			{ transports: { grep: async () => SEARCH_RESULT } },
+			{ transports: { grep: async () => { transportCalls++; return SEARCH_RESULT; } } },
 		);
 
-		assert.equal(result.isError, false, "an extra parameter must not fail the call");
-		assert.match(textOf(result), /Ignored unknown parameters `top_n`, `path`/);
-		assert.equal(result.details.resultCount, SEARCH_RESULT.searchResults?.length);
+		assert.equal(result.isError, true);
+		assert.match(textOf(result), /Unknown parameter: top_n/);
+		assert.equal(transportCalls, 0);
 	});
 });
 

@@ -9,8 +9,7 @@ import { type FetchLike, postJson } from "../src/providers/http.ts";
 import { applyConfig } from "../src/providers/config.ts";
 import { createMcpClient } from "../src/providers/mcp.ts";
 import { systemOne } from "../src/jev/api.ts";
-import { multiSearch } from "../src/multi_search.ts";
-import { webSearch } from "../src/web_search.ts";
+import { search } from "../src/search.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { classifierRegistry } from "./fixtures/native-jev.ts";
 
@@ -108,7 +107,7 @@ test("a URL request that rejects before slower search is immediately observed", 
 
 test("independent code configuration cannot narrow both-scope research", () => withSettings({ code: { provider: "grep" }, research: { enabled: true } }, async () => {
 	const calls: string[] = [];
-	const result = await multiSearch("id", { query: "snippet", scope: "both" }, undefined, undefined, ctx, {
+	const result = await search("id", { query: "snippet", scope: "both" }, undefined, undefined, ctx, {
 		availability: { exa: true, grep: true },
 		transports: {
 			exa: async () => { calls.push("exa"); return document; },
@@ -129,7 +128,7 @@ test("progress observers cannot fail retrieval or emit after completion/cancella
 		return document;
 	} } };
 	let updates = 0;
-	const result = await webSearch("id", { query: "test" }, undefined, () => { updates++; throw new Error("observer failure"); }, ctx, options);
+	const result = await search("id", { query: "test" }, undefined, () => { updates++; throw new Error("observer failure"); }, ctx, options);
 	assert.equal(result.details.resultCount, 1);
 	assert.equal(providerCalls, 1);
 	assert.equal(updates, 2);
@@ -137,7 +136,7 @@ test("progress observers cannot fail retrieval or emit after completion/cancella
 	assert.equal(updates, 2);
 	const cancelled = new AbortController();
 	cancelled.abort();
-	const failed = await webSearch("id", { query: "test" }, cancelled.signal, () => { updates++; }, ctx, options);
+	const failed = await search("id", { query: "test" }, cancelled.signal, () => { updates++; }, ctx, options);
 	assert.equal(failed.isError, true);
 	assert.equal(failed.details.error?.code, "aborted");
 	assert.equal(providerCalls, 1);
@@ -146,7 +145,7 @@ test("progress observers cannot fail retrieval or emit after completion/cancella
 
 test("operation budget exhausted only during optional judging preserves retrieved evidence", () => withSettings({ timeoutMs: 1000, research: { enabled: true }, jev: { enabled: true, provider: "typesafe", model: "jev-latest" } }, async () => {
 	const judgeContext = { modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})) } as ExtensionContext;
-	const result = await multiSearch("id", { query: "example", scope: "web" }, undefined, undefined, judgeContext, {
+	const result = await search("id", { query: "example", scope: "web", effort: "thorough" }, undefined, undefined, judgeContext, {
 		availability: { exa: true },
 		transports: { exa: async () => { await new Promise((resolve) => setTimeout(resolve, 850)); return document; } },
 	});

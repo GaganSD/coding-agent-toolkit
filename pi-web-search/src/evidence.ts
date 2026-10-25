@@ -80,13 +80,6 @@ export class EvidenceStore {
 		return { resultId, storedCount: searchResults.length, storedClipped: clipped };
 	}
 
-	get(owner: string, id: string): { result: StreamResult; clipped: boolean } | undefined {
-		const entry = this.owned(owner, id);
-		if (!entry) return undefined;
-		this.touch(id, entry);
-		return { result: structuredClone(entry.result), clipped: entry.clipped };
-	}
-
 	/** Existence + ownership without refreshing idle expiry or recency. */
 	has(owner: string, id: string): boolean {
 		return this.owned(owner, id) !== undefined;

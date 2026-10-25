@@ -12,7 +12,7 @@ import { listRunnableProviders, providerAvailability, resolveProviderChain, type
 import type { FetchLike, RequestInitLike } from "../src/providers/http.ts";
 import { clearRetrievalCache, reuseTransport } from "../src/providers/reuse.ts";
 import { providerError, type StreamResult } from "../src/providers/types.ts";
-import { webSearch } from "../src/web_search.ts";
+import { search } from "../src/search.ts";
 
 const request = (extra: Partial<SearchRequest> = {}): SearchRequest => ({ query: "fixture query", settings: applyConfig("fixture", { maxResults: 2 }), ...extra });
 const reply = (value: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, headers: { get: () => null }, text: async () => JSON.stringify(value) });
@@ -218,20 +218,20 @@ test("URL-only prefers Jina independently of search config and falls back withou
 	try {
 		await writeFile(process.env.PI_WEB_SEARCH_CONFIG, JSON.stringify({ web: { provider: "brave", fallback: ["exa"] } }));
 		let searches = 0, extracts = 0;
-		const output = await webSearch("url-only", { urls: ["https://example.com/"] }, undefined, undefined, context, {
+		const output = await search("url-only", { urls: ["https://example.com/"] }, undefined, undefined, context, {
 			fetchUrls: async () => { extracts++; return extracted; },
 			availability: { brave: true, exa: true },
 			transports: { brave: async () => { searches++; throw new Error("must not run"); }, exa: async () => { searches++; return { ...extracted, providerKind: "exa" }; } },
 		});
 		assert.equal(output.details.provider, "jina"); assert.equal(extracts, 1); assert.equal(searches, 0);
-		const fallback = await webSearch("url-fallback", { urls: ["https://example.com/"] }, undefined, undefined, context, {
+		const fallback = await search("url-fallback", { urls: ["https://example.com/"] }, undefined, undefined, context, {
 			fetchUrls: async () => { throw providerError("rate_limited", "quota"); }, availability: { brave: true, exa: true },
 			transports: { brave: async () => { throw new Error("must not retry Jina"); }, exa: async () => ({ ...extracted, providerKind: "exa" }) },
 		});
 		assert.equal(fallback.details.provider, "exa");
 		assert.match(fallback.details.warnings!.join(), /Jina.*fallback/);
 		await writeFile(process.env.PI_WEB_SEARCH_CONFIG!, JSON.stringify({ web: { provider: "brave", fallback: [] } }));
-		const strict = await webSearch("strict-url", { urls: ["https://example.com/"] }, undefined, undefined, context, {
+		const strict = await search("strict-url", { urls: ["https://example.com/"] }, undefined, undefined, context, {
 			fetchUrls: async () => { throw providerError("rate_limited", "quota"); },
 			transports: { exa: async () => { throw new Error("must not invent an unconfigured extraction chain"); } },
 		});

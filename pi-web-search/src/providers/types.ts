@@ -82,7 +82,6 @@ export interface StreamResult {
 	usage?: { name: string; count: number }[];
 	warnings?: string[];
 	scope?: "web" | "code" | "both";
-	skipped?: string[];
 	jevStatus?: "ran" | "disabled" | "unavailable" | "skipped";
 	/** Decision-layer audit trail; absent whenever jev did not run. */
 	jev?: {
