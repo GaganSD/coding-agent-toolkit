@@ -2,22 +2,19 @@
 
 ## Unreleased
 
-### Breaking
+### Highlights
 
-- Replace the registered `web_search`, `code_search`, and opt-in `multi_search` tools with one `search` tool. Update custom prompts, tool allowlists, and scripts: use `query` for web search, `query` with `scope: "code"` for public code, and `effort: "thorough"` for opt-in multi-source retrieval. `scope: "both"` implies thorough retrieval; both require `research.enabled`.
-- Supply exactly one of `query`, `urls`, or `ref`. Unknown arguments and conflicting modes now fail explicitly.
-- Rename the decision-model subsystem and config from `jev` to `classifier`, including diagnostic fields and usage labels. Old `jev` config blocks and `backend` fields are rejected; no legacy files, aliases, or automatic migration.
+- **One search tool:** search the web, find public code, read URLs, and revisit results through `search`. Choose fast searches or opt into multi-source thorough searches.
+- **Less context overhead:** the tool and prompt footprint is approximately 16% smaller for default search and 44% smaller with research enabled (344 estimated tokens, down from 410 and 615). A representative result preview is 76% smaller (4,081 characters, down from 16,777). These are offline character-based estimates, not measured billing savings.
+- **Read more without searching again:** open saved results, find passages, and continue reading locally. Results stay in session memory and expire; reloading clears them.
+- **More retrieval options:** read URLs without a key through Jina Reader, or add a Brave API key for web search. Repeated searches can reuse recent results to reduce duplicate requests.
+- **Optional result ranking:** Jev is now the default decision model when classification is enabled. Select another available model or disable classification through `/web-search classifier`.
 
-### Added
+### Upgrading to 0.4.0
 
-- Read session-owned evidence locally with one-based refs, literal passage search, and copyable continuation cursors. Storage is bounded and memory-only; handles expire after 10 idle minutes, at most 60 minutes total, or on eviction/reload. Stored evidence is not guaranteed full-page content.
-- Optional keyed Brave search and keyless Jina URL extraction, with bounded concurrent thorough retrieval, short-lived direct-transport reuse, and rate-limit cooldowns. Native Parallel calls still pass through Pi's permission checks.
-
-### Changed
-
-- Bound direct and structured previews to 8,000 characters per output path, preserve complete citations and mixed-source coverage, and retain admitted evidence for local continuation.
-- Default opt-in classification to Jev (`vercel-ai-gateway/typesafe-ai/jev`), preserving exact explicit model pins. Add a four-call live classifier smoke suite.
-- Reduce the offline declaration estimate to 344 tokens and the representative structured fixture to 4,109 characters. Estimates use a character proxy, not billed tokenizer counts.
+- Replace `web_search`, `code_search`, and `multi_search` in custom prompts, tool permissions, and scripts with `search`. Use `scope: "code"` for code or `effort: "thorough"` for multi-source search; thorough search requires `research.enabled`.
+- Supply one of `query`, `urls`, or `ref` per call. Use returned refs to revisit results; previous `search_read` arguments are not supported.
+- Rename the `jev` block in `web-search.json` to `classifier` and remove `backend`. Old settings are rejected rather than migrated. Explicit provider/model selections are preserved. Reload Pi after updating.
 
 ## 0.3.1
 

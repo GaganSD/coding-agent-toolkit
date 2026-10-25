@@ -11,13 +11,13 @@ After #90 is merged and main CI passes, run from the monorepo root:
 ```bash
 npm run release:prepare -- \
   --package pi-web-search:minor \
-  --notes 'Unify web/code search, URL extraction, and bounded local evidence continuation under search. Breaking: migrate legacy tool names and arguments; add optional Brave search and keyless Jina extraction with quota-aware retrieval.' \
+  --notes 'Search the web, public code, and URLs through one tool, with compact previews and local follow-up reading. Adds Jina URL reading, optional Brave search, and Jev as the default for optional ranking. Breaking: update custom tool references to search, rename the jev settings block to classifier, remove backend, and reload Pi.' \
   --dry-run
 ```
 
 Confirm the preview selects **only** `@gagansd/pi-web-search`, currently `0.3.1` → `0.4.0`, and includes the merged #90 source. Remove `--dry-run` to create/update the release PR. Preparation always uses remote main, not the current checkout; do not dispatch before #90 merges. If the package version or main changes, review the new preview and regenerate the release PR as needed. Review its generated changelog, let CI pass, then merge it to publish the validated artifact. No release is dispatched by #90 itself.
 
-Consumers should update custom prompts, tool allowlists, and scripts to `search` before upgrading, then reload Pi. Use `scope: "code"` for code queries, `effort: "thorough"` for opted-in multi-source retrieval, `urls` for extraction, and `ref` with optional `find` or `cursor` for local evidence. `scope: "both"` defaults to thorough; both require `research.enabled`. Do not pass the old `search_read` arguments (`resultId`, zero-based `index`, `offset`, or `limit`) to `search`; hit refs are one-based (`<resultId>:1`).
+Consumers should update custom prompts, tool allowlists, and scripts to `search`, rename the `jev` config block to `classifier`, and remove `backend` before upgrading, then reload Pi. Use `scope: "code"` for code queries, `effort: "thorough"` for opted-in multi-source retrieval, `urls` for extraction, and `ref` with optional `find` or `cursor` for local evidence. `scope: "both"` defaults to thorough; both require `research.enabled`. Do not pass the old `search_read` arguments (`resultId`, zero-based `index`, `offset`, or `limit`) to `search`; hit refs are one-based (`<resultId>:1`).
 
 ## Historical review: 0.2.0
 
