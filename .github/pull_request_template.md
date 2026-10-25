@@ -2,16 +2,15 @@
 
 ## Summary
 
-<!-- Give a high-level overview in 200 words or fewer. Use bullet points. -->
+<!-- Give a high-level overview in 150 words or fewer. -->
 -
 
 ## What
 
-<!-- What changed? Mention the affected package(s) or shared tooling. -->
+<!-- What changed? Mention the affected package(s), code, or shared tooling -->
 -
 
 ## Why
-
 <!-- What problem does this solve, and why this approach? -->
 -
 
@@ -23,10 +22,9 @@
 ## Testing
 
 <!--
-- List commands run and their results, plus relevant manual checks.
+- List pi version, commands run and their results, plus relevant manual checks.
 - For package changes, use npm run <script> --prefix <package>:
   lint, typecheck, test, build
-
 - For shared tooling changes: npm run test:tooling
 - For Pi behavior/UI changes, describe how you verified the change in Pi.
 - If a check was not run, say why. Docs-only changes can say "Not run (docs only)".
