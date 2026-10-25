@@ -11,7 +11,7 @@ import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
 import { providerError } from "./providers/types.ts";
 import { type SearchToolName, formatSearchError } from "./utils.ts";
-import { searchReadRef } from "./search_read.ts";
+import { searchReadRef, type SearchReadRefInput } from "./search_read.ts";
 
 export const SEARCH_SCOPES = ["web", "code", "both"] as const;
 export const SEARCH_EFFORTS = ["fast", "thorough"] as const;
@@ -51,12 +51,6 @@ export const SearchSchema = Type.Object({
 });
 
 export type SearchInput = Static<typeof SearchSchema>;
-
-export interface SearchReadRefInput {
-	ref: string;
-	find?: string;
-	cursor?: string;
-}
 
 export type SearchReadRefResult =
 	| AgentToolResult<WebSearchDetails>

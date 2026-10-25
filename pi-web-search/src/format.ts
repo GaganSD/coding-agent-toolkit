@@ -154,8 +154,11 @@ export function formatWebSearchResult(
 		...(continuation?.resultId ? { ref: continuation.resultId } : {}),
 		searchResults: selected, sources, warnings: notices,
 	});
-	const fits = () => renderEvidence(prose, selected, sources, notices, continuation?.resultId).length <= budget
-		&& JSON.stringify(structuredEvidence(buildDetails(), prose)).length <= budget;
+	const fits = () => {
+		const rendered = renderEvidence(prose, selected, sources, notices, continuation?.resultId);
+		return rendered.length <= budget && rendered.split("\n").length < DEFAULT_MAX_LINES - 10
+			&& JSON.stringify(structuredEvidence(buildDetails(), prose)).length <= budget;
+	};
 	for (const hit of hits) {
 		selected.push(hit);
 		if (!fits()) { selected.pop(); omitted++; }
