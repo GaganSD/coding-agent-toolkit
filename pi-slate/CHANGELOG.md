@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.18
+
+Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.
+
 Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.
 
 ### Added
