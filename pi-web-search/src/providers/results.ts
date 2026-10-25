@@ -5,6 +5,9 @@ import type {
 	StreamResult,
 } from "./types.ts";
 
+const WEB_SOURCES = new Set(["exa", "parallel", "brave", "jina"]);
+const CODE_SOURCES = new Set(["grep", "sourcegraph", "github"]);
+
 /** `Source.title` is required, so an untitled page falls back to its URL. */
 export function sourcesFromResults(results: SearchResultDetail[]): Source[] {
 	const sources: Source[] = [];
@@ -42,18 +45,49 @@ export function previewEvidence(result: StreamResult, maxResults: number, urls: 
 	const priority = all.filter((hit) => hit.url && requested.has(documentKey(hit.url)) && ["extract", "content"].includes(hit.type ?? ""));
 	const prioritized = new Set(priority);
 	const rest = all.filter((hit) => !prioritized.has(hit));
-	const searchResults = [...priority, ...rest].slice(0, maxResults);
-	const selected = new Set(searchResults.flatMap((hit) => hit.url ? [hit.url] : []));
+	const ordered = [...priority, ...rest];
+	const searchResults = selectPreview(ordered, maxResults);
+	const chosen = new Set(searchResults.flatMap((hit) => hit.url ? [hit.url] : []));
 	const omitted = all.length - searchResults.length;
 	return {
 		...result, searchResults,
-		sources: all.length ? (result.sources ?? []).filter((source) => selected.has(source.url)) : result.sources,
-		warnings: [...(result.warnings ?? []), ...(omitted ? [`${omitted} additional result(s) omitted from the preview; ${continuation ? "use search_read with the resultId for stored evidence" : "retrieve cited URLs again for more evidence"}.`] : [])],
+		sources: all.length ? (result.sources ?? []).filter((source) => chosen.has(source.url)) : result.sources,
+		warnings: [...(result.warnings ?? []), ...(omitted ? [`${omitted} additional result(s) omitted from the preview; ${continuation ? "use search({ref}) for stored evidence" : "retrieve cited URLs again for more evidence"}.`] : [])],
 	};
 }
 
 function documentKey(value: string): string {
 	try { const url = new URL(value); url.hash = ""; return url.href; } catch { return value; }
+}
+
+function hitFamily(hit: SearchResultDetail): "web" | "code" | undefined {
+	let web = false;
+	let code = false;
+	for (const tag of (hit.source ?? "").split(", ")) {
+		if (WEB_SOURCES.has(tag)) web = true;
+		if (CODE_SOURCES.has(tag)) code = true;
+	}
+	if (web === code) return undefined;
+	return web ? "web" : "code";
+}
+
+/** Reserve one slot per represented family without changing stored-order refs. */
+function selectPreview(ordered: SearchResultDetail[], maxResults: number): SearchResultDetail[] {
+	const picked = ordered.slice(0, Math.max(0, maxResults));
+	if (picked.length < 2) return picked;
+	for (const family of ["web", "code"] as const) {
+		if (picked.some((hit) => hitFamily(hit) === family)) continue;
+		const candidate = ordered.find((hit) => hitFamily(hit) === family);
+		if (!candidate) continue;
+		// The other family keeps its first slot; replace the last redundant hit.
+		for (let index = picked.length - 1; index >= 0; index--) {
+			const current = hitFamily(picked[index]);
+			if (current && picked.filter((hit) => hitFamily(hit) === current).length === 1) continue;
+			picked[index] = candidate;
+			break;
+		}
+	}
+	return picked.sort((left, right) => ordered.indexOf(left) - ordered.indexOf(right));
 }
 
 export interface ProviderContribution {
@@ -80,6 +114,7 @@ export function mergeStreamResults(
 	const sources: Source[] = [];
 	const seenSourceUrls = new Set<string>();
 	const texts: string[] = [];
+	const seenText = new Set<string>();
 	const warnings: string[] = [...extraWarnings];
 	const usage: { name: string; count: number }[] = [];
 	const requestIds: string[] = [];
@@ -98,7 +133,8 @@ export function mergeStreamResults(
 			seenSourceUrls.add(source.url);
 			sources.push(source);
 		}
-		if (result.text.length > 0) {
+		if (result.text.length > 0 && !seenText.has(result.text)) {
+			seenText.add(result.text);
 			texts.push(result.text);
 		}
 		warnings.push(...(result.warnings ?? []));

@@ -53,6 +53,8 @@ export interface SearchResultDetail {
 	citedText?: string;
 	status?: string;
 	type?: string;
+	/** Stable one-based hit handle, assigned in stored order before preview selection. */
+	ref?: string;
 }
 
 export interface StreamResult {

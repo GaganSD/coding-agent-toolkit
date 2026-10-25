@@ -235,7 +235,15 @@ export async function executeSearch(
 			const unique = previewEvidence(uniqueEvidence(judged), Number.MAX_SAFE_INTEGER, urls.urls);
 			const owner = evidenceOwner(ctx);
 			const continuation = owner ? evidenceStore.put(owner, unique) : undefined;
-			const preview = previewEvidence(unique, resolved.maxResults, urls.urls, !!continuation);
+			// Assign refs once, in stored order, before family selection or output budgeting.
+			const referenced = continuation ? {
+				...unique,
+				searchResults: unique.searchResults?.map((hit, index) => ({
+					...hit,
+					...(index < continuation.storedCount ? { ref: `${continuation.resultId}:${index + 1}` } : {}),
+				})),
+			} : unique;
+			const preview = previewEvidence(referenced, resolved.maxResults, urls.urls, !!continuation);
 			const formatted = formatWebSearchResult({
 				...preview,
 				// Local policy notices are not upstream evidence. Add them after

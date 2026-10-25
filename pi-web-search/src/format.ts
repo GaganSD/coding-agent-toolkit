@@ -18,6 +18,9 @@ export const EXCERPT_MAX_CHARS = 400;
 export const STRUCTURED_EXCERPT_MAX_CHARS = 4_000;
 export const STRUCTURED_EXCERPT_TOTAL_CHARS = 12_000;
 export const PROVIDER_TEXT_MAX_CHARS = 8_000;
+/** Conservative character budget for ordinary model text. No tokenizer dependency. */
+export const OUTPUT_BUDGET_CHARS = 8_000;
+export const CLIP_MARKER = "…";
 const METADATA_MAX_CHARS = 1_000;
 const METADATA_TOTAL_CHARS = 16_000;
 const WARNINGS_TOTAL_CHARS = 8_000;
@@ -35,6 +38,10 @@ const DetailsSchema = Type.Object({
 	resultId: Type.Optional(Type.String()),
 	storedCount: Type.Optional(Type.Integer({ minimum: 0 })),
 	storedClipped: Type.Optional(Type.Boolean()),
+	ref: Type.Optional(Type.String()),
+	cursor: Type.Optional(Type.String()),
+	more: Type.Optional(Type.Boolean()),
+	truncated: Type.Optional(Type.Boolean()),
 	passage: Type.Optional(Type.Object({ index: Type.Integer(), offset: Type.Integer(), nextOffset: Type.Optional(Type.Integer()), totalChars: Type.Integer(), matches: Type.Optional(Type.Integer()) })),
 	provider: Type.Optional(ProviderSchema),
 	providers: Type.Optional(Type.Array(ProviderSchema)),
@@ -46,6 +53,7 @@ const DetailsSchema = Type.Object({
 		query: Type.Optional(Type.String()), source: Type.Optional(Type.String()),
 		pageAge: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 		citedText: Type.Optional(Type.String()), status: Type.Optional(Type.String()), type: Type.Optional(Type.String()),
+		ref: Type.Optional(Type.String()),
 	}))),
 	warnings: Type.Optional(Type.Array(Type.String())),
 	usage: Type.Optional(Type.Array(Type.Object({ name: Type.String(), count: Type.Number() }))),
@@ -66,7 +74,7 @@ export type WebSearchDetails = Static<typeof DetailsSchema>;
 
 export const SearchOutputSchema = Type.Object({
 	status: Type.Union([Type.Literal("success"), Type.Literal("error")]),
-	text: Type.String(),
+	text: Type.Optional(Type.String()),
 	...DetailsSchema.properties,
 }, { additionalProperties: false });
 
@@ -75,96 +83,136 @@ export interface TruncationLimits {
 	maxBytes?: number;
 }
 
-/**
- * Truncates with the agent's shared head limits. `limits` exists so tests can
- * exercise the marker with a small line budget; production callers omit it.
- */
-export function formatResult(
-	text: string,
-	details: WebSearchDetails,
-	limits?: TruncationLimits,
-): AgentToolResult<WebSearchDetails> {
+/** Stable one-based hit handle; refs are assigned before preview selection. */
+export function hitRef(resultId: string, index: number): string {
+	return `${resultId}:${index + 1}`;
+}
+
+/** Direct callers receive text; scripts receive evidence once, without renderer diagnostics. */
+export function formatResult(text: string, details: WebSearchDetails, limits?: TruncationLimits): AgentToolResult<WebSearchDetails> {
 	const { content, truncated } = truncateHead(text, {
 		maxLines: limits?.maxLines ?? DEFAULT_MAX_LINES,
 		maxBytes: limits?.maxBytes ?? DEFAULT_MAX_BYTES,
 	});
+	const rendered = content + (truncated ? "\n\n[Truncated]" : "");
+	const finalDetails = truncated ? { ...details, truncated: true } : details;
 	return {
-		content: [
-			{ type: "text", text: content + (truncated ? "\n\n[Truncated]" : "") },
-		],
-		details,
-		structuredContent: JSON.parse(JSON.stringify({
-			status: details.error ? "error" : "success",
-			text: content + (truncated ? "\n\n[Truncated]" : ""),
-			...details,
-		})),
+		content: [{ type: "text", text: rendered }],
+		details: finalDetails,
+		structuredContent: structuredEvidence(finalDetails, rendered),
 		isError: details.error !== undefined,
 	};
 }
 
-/**
- * Renders bounded markdown: the provider's own text (when it has any),
- * then `## Results`, `## Sources` and `## Warnings`. A section is only
- * emitted when it has content, so the output never has an orphan header.
- * Deterministic for a given `StreamResult`.
- */
+function structuredEvidence(details: WebSearchDetails, text: string) {
+	// Failure contracts retain diagnostics; successful evidence has one compact representation.
+	if (details.error) return JSON.parse(JSON.stringify({ status: "error", text, ...details }));
+	const hits = details.searchResults ?? [];
+	return JSON.parse(JSON.stringify({
+		status: "success",
+		...(hits.length ? { searchResults: hits.map(({ title, url, citedText, ref, source, type }) => ({
+			title, url, citedText, ref, source, type,
+		})) } : { text }),
+		...(hits.length ? { resultCount: hits.length } : {}),
+		...(details.provider ? { provider: details.provider } : {}),
+		...(details.resultId ? { resultId: details.resultId } : {}),
+		...(details.ref ? { ref: details.ref } : {}),
+		...(details.storedCount === undefined ? {} : { storedCount: details.storedCount }),
+		...(details.cursor ? { cursor: details.cursor } : {}),
+		...(details.more === undefined ? {} : { more: details.more }),
+		...(details.truncated ? { truncated: true } : {}),
+		...(details.storedClipped ? { storedClipped: true } : {}),
+		...(details.warnings?.length ? { warnings: details.warnings } : {}),
+	}));
+}
+
+/** Pack whole citation-bearing records once, then render that same evidence for both consumers. */
 export function formatWebSearchResult(
 	result: StreamResult,
 	limits?: TruncationLimits,
 	continuation?: Pick<WebSearchDetails, "resultId" | "storedCount" | "storedClipped">,
 ): AgentToolResult<WebSearchDetails> {
-	result = compactResult(result);
-	const sources = result.sources ?? [];
-	const searchResults = result.searchResults ?? [];
-	const warnings = result.warnings ?? [];
-
-	const sections: string[] = [];
-	const coverage = buildCoverageSection(result);
-	if (coverage) {
-		sections.push(coverage);
+	const compact = compactResult(result);
+	const hits = (compact.searchResults ?? []).map((hit, index) => ({
+		...hit,
+		...(hit.title ? { title: markedClip(hit.title, 120) } : {}),
+		...(hit.ref ? {} : continuation && index < (continuation.storedCount ?? 0)
+			? { ref: hitRef(continuation.resultId!, index) } : {}),
+		citedText: previewText(hit),
+	}));
+	const warnings = (compact.warnings ?? []).filter((warning) => !/ skipped: not available\.$/u.test(warning));
+	const notices = warnings.slice(0, 6).map((warning) => markedClip(warning, 200));
+	if (warnings.length > notices.length) notices.push("Additional diagnostics omitted.");
+	let omitted = 0;
+	const selected: SearchResultDetail[] = [];
+	const sources: Source[] = [];
+	// Reserve room for truthful omission notices and a continuation instruction.
+	const budget = OUTPUT_BUDGET_CHARS - 600;
+	const prose = markedClip(compact.text, 1000);
+	const buildDetails = (): WebSearchDetails => ({
+		...continuation, provider: compact.providerKind,
+		...(continuation?.resultId ? { ref: continuation.resultId } : {}),
+		searchResults: selected, sources, warnings: notices,
+		...(continuation?.resultId ? { more: true } : {}),
+	});
+	const fits = () => renderEvidence(prose, selected, sources, notices, continuation?.resultId).length <= budget
+		&& JSON.stringify(structuredEvidence(buildDetails(), prose)).length <= budget;
+	for (const hit of hits) {
+		selected.push(hit);
+		if (!fits()) { selected.pop(); omitted++; }
 	}
-	const results = buildResultsSection(searchResults);
-	// Only discard prose when exact equality proves it duplicates our Results
-	// section. Unattributed summaries and text-only contributions stay intact.
-	if (result.text.length > 0 && result.text.trim() !== results) {
-		sections.push(result.text);
+	const cited = new Set(selected.flatMap((hit) => hit.url ? [hit.url] : []));
+	const hitUrls = new Set(hits.flatMap((hit) => hit.url ? [hit.url] : []));
+	for (const source of compact.sources ?? []) {
+		// A source attached to an omitted result must not bypass the result budget.
+		if (cited.has(source.url) || hitUrls.has(source.url)) continue;
+		sources.push({ title: markedClip(source.title, 120), url: source.url });
+		if (!fits()) { sources.pop(); omitted++; } else cited.add(source.url);
 	}
-	if (results) {
-		sections.push(results);
-	}
-	const sourcesSection = buildSourcesSection(sources, citedUrls(searchResults));
-	if (sourcesSection) {
-		sections.push(sourcesSection);
-	}
-	if (warnings.length > 0) {
-		sections.push(
-			`${WARNINGS_HEADING}\n\n${warnings.map((w) => `- ${w}`).join("\n")}`,
-		);
-	}
-
-	if (continuation?.resultId) sections.push(`More evidence: search_read({resultId: "${continuation.resultId}", index: 0}). ${continuation.storedCount} stored result(s), zero-based indexes; memory only, expires after 10 minutes. Stored text is provider-returned evidence, not guaranteed full pages.${continuation.storedClipped ? " Local storage limits also clipped evidence." : ""}`);
-	return formatResult(sections.join("\n\n"), {
-		...continuation,
-		provider: result.providerKind,
-		...(result.providers ? { providers: result.providers } : {}),
-		requestId: result.requestId,
-		resultCount: searchResults.length || sources.length,
-		sources,
-		searchResults,
-		warnings,
-		...(result.usage ? { usage: result.usage } : {}),
-		grounded: sources.length > 0,
-		...(result.jev ? { jev: result.jev } : {}),
-		...(result.scope ? { scope: result.scope } : {}),
-		...(result.jevStatus ? { jevStatus: result.jevStatus } : {}),
+	if (omitted) notices.push(`${omitted} result/citation(s) omitted to fit the output budget.`);
+	const clipped = compact.text.length > 1000 || hits.some((hit, index) => hit.citedText !== (compact.searchResults?.[index]?.citedText ?? ""));
+	const text = renderEvidence(prose, selected, sources, notices, continuation?.resultId);
+	const visible = buildDetails();
+	visible.more = continuation !== undefined && (omitted > 0 || clipped || (continuation.storedCount ?? 0) > selected.length);
+	visible.truncated = omitted > 0 || clipped || continuation?.storedClipped === true;
+	const output = formatResult(text, {
+		...visible,
+		// Rich renderer details never become another copy of the model evidence.
+		searchResults: compact.searchResults?.map((hit, index) => ({ ...hit, ...(hits[index]?.ref ? { ref: hits[index].ref } : {}) })),
+		sources: compact.sources ?? [], warnings,
+		providers: compact.providers, requestId: compact.requestId, usage: compact.usage,
+		grounded: cited.size > 0, scope: compact.scope, jev: compact.jev, jevStatus: compact.jevStatus,
+		resultCount: selected.length || sources.length,
 	}, limits);
+	output.structuredContent = structuredEvidence(visible, text);
+	return output;
 }
 
-/**
- * Bound evidence and non-URL text before rendering or copying structured data.
- * URLs and result cardinality are retained: this is not a total byte cap, and
- * no citation is silently shortened into a different/unusable address.
- */
+function markedClip(text: string, limit: number): string {
+	return text.length > limit ? clipText(text, limit) + CLIP_MARKER : text;
+}
+
+function previewText(hit: SearchResultDetail): string {
+	const raw = hit.citedText ?? "";
+	const code = hit.source?.split(", ").some((source) => ["grep", "sourcegraph", "github"].includes(source));
+	return markedClip(code ? raw.trimEnd() : raw.replace(/\s+/gu, " ").trim(), EXCERPT_MAX_CHARS);
+}
+
+function renderEvidence(prose: string, hits: SearchResultDetail[], sources: Source[], warnings: string[], resultId?: string): string {
+	const blocks = hits.map((hit, index) => {
+		const number = hit.ref?.split(":").at(-1) ?? String(index + 1);
+		const label = markedClip(hit.title?.trim() || (hit.url ? hit.url : `Result ${number}`), 120);
+		const heading = `${number}. ${hit.url ? `[${label}](${hit.url})` : label}${hit.ref ? ` ${hit.ref}` : ""}`;
+		const code = hit.source?.split(", ").some((source) => ["grep", "sourcegraph", "github"].includes(source));
+		return hit.citedText ? heading + "\n" + (code ? "```\n" + hit.citedText + "\n```" : "> " + hit.citedText) : heading;
+	});
+	const results = blocks.length ? RESULTS_HEADING + "\n\n" + blocks.join("\n\n") : "";
+	const citations = sources.length ? SOURCES_HEADING + "\n\n" + sources.map((source, index) => `${index + 1}. [${source.title}](${source.url})`).join("\n") : "";
+	const notes = warnings.length ? WARNINGS_HEADING + "\n\n" + warnings.map((warning) => "- " + warning).join("\n") : "";
+	const more = resultId ? `More: search({ref: "${resultId}"})` : "";
+	return [prose && prose.trim() !== results ? prose : "", results, citations, notes, more].filter(Boolean).join("\n\n");
+}
+
 function compactResult(result: StreamResult): StreamResult {
 	let excerptBudget = STRUCTURED_EXCERPT_TOTAL_CHARS;
 	let metadataBudget = METADATA_TOTAL_CHARS;
@@ -221,82 +269,7 @@ function compactResult(result: StreamResult): StreamResult {
 
 /** Do not split a surrogate pair when clipping a preview. */
 function clipText(text: string, maxChars: number): string {
-	let end = Math.min(text.length, maxChars);
+	let end = Math.min(text.length, Math.max(0, maxChars));
 	if (end < text.length && end > 0 && /[\uD800-\uDBFF]/u.test(text[end - 1])) end--;
 	return text.slice(0, end);
-}
-
-function buildCoverageSection(result: StreamResult): string {
-	if (!result.scope && !result.jevStatus && !result.providers && !result.skipped?.length) {
-		return "";
-	}
-	const lines = [
-		result.scope ? `- scope: ${result.scope}` : undefined,
-		result.providers?.length
-			? `- consulted: ${result.providers.join(", ")}`
-			: `- consulted: ${result.providerKind}`,
-		result.jevStatus ? `- jev: ${result.jevStatus}` : undefined,
-	];
-	for (const skipped of result.skipped ?? []) {
-		lines.push(`- ${skipped}`);
-	}
-	return `${COVERAGE_HEADING}\n\n${lines.filter(Boolean).join("\n")}`;
-}
-
-function buildResultsSection(results: SearchResultDetail[]): string {
-	const entries: string[] = [];
-	results.forEach((result, index) => {
-		const label = result.title?.trim() || result.url?.trim() || `Result ${index + 1}`;
-		const heading = result.url ? `[${label}](${result.url})` : label;
-		const excerpt = buildExcerpt(result);
-		entries.push(excerpt ? `${index + 1}. ${heading}\n${excerpt}` : `${index + 1}. ${heading}`);
-	});
-	if (entries.length === 0) {
-		return "";
-	}
-	return `${RESULTS_HEADING}\n\n${entries.join("\n\n")}`;
-}
-
-/** URLs already linked inline by the Results section. */
-function citedUrls(results: SearchResultDetail[]): Set<string> {
-	const urls = new Set<string>();
-	for (const result of results) {
-		if (result.url) {
-			urls.add(result.url);
-		}
-	}
-	return urls;
-}
-
-/**
- * Renders a source index once: a source whose URL is already linked in the
- * Results section is not listed again, so the same full list is not emitted
- * twice (evidence stays in Results; this is only the citation index).
- */
-function buildSourcesSection(sources: Source[], cited: Set<string>): string {
-	const lines = sources
-		.filter((source) => !cited.has(source.url))
-		.map((source, index) => `${index + 1}. [${source.title}](${source.url})`);
-	if (lines.length === 0) {
-		return "";
-	}
-	return `${SOURCES_HEADING}\n\n${lines.join("\n")}`;
-}
-
-/** Caps the excerpt. Code keeps newlines; web previews collapse whitespace. */
-function buildExcerpt(result: SearchResultDetail): string {
-	const citedText = result.citedText;
-	if (!citedText) {
-		return "";
-	}
-	const isCode = result.source?.split(", ").some((source) => ["grep", "sourcegraph", "github"].includes(source));
-	if (isCode) {
-		const clipped = citedText.replace(/\s+$/u, "").slice(0, EXCERPT_MAX_CHARS);
-		return clipped.length > 0 ? `\`\`\`\n${clipped}\n\`\`\`` : "";
-	}
-	const collapsed = citedText.replace(/\s+/g, " ").trim();
-	if (collapsed.length === 0) {
-		return "";
-	}
-	return `> ${collapsed.slice(0, EXCERPT_MAX_CHARS)}`;
 }
