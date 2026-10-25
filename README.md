@@ -99,6 +99,27 @@ npm run build --prefix pi-slate       # or pi-subagents, pi-web-search, pi-ask, 
 
 After `pi install .`, local edits apply on `/reload`.
 
+### Token counter
+
+After installing root development dependencies, count literal text locally (no API calls):
+
+```bash
+node scripts/tokens.mjs --text "hello world"
+node scripts/tokens.mjs --file pi-ask/src/index.ts
+printf 'hello world' | node scripts/tokens.mjs
+node scripts/tokens.mjs --text "hello world" --encoding cl100k_base
+# {"tokens":2,"encoding":"cl100k_base","scope":"text-only"}
+```
+
+Shared repository scripts/tests can import `countTokens(text, { encoding })` from
+`scripts/tokens.mjs`; the encoding defaults to `o200k_base`. Encoders are cached
+for repeated calls. Counts are exact for the selected tokenizer, **not universal
+model counts** (e.g. Claude/Gemini), and exclude chat framing, tool schemas not
+included in the input, images, and provider overhead. Input whitespace is preserved;
+stdin adds no newline of its own. Special-token-looking strings are counted as
+literal text. This is development tooling, not a runtime dependency shipped with
+individual extensions.
+
 ---
 
 ## Benchmarks & Performance
