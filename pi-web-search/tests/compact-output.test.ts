@@ -230,6 +230,30 @@ test("mixed-family reservation survives final output packing with stable refs", 
 	assert.ok(textOf(output).length <= OUTPUT_BUDGET_CHARS);
 });
 
+test("standalone citations survive structured output alongside search hits", () => {
+	const source = { title: "Additional source", url: "https://reference.example/doc" };
+	const output = formatWebSearchResult({
+		text: "", providerKind: "exa",
+		searchResults: [{ title: "Hit", url: "https://hit.example", citedText: "evidence" }],
+		sources: [{ title: "Hit", url: "https://hit.example" }, source],
+	});
+	assert.deepEqual((output.structuredContent as { sources?: unknown }).sources, [source]);
+	assert.ok(textOf(output).includes(source.url));
+	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+});
+
+test("clipping warnings describe model previews and point to local evidence", () => {
+	const output = formatWebSearchResult({
+		text: "", providerKind: "exa",
+		searchResults: [{ url: "https://example.com", citedText: "x".repeat(5000) }],
+	}, undefined, { resultId, storedCount: 1 });
+	const data = output.structuredContent as { warnings: string[] };
+	assert.match(data.warnings.join(" "), /400 characters/);
+	assert.doesNotMatch(data.warnings.join(" "), /4000|12000|full evidence/);
+	assert.match(data.warnings.join(" "), /search\(\{ref\}\)/);
+	assert.match(textOf(output), /400 characters/);
+});
+
 test("URL citations stay complete when titles and prose consume the budget", () => {
 	const url = `https://example.com/path?q=${"a".repeat(1200)}`;
 	const output = formatWebSearchResult({

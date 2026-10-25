@@ -114,6 +114,9 @@ function structuredEvidence(details: WebSearchDetails, text: string) {
 		...(hits.length ? { searchResults: hits.map(({ title, url, citedText, ref, source, type }) => ({
 			title, url, citedText, ref, source, type,
 		})) } : { text }),
+		// These citations are not attached to a hit; omitting them would lose
+		// evidence for scripts even though direct callers see the Sources block.
+		...(hits.length && details.sources?.length ? { sources: details.sources } : {}),
 		...(hits.length ? { resultCount: hits.length } : {}),
 		...(details.provider ? { provider: details.provider } : {}),
 		...(details.resultId ? { resultId: details.resultId } : {}),
@@ -134,7 +137,7 @@ export function formatWebSearchResult(
 	limits?: TruncationLimits,
 	continuation?: Pick<WebSearchDetails, "resultId" | "storedCount" | "storedClipped">,
 ): AgentToolResult<WebSearchDetails> {
-	const compact = compactResult(result);
+	const compact = compactResult(result, !!continuation?.resultId);
 	const hits = (compact.searchResults ?? []).map((hit, index) => ({
 		...hit,
 		...(hit.title ? { title: markedClip(hit.title, 120) } : {}),
@@ -256,7 +259,7 @@ function renderEvidence(prose: string, hits: SearchResultDetail[], sources: Sour
 	return [prose && prose.trim() !== results ? prose : "", results, citations, notes, more].filter(Boolean).join("\n\n");
 }
 
-function compactResult(result: StreamResult): StreamResult {
+function compactResult(result: StreamResult, continuation = false): StreamResult {
 	let excerptBudget = STRUCTURED_EXCERPT_TOTAL_CHARS;
 	let metadataBudget = METADATA_TOTAL_CHARS;
 	let clippedExcerpts = 0;
@@ -273,7 +276,7 @@ function compactResult(result: StreamResult): StreamResult {
 		if (entry.citedText !== undefined) {
 			compact.citedText = clipText(entry.citedText, Math.min(STRUCTURED_EXCERPT_MAX_CHARS, Math.floor(excerptBudget / (entries.length - index))));
 			excerptBudget -= compact.citedText.length;
-			if (compact.citedText.length < entry.citedText.length) clippedExcerpts++;
+			if (normalizedText(entry).length > EXCERPT_MAX_CHARS) clippedExcerpts++;
 		}
 		for (const key of ["title", "query", "source", "pageAge", "status", "type"] as const) {
 			const value = entry[key];
@@ -303,7 +306,7 @@ function compactResult(result: StreamResult): StreamResult {
 		clippedWarnings ||= clipped.length < warning.length;
 		warnings.push(clipped);
 	}
-	if (clippedExcerpts) warnings.push(`Result excerpts truncated for ${clippedExcerpts} hit(s): citedText is a preview capped at ${STRUCTURED_EXCERPT_MAX_CHARS} characters per hit and ${STRUCTURED_EXCERPT_TOTAL_CHARS} in total. Follow citation URLs for full evidence.`);
+	if (clippedExcerpts) warnings.push(`Result excerpts truncated for ${clippedExcerpts} hit(s): previews capped at ${EXCERPT_MAX_CHARS} characters plus a marker. ${continuation ? "Use search({ref}) for stored evidence." : "Follow citation URLs for more evidence."}`);
 	if (text.length < result.text.length) warnings.push(`Provider prose truncated to ${PROVIDER_TEXT_MAX_CHARS} characters; use the cited results for evidence.`);
 	if (clippedMetadata) warnings.push(`Result metadata truncated to ${METADATA_MAX_CHARS} characters per field and ${METADATA_TOTAL_CHARS} in total; citation URLs are unchanged.`);
 	if (clippedWarnings) warnings.push("Provider warnings truncated (100 entries, 1000 characters each, 8000 in total).");
