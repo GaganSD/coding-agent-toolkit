@@ -2,7 +2,17 @@
 
 ## Summary
 
-<!-- What changed and why? Mention the affected package(s) or shared tooling at a high level. Prefer 200 words or fewer. -->
+<!-- Give a high-level overview in 200 words or fewer. Use bullet points. -->
+-
+
+## What
+
+<!-- What changed? Mention the affected package(s) or shared tooling. -->
+-
+
+## Why
+
+<!-- What problem does this solve, and why this approach? -->
 -
 
 ## Related issues
