@@ -32,7 +32,7 @@ export async function measureFootprint(extensionRoot = packageRoot) {
 			const modelRuntime = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json") });
 			const { session } = await createAgentSession({ cwd: dir, agentDir: dir, resourceLoader: loader, settingsManager, modelRuntime, sessionManager: SessionManager.inMemory(dir) });
 			try {
-				const active = session.agent.state.tools.filter((tool) => ["web_search", "code_search", "multi_search"].includes(tool.name));
+				const active = session.agent.state.tools.filter((tool) => ["search"].includes(tool.name));
 				const declarations = JSON.stringify(active.map(({ name, description, parameters }) => ({ name, description, parameters }))).length;
 				const continuation = session.getAllTools().find((tool) => tool.name === "search_read");
 				samples[mode] = { declarations, prompt: session.systemPrompt, tools: active.map((tool) => tool.name), continuationSchema: continuation ? JSON.stringify(continuation.parameters).length : 0 };
@@ -49,7 +49,7 @@ export async function measureFootprint(extensionRoot = packageRoot) {
 		const formatted = formatWebSearchResult(previewEvidence(fixture, 8));
 		const directChars = formatted.content.map((part) => part.type === "text" ? part.text.length : 0).reduce((a, b) => a + b, 0);
 		const structuredChars = JSON.stringify(formatted.structuredContent).length;
-		return { method: "Pi SDK declarations + system-prompt delta; ceil(chars/4), not provider tokenizer billing. Output schema is programmatic, not included in direct tool declarations. MCP service connection is not started.", modes, result: { previewCount: formatted.details.resultCount, directChars, structuredChars } };
+		return { method: "Pi SDK unified search declaration + system-prompt delta; ceil(chars/4), not provider tokenizer billing. Output schema is programmatic, not included in direct tool declarations. MCP service connection is not started.", modes, result: { previewCount: formatted.details.resultCount, directChars, structuredChars } };
 	} finally {
 		if (prior.agent === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prior.agent;
 		if (prior.config === undefined) delete process.env.PI_WEB_SEARCH_CONFIG; else process.env.PI_WEB_SEARCH_CONFIG = prior.config;

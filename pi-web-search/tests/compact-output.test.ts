@@ -4,7 +4,6 @@ import { Check } from "typebox/value";
 
 import {
 	CLIP_MARKER,
-	COVERAGE_HEADING,
 	EXCERPT_MAX_CHARS,
 	OUTPUT_BUDGET_CHARS,
 	SearchOutputSchema,
@@ -40,7 +39,7 @@ test("hit refs are one-based, identical in rendered text and structured data", (
 	assert.equal(output.details.searchResults?.[0].ref, hitRef(resultId, 0));
 	assert.match(textOf(output), new RegExp(`1\\. \\[A\\]\\(https://a\\.example\\) ${resultId}:1`));
 	assert.match(textOf(output), new RegExp(`2\\. \\[B\\]\\(https://b\\.example\\) ${resultId}:2`));
-	assert.ok(textOf(output).includes(`More: search({ref: "${resultId}"})`));
+	assert.ok(textOf(output).includes(`Read: search({ref: "${resultId}"})`));
 });
 
 test("budget omission keeps stored-order refs, not visible-array indexes", () => {
@@ -68,7 +67,7 @@ test("budget omission keeps stored-order refs, not visible-array indexes", () =>
 	assert.ok(rendered.length <= OUTPUT_BUDGET_CHARS);
 	assert.ok(JSON.stringify(data).length <= OUTPUT_BUDGET_CHARS);
 	assert.match(rendered, /omitted/);
-	assert.equal(data.more, true);
+	assert.equal(data.more, undefined, "more/cursor are reserved for local pagination");
 	assert.equal(data.cursor, undefined, "search listings use refs, not passage cursors");
 	assert.match(rendered, /search\(\{ref: "/);
 });
@@ -85,7 +84,7 @@ test("ordinary model text drops coverage boilerplate and keeps material clipping
 		warnings: ["Result excerpts truncated for 1 hit(s): citedText is a preview."],
 	});
 	const rendered = textOf(output);
-	assert.equal(rendered.includes(COVERAGE_HEADING), false);
+	assert.equal(rendered.includes("## Coverage"), false);
 	assert.equal(rendered.includes("jev: disabled"), false);
 	assert.equal(rendered.includes("consulted:"), false);
 	assert.equal(rendered.includes("scope: web"), false);

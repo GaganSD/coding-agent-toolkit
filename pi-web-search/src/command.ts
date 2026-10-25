@@ -406,9 +406,9 @@ export async function buildSettingsReport(registry: ExtensionContext["modelRegis
 	const lines: string[] = [
 		"pi-web-search settings",
 		`config: ${resolved.configPath}`,
-		`web_search: ${resolved.web.provider} (fallback: ${list(resolved.web.fallback)})`,
-		`code_search: ${resolved.code.provider} (fallback: ${list(resolved.code.fallback)})`,
-		`multi_search: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
+		`search/web: ${resolved.web.provider} (fallback: ${list(resolved.web.fallback)})`,
+		`search/code: ${resolved.code.provider} (fallback: ${list(resolved.code.fallback)})`,
+		`search/thorough: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
 		`jev: ${resolved.jev.enabled ? `enabled (${pin})` : "disabled"}`,
 		"",
 		"Search credentials (presence only; keys are never shown):",
@@ -445,7 +445,7 @@ export async function buildSettingsReport(registry: ExtensionContext["modelRegis
 		`- /web-search provider <name>: add or modify a key in auth.json. Env vars also work: ${envNames}.`,
 		"- /web-search classifier: pick a Pi classifier, or none to disable. /model does not list classifiers; the pinned provider's billing applies.",
 		"- Nonsecret settings live in web-search.json.",
-		"- Run /reload after changing multi_search or a Parallel key (its MCP header is captured at registration).",
+		"- Run /reload after changing thorough search or a Parallel key (its MCP header is captured at registration).",
 		"- Install: pi install ./pi-web-search (checkout) or pi install npm:@gagansd/pi-web-search (release).",
 	);
 	return lines.join("\n");

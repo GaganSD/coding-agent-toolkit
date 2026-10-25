@@ -5,6 +5,7 @@ import {
 	DEFAULT_MAX_LINES,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
+import { isCodeSource } from "./providers/types.ts";
 import type {
 	SearchResultDetail,
 	Source,
@@ -14,7 +15,7 @@ import type {
 /** Excerpts are a preview, not the document: keep them short. */
 export const EXCERPT_MAX_CHARS = 400;
 
-/** Structured excerpts stay useful to scripts without persisting upstream documents. */
+/** Rich renderer details are bounded separately; model-visible search snippets use EXCERPT_MAX_CHARS. */
 export const STRUCTURED_EXCERPT_MAX_CHARS = 4_000;
 export const STRUCTURED_EXCERPT_TOTAL_CHARS = 12_000;
 export const PROVIDER_TEXT_MAX_CHARS = 8_000;
@@ -29,7 +30,6 @@ const WARNINGS_TOTAL_CHARS = 8_000;
 export const RESULTS_HEADING = "## Results";
 export const SOURCES_HEADING = "## Sources";
 export const WARNINGS_HEADING = "## Warnings";
-export const COVERAGE_HEADING = "## Coverage";
 
 const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("sourcegraph"), Type.Literal("github"), Type.Literal("brave"), Type.Literal("jina")]);
 
@@ -153,7 +153,6 @@ export function formatWebSearchResult(
 		...continuation, provider: compact.providerKind,
 		...(continuation?.resultId ? { ref: continuation.resultId } : {}),
 		searchResults: selected, sources, warnings: notices,
-		...(continuation?.resultId ? { more: true } : {}),
 	});
 	const fits = () => renderEvidence(prose, selected, sources, notices, continuation?.resultId).length <= budget
 		&& JSON.stringify(structuredEvidence(buildDetails(), prose)).length <= budget;
@@ -170,16 +169,15 @@ export function formatWebSearchResult(
 		if (!fits()) { sources.pop(); omitted++; } else cited.add(source.url);
 	}
 	if (omitted) notices.push(`${omitted} result/citation(s) omitted to fit the output budget.`);
-	const clipped = compact.text.length > 1000 || hits.some((hit, index) => hit.citedText !== (compact.searchResults?.[index]?.citedText ?? ""));
+	const clipped = compact.text.length > 1000 || (compact.searchResults ?? []).some((hit) => normalizedText(hit).length > EXCERPT_MAX_CHARS);
 	const text = renderEvidence(prose, selected, sources, notices, continuation?.resultId);
 	const visible = buildDetails();
-	visible.more = continuation !== undefined && (omitted > 0 || clipped || (continuation.storedCount ?? 0) > selected.length);
 	visible.truncated = omitted > 0 || clipped || continuation?.storedClipped === true;
 	const output = formatResult(text, {
 		...visible,
 		// Rich renderer details never become another copy of the model evidence.
 		searchResults: compact.searchResults?.map((hit, index) => ({ ...hit, ...(hits[index]?.ref ? { ref: hits[index].ref } : {}) })),
-		sources: compact.sources ?? [], warnings,
+		sources: compact.sources ?? [], warnings: compact.warnings ?? [],
 		providers: compact.providers, requestId: compact.requestId, usage: compact.usage,
 		grounded: cited.size > 0, scope: compact.scope, jev: compact.jev, jevStatus: compact.jevStatus,
 		resultCount: selected.length || sources.length,
@@ -192,10 +190,13 @@ function markedClip(text: string, limit: number): string {
 	return text.length > limit ? clipText(text, limit) + CLIP_MARKER : text;
 }
 
-function previewText(hit: SearchResultDetail): string {
+function normalizedText(hit: SearchResultDetail): string {
 	const raw = hit.citedText ?? "";
-	const code = hit.source?.split(", ").some((source) => ["grep", "sourcegraph", "github"].includes(source));
-	return markedClip(code ? raw.trimEnd() : raw.replace(/\s+/gu, " ").trim(), EXCERPT_MAX_CHARS);
+	return isCodeSource(hit.source) ? raw.trimEnd() : raw.replace(/\s+/gu, " ").trim();
+}
+
+function previewText(hit: SearchResultDetail): string {
+	return markedClip(normalizedText(hit), EXCERPT_MAX_CHARS);
 }
 
 function renderEvidence(prose: string, hits: SearchResultDetail[], sources: Source[], warnings: string[], resultId?: string): string {
@@ -203,13 +204,13 @@ function renderEvidence(prose: string, hits: SearchResultDetail[], sources: Sour
 		const number = hit.ref?.split(":").at(-1) ?? String(index + 1);
 		const label = markedClip(hit.title?.trim() || (hit.url ? hit.url : `Result ${number}`), 120);
 		const heading = `${number}. ${hit.url ? `[${label}](${hit.url})` : label}${hit.ref ? ` ${hit.ref}` : ""}`;
-		const code = hit.source?.split(", ").some((source) => ["grep", "sourcegraph", "github"].includes(source));
+		const code = isCodeSource(hit.source);
 		return hit.citedText ? heading + "\n" + (code ? "```\n" + hit.citedText + "\n```" : "> " + hit.citedText) : heading;
 	});
 	const results = blocks.length ? RESULTS_HEADING + "\n\n" + blocks.join("\n\n") : "";
 	const citations = sources.length ? SOURCES_HEADING + "\n\n" + sources.map((source, index) => `${index + 1}. [${source.title}](${source.url})`).join("\n") : "";
 	const notes = warnings.length ? WARNINGS_HEADING + "\n\n" + warnings.map((warning) => "- " + warning).join("\n") : "";
-	const more = resultId ? `More: search({ref: "${resultId}"})` : "";
+	const more = resultId ? `Read: search({ref: "${resultId}"})` : "";
 	return [prose && prose.trim() !== results ? prose : "", results, citations, notes, more].filter(Boolean).join("\n\n");
 }
 

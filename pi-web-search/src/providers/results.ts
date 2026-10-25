@@ -1,12 +1,10 @@
+import { sourceFamily } from "./types.ts";
 import type {
 	EvidenceProvider,
 	SearchResultDetail,
 	Source,
 	StreamResult,
 } from "./types.ts";
-
-const WEB_SOURCES = new Set(["exa", "parallel", "brave", "jina"]);
-const CODE_SOURCES = new Set(["grep", "sourcegraph", "github"]);
 
 /** `Source.title` is required, so an untitled page falls back to its URL. */
 export function sourcesFromResults(results: SearchResultDetail[]): Source[] {
@@ -60,29 +58,18 @@ function documentKey(value: string): string {
 	try { const url = new URL(value); url.hash = ""; return url.href; } catch { return value; }
 }
 
-function hitFamily(hit: SearchResultDetail): "web" | "code" | undefined {
-	let web = false;
-	let code = false;
-	for (const tag of (hit.source ?? "").split(", ")) {
-		if (WEB_SOURCES.has(tag)) web = true;
-		if (CODE_SOURCES.has(tag)) code = true;
-	}
-	if (web === code) return undefined;
-	return web ? "web" : "code";
-}
-
 /** Reserve one slot per represented family without changing stored-order refs. */
 function selectPreview(ordered: SearchResultDetail[], maxResults: number): SearchResultDetail[] {
 	const picked = ordered.slice(0, Math.max(0, maxResults));
 	if (picked.length < 2) return picked;
 	for (const family of ["web", "code"] as const) {
-		if (picked.some((hit) => hitFamily(hit) === family)) continue;
-		const candidate = ordered.find((hit) => hitFamily(hit) === family);
+		if (picked.some((hit) => sourceFamily(hit.source) === family)) continue;
+		const candidate = ordered.find((hit) => sourceFamily(hit.source) === family);
 		if (!candidate) continue;
 		// The other family keeps its first slot; replace the last redundant hit.
 		for (let index = picked.length - 1; index >= 0; index--) {
-			const current = hitFamily(picked[index]);
-			if (current && picked.filter((hit) => hitFamily(hit) === current).length === 1) continue;
+			const current = sourceFamily(picked[index].source);
+			if (current && picked.filter((hit) => sourceFamily(hit.source) === current).length === 1) continue;
 			picked[index] = candidate;
 			break;
 		}

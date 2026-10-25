@@ -310,7 +310,8 @@ test("multi_search fans out in the requested scope", async () => {
 			assert.equal(result.details.scope, "both");
 			assert.deepEqual(result.details.providers, ["exa", "grep"]);
 			assert.equal(result.details.resultCount, 2);
-			assert.match(textOf(result), /parallel skipped|github skipped/);
+			assert.doesNotMatch(textOf(result), /parallel skipped|github skipped/);
+			assert.match(result.details.warnings?.join(" ") ?? "", /parallel skipped|github skipped/);
 		},
 	);
 });

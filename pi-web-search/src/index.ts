@@ -12,27 +12,17 @@ import {
 } from "./command.ts";
 import { enableStoredCredentials, parallelApiKey } from "./env.ts";
 import { PARALLEL_MCP_SERVER, PARALLEL_MCP_URL } from "./providers/parallel.ts";
-import {
-	type CodeSearchInput,
-	CodeSearchSchema,
-	codeSearch,
-} from "./code_search.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
 import { resolveSettingsSync } from "./providers/config.ts";
-import {
-	type MultiSearchInput,
-	MultiSearchSchema,
-	multiSearch,
-} from "./multi_search.ts";
-import {
-	type WebSearchInput,
-	WebSearchSchema,
-	webSearch,
-} from "./web_search.ts";
 import { maybeShowWelcome } from "./welcome.ts";
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
-import { SearchReadSchema, searchRead } from "./search_read.ts";
 import { clearRetrievalCache } from "./providers/reuse.ts";
+import {
+	type SearchInput,
+	SearchSchema,
+	search,
+	searchReachesTools,
+} from "./search.ts";
 
 /** Fail closed on unsupported or malformed host versions. */
 export function assertSupportedPiVersion(version: string): void {
@@ -63,70 +53,32 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		if (owner) { evidenceStore.clear(owner); clearRetrievalCache(owner); }
 	});
 
-	// Stable, script-discoverable continuation: no extra default tool declaration.
-	pi.registerTool({
-		name: "search_read", label: "Read Search Evidence",
-		description: "Read stored search evidence locally: omit index to list; select index and offset or find to read passages. No network requests. Handles expire after 10 minutes or reload.",
-		parameters: SearchReadSchema, outputSchema: SearchOutputSchema,
-		exposure: "codemode",
-		namespace: { name: "search", description: "Cited public web and code retrieval." },
-		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-		execute: async (_id, params, signal, _update, ctx) => searchRead(params, ctx, signal),
-	});
-
-	pi.registerTool<typeof WebSearchSchema, WebSearchDetails>({
-		name: "web_search",
-		label: "Web Search",
-		reachesTools: () => [`mcp__${PARALLEL_MCP_SERVER}`],
+	pi.registerTool<typeof SearchSchema, WebSearchDetails>({
+		name: "search",
+		label: "Search",
+		reachesTools: searchReachesTools,
 		description:
-			"Search web pages, or fetch supplied URLs without a query. Returns cited previews and a handle for more evidence.",
+			"Search public web/code, fetch URLs, or read stored evidence refs.",
 		promptSnippet:
-			"Search the public web (documentation, prose, current events) and optionally retrieve supplied URLs.",
+			"Public web/code search, URL reading, and local evidence continuation.",
 		promptGuidelines: [
-			"Use local `rg`/`grep` for files in the workspace; use `code_search` for literal code across public repositories.",
-			"For a known page, call `web_search` with `urls` only; omit `query` to skip search. More evidence is available through codemode's `search_read` using the returned resultId.",
+			"Supply exactly one of `query`, `urls`, or `ref`; refs read stored evidence without network access.",
+			"Use `scope: \"code\"` for public identifiers/snippets (`repo:` and `language:` filters); use local `rg` for workspace files.",
+			"`effort: \"thorough\"` enables opt-in multi-source retrieval; `scope: \"both\"` implies thorough.",
 		],
-		parameters: WebSearchSchema,
+		parameters: SearchSchema,
 		outputSchema: SearchOutputSchema,
 		namespace: { name: "search", description: "Cited public web and code retrieval." },
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 		execute: (toolCallId, params, signal, onUpdate, ctx) =>
-			webSearch(toolCallId, params, signal, onUpdate, ctx),
-		renderCall(args: WebSearchInput, theme) {
-			const query = args.query || "…";
-			const urlCount = args.urls?.length ?? 0;
-			const urls =
-				urlCount > 0
-					? theme.fg("muted", ` + ${urlCount} URL${urlCount === 1 ? "" : "s"}`)
-					: "";
+			search(toolCallId, params, signal, onUpdate, ctx),
+		renderCall(args: SearchInput, theme) {
+			const target = args.query ?? args.ref ?? (args.urls?.length ? `${args.urls.length} URL(s)` : "…");
+			const scope = args.scope ?? "web";
+			const effort = args.effort ?? (scope === "both" ? "thorough" : "fast");
+			const mode = args.ref ? "local ref" : `${scope}/${effort}`;
 			return new Text(
-				`${theme.fg("toolTitle", theme.bold("web_search"))} ${theme.fg("accent", query)}${urls}`,
-				0,
-				0,
-			);
-		},
-		renderResult,
-	});
-
-	pi.registerTool<typeof CodeSearchSchema, WebSearchDetails>({
-		name: "code_search",
-		label: "Code Search",
-		description:
-			"Search public source code for identifiers or code snippets. Use web_search for documentation and explanatory prose.",
-		promptSnippet:
-			"Search public source code for a literal identifier or snippet; supports repo:/language: qualifiers.",
-		promptGuidelines: [
-			"`code_search` understands `repo:<owner/name>` and `language:<name>`; other GitHub-specific qualifiers are provider-dependent and are not translated into grep.app filters.",
-		],
-		parameters: CodeSearchSchema,
-		outputSchema: SearchOutputSchema,
-		namespace: { name: "search", description: "Cited public web and code retrieval." },
-		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-		execute: (toolCallId, params, signal, onUpdate, ctx) =>
-			codeSearch(toolCallId, params, signal, onUpdate, ctx),
-		renderCall(args: CodeSearchInput, theme) {
-			return new Text(
-				`${theme.fg("toolTitle", theme.bold("code_search"))} ${theme.fg("accent", args.query || "…")}`,
+				`${theme.fg("toolTitle", theme.bold("search"))} ${theme.fg("accent", target)} ${theme.fg("muted", mode)}`,
 				0,
 				0,
 			);
@@ -144,38 +96,6 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 			url: PARALLEL_MCP_URL,
 			exposure: "codemode",
 			...(key ? { headers: { Authorization: `Bearer ${key}` } } : {}),
-		});
-	}
-
-	// Tool exposure and execution use the same research.enabled switch.
-	if (!("error" in registered) && registered.researchEnabled) {
-		pi.registerTool<typeof MultiSearchSchema, WebSearchDetails>({
-			name: "multi_search",
-			label: "Multi Search",
-			reachesTools: (input) => input.scope === "code" ? [] : [`mcp__${PARALLEL_MCP_SERVER}`],
-			description:
-				"Search multiple available sources concurrently in an explicit scope. May apply optional ranking and safety classification.",
-			promptSnippet:
-				"Opt-in multi-source search over web and/or code with an explicit scope; optional ranking and safety classification.",
-			promptGuidelines: [
-				"Use `multi_search` when you need retrieval from multiple sources; it is slower than `web_search`.",
-				"`multi_search` takes an explicit `scope`: `web`, `code`, or `both`.",
-			],
-			parameters: MultiSearchSchema,
-			outputSchema: SearchOutputSchema,
-			namespace: { name: "search", description: "Cited public web and code retrieval." },
-			annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-			execute: (toolCallId, params, signal, onUpdate, ctx) =>
-				multiSearch(toolCallId, params, signal, onUpdate, ctx),
-			renderCall(args: MultiSearchInput, theme) {
-				const query = `${args.query || "…"} [${args.scope}]`;
-				return new Text(
-					`${theme.fg("toolTitle", theme.bold("multi_search"))} ${theme.fg("accent", query)}`,
-					0,
-					0,
-				);
-			},
-			renderResult,
 		});
 	}
 

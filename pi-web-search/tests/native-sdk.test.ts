@@ -33,7 +33,7 @@ test("Pi SDK permission-hook reasons never retry Parallel through Exa, even when
 		await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
 			command: process.execPath, args: [fixture, callsPath], exposure: "codemode",
 		} } }));
-		const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search"], compaction: { enabled: false }, retry: { enabled: false } });
+		const settingsManager = SettingsManager.inMemory({ defaultTools: ["search"], compaction: { enabled: false }, retry: { enabled: false } });
 		const native = `mcp__${PARALLEL_MCP_SERVER}__web_search`;
 		let reason = "No thanks";
 		let deniedCalls = 0;
@@ -57,13 +57,13 @@ test("Pi SDK permission-hook reasons never retry Parallel through Exa, even when
 			await new Promise((resolve) => setTimeout(resolve, 20));
 		}
 		assert.ok(session.getCallableToolNames().includes(native), "native tool must be callable before permission hook blocks it");
-		session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "permission-call", name: "web_search", arguments: { query: "fixture" } }],
+		session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "permission-call", name: "search", arguments: { query: "fixture" } }],
 			api: "openai-responses", provider: "openai", model: "fixture", usage: zeroUsage, stopReason: "toolUse", timestamp: Date.now() });
 		session.refreshContext();
 		const ctx = session.extensionRunner.createToolContext("permission-call", AbortSignal.timeout(6000));
 		for (const denialReason of ["No thanks", "HTTP 429 too many requests"]) {
 			reason = denialReason;
-			const outcome = await ctx.executeTool("web_search", { query: "fixture" });
+			const outcome = await ctx.executeTool("search", { query: "fixture" });
 			assert.equal(outcome.isError, true, reason);
 			const data = outcome.result.structuredContent as { error?: { code?: string; message?: string; retryable?: boolean } };
 			assert.equal(data.error?.code, "tool_error");
@@ -91,7 +91,7 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 	const backend = mode === "vercel-stored" ? "vercel" : "openrouter";
 	const provider = backend === "vercel" ? "vercel-ai-gateway" : "openrouter";
 	const key = "isolated-harness-classifier-key";
-	test(`Pi SDK local MCP search/fetch with ${mode} classifier authentication`, { timeout: 20000 }, async () => {
+	test(`Pi SDK local MCP search with ${mode} classifier authentication`, { timeout: 20000 }, async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-native-sdk-search-"));
 		const configPath = join(root, "web-search.json");
 		const callsPath = join(root, "mcp-calls.jsonl");
@@ -128,7 +128,7 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 			await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
 				command: process.execPath, args: [fixture, callsPath], exposure: "codemode",
 			} } }));
-			const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", ...(judge ? ["multi_search"] : [])],
+			const settingsManager = SettingsManager.inMemory({ defaultTools: ["search"],
 				compaction: { enabled: false }, retry: { enabled: false } });
 			const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
 				noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
@@ -143,11 +143,11 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 				settingsManager, modelRuntime, sessionManager: SessionManager.inMemory(root) }));
 			await session.bindExtensions({});
 			const native = `mcp__${PARALLEL_MCP_SERVER}__web_search`;
-			// Do not wait manually: web_search.reachesTools must await cold MCP startup.
+			// Do not wait manually: search.reachesTools must await cold MCP startup.
 			const query = "fixture question";
-			const args = { query, urls: ["https://example.test/document"] };
+			const args = { query };
 			// A seeded assistant tool call allows Pi to run the real tool/nested MCP pipeline without model credentials.
-			session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "fixture-call", name: "web_search", arguments: args }],
+			session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "fixture-call", name: "search", arguments: args }],
 				api: "openai-responses", provider: "openai", model: "fixture", usage: zeroUsage, stopReason: "toolUse", timestamp: Date.now() });
 			session.refreshContext();
 			const ctx = session.extensionRunner.createToolContext("fixture-call", AbortSignal.timeout(6000));
@@ -161,36 +161,42 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 				return { ...response, usage: { ...zeroUsage, input: 11, totalTokens: 11 } };
 			};
 			}
-			const ordinary = await ctx.executeTool("web_search", args);
+			const ordinary = await ctx.executeTool("search", args);
 			assert.equal(ordinary.isError, false, JSON.stringify(ordinary.result));
 			assert.ok(session.getCallableToolNames().includes(native), "outer reachability awaited MCP startup");
-			const ordinaryData = ordinary.result.structuredContent as { resultId?: string; provider?: string; searchResults?: { type?: string; url?: string }[] };
+			const ordinaryData = ordinary.result.structuredContent as { resultId?: string; provider?: string; searchResults?: { type?: string; url?: string; citedText?: string }[] };
 			assert.equal(ordinaryData.provider, "parallel");
-			assert.ok(ordinaryData.searchResults?.some((hit) =>
-				hit.type === "extract" && hit.url === args.urls[0]));
+			assert.ok(ordinaryData.searchResults?.some((hit) => hit.url === "https://example.test/result" && hit.citedText === "Search citation"));
 			assert.equal(classifyCalls, 0, "ordinary search never judges");
 			assert.ok(ordinaryData.resultId, "search returns a local continuation handle");
 			const beforeRead = await readFile(callsPath, "utf8");
+			const directRead = await ctx.executeTool("search", { ref: ordinaryData.resultId + ":1" });
+			assert.equal(directRead.isError, false, JSON.stringify(directRead.result));
+			assert.match(JSON.stringify(directRead.result.content), /Search citation/);
+			assert.equal(await readFile(callsPath, "utf8"), beforeRead, "direct continuation stays local");
 			session.setActiveToolsByName([...session.getActiveToolNames(), "codemode"]);
 			const codemode = session.agent.state.tools.find((tool) => tool.name === "codemode")!;
 			assert.ok(codemode);
 			// Codemode is model-only, so exercise its host-wrapped direct execute entrypoint.
-			const continued = await codemode.execute("continuation-code", { code: `const value = await tools.search_read({ resultId: ${JSON.stringify(ordinaryData.resultId)}, index: 0 }); text({ count: value.resultCount, url: value.searchResults[0].url });` }, AbortSignal.timeout(6000));
+			const continued = await codemode.execute("continuation-code", { code: `const value = await tools.search({ ref: ${JSON.stringify(ordinaryData.resultId + ":1")} }); text({ count: value.resultCount, url: value.searchResults[0].url });` }, AbortSignal.timeout(6000));
 			assert.equal(continued.isError ?? false, false, JSON.stringify(continued));
 			assert.match(JSON.stringify(continued.content), /example.test/);
 			assert.equal(await readFile(callsPath, "utf8"), beforeRead, "continuation makes no MCP/network call");
 			if (judge) {
-				const judged = await ctx.executeTool("multi_search", { query, scope: "web" });
+				const judged = await ctx.executeTool("search", { query, scope: "web", effort: "thorough" });
 				assert.equal(judged.isError, false, JSON.stringify(judged.result));
-				assert.equal((judged.result.structuredContent as { jevStatus?: string }).jevStatus, "ran");
+				assert.equal((judged.result.details as { jevStatus?: string }).jevStatus, "ran");
+				assert.equal("jevStatus" in (judged.result.structuredContent as object), false, "classifier diagnostics stay outside model evidence");
 				assert.equal(judged.result.usage?.totalTokens, 11, "own classifier usage reaches AgentToolResult");
 				assert.equal(classifyCalls, 1);
 			}
 			const calls = (await readFile(callsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-			assert.deepEqual(calls.slice(0, 2).map((call) => call.name), ["web_search", "web_fetch"]);
-			assert.equal(calls[0].args.session_id, calls[1].args.session_id);
+			assert.equal(calls[0].name, "web_search");
 			assert.equal(calls[0].args.model_name, nativeClassifier ? ctx.model?.id : undefined, "analytics uses only the known runtime model ID, not the seeded transcript model");
-			assert.equal(calls[1].args.full_content, false);
+			if (judge) {
+				assert.equal(calls[1].name, "web_search");
+				assert.equal(calls[0].args.session_id, calls[1].args.session_id);
+			}
 		} finally {
 			if (session) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); session.dispose(); }
 			globalThis.fetch = prior.fetch;

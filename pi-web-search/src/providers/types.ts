@@ -28,6 +28,18 @@ export const PROVIDER_KINDS: readonly ProviderKind[] = [
 	"brave",
 ];
 
+const SOURCE_FAMILIES = new Map<string, ProviderFamily>([...Object.entries(PROVIDER_FAMILY), ["jina", "web"]]);
+
+/** Provider provenance can contain comma-separated contributors after deduplication. */
+export function isCodeSource(source?: string): boolean {
+	return (source ?? "").split(", ").some((tag) => SOURCE_FAMILIES.get(tag) === "code");
+}
+
+export function sourceFamily(source?: string): ProviderFamily | undefined {
+	const families = new Set((source ?? "").split(", ").map((tag) => SOURCE_FAMILIES.get(tag)).filter((family) => family !== undefined));
+	return families.size === 1 ? families.values().next().value : undefined;
+}
+
 /** Default order tried within a family when config does not override it. */
 export const DEFAULT_CHAIN: Record<ProviderFamily, ProviderKind[]> = {
 	web: ["exa", "parallel"],

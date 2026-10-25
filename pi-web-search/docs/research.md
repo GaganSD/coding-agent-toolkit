@@ -1,6 +1,6 @@
 # Multi-source search and Jev reference
 
-[`multi_search`](../src/multi_search.ts) is opt-in concurrent retrieval, not a long-running research agent. External Jev judgment is a second opt-in. Ordinary `web_search` and `code_search` never run it. See the [package README](../README.md) for installation, retrieval defaults, credentials, and privacy limits.
+[`search`](../src/search.ts) with `effort: "thorough"` enables opt-in concurrent retrieval, not a long-running research agent. External Jev judgment is a second opt-in. Fast searches never run it. See the [package README](../README.md) for installation, retrieval defaults, credentials, and privacy limits.
 
 ## Enable multi-source search
 
@@ -10,17 +10,17 @@ Merge into the config file printed by `/web-search`, then run `/reload`:
 { "research": { "enabled": true } }
 ```
 
-Call `multi_search` with a required query and explicit scope:
+Call `search` with a query, scope, and thorough effort:
 
 ```json
-{ "query": "AbortSignal.timeout", "scope": "both" }
+{ "query": "AbortSignal.timeout", "scope": "both", "effort": "thorough" }
 ```
 
-`web` consults eligible Exa/Parallel sources and Brave when a key is present; Jina is extraction-only and is never a search source; `code` consults eligible grep.app/Sourcegraph/GitHub sources; `both` sends the same query to both families. There is no `urls` parameter. Use identifiers/snippets rather than prose for code or mixed scope. Without retrieval keys, Exa, Parallel native MCP, grep.app, and Sourcegraph remain eligible. Check `/mcp` for native connection status; a same-name `pi_web_search_parallel` entry in `mcp.json` overrides the package server. Pi SDK embeddings must load Pi’s MCP and codemode extensions and call `bindExtensions()` (see the README).
+`web` consults eligible Exa/Parallel sources and Brave when a key is present; Jina is extraction-only and is never a search source; `code` consults eligible grep.app/Sourcegraph/GitHub sources; `both` sends the same query to both families. URL extraction is a separate `search({urls: [...]})` operation and does not fan out. Use identifiers/snippets rather than prose for code or mixed scope. Without retrieval keys, Exa, Parallel native MCP, grep.app, and Sourcegraph remain eligible. Check `/mcp` for native connection status; a same-name `pi_web_search_parallel` entry in `mcp.json` overrides the package server. Pi SDK embeddings must load Pi’s MCP extension and call `bindExtensions()` for native Parallel retrieval; codemode is optional (see the README).
 
-Research appends family defaults to the configured preferences and runs all eligible sources concurrently. Empty fallback arrays do not exclude providers. Successful responses are merged; citation URLs and exact duplicate URL/passage/type evidence are deduplicated. Different passages, query strings, code anchors, and search-versus-fetch evidence stay distinct. After optional judgment, one global `maxResults` preview limit applies; additional admitted evidence can be read locally with `search_read`. Within a live operation deadline, one failed source becomes a warning if another succeeds. All-source failure, caller cancellation, or a shared deadline expiring during retrieval fails the call, even after a sibling succeeded. Coverage is not agreement analysis or proof of exhaustive search.
+Thorough retrieval appends family defaults to configured preferences, then runs at most two available transports per family concurrently (at most four for mixed scope). Empty fallback arrays do not exclude providers. Successful responses are merged; citation URLs and exact duplicate URL/passage/type evidence are deduplicated. Different passages, query strings, code anchors, and search-versus-fetch evidence stay distinct. After optional judgment, one global `maxResults` preview limit applies; additional admitted evidence can be read locally with `search({ref: "..."})`. Within a live operation deadline, one failed source becomes a warning if another succeeds. All-source failure, caller cancellation, or a shared deadline expiring during retrieval fails the call, even after a sibling succeeded. Coverage is not agreement analysis or proof of exhaustive search.
 
-Multi-source tool registration is fixed at extension load. Execution rechecks the current opt-in: disabling it without reloading makes an already-registered call fail with `invalid_config`. The settings report reads configuration; it is not a live tool-registration or provider-health test.
+The single `search` tool is always registered. Thorough execution checks the current opt-in: disabling it takes effect on the next call. The settings report reads configuration; it is not a provider-health test. Reload after provider-registration changes so native MCP connections match the new configuration.
 
 ## Enable external judgment
 
@@ -41,7 +41,7 @@ The picker lists Pi's registered classifiers plus **None**. `/web-search classif
 }
 ```
 
-Run `/reload` if research was not already exposed. Other judgment config changes are read next operation. Pi owns catalog, authentication, and `classify()`. See [classifier models](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models).
+Judgment config changes are read on the next operation. Pi owns catalog, authentication, and `classify()`. See [classifier models](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models).
 
 **Data sent:** at most one judgment request contains the query and every retained candidate's index, title, URL, and complete provider-returned `citedText`. This happens before formatter preview caps and before safety suppression. All candidates share one request with relevance, off-topic, self-contained, safety, and set-sufficiency questions. Do not enable it for evidence you are unwilling to send to the selected external service. This is a heuristic, not a security firewall or verified-answer guarantee.
 
@@ -51,7 +51,7 @@ Old `jev.backend` settings no longer select a provider. Model names do not recei
 
 1. Run `/web-search` to check the current pin.
 2. Select the matching command from the [provider table](../README.md#try-jev-with-your-existing-pi-login).
-3. Run `/reload` if you enabled `multi_search`.
+3. Use `search` with `effort: "thorough"` after enabling research.
 
 The command removes `jev.backend` and keeps other settings. Missing or unavailable pins return unjudged results with warnings. Ordinary searches need no classifier.
 
@@ -79,7 +79,7 @@ All fields are optional. This block shows the defaults; it deliberately leaves b
 
 | Field | Behavior |
 | --- | --- |
-| `enabled` | Only literal `true` enables judgment. Other values leave it off. Research must also be enabled to expose the tool that uses it; ordinary web/code tools never classify. |
+| `enabled` | Only literal `true` enables judgment. Other values leave it off. Research must also be enabled and the call must request thorough effort; fast web/code searches never classify. |
 | `provider` | Exact Pi classifier provider. Required with `model` when judgment is on. Empty means unpinned; retrieval is returned unjudged. |
 | `model` | Exact Pi catalog identifier for that provider. No alias remapping. A missing or unavailable pair fails open with a warning. |
 | `backend` | Deprecated and ignored. Old files keep loading; pin `provider` and `model` instead. |
@@ -99,7 +99,7 @@ This package never sends a classifier HTTP request or resolves classifier creden
 
 ## Outcomes and limits
 
-`jevStatus` in structured output and coverage distinguishes:
+`jevStatus` in renderer/debug details distinguishes (ordinary responses omit this diagnostic):
 
 | Status | Meaning |
 | --- | --- |
@@ -110,6 +110,6 @@ This package never sends a classifier HTTP request or resolves classifier creden
 
 Ranking is local weighted scoring; missing relevance scores use `0.5`. Confident non-safe classifications are suppressed, while uncertain/missing safety judgments can remain with safety-unverified warnings. There is no separate minimum safe-confidence gate. Missing sufficiency is treated as insufficient. Any suppression prevents a positive sufficiency claim for the surviving set because the global judgment saw the withheld candidates; survivors are not judged again.
 
-When suppression occurs, aggregate provider prose and original provider warnings are conservatively withheld because they may quote suppressed content. Count-based notices, admitted results, citation audit URLs, and local config/input notices remain. This can hide otherwise useful upstream diagnostics. Structured `jev` records `sufficient`, `lowConfidence`, `suppressed`, and `suppressedUrls`; an unknown suppressed URL is reported as `(unknown)`, not the withheld title.
+When suppression occurs, aggregate provider prose and original provider warnings are conservatively withheld because they may quote suppressed content. Count-based notices, admitted results, citation audit URLs, and local config/input notices remain. This can hide otherwise useful upstream diagnostics. Renderer/debug `jev` details record `sufficient`, `lowConfidence`, `suppressed`, and `suppressedUrls`; an unknown suppressed URL is reported as `(unknown)`, not the withheld title.
 
 Missing Pi classifier/authentication, over-budget state, failures, and judgment deadlines **fail open** to the retrieved evidence, subject to normal output clipping. Genuine caller cancellation remains fatal. Jev does not guarantee truth, safe instructions, independence among sources, or agreement, and does not trigger another search. Inspect warnings and citations rather than treating `ran` or `sufficient` as a security decision. The implementation boundary is [`jev/augment.ts`](../src/jev/augment.ts).

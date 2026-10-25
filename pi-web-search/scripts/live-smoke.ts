@@ -30,7 +30,7 @@ if (process.argv[2] !== "--child") {
 	const save = (config: object) => writeFileSync(configPath, JSON.stringify(config));
 	save({ research: { enabled: true } });
 	writeFileSync(join(root, "auth.json"), "{}");
-	const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", "code_search", "multi_search"],
+	const settingsManager = SettingsManager.inMemory({ defaultTools: ["search"],
 		compaction: { enabled: false }, retry: { enabled: false } });
 	const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
 		noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
@@ -45,20 +45,20 @@ if (process.argv[2] !== "--child") {
 	try {
 		await session.bindExtensions({});
 		const cases: Array<{ name: string; tool: string; provider?: string; config: object; args: Record<string, string | string[]> }> = [
-			{ name: "default web and URL extraction", tool: "web_search", provider: "exa", config: {},
-				args: { query: "Node.js AbortSignal.timeout documentation", urls: ["https://nodejs.org/api/globals.html"] } },
-			{ name: "URL-only keyless Jina extraction", tool: "web_search", provider: "jina", config: {},
+			{ name: "default web", tool: "search", provider: "exa", config: {},
+				args: { query: "Node.js AbortSignal.timeout documentation" } },
+			{ name: "URL-only keyless Jina extraction", tool: "search", provider: "jina", config: {},
 				args: { urls: ["https://example.com"] } },
-			{ name: "default code", tool: "code_search", provider: "grep", config: {}, args: { query: "useSyncExternalStore" } },
-			{ name: "scoped Sourcegraph", tool: "code_search", provider: "sourcegraph", config: { code: { provider: "sourcegraph", fallback: [] } },
-				args: { query: "createServer repo:nodejs/node" } },
-			{ name: "native Parallel search and extraction", tool: "web_search", provider: "parallel", config: { web: { provider: "parallel", fallback: [] } },
-				args: { query: "Node.js AbortSignal.timeout documentation", urls: ["https://nodejs.org/api/globals.html"] } },
-			{ name: "multi-source code", tool: "multi_search", config: { research: { enabled: true } },
-				args: { query: "useSyncExternalStore", scope: "code" } },
+			{ name: "default code", tool: "search", provider: "grep", config: {}, args: { query: "useSyncExternalStore", scope: "code" } },
+			{ name: "scoped Sourcegraph", tool: "search", provider: "sourcegraph", config: { code: { provider: "sourcegraph", fallback: [] } },
+				args: { query: "createServer repo:nodejs/node", scope: "code" } },
+			{ name: "native Parallel search", tool: "search", provider: "parallel", config: { web: { provider: "parallel", fallback: [] } },
+				args: { query: "Node.js AbortSignal.timeout documentation" } },
+			{ name: "multi-source code", tool: "search", config: { research: { enabled: true } },
+				args: { query: "useSyncExternalStore", scope: "code", effort: "thorough" } },
 		];
 		if (process.env.BRAVE_API_KEY) {
-			cases.push({ name: "optional Brave REST search", tool: "web_search", provider: "brave",
+			cases.push({ name: "optional Brave REST search", tool: "search", provider: "brave",
 				config: { web: { provider: "brave", fallback: [] } },
 				args: { query: "Node.js AbortSignal.timeout documentation" } });
 		}
@@ -77,7 +77,7 @@ if (process.argv[2] !== "--child") {
 			const response = await ctx.executeTool(sample.tool, sample.args);
 			const data = response.result.structuredContent as {
 				resultId?: string; provider?: string; resultCount?: number; warnings?: string[]; error?: unknown;
-				searchResults?: Array<{ url?: string; type?: string; citedText?: string }>;
+				searchResults?: Array<{ ref?: string; url?: string; type?: string; citedText?: string }>;
 			};
 			console.log(JSON.stringify({ check: sample.name, ms: Date.now() - started, provider: data.provider,
 				count: data.resultCount, warnings: data.warnings, error: data.error }));
@@ -91,7 +91,9 @@ if (process.argv[2] !== "--child") {
 			}
 			if (sample.name.startsWith("URL-only")) {
 				assert.ok(data.resultId, "URL-only extraction must offer local continuation");
-				const continued = await ctx.executeTool("search_read", { resultId: data.resultId, index: 0 });
+				const ref = data.searchResults?.[0]?.ref;
+				assert.ok(ref, "URL extraction must expose a stable result ref");
+				const continued = await ctx.executeTool("search", { ref });
 				assert.equal(continued.isError, false, "local continuation failed");
 				console.log(JSON.stringify({ check: "local evidence continuation", status: "passed" }));
 			}

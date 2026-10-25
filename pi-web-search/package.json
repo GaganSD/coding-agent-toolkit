@@ -1,7 +1,7 @@
 {
   "name": "@gagansd/pi-web-search",
   "version": "0.3.1",
-  "description": "Search the web and public code from Pi, with citations. web_search, code_search, and opt-in multi_search — keyless by default, no vendor lock-in.",
+  "description": "One search tool for public web/code, URL extraction, and local evidence continuation. Cited, context-efficient, and keyless by default.",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
