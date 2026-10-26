@@ -71,7 +71,7 @@ test("inspectors can overlap, writers in separate workspaces can overlap", async
 });
 
 test("policy validation is bounded, receives cancellation, and never spends admission on failure", async t => {
-  const { manager, store } = setup({ cleanupMs: 10, config: { ...DEFAULT_CONFIG, maxRuns: 1 } });
+  const { manager, store } = setup({ validationMs: 10, config: { ...DEFAULT_CONFIG, maxRuns: 1 } });
   t.after(() => manager.shutdown());
   let validationSignal: AbortSignal | undefined;
   await assert.rejects(manager.launch([plan(undefined, {
@@ -99,6 +99,64 @@ test("shutdown during asynchronous policy validation cannot allocate or start a 
   await rejected;
   assert.equal(store.records.size, 0);
   assert.equal(manager.activeCount, 0);
+});
+
+for (const cancellation of ["stop", "signal"] as const) {
+  test(`${cancellation} during resume validation preserves failed evidence and allowance`, async () => {
+    const { manager, store } = setup();
+    const entered = deferred<void>();
+    const gate = deferred<void>();
+    let calls = 0;
+    let validatingResume = false;
+    const task = plan(undefined, {
+      validate: () => {
+        if (!validatingResume) return;
+        entered.resolve();
+        return gate.promise; // Deliberately ignores cancellation.
+      },
+      async start(context) {
+        calls++;
+        context.transcript(context.directory + "/session.jsonl");
+        return {
+          prompt: async () => { throw new Error("503 Service Unavailable"); },
+          failure: () => "transient_provider", steer: async () => "queued",
+          abort: async () => {}, dispose() {},
+        };
+      },
+    });
+    const [id] = await manager.launch([task]);
+    await manager.settled(id!);
+    const before = manager.status(id!);
+    const saved = structuredClone(store.records.get(id!));
+    validatingResume = true;
+    const controller = new AbortController();
+    const resuming = manager.resume(id!, controller.signal);
+    const rejected = assert.rejects(resuming, /Stopped by agent|Tool cancelled/);
+    await entered.promise;
+    if (cancellation === "stop") await manager.stop(id!);
+    else controller.abort(new Error("Tool cancelled"));
+    // Cancellation must settle without waiting for the uncooperative validator.
+    await rejected;
+    gate.resolve();
+    assert.deepEqual(manager.status(id!), before);
+    assert.deepEqual(store.records.get(id!), saved);
+    assert.equal(calls, 1);
+    assert.equal(manager.status(id!).resume?.attempts, 0);
+    await manager.shutdown();
+  });
+}
+
+test("batch validation starts concurrently and identifies the rejected task before allocation", async () => {
+  const { manager, store } = setup();
+  const first = deferred<void>();
+  const second = deferred<void>();
+  const admission = manager.launch([
+    plan(undefined, { validate: () => { first.resolve(); return second.promise; } }),
+    plan(undefined, { validate: async () => { await first.promise; second.resolve(); throw new Error("Unavailable model"); } }),
+  ]);
+  await assert.rejects(admission, /tasks\[1\]: Unavailable model/);
+  assert.equal(store.records.size, 0);
+  await manager.shutdown();
 });
 
 test("concurrent calls cannot oversubscribe; launch count never refunded", async () => {

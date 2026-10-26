@@ -280,7 +280,7 @@ export default function subagents(pi: ExtensionAPI): void {
         case "steer": await manager.steer(request.id, request.message); result = { ok: true }; break;
         case "stop":
         case "resume": {
-          await (request.action === "stop" ? manager.stop(request.id) : manager.resume(request.id));
+          await (request.action === "stop" ? manager.stop(request.id) : manager.resume(request.id, signal));
           const record = manager.status(request.id);
           details = record; result = presentRun(record);
           break;

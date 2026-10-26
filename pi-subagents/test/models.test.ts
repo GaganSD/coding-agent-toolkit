@@ -147,7 +147,7 @@ test("bridge: parent runtime-only keys rotate and disappear without child key se
   const f = await fixture(t);
   f.registry.unregisterProvider("fixture");
   f.register("Runtime auth", null);
-  await assert.rejects(async () => { await prepareNative(f.options).validate!(); }, /No configured authentication/);
+  await assert.rejects(async () => { await prepareNative(f.options).validate!(); }, /configured authentication or credential permissions/);
   await f.parent.setRuntimeApiKey("fixture", "fake-runtime-key");
   f.setHandler((model, _context, options) => {
     assert.equal(options?.apiKey, "fake-runtime-key");
@@ -156,7 +156,29 @@ test("bridge: parent runtime-only keys rotate and disappear without child key se
   assert.match(await f.run(), /Bridge report/);
   assert.deepEqual(await f.bridge.runtime.listCredentials(), []);
   await f.parent.removeRuntimeApiKey("fixture");
-  await assert.rejects(async () => { await prepareNative(f.options).validate!(); }, /No configured authentication/);
+  await assert.rejects(async () => { await prepareNative(f.options).validate!(); }, /configured authentication or credential permissions/);
+});
+
+test("bridge: validation diagnoses provider removal during an auth check as unavailable", async t => {
+  const f = await fixture(t);
+  const plan = prepareNative({ ...f.options, checkAuth: async () => {
+    f.registry.unregisterProvider("fixture");
+    return false;
+  } });
+  await assert.rejects(async () => { await plan.validate(); }, /Exact native model .* is unavailable/);
+});
+
+test("bridge: one auth validation per admission and startup phase", async t => {
+  const f = await fixture(t);
+  let checks = 0;
+  const plan = prepareNative({ ...f.options, checkAuth: async (model, signal) => {
+    checks++;
+    return f.bridge.checkAuth(model, signal);
+  } });
+  const [id] = await f.manager.launch([plan]);
+  await f.manager.settled(id!);
+  assert.equal(f.manager.status(id!).state, "completed");
+  assert.equal(checks, 2);
 });
 
 test("bridge: model metadata changes cannot mix an old endpoint with new provider auth", async t => {

@@ -91,7 +91,7 @@ export interface PreparedTask extends Task {
   model: string;
   thinking: Thinking;
   /** Recheck live policy before admission or resume mutates evidence/capacity. */
-  validate?(signal?: AbortSignal): void | Promise<void>;
+  validate(signal?: AbortSignal): void | Promise<void>;
   start(context: RunContext, resumeFrom?: ResumeFrom): Promise<SubAgent>;
 }
 export function errorText(error: unknown): string {

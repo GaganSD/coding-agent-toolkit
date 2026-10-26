@@ -59,7 +59,9 @@ models and aliases remain unsupported. Launch and resume recheck the exact model
 scope, authentication, and thinking level. Model metadata is pinned per attempt;
 a catalog change during an active attempt fails explicitly rather than mixing old
 metadata with new provider configuration. A resume uses current metadata for the
-same exact model and thinking level.
+same exact model and thinking level. Resume preserves the original profile prompt
+and capability mode; start a new run to apply profile changes. Stopping during
+resume validation cancels that admission without spending a resume attempt.
 Provider code is trusted; parent tools, hooks, skills, and conversation are not inherited.
 
 ### Workspace admission

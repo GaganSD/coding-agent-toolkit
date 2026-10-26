@@ -59,7 +59,7 @@ export interface NativeOptions {
   workspace: string;
   agentModel?: string;
   agentThinking: Thinking;
-  scopedModels: readonly string[] | (() => readonly string[]);
+  scopedModels(): readonly string[];
 }
 
 /** Model and policy resolution happens before the manager admits any batch member. */
@@ -74,7 +74,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
   const resolve = () => {
     const model = runtime.getPhysicalModel(name.slice(0, separator), name.slice(separator + 1));
     if (!model) throw new Error(`Exact native model '${name}' is unavailable; no aliases, virtual models, or fallback`);
-    const scope = typeof options.scopedModels === "function" ? options.scopedModels() : options.scopedModels;
+    const scope = options.scopedModels();
     if (scope.length && !scope.includes(name)) throw new Error(`Model '${name}' is outside the agent's model scope`);
     const supportedThinking = getSupportedThinkingLevels(model);
     if (!supportedThinking.includes(thinking)) throw new Error(`Thinking level '${thinking}' is unsupported by ${name}; supported levels: ${supportedThinking.join(", ")}; set an explicit supported level on the task or profile`);
@@ -84,9 +84,11 @@ export function prepareNative(options: NativeOptions): PreparedTask {
   const validate = async (signal?: AbortSignal) => {
     signal?.throwIfAborted();
     const model = resolve();
-    if (!await options.checkAuth(model, signal)) throw new Error(`No configured authentication for ${model.provider}`);
+    const available = await options.checkAuth(model, signal);
     signal?.throwIfAborted();
-    return resolve(); // Auth checks can yield; scope/catalog may have changed meanwhile.
+    const current = resolve(); // Auth checks can yield; scope/catalog may have changed meanwhile.
+    if (!available) throw new Error(`Model '${name}' is unavailable with the configured authentication or credential permissions`);
+    return current;
   };
   // No extension discovery is allowed; only trusted global/project instruction
   // files and ordinary Pi settings are inherited. This manager never writes them.
@@ -101,8 +103,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
     ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode, validate: async signal => { await validate(signal); },
     async start(context, resumeFrom?: ResumeFrom) {
       context.signal.throwIfAborted();
-      let model = await validate(context.signal);
-      publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
+      publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, resolve().contextWindow) });
       if (resumeFrom) {
         if (!resumeFrom.sessionId) throw new Error("Resume requires the saved native session identity");
         let info;
@@ -123,7 +124,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       context.signal.throwIfAborted();
       if (loader.getExtensions().extensions.length || loader.getExtensions().errors.length) throw new Error("Sub-agent unexpectedly loaded extensions or extension errors");
       // Snapshot plain model metadata so even an in-place catalog edit cannot change this attempt.
-      model = structuredClone(await validate(context.signal));
+      const model = structuredClone(await validate(context.signal));
       const { session } = await createAgentSession({
         cwd: options.cwd, agentDir: options.agentDir, modelRuntime: runtime, model, thinkingLevel: thinking,
         settingsManager: settings, resourceLoader: loader, tools,

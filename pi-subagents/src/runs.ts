@@ -11,7 +11,7 @@ function resumeState(attempts: number, eligible: boolean, kind?: FailureKind): R
 }
 
 interface WorkspaceClaim extends Pick<RunRecord, "mode" | "cwd" | "workspace"> { label: string }
-const runClaim = (run: RunRecord): WorkspaceClaim => ({ ...run, label: `run ${JSON.stringify(run.id)}` });
+const runClaim = ({ mode, cwd, workspace, id }: RunRecord): WorkspaceClaim => ({ mode, cwd, workspace, label: `run ${JSON.stringify(id)}` });
 function describeClaim(claim: WorkspaceClaim): string {
   return `${claim.label} (${claim.mode}, cwd=${JSON.stringify(claim.cwd)}, workspace=${JSON.stringify(claim.workspace)})`;
 }
@@ -26,6 +26,7 @@ interface Run {
   plan: PreparedTask;
   preview: string[];
   controller: AbortController;
+  resuming?: AbortController;
   subAgent?: SubAgent;
   question?: PendingQuestion;
   work: Promise<void>;
@@ -49,6 +50,7 @@ export interface ManagerOptions {
   unsafeCleanup?(record: RunRecord): void;
   assertLaunchable?(): void;
   cleanupMs?: number;
+  validationMs?: number;
 }
 
 /** Owns only this live agent. Files are evidence, never a source of launch authority. */
@@ -86,10 +88,13 @@ export class RunManager {
       if (this.admitted + plans.length > this.options.config.maxRuns) throw new Error("Session launch budget exhausted");
       const admitted = this.liveRecords().map(runClaim);
       for (const [index, plan] of plans.entries()) {
-        const claim: WorkspaceClaim = { ...plan, label: `tasks[${index}]` };
+        const claim: WorkspaceClaim = { mode: plan.mode, cwd: plan.cwd, workspace: plan.workspace, label: `tasks[${index}]` };
         await this.assertWorkspaceFree(claim, admitted);
         admitted.push(claim);
-        await this.validate(plan, signal);
+      }
+      const validations = await Promise.allSettled(plans.map(plan => this.validate(plan, signal)));
+      for (const [index, result] of validations.entries()) {
+        if (result.status === "rejected") throw new Error(`tasks[${index}]: ${errorText(result.reason)}`);
       }
       const staged: Run[] = [];
       try {
@@ -129,59 +134,70 @@ export class RunManager {
     });
   }
 
-  async resume(id: string): Promise<void> {
+  async resume(id: string, signal?: AbortSignal): Promise<void> {
     return this.serialized(async () => {
       const run = this.owned(id);
       this.assertResumable(run);
-      await run.work;
-      if (run.finishing) await run.finishing.catch(() => {});
-      await run.writes;
-      this.assertResumable(run);
       this.assertLaunchable();
-      if (this.activeCount + 1 > this.options.config.maxConcurrent) throw new Error("Concurrent sub-agent limit reached; wait for existing results");
-      const record = run.record;
-      await this.assertWorkspaceFree(runClaim(record), this.liveRecords().map(runClaim));
-      await this.validate(run.plan);
-      this.assertLaunchable(); // Validation can yield to shutdown/stop.
-      this.assertResumable(run);
-      // Only the record and the controller swap precede the persist await, so a stop()
-      // interleaving during it acts on the new attempt. Everything else resets once the
-      // starting snapshot is durable, which keeps the rollback to two assignments.
-      const priorRecord = this.snapshot(run);
-      const priorController = run.controller;
-      record.resume = resumeState(record.resume!.attempts + 1, false);
-      record.state = "starting";
-      record.startedAt = new Date().toISOString();
-      record.endedAt = undefined;
-      record.currentTool = undefined;
-      record.question = undefined;
-      record.reportPath = undefined;
-      record.error = undefined;
-      record.notificationError = undefined;
-      record.usage = undefined;
-      record.toolErrors = undefined;
-      record.contextUsage = undefined;
-      run.controller = new AbortController();
-      try { await this.persist(run); }
-      catch (error) {
-        Object.assign(run.record, priorRecord);
-        run.controller = priorController;
-        await this.persist(run).catch(() => {});
-        throw error;
-      }
-      run.preview = [];
-      run.question = undefined;
-      run.subAgent = undefined;
-      run.notified = false;
-      run.cleaned = false;
-      run.stopping = undefined;
-      run.aborting = undefined;
-      run.finishing = undefined;
-      clearTimeout(run.timer);
-      run.timer = setTimeout(() => { void this.stop(record.id, "Run deadline exceeded").catch(() => {}); }, this.options.config.timeoutMs);
-      run.work = this.execute(run, { sessionPath: record.sessionPath!, launchHead: record.launchHead, sessionId: record.sessionId });
-      this.changed();
+      const pending = new AbortController();
+      run.resuming = pending;
+      const combined = AbortSignal.any([pending.signal, this.lifetime.signal, ...(signal ? [signal] : [])]);
+      try { await this.resumeAttempt(run, combined); }
+      finally { run.resuming = undefined; }
     });
+  }
+
+  private async resumeAttempt(run: Run, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    await run.work;
+    if (run.finishing) await run.finishing.catch(() => {});
+    await run.writes;
+    this.assertResumable(run);
+    this.assertLaunchable();
+    if (this.activeCount + 1 > this.options.config.maxConcurrent) throw new Error("Concurrent sub-agent limit reached; wait for existing results");
+    const record = run.record;
+    await this.assertWorkspaceFree(runClaim(record), this.liveRecords().map(runClaim));
+    await this.validate(run.plan, signal);
+    signal.throwIfAborted();
+    this.assertLaunchable(); // Validation can yield to shutdown/stop.
+    this.assertResumable(run);
+    // Only the record and the controller swap precede the persist await, so a stop()
+    // interleaving during it acts on the new attempt. Everything else resets once the
+    // starting snapshot is durable, which keeps the rollback to two assignments.
+    const priorRecord = this.snapshot(run);
+    const priorController = run.controller;
+    record.resume = resumeState(record.resume!.attempts + 1, false);
+    record.state = "starting";
+    record.startedAt = new Date().toISOString();
+    record.endedAt = undefined;
+    record.currentTool = undefined;
+    record.question = undefined;
+    record.reportPath = undefined;
+    record.error = undefined;
+    record.notificationError = undefined;
+    record.usage = undefined;
+    record.toolErrors = undefined;
+    record.contextUsage = undefined;
+    run.controller = new AbortController();
+    try { await this.persist(run); }
+    catch (error) {
+      Object.assign(run.record, priorRecord);
+      run.controller = priorController;
+      await this.persist(run).catch(() => {});
+      throw error;
+    }
+    run.preview = [];
+    run.question = undefined;
+    run.subAgent = undefined;
+    run.notified = false;
+    run.cleaned = false;
+    run.stopping = undefined;
+    run.aborting = undefined;
+    run.finishing = undefined;
+    clearTimeout(run.timer);
+    run.timer = setTimeout(() => { void this.stop(record.id, "Run deadline exceeded").catch(() => {}); }, this.options.config.timeoutMs);
+    run.work = this.execute(run, { sessionPath: record.sessionPath!, launchHead: record.launchHead, sessionId: record.sessionId });
+    this.changed();
   }
 
   async steer(id: string, message: string): Promise<string> {
@@ -213,6 +229,7 @@ export class RunManager {
 
   async stop(id: string, reason = "Stopped by agent"): Promise<void> {
     const run = this.owned(id);
+    run.resuming?.abort(new Error(reason));
     if (!isLive(run.record.state) || run.record.state === "cleanup_unknown") return;
     if (run.stopping) return run.stopping;
     run.record.state = "cancelling";
@@ -261,13 +278,22 @@ export class RunManager {
     }
   }
   private async validate(plan: PreparedTask, signal?: AbortSignal): Promise<void> {
-    if (!plan.validate) return;
     const deadline = new AbortController();
     const combined = AbortSignal.any([this.lifetime.signal, deadline.signal, ...(signal ? [signal] : [])]);
     combined.throwIfAborted();
-    await bounded(Promise.resolve().then(() => plan.validate!(combined)), this.options.cleanupMs ?? 5000,
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(combined.reason);
+      combined.addEventListener("abort", abort, { once: true });
+    });
+    try {
+      await bounded(Promise.race([Promise.resolve().then(() => {
+        combined.throwIfAborted();
+        return plan.validate(combined);
+      }), cancelled]), this.options.validationMs ?? 30_000,
       "Model/policy validation deadline exceeded", deadline);
-    combined.throwIfAborted();
+      combined.throwIfAborted();
+    } finally { combined.removeEventListener("abort", abort); }
   }
   private assertResumable(run: Run): void {
     const record = run.record;
