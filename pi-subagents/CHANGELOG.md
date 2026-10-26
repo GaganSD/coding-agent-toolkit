@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Support extension-provided models through the owning Pi registry's live catalog, authentication, and streaming services without inheriting parent extensions, tools, or conversation (#59).
+- Revalidate model, scope, authentication, and thinking before admission and resume; reject removed or virtual models without fallback.
+- Cancel pending resume validation on stop or tool cancellation without spending an attempt; validate batch policies concurrently with task-specific errors and a separate admission deadline.
+- Identify conflicting batch tasks and active runs with cwd and effective workspace roots; explain directory-based isolation and whole-worktree Git reservations (#67).
+
 ## 0.0.7
 
 Release the current extension updates together.

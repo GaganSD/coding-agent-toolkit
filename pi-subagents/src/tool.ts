@@ -198,7 +198,7 @@ export const DESCRIPTION = `Delegate only when requested by the operator or appl
 run launches 1–4 fresh, session-bound native Pi sub-agents; ordered receipts are NOT results or a join.
 Sub-agents have fixed tools and applicable instruction files, but no agent history, extensions, hooks, MCP or skills.
 Do not launch tasks needing unavailable capabilities or policies. Modes are inspect (read-only) and edit (shell/write), not OS sandboxes.
-Use list with the target cwd to inspect profiles. Reserve returned workspaces until settled; parallel writers need separate existing worktrees.
+Use list with cwd to inspect profiles. Reserve workspaces until settled; writers need disjoint roots (whole Git worktrees).
 Questions/results wake this agent: yield, do not poll. Use exact run IDs; reply also needs the current question ID.
 status lists live/recent runs; status(id) gives control state, resolved model/thinking, and evidence paths. /subagents provides human control.
 Control receipts mean accepted, not compliance. Completed means settled and saved, not verified; read the report and validate.

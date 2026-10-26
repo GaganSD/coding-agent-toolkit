@@ -46,8 +46,8 @@ async function fixture(t: Parameters<typeof temp>[0], handler?: (model: Model<Ap
   });
   const profiles = await loadProfiles(agentDir, cwd, true);
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, task: { agent: "reviewer", task: "Review fixture" },
-    profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: [],
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
+    profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: () => [],
   };
   const store = new FileArtifacts(path.join(root, "runs"));
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store });
@@ -106,7 +106,7 @@ test("real SDK: worker tools differ, no model/scoped/thinking fallback", async t
   assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.deepEqual(names.sort(), [...EDIT_TOOLS].sort());
   assert.throws(() => prepareNative({ ...options, task: { ...options.task, model: "fixture/missing" } }), /unavailable/);
-  assert.throws(() => prepareNative({ ...options, scopedModels: ["different/provider"] }), /scope/);
+  assert.throws(() => prepareNative({ ...options, scopedModels: () => ["different/provider"] }), /scope/);
   const unsupportedThinking = /Thinking level 'high' is unsupported by fixture\/test; supported levels: off; set an explicit supported level on the task or profile/;
   assert.throws(() => prepareNative({ ...options, agentThinking: "high" }), unsupportedThinking);
   assert.throws(() => prepareNative({ ...options, agentThinking: "off", task: { ...options.task, thinking: "high" } }), unsupportedThinking);

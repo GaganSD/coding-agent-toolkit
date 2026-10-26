@@ -51,6 +51,30 @@ the batch is rejected before any sub-agent launches and the error lists the vali
 levels. Set `tasks[].thinking` or the profile's `thinking` explicitly; the package
 never silently falls back to a different model or thinking level.
 
+Built-in, `models.json`, and extension-provided physical chat models use the
+owning Pi session's live provider services, including custom streaming and
+request-time authentication. Provider registration/removal and refreshed catalogs
+are visible without reloading this package; credentials are not copied. Virtual
+models and aliases remain unsupported. Launch and resume recheck the exact model,
+scope, authentication, and thinking level. Model metadata is pinned per attempt;
+a catalog change during an active attempt fails explicitly rather than mixing old
+metadata with new provider configuration. A resume uses current metadata for the
+same exact model and thinking level. Resume preserves the original profile prompt
+and capability mode; start a new run to apply profile changes. Stopping during
+resume validation cancels that admission without spending a resume attempt.
+Provider code is trusted; parent tools, hooks, skills, and conversation are not inherited.
+
+### Workspace admission
+
+Inspectors may share a workspace. If either task edits, workspace roots must not
+overlap—even between tasks in the same batch. Non-Git directories reserve their
+canonical directory; Git directories reserve the whole worktree root, so sibling
+subdirectories of one checkout still conflict. Symlink aliases and nested roots
+also overlap. Use sequential runs or separate existing directories, clones, or
+worktrees with non-overlapping roots. The package does not create them. Conflict
+errors identify both task indices (`tasks[0]`, etc.) or exact run IDs, their modes,
+cwd paths, and effective workspace roots before allocating any runs.
+
 ### Human navigation
 
 Rows use stable names such as `Worker 1 · Implement the parser · Running`.

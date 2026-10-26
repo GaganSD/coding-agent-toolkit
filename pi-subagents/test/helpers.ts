@@ -52,6 +52,7 @@ export class MemoryStore implements ArtifactStore {
 export function plan(prompt: (context: RunContext) => Promise<SubAgentResult> = async () => ({ report: "Evidence report", toolErrors: 0 }), overrides: Partial<PreparedTask> = {}): PreparedTask {
   return {
     agent: "reviewer", mode: "inspect", task: "Review", cwd: "/repo", workspace: "/repo", model: "fixture/test", thinking: "off",
+    validate() {},
     async start(context) {
       context.transcript(context.directory + "/transcript/test.jsonl");
       return { prompt: () => prompt(context), steer: async () => "queued", abort: async () => {}, dispose() {} };
