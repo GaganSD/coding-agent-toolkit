@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "429e1c85a7ec7d97171fb4e1ff131ade5a32c350",
-  "notes": "Search the web, public code, and URLs through one tool, with less context overhead and easier follow-up reading.",
+  "sourceSha": "b3e52951be69acc54c658bf0d9dc2e65f46ec33f",
+  "notes": "Support extension-provided models through the owning Pi registry, tighten admission and resume validation, and clarify workspace isolation.",
   "packages": [
     {
-      "path": "pi-web-search",
-      "name": "@gagansd/pi-web-search",
-      "from": "0.3.1",
-      "to": "0.4.0",
+      "path": "pi-subagents",
+      "name": "@gagansd/pi-subagents",
+      "from": "0.0.7",
+      "to": "0.1.0",
       "bump": "minor"
     }
   ]
