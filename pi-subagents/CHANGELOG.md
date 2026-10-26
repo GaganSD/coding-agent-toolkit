@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Support extension-provided models through the owning Pi registry's live catalog, authentication, and streaming services without inheriting parent extensions, tools, or conversation (#59).
+- Revalidate model, scope, authentication, and thinking before admission and resume; reject removed or virtual models without fallback.
+- Identify conflicting batch tasks and active runs with cwd and effective workspace roots; explain directory-based isolation and whole-worktree Git reservations (#67).
+
 ## 0.0.7
 
 Release the current extension updates together.

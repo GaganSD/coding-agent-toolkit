@@ -46,7 +46,7 @@ async function fixture(t: Parameters<typeof temp>[0], handler?: (model: Model<Ap
   });
   const profiles = await loadProfiles(agentDir, cwd, true);
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, task: { agent: "reviewer", task: "Review fixture" },
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
     profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: [],
   };
   const store = new FileArtifacts(path.join(root, "runs"));

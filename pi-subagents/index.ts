@@ -2,7 +2,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import {
-  getAgentDir, ModelRuntime, SettingsManager, VERSION,
+  getAgentDir, SettingsManager, VERSION,
   type ExtensionAPI, type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { loadProfiles } from "./src/agents.ts";
@@ -10,6 +10,7 @@ import { FileArtifacts } from "./src/artifacts.ts";
 import { parseConfig } from "./src/config.ts";
 import { RunManager } from "./src/runs.ts";
 import { prepareNative } from "./src/session.ts";
+import { ProviderBridge } from "./src/models.ts";
 import { attach, parseCommand, resolveRun, type InspectActions } from "./src/inspect.ts";
 import { DESCRIPTION, OutputSchema, Parameters, parseRequest, presentLaunch, presentNotice, presentRun, presentSummary, resultPreview } from "./src/tool.ts";
 import { errorText, isLive, type PreparedTask, type Profile } from "./src/types.ts";
@@ -55,7 +56,7 @@ function admittedCount(ctx: ExtensionContext, owner: string): number {
 export default function subagents(pi: ExtensionAPI): void {
   let host: { owner: string; ctx: ExtensionContext; manager: RunManager; widget: WidgetSlot; unsubInput?: () => void; inspecting?: boolean; closeThread?: () => void } | undefined;
   let closing: Promise<void> | undefined;
-  let runtime: Promise<ModelRuntime> | undefined;
+  let models: Promise<ProviderBridge> | undefined;
   let refresh: ReturnType<typeof setTimeout> | undefined;
   let clock: ReturnType<typeof setInterval> | undefined;
   const inspectors = new Set<() => void>();
@@ -218,7 +219,7 @@ export default function subagents(pi: ExtensionAPI): void {
     host = undefined; // notify() already no-ops once host.manager is no longer this manager.
     clearTimeout(refresh); refresh = undefined;
     clearInterval(clock); clock = undefined;
-    runtime = undefined;
+    models = undefined;
     try { previous?.closeThread?.(); previous?.unsubInput?.(); previous?.ctx.ui.setWidget("minimal-subagents", undefined); } catch { /* UI may already be disposed. */ }
     inspectors.clear();
     closing = Promise.resolve(previous?.manager.shutdown()).finally(() => { closing = undefined; });
@@ -288,13 +289,14 @@ export default function subagents(pi: ExtensionAPI): void {
         case "run": {
           assertHealthy();
           if (!ctx.isProjectTrusted()) throw new Error("Trust the agent project in Pi before delegating");
-          runtime ??= ModelRuntime.create({
-            authPath: path.join(agentDir, "auth.json"), modelsPath: path.join(agentDir, "models.json"), allowModelNetwork: false,
-          }).catch(error => { runtime = undefined; throw error; });
-          const modelRuntime = await runtime;
+          models ??= ProviderBridge.create(() => {
+            if (host !== state) throw new Error("Owning model registry is no longer active");
+            return state.ctx.modelRegistry;
+          }).catch(error => { models = undefined; throw error; });
+          const bridge = await models;
           const trusted = ctx.isProjectTrusted();
           const agentThinking = pi.getThinkingLevel();
-          const scopedModels = ctx.scopedModels.map(({ model }) => `${model.provider}/${model.id}`);
+          const scopedModels = () => state.ctx.scopedModels.map(({ model }) => `${model.provider}/${model.id}`);
           signal?.throwIfAborted();
           // Share target discovery only within this batch; no stale cross-call cache.
           const targets = new Map<string, Promise<{ workspace: string; profiles: Map<string, Profile> }>>();
@@ -309,8 +311,10 @@ export default function subagents(pi: ExtensionAPI): void {
             const { workspace, profiles } = await target;
             const profile = profiles.get(task.agent);
             if (!profile) throw new Error(`Unknown agent '${task.agent}'. Use list; only worker and reviewer are bundled.`);
+            const name = task.model ?? profile.model ?? modelLabel(ctx);
+            if (name?.includes("/")) bridge.ensure(name.slice(0, name.indexOf("/")));
             return prepareNative({
-              agentDir, runtime: modelRuntime, task, profile, cwd, workspace,
+              agentDir, runtime: bridge.runtime, checkAuth: bridge.checkAuth, task, profile, cwd, workspace,
               agentModel: modelLabel(ctx), agentThinking, scopedModels,
             });
           }));

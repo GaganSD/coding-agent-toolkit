@@ -30,19 +30,37 @@ test("completion means saved output, with transcript/evidence and exactly one no
 });
 
 test("conflicting writers are rejected before any sub-agent starts", async () => {
-  const { manager } = setup();
+  const { manager, store } = setup({ config: { ...DEFAULT_CONFIG, maxRuns: 2 } });
   let starts = 0;
   const worker = plan(async () => { starts++; return { report: "x", toolErrors: 0 }; }, { mode: "edit", agent: "worker" });
-  await assert.rejects(manager.launch([worker, plan()]), /Conflicting/);
+  await assert.rejects(manager.launch([worker, plan()]), error => {
+    assert(error instanceof Error);
+    assert.match(error.message, /tasks\[1\].*inspect.*cwd="\/repo".*workspace="\/repo".*tasks\[0\].*edit/);
+    assert.match(error.message, /sequentially.*directories, clones, or worktrees/);
+    assert.match(error.message, /whole worktree/);
+    return true;
+  });
   assert.equal(starts, 0);
+  assert.equal(store.records.size, 0);
   assert.equal(manager.list().length, 0);
+  // A rejected conflict consumes none of the two-run budget.
+  const ids = await manager.launch([worker, plan(undefined, { cwd: "/other", workspace: "/other" })]);
+  await Promise.all(ids.map(id => manager.settled(id)));
+  assert.equal(store.records.size, 2);
+  assert.equal(starts, 1);
 });
 
 test("inspectors can overlap, writers in separate workspaces can overlap", async () => {
   const { manager } = setup();
   const first = await manager.launch([plan(waitForAbort), plan(waitForAbort)]);
   assert.equal(manager.activeCount, 2);
-  await assert.rejects(manager.launch([plan(waitForAbort, { mode: "edit" })]), /Conflicting/);
+  await assert.rejects(manager.launch([plan(waitForAbort, { mode: "edit" })]), error => {
+    assert(error instanceof Error);
+    assert.match(error.message, /tasks\[0\]/);
+    assert(error.message.includes(`run "${first[0]}"`));
+    assert.match(error.message, /cwd="\/repo", workspace="\/repo"/);
+    return true;
+  });
   await manager.shutdown();
   assert(first.every(id => manager.status(id).state === "cancelled"));
   const other = setup().manager;
@@ -50,6 +68,37 @@ test("inspectors can overlap, writers in separate workspaces can overlap", async
   assert.equal(other.activeCount, 2);
   await other.shutdown();
   assert(ids.every(id => other.status(id).state === "cancelled"));
+});
+
+test("policy validation is bounded, receives cancellation, and never spends admission on failure", async t => {
+  const { manager, store } = setup({ cleanupMs: 10, config: { ...DEFAULT_CONFIG, maxRuns: 1 } });
+  t.after(() => manager.shutdown());
+  let validationSignal: AbortSignal | undefined;
+  await assert.rejects(manager.launch([plan(undefined, {
+    validate: signal => { validationSignal = signal; return new Promise(() => {}); },
+  })]), /Model\/policy validation deadline exceeded/);
+  assert(validationSignal?.aborted);
+  assert.equal(store.records.size, 0);
+  const [id] = await manager.launch([plan()]);
+  await manager.settled(id!);
+  assert.equal(manager.status(id!).state, "completed");
+});
+
+test("shutdown during asynchronous policy validation cannot allocate or start a run", async () => {
+  const { manager, store } = setup();
+  const entered = deferred<void>();
+  const admission = manager.launch([plan(undefined, {
+    validate: signal => new Promise<void>((_resolve, reject) => {
+      entered.resolve();
+      signal!.addEventListener("abort", () => reject(signal!.reason), { once: true });
+    }),
+  })]);
+  const rejected = assert.rejects(admission, /ended or reloaded/);
+  await entered.promise;
+  await manager.shutdown();
+  await rejected;
+  assert.equal(store.records.size, 0);
+  assert.equal(manager.activeCount, 0);
 });
 
 test("concurrent calls cannot oversubscribe; launch count never refunded", async () => {
@@ -509,7 +558,13 @@ test("resume rechecks workspace conflicts against live runs", async t => {
   const [failedId] = await manager.launch([resumableEditTask(calls)]);
   await manager.settled(failedId!);
   const [inspector] = await manager.launch([plan(waitForAbort, { mode: "inspect", agent: "reviewer", workspace: "/repo-a/child", cwd: "/repo-a/child" })]);
-  await assert.rejects(manager.resume(failedId!), /Conflicting delegated workspaces/);
+  await assert.rejects(manager.resume(failedId!), error => {
+    assert(error instanceof Error);
+    assert(error.message.includes(`run "${failedId}"`));
+    assert(error.message.includes(`run "${inspector}"`));
+    assert.match(error.message, /workspace="\/repo-a".*workspace="\/repo-a\/child"/);
+    return true;
+  });
   await manager.stop(inspector!);
   await manager.resume(failedId!);
   await manager.settled(failedId!);

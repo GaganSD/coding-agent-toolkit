@@ -266,7 +266,7 @@ test("bonus: deleting the native transcript cannot complete a resume", async t =
   });
   const profiles = await loadProfiles(agentDir, cwd, true);
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, task: { agent: "reviewer", task: "Review fixture" },
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
     profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: [],
   };
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store: new FileArtifacts(path.join(root, "runs")) });
@@ -305,7 +305,7 @@ async function nativeFailed(t: Parameters<typeof temp>[0], onCall?: (n: number, 
   });
   const profiles = await loadProfiles(agentDir, cwd, true);
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, task: { agent: "reviewer", task: "Review fixture" },
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
     profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: [],
   };
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store: new FileArtifacts(path.join(root, "runs")) });

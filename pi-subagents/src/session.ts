@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { getSupportedThinkingLevels, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, isRetryableAssistantError, type Api, type Model, type AssistantMessage } from "@earendil-works/pi-ai";
 import {
   createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager,
   type AgentSession, type ContextUsage, type ModelRuntime, type ToolDefinition,
@@ -52,13 +52,14 @@ export function contactAgentTool(context: RunContext): ToolDefinition<typeof Que
 export interface NativeOptions {
   agentDir: string;
   runtime: ModelRuntime;
+  checkAuth(model: Model<Api>, signal?: AbortSignal): boolean | Promise<boolean>;
   task: Task;
   profile: Profile;
   cwd: string;
   workspace: string;
   agentModel?: string;
   agentThinking: Thinking;
-  scopedModels: readonly string[];
+  scopedModels: readonly string[] | (() => readonly string[]);
 }
 
 /** Model and policy resolution happens before the manager admits any batch member. */
@@ -68,13 +69,25 @@ export function prepareNative(options: NativeOptions): PreparedTask {
   if (!name) throw new Error("No model selected; configure the agent or profile");
   const separator = name.indexOf("/");
   if (separator < 1) throw new Error(`Exact native model '${name}' is unavailable; no aliases, virtual models, or fallback`);
-  const model = runtime.getPhysicalModel(name.slice(0, separator), name.slice(separator + 1));
-  if (!model) throw new Error(`Exact native model '${name}' is unavailable; no aliases, virtual models, or fallback`);
-  if (options.scopedModels.length && !options.scopedModels.includes(name)) throw new Error(`Model '${name}' is outside the agent's model scope`);
-  if (!runtime.hasConfiguredAuth(model.provider)) throw new Error(`No configured authentication for ${model.provider}`);
   const thinking = task.thinking ?? profile.thinking ?? options.agentThinking;
-  const supportedThinking = getSupportedThinkingLevels(model);
-  if (!supportedThinking.includes(thinking)) throw new Error(`Thinking level '${thinking}' is unsupported by ${name}; supported levels: ${supportedThinking.join(", ")}; set an explicit supported level on the task or profile`);
+  // Pin identity/thinking, not a launch-time catalog or authentication snapshot.
+  const resolve = () => {
+    const model = runtime.getPhysicalModel(name.slice(0, separator), name.slice(separator + 1));
+    if (!model) throw new Error(`Exact native model '${name}' is unavailable; no aliases, virtual models, or fallback`);
+    const scope = typeof options.scopedModels === "function" ? options.scopedModels() : options.scopedModels;
+    if (scope.length && !scope.includes(name)) throw new Error(`Model '${name}' is outside the agent's model scope`);
+    const supportedThinking = getSupportedThinkingLevels(model);
+    if (!supportedThinking.includes(thinking)) throw new Error(`Thinking level '${thinking}' is unsupported by ${name}; supported levels: ${supportedThinking.join(", ")}; set an explicit supported level on the task or profile`);
+    return model;
+  };
+  resolve();
+  const validate = async (signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    const model = resolve();
+    if (!await options.checkAuth(model, signal)) throw new Error(`No configured authentication for ${model.provider}`);
+    signal?.throwIfAborted();
+    return resolve(); // Auth checks can yield; scope/catalog may have changed meanwhile.
+  };
   // No extension discovery is allowed; only trusted global/project instruction
   // files and ordinary Pi settings are inherited. This manager never writes them.
   const disk = SettingsManager.create(options.cwd, options.agentDir, { projectTrusted: true });
@@ -85,9 +98,10 @@ export function prepareNative(options: NativeOptions): PreparedTask {
     cacheWarming: "off", enableSkillCommands: false,
   }, { projectTrusted: true });
   return {
-    ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode,
+    ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode, validate: async signal => { await validate(signal); },
     async start(context, resumeFrom?: ResumeFrom) {
       context.signal.throwIfAborted();
+      let model = await validate(context.signal);
       publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
       if (resumeFrom) {
         if (!resumeFrom.sessionId) throw new Error("Resume requires the saved native session identity");
@@ -108,6 +122,8 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       await loader.reload();
       context.signal.throwIfAborted();
       if (loader.getExtensions().extensions.length || loader.getExtensions().errors.length) throw new Error("Sub-agent unexpectedly loaded extensions or extension errors");
+      // Snapshot plain model metadata so even an in-place catalog edit cannot change this attempt.
+      model = structuredClone(await validate(context.signal));
       const { session } = await createAgentSession({
         cwd: options.cwd, agentDir: options.agentDir, modelRuntime: runtime, model, thinkingLevel: thinking,
         settingsManager: settings, resourceLoader: loader, tools,
