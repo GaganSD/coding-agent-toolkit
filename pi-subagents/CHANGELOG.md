@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.0
+
+Support extension-provided models through the owning Pi registry, tighten admission and resume validation, and clarify workspace isolation.
+
 - Support extension-provided models through the owning Pi registry's live catalog, authentication, and streaming services without inheriting parent extensions, tools, or conversation (#59).
 - Revalidate model, scope, authentication, and thinking before admission and resume; reject removed or virtual models without fallback.
 - Cancel pending resume validation on stop or tool cancellation without spending an attempt; validate batch policies concurrently with task-specific errors and a separate admission deadline.
