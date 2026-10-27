@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `catppuccin-mocha-pink` theme, selectable with `/slate theme pink` or `/slate style pink`.
+
 ## 0.1.18
 
 Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.

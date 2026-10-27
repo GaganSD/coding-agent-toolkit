@@ -1,7 +1,7 @@
 import { effortPalette } from "./theme-palette.ts";
 
 export const FLAVORS = ["mocha"] as const;
-export const STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
+export const STYLES = ["default", "quiet", "mauve", "pink", "sapphire", "peach", "teal"] as const;
 
 export type Flavor = (typeof FLAVORS)[number];
 export type Style = (typeof STYLES)[number];
@@ -14,6 +14,7 @@ export const STYLE_LABELS: Record<Style, string> = {
   default: "Default",
   quiet: "Quiet",
   mauve: "Mauve",
+  pink: "Pink",
   sapphire: "Sapphire",
   peach: "Peach",
   teal: "Teal",
@@ -46,6 +47,7 @@ const STYLE_ROLES: Record<Style, { accent: Swatch; border: Swatch; heading: Swat
   default: { accent: "lavender", border: "overlay0", heading: "text" },
   quiet: { accent: "subtext1", border: "surface2", heading: "subtext1" },
   mauve: { accent: "mauve", border: "overlay0", heading: "mauve" },
+  pink: { accent: "pink", border: "overlay0", heading: "pink" },
   sapphire: { accent: "sapphire", border: "overlay0", heading: "sapphire" },
   peach: { accent: "peach", border: "overlay0", heading: "peach" },
   teal: { accent: "teal", border: "overlay0", heading: "teal" },

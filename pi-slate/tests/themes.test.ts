@@ -86,7 +86,8 @@ test("bundled effort ramps start neutral and brighten toward each theme's border
   const expectedMax: Record<string, string> = {
     "tokyo-night": "#6785ca", "black-metal": "#8a8a8a",
     "catppuccin-mocha-default": "#9ea7da", "catppuccin-mocha-quiet": "#9da3bd",
-    "catppuccin-mocha-mauve": "#af96d5", "catppuccin-mocha-sapphire": "#72adcd",
+    "catppuccin-mocha-mauve": "#af96d5", "catppuccin-mocha-pink": "#cca9ca",
+    "catppuccin-mocha-sapphire": "#72adcd",
     "catppuccin-mocha-peach": "#cf9f87", "catppuccin-mocha-teal": "#88c0bd",
   };
   for (const theme of allSlateThemes()) {

@@ -74,6 +74,7 @@ Slate supports the following themes and can be changed with `/slate theme <name>
 | `black-metal` | ⬛ |
 | `quiet` | ⬜ |
 | `mauve` | 🟪 |
+| `pink` | 🩷 |
 | `sapphire` | 🟦 |
 | `peach` | 🟧 |
 | `teal` | 🟩 |
@@ -125,7 +126,7 @@ These work when `editor` is selected. No terminal configuration.
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. Not footer-slot ownership. |
-| Theme | `/slate theme [default\|tokyo-night\|black-metal\|quiet\|mauve\|sapphire\|peach\|teal]` | Default restores Pi's system theme. Tokyo Night and Black Metal are explicit; other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
+| Theme | `/slate theme [default\|tokyo-night\|black-metal\|quiet\|mauve\|pink\|sapphire\|peach\|teal]` | Default restores Pi's system theme. Tokyo Night and Black Metal are explicit; other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Independent Surfaces
