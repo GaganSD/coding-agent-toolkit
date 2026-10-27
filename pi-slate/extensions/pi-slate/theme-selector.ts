@@ -116,12 +116,21 @@ export class ThemeSelector implements Component {
 
 export async function selectSlateTheme(ctx: ExtensionContext, save: (name: string) => boolean): Promise<void> {
   if (ctx.mode !== "tui") { ctx.ui.notify("/theme slate requires interactive terminal mode", "error"); return; }
-  const original = ctx.ui.theme;
+  // ui.theme is Pi's live styling proxy, not a concrete Theme: its name changes
+  // during previews and setTheme(proxy) can take the persistent string path.
+  // Resolve through this host's API (not an imported Theme constructor, whose
+  // identity can differ across Pi's bundled host and extension module loaders).
+  const originalName = ctx.ui.theme.name;
+  const original = originalName ? ctx.ui.getTheme(originalName) : undefined;
+  if (!original) {
+    ctx.ui.notify("Could not snapshot the current theme. Run /reload before previewing.", "error");
+    return;
+  }
   let confirmed = false;
   let previewed = false;
   try {
     const selected = await ctx.ui.custom<string | undefined>((tui, _theme, keys, done) => new ThemeSelector(
-      slateThemeChoices(original.name), original.name, tui, () => ctx.ui.theme, keys,
+      slateThemeChoices(originalName), originalName, tui, () => ctx.ui.theme, keys,
       name => {
         // Pi persists string setTheme calls. Theme instances preview without touching settings.
         const theme = ctx.ui.getTheme(name);

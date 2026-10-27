@@ -91,6 +91,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   let header: Component | undefined;
   const ui = {
     theme,
+    getTheme: (name: string) => ({ ...theme, name }),
     notify: (message: string) => notices.push(message),
     setHeader: (factory: ((tui: TUI, theme: Theme) => Component) | undefined) => { assert.ok(factory); calls.push("header"); header = factory(tui, theme); },
     setFooter: (factory: (() => Component) | undefined) => { assert.ok(factory); calls.push("footer"); assert.deepEqual(factory().render(80), []); },

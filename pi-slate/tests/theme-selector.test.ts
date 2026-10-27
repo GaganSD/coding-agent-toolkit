@@ -6,6 +6,7 @@ import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-ag
 import { STYLES, catppuccinThemeName } from "../extensions/pi-slate/catppuccin.ts";
 import { selectSlateTheme, slateThemeChoices, ThemeSelector } from "../extensions/pi-slate/theme-selector.ts";
 import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js";
+import { initTheme, setThemeInstance } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { BUILTIN_SLASH_COMMANDS } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/slash-commands.js";
 
 const theme = { name: "external", fg: (_: string, text: string) => text, bold: (text: string) => text,
@@ -110,19 +111,25 @@ for (const style of STYLES.filter(style => !["pink", "red", "lavender"].includes
   });
 }
 
-for (const action of ["save", "cancel", "throw", "failed-save", "failed-preview"] as const) {
+for (const action of ["save", "cancel", "ctrl-c", "throw", "failed-save", "failed-preview"] as const) {
   test(`selector transaction: ${action}`, async () => {
     const applied: Array<Theme | string> = [];
     const saved: string[] = [];
-    let current = theme;
+    // Host instances deliberately have a different constructor from extension
+    // imports; the live styling proxy is neither a host instance nor a snapshot.
+    class HostTheme { name: string; constructor(name: string) { this.name = name; } }
+    const original = new HostTheme(theme.name!);
+    let current = original;
+    const live = new Proxy({}, { get: (_target, key) => Reflect.get(current, key) });
     let disk = "light/dark";
     const ctx = { mode: "tui", ui: {
-      get theme() { return current; },
-      getTheme: (name: string) => action === "failed-preview" ? undefined : { ...theme, name } as Theme,
+      get theme() { return live; },
+      getTheme: (name: string) => name === original.name ? original
+        : action === "failed-preview" ? undefined : new HostTheme(name),
       setTheme: (value: Theme | string) => {
         applied.push(value);
-        if (typeof value === "string") disk = value;
-        else current = value;
+        if (value instanceof HostTheme) current = value;
+        else { disk = String(value); assert.fail("Only host-created instances may preview or restore"); }
         return { success: true };
       },
       notify() {},
@@ -132,14 +139,15 @@ for (const action of ["save", "cancel", "throw", "failed-save", "failed-preview"
         const component = await factory({ terminal: { rows: 40 }, requestRender() {} } as TUI, theme, keys, value => { result = value; });
         component.handleInput!(down);
         assert.equal(disk, "light/dark", "previews never write settings, including auto-theme pairs");
+        if (action !== "failed-preview") assert.equal(Reflect.get(live, "name"), "system", "captured proxy follows preview");
         if (action === "throw") throw new Error("closed");
-        component.handleInput!(action === "cancel" ? "\x1b" : "\r");
+        component.handleInput!(action === "cancel" ? "\x1b" : action === "ctrl-c" ? "\x03" : "\r");
         return result;
       },
     } } as unknown as ExtensionContext;
     const run = () => selectSlateTheme(ctx, name => {
       if (action === "failed-save") return false;
-      saved.push(name); ctx.ui.setTheme(name); return true;
+      saved.push(name); disk = name; return true;
     });
     if (action === "throw") await assert.rejects(run, /closed/); else await run();
     if (action === "save") {
@@ -147,7 +155,7 @@ for (const action of ["save", "cancel", "throw", "failed-save", "failed-preview"
     } else {
       assert.deepEqual(saved, []);
       if (action === "failed-preview") assert.deepEqual(applied, []);
-      else assert.equal(applied.at(-1), theme);
+      else { assert.equal(applied.at(-1), original); assert.equal(current, original); }
       assert.equal(disk, "light/dark");
     }
   });
@@ -173,6 +181,41 @@ test("installed Pi reserves no /theme command and only string theme assignments 
   assert.equal(disk, "light/dark");
   ui.setTheme("dark");
   assert.equal(disk, "dark");
+});
+
+test("real Pi UI proxy is not restorable, but host-loaded snapshots restore after exceptions", async () => {
+  initTheme("dark");
+  const create = Reflect.get(InteractiveMode.prototype, "createExtensionUIContext");
+  const host = {
+    themeController: {
+      setThemeInstance: (value: Theme) => { setThemeInstance(value); return { success: true }; },
+      setThemeName: () => assert.fail("proxy or foreign instances must not reach the name/persistence path"),
+    },
+  };
+  const ui = create.call(host) as ExtensionContext["ui"];
+  const live = ui.theme;
+  const snapshot = ui.getTheme("dark")!;
+  assert.equal(live instanceof snapshot.constructor, false, "Pi exposes a plain-target live proxy");
+  ui.custom = async factory => {
+    const component = await factory({ terminal: { rows: 40 }, requestRender() {} } as TUI, live, keys, () => {});
+    component.handleInput!(down); // external-current dark -> system
+    assert.equal(live.name, "system", "even a previously captured name property now follows the preview");
+    throw new Error("UI failed after preview");
+  };
+  await assert.rejects(() => selectSlateTheme({ mode: "tui", ui } as ExtensionContext,
+    () => assert.fail("must not save")), /UI failed after preview/);
+  assert.equal(ui.theme.name, "dark");
+  assert.equal(ui.theme.fg("accent", "restored"), snapshot.fg("accent", "restored"));
+});
+
+test("an unavailable original snapshot refuses previews without writing settings", async () => {
+  const notices: string[] = [];
+  await selectSlateTheme({ mode: "tui", ui: {
+    theme, getTheme: () => undefined, notify: (message: string) => notices.push(message),
+    custom: () => assert.fail("cannot safely preview without a restoration snapshot"),
+    setTheme: () => assert.fail("must not change themes"),
+  } } as unknown as ExtensionContext, () => assert.fail("must not save"));
+  assert.match(notices[0]!, /Could not snapshot/);
 });
 
 test("non-terminal modes do not start a selector or change themes", async () => {
