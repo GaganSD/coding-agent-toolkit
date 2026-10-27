@@ -1103,12 +1103,10 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   // Pi 1.4 has no built-in /theme command; core theme selection lives in /settings.
-  // Keep this namespace narrow rather than replacing core settings behavior.
   pi.registerCommand("theme", {
-    description: "Open the Slate theme selector with /theme slate",
-    getArgumentCompletions: (prefix) => "slate".startsWith(prefix.trim()) ? [{ value: "slate", label: "slate" }] : null,
+    description: "Choose a theme with live preview",
     handler: async (args, ctx) => {
-      if (args.trim() !== "slate") { ctx.ui.notify("Usage: /theme slate (Pi themes are also available in /settings)", "info"); return; }
+      if (args.trim() && args.trim() !== "slate") { ctx.ui.notify("Usage: /theme (Pi themes are also available in /settings)", "info"); return; }
       await pickTheme(ctx);
     },
   });

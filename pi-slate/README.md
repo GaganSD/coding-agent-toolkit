@@ -66,9 +66,10 @@ Other extensions can publish detached terminals or jobs to the sidebar's task sh
 
 ### Themes
 
-Open `/theme slate` for a centered theme selector with live preview:
+Open `/theme` for a larger, centered theme selector with live preview (`/theme slate` remains an alias):
 
-- **↑ / ↓** selects and immediately applies a theme; **← / →** changes its labeled palette variant.
+- **↑ / ↓** selects and immediately applies a theme; **← / →** changes its palette. Dedicated theme and color-swatch lists show selection, position, and overflow counts; both scroll without changing the dialog's shape.
+- Wide terminals use two columns; narrow terminals stack the lists, and very small screens keep the selected identity and essential controls. The dialog resizes to fit the terminal, not the selected theme or palette.
 - The Catppuccin picker cycles through **Pink** → **Red** (`#f38ba8`) → **Lavender** (`#b4befe`). Each theme remembers its variant while the selector is open. Existing styles remain available through legacy commands; opening from one preserves it in a separate current-palette row.
 - **Enter** confirms and saves; **Escape** (or **Ctrl+C**) restores the original visible theme without changing saved theme settings or Slate configuration.
 
@@ -89,7 +90,7 @@ Direct selection with `/slate theme <name>` remains supported:
 | `teal` | 🟩 |
 | `default` | Pi's system theme |
 
-Black Metal is an optional bundled theme, not an install default: pick it with `/slate theme black-metal` or `/theme slate` (`/slate theme` also opens the menu). Confirmed selections are saved and also appear in `/settings`.
+Black Metal is an optional bundled theme, not an install default: pick it with `/slate theme black-metal` or `/theme` (`/slate theme` also opens the menu). Confirmed selections are saved and also appear in `/settings`.
 
 With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin style, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; the effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
 
@@ -135,7 +136,7 @@ These work when `editor` is selected. No terminal configuration.
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. Not footer-slot ownership. |
-| Theme | `/theme slate` or `/slate theme [default\|tokyo-night\|black-metal\|quiet\|mauve\|catppuccin-mocha-pink\|red\|lavender\|sapphire\|peach\|teal]` | Default restores Pi's system theme. Tokyo Night and Black Metal are explicit; other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
+| Theme | `/theme` or `/slate theme [default\|tokyo-night\|black-metal\|quiet\|mauve\|catppuccin-mocha-pink\|red\|lavender\|sapphire\|peach\|teal]` | Default restores Pi's system theme. Tokyo Night and Black Metal are explicit; other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Independent Surfaces

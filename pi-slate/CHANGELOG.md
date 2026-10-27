@@ -4,7 +4,7 @@
 
 ### Added
 
-- `/theme slate` opens a centered live-preview selector: up/down changes themes, left/right changes labeled palette variants, Enter saves, and Escape restores the original visible theme without writing settings. `/slate theme [name]` remains supported; Pi's `/settings` is unchanged.
+- `/theme` opens a larger centered live-preview selector with fixed geometry, scrolling theme and color-swatch palette lists, selection/overflow cues, and responsive two-column, stacked, or tiny-screen layouts. Up/down changes themes, left/right changes palettes, Enter saves, and Escape/Ctrl+C restores the original visible theme without writing settings. `/theme slate` and `/slate theme [name]` remain supported; Pi's `/settings` is unchanged.
 - Catppuccin Mocha Red (`#f38ba8`) and Lavender (`#b4befe`) variants alongside existing Pink; variant choices survive navigation within the selector.
 - On Pi 1.4, cancelling after preview restores the original palette but automatic terminal-appearance following resumes only after `/reload` (public theme-instance API limitation). Saved theme and light/dark settings are untouched.
 

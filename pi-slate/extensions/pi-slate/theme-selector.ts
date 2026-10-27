@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, parseColor, truncateToWidth, visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
+import { matchesKey, parseColor, truncateToWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
 import { buildCatppuccinTheme, catppuccinThemeName, parseCatppuccinTheme, STYLE_LABELS } from "./catppuccin.ts";
 
 export type ThemeVariant = { name: string; label: string; color?: string };
@@ -56,7 +56,7 @@ export class ThemeSelector implements Component {
     }
   }
 
-  private current(): ThemeVariant { return this.choices[this.selected]!.variants[this.variants[this.selected]!]!; }
+  private current(): ThemeVariant | undefined { return this.choices[this.selected]?.variants[this.variants[this.selected] ?? 0]; }
 
   handleInput(data: string): void {
     if (this.closed) return;
@@ -64,50 +64,82 @@ export class ThemeSelector implements Component {
       this.closed = true; this.done(undefined); return;
     }
     if (this.keys.matches(data, "tui.select.confirm")) {
-      if (!this.error) { this.closed = true; this.done(this.current().name); }
+      const current = this.current();
+      if (!this.error && current) { this.closed = true; this.done(current.name); }
       return;
     }
+    if (!this.choices.length) return;
     if (this.keys.matches(data, "tui.select.up")) this.selected = (this.selected + this.choices.length - 1) % this.choices.length;
     else if (this.keys.matches(data, "tui.select.down")) this.selected = (this.selected + 1) % this.choices.length;
     else if (matchesKey(data, "left") || matchesKey(data, "right")) {
       const count = this.choices[this.selected]!.variants.length;
-      if (count === 1) return;
+      if (count <= 1) return;
       this.variants[this.selected] = (this.variants[this.selected]! + (matchesKey(data, "right") ? 1 : count - 1)) % count;
     } else return;
-    this.error = this.preview(this.current().name) ?? "";
+    const current = this.current();
+    this.error = current ? this.preview(current.name) ?? "" : "No palettes available";
     this.tui.requestRender();
   }
 
   render(width: number): string[] {
     const th = this.theme();
     const current = this.current();
-    const choice = this.choices[this.selected]!;
-    const inner = Math.max(0, width - 4);
-    const swatch = (variant: ThemeVariant) => variant.color
-      ? th.style("●", { fg: parseColor(variant.color) }) : th.fg("muted", "●");
-    const lines = [th.bold("Slate themes"), ...this.choices.map((item, index) =>
-      index === this.selected ? th.fg("accent", `› ${item.label}`) : th.fg("muted", `  ${item.label}`)),
-    th.fg("accent", `${swatch(current)} ${current.label}`)];
-    if (choice.variants.length > 1) {
-      // Wrap labeled swatches instead of clipping the active variant off-screen.
-      let row = "";
-      for (const variant of choice.variants) {
-        const label = `${swatch(variant)} ${variant.name === current.name ? `[${variant.label}]` : variant.label}  `;
-        if (row && visibleWidth(row + label) > inner) { lines.push(row); row = ""; }
-        row += label;
-      }
-      if (row) lines.push(row);
+    const choice = this.choices[this.selected];
+    const height = Math.min(22, Math.max(1, this.tui.terminal.rows - 2));
+    const fit = (text: string, columns: number) => truncateToWidth(text, Math.max(0, columns), "…", true);
+    const status = this.error || (!choice ? "No themes available" : !current ? "No palettes available" : "");
+    // Tiny screens trade the frame and list for identity and controls. Geometry
+    // still depends only on terminal size, never on names, counts, or errors.
+    if (height < 13 || width < 24) {
+      const lines = [
+        th.fg("accent", choice?.label ?? "No themes available"),
+        current ? `${(this.variants[this.selected] ?? 0) + 1}/${choice!.variants.length} · ${current.label}` : "No palettes available",
+        th.fg("dim", width < 28 ? "↵ save Esc undo" : "Enter save · Esc restore"),
+        status ? th.fg("error", status) : th.fg("dim", "↑↓ theme ←→ color"),
+        status ? th.fg("dim", "↑↓ theme ←→ color") : "",
+      ];
+      return Array.from({ length: height }, (_, i) => fit(lines[i] ?? "", width));
     }
-    if (this.error) lines.push(th.fg("error", this.error));
-    lines.push(th.fg("dim", "↑↓ theme · ←→ variant"), th.fg("dim", "Enter save · Esc restore"));
-    const available = Math.max(1, this.tui.terminal.rows - 2);
-    // Very short terminals retain selection and key hints rather than cutting off controls.
-    const content = lines.length + 2 <= available ? lines
-      : [th.bold("Slate themes"), th.fg("accent", `${choice.label} · ${current.label}`), ...lines.slice(-2)];
-    if (width < 4) return content.slice(0, available).map(line => truncateToWidth(line, width, ""));
+    const inner = width - 4;
+    const bodyHeight = height - 7;
     const border = (text: string) => th.fg("border", text);
+    const selectedRow = (text: string, selected: boolean, columns: number) => {
+      const row = fit(`${selected ? "›" : " "} ${text}`, columns);
+      return selected ? th.style(row, { fg: "accent", bg: "selectedBg", bold: true }) : row;
+    };
+    // Both viewports are bounded and center their selected row, including on
+    // resize. Headers carry position and hidden-row counts instead of wrapping.
+    const viewport = (title: string, count: number, selected: number, columns: number, rows: number,
+      row: (index: number) => string): string[] => {
+      const slots = Math.max(1, rows - 1);
+      const start = Math.max(0, Math.min(selected - Math.floor(slots / 2), count - slots));
+      const end = Math.min(count, start + slots);
+      const overflow = `${start ? ` ↑${start}` : ""}${end < count ? ` ↓${count - end}` : ""}`;
+      return [th.fg("muted", fit(`${title} ${count ? selected + 1 : 0}/${count}${overflow}`, columns)),
+        ...Array.from({ length: rows - 1 }, (_, i) => start + i < end ? fit(row(start + i), columns) : fit("", columns))];
+    };
+    const themeRows = (columns: number, rows: number) => viewport("Themes", this.choices.length, this.selected, columns, rows,
+      i => selectedRow(this.choices[i]!.label, i === this.selected, columns));
+    const paletteRows = (columns: number, rows: number) => viewport("Palettes", choice?.variants.length ?? 0,
+      this.variants[this.selected] ?? 0, columns, rows, i => {
+        const variant = choice!.variants[i]!;
+        const swatch = variant.color ? th.style("████", { fg: parseColor(variant.color) }) : th.fg("muted", "▒▒▒▒");
+        const label = `${swatch} ${variant.label}${columns >= 34 && variant.color ? `  ${th.fg("dim", variant.color)}` : ""}`;
+        return selectedRow(label, i === this.variants[this.selected], columns);
+      });
+    let body: string[];
+    if (width >= 68) {
+      const left = Math.floor((inner - 3) * 0.48), right = inner - 3 - left;
+      const themes = themeRows(left, bodyHeight), palettes = paletteRows(right, bodyHeight);
+      body = themes.map((line, i) => line + border(" │ ") + palettes[i]!);
+    } else {
+      const top = Math.ceil(bodyHeight / 2);
+      body = [...themeRows(inner, top), ...paletteRows(inner, bodyHeight - top)];
+    }
+    const content = [th.bold("Slate themes"), "", ...body, th.fg("error", status),
+      th.fg("dim", "↑↓ theme ←→ palette"), th.fg("dim", width < 44 ? "Enter save/Esc undo" : "Enter save · Esc restore · Ctrl+C cancel")];
     return [border(`╭${"─".repeat(width - 2)}╮`),
-      ...content.slice(0, Math.max(0, available - 2)).map(line => border("│ ") + truncateToWidth(line, inner, "…", true) + border(" │")),
+      ...content.map(line => border("│ ") + fit(line, inner) + border(" │")),
       border(`╰${"─".repeat(width - 2)}╯`)];
   }
 
@@ -115,7 +147,7 @@ export class ThemeSelector implements Component {
 }
 
 export async function selectSlateTheme(ctx: ExtensionContext, save: (name: string) => boolean): Promise<void> {
-  if (ctx.mode !== "tui") { ctx.ui.notify("/theme slate requires interactive terminal mode", "error"); return; }
+  if (ctx.mode !== "tui") { ctx.ui.notify("/theme requires interactive terminal mode", "error"); return; }
   // ui.theme is Pi's live styling proxy, not a concrete Theme: its name changes
   // during previews and setTheme(proxy) can take the persistent string path.
   // Resolve through this host's API (not an imported Theme constructor, whose
@@ -139,7 +171,7 @@ export async function selectSlateTheme(ctx: ExtensionContext, save: (name: strin
         const result = ctx.ui.setTheme(theme);
         return result.success ? undefined : result.error ?? `Could not preview ${name}`;
       }, done,
-    ), { overlay: true, overlayOptions: { anchor: "center", width: 58, maxHeight: "100%" } });
+    ), { overlay: true, overlayOptions: { anchor: "center", width: 88, maxHeight: "100%", margin: 1 } });
     if (selected) confirmed = save(selected);
   } finally {
     if (!confirmed && previewed) {

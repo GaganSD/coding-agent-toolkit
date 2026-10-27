@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { parseColor, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { STYLES, catppuccinThemeName } from "../extensions/pi-slate/catppuccin.ts";
-import { selectSlateTheme, slateThemeChoices, ThemeSelector } from "../extensions/pi-slate/theme-selector.ts";
+import { selectSlateTheme, slateThemeChoices, ThemeSelector, type ThemeChoice } from "../extensions/pi-slate/theme-selector.ts";
 import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js";
 import { initTheme, setThemeInstance } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { BUILTIN_SLASH_COMMANDS } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/slash-commands.js";
@@ -29,7 +29,7 @@ test("theme navigation previews immediately and remembers each theme's variant",
   assert.deepEqual(f.previews, [], "opening preserves original theme");
   f.selector.handleInput(right);
   assert.deepEqual(f.previews, ["catppuccin-mocha-red"]);
-  assert.match(f.selector.render(58).join("\n"), /\[Red\]/);
+  assert.match(f.selector.render(58).join("\n"), /› ████ Red/);
   f.selector.handleInput(right);
   assert.equal(f.previews.at(-1), "catppuccin-mocha-lavender");
   f.selector.handleInput(up);
@@ -59,8 +59,10 @@ test("selector wraps, cancels, and keeps labels and controls bounded after resiz
     }
   }
   f.terminal.rows = 8;
-  assert.match(f.selector.render(58).join("\n"), /catppuccin-mocha · Pink/);
+  assert.match(f.selector.render(58).join("\n"), /catppuccin-mocha\s*\n1\/3 · Pink/);
   assert.match(f.selector.render(58).join("\n"), /Esc restore/);
+  assert.match(f.selector.render(18).join("\n"), /↵ save Esc undo/);
+  assert.match(f.selector.render(18).join("\n"), /1\/3 · Pink/);
   f.selector.handleInput("\x1b");
   assert.deepEqual(f.done, [undefined]);
 });
@@ -134,7 +136,7 @@ for (const action of ["save", "cancel", "ctrl-c", "throw", "failed-save", "faile
       },
       notify() {},
       custom: async (factory: Parameters<ExtensionContext["ui"]["custom"]>[0], options: unknown) => {
-        assert.deepEqual(options, { overlay: true, overlayOptions: { anchor: "center", width: 58, maxHeight: "100%" } });
+        assert.deepEqual(options, { overlay: true, overlayOptions: { anchor: "center", width: 88, maxHeight: "100%", margin: 1 } });
         let result: unknown;
         const component = await factory({ terminal: { rows: 40 }, requestRender() {} } as TUI, theme, keys, value => { result = value; });
         component.handleInput!(down);
@@ -216,6 +218,101 @@ test("an unavailable original snapshot refuses previews without writing settings
     setTheme: () => assert.fail("must not change themes"),
   } } as unknown as ExtensionContext, () => assert.fail("must not save"));
   assert.match(notices[0]!, /Could not snapshot/);
+});
+
+test("geometry is fixed across theme, palette, error, and empty states after every resize", () => {
+  const terminal = { rows: 40 };
+  const choices: ThemeChoice[] = [
+    { label: "界🌙é".repeat(40), variants: [] },
+    { label: "Single", variants: [{ name: "single", label: "Default" }] },
+    { label: "Many", variants: Array.from({ length: 100 }, (_, i) => ({ name: `v${i}`, label: `界🌙é${i}`.repeat(30), color: "#f38ba8" })) },
+  ];
+  const finished: Array<string | undefined> = [];
+  const selector = new ThemeSelector(choices, "single", { terminal: terminal as TUI["terminal"], requestRender() {} }, () => theme, keys,
+    name => name.startsWith("v") ? "Could not load 界".repeat(80) : undefined, name => finished.push(name));
+  const empty = new ThemeSelector([], undefined, { terminal: terminal as TUI["terminal"], requestRender() {} }, () => theme, keys,
+    () => assert.fail("empty cannot preview"), () => assert.fail("empty cannot save"));
+  for (const width of [100, 88, 68, 67, 44, 32, 24, 23, 20, 4, 1]) {
+    for (const rows of [40, 24, 16, 15, 14, 8, 3, 2, 1]) {
+      terminal.rows = rows;
+      const height = Math.min(22, Math.max(1, rows - 2));
+      const check = (component: ThemeSelector) => {
+        const lines = component.render(width);
+        assert.equal(lines.length, height, `${width}x${rows} height`);
+        assert(lines.every(line => visibleWidth(line) === width), `${width}x${rows} width`);
+      };
+      check(selector); check(empty);
+      for (const input of [down, right, "\r", right, up, up, down]) {
+        selector.handleInput(input); check(selector);
+      }
+      empty.handleInput(down); empty.handleInput(right); empty.handleInput("\r"); check(empty);
+    }
+  }
+  assert.deepEqual(finished, [], "errors and empty palettes cannot confirm");
+});
+
+test("preview errors and missing palettes block save, keep their status slot, and allow recovery or cancel", () => {
+  const done: Array<string | undefined> = [];
+  const selector = new ThemeSelector([
+    { label: "Empty", variants: [] },
+    { label: "Missing", variants: [{ name: "missing", label: "Unavailable" }] },
+    { label: "Good", variants: [{ name: "good", label: "Default" }] },
+  ], undefined, { terminal: { rows: 40 } as TUI["terminal"], requestRender() {} }, () => theme, keys,
+  name => name === "missing" ? "Could not load missing. Run /reload." : undefined, value => done.push(value));
+  assert.match(selector.render(88).join("\n"), /No palettes available/);
+  selector.handleInput("\r"); assert.deepEqual(done, []);
+  selector.handleInput(down);
+  assert.match(selector.render(88).join("\n"), /Could not load missing/);
+  selector.handleInput("\r"); assert.deepEqual(done, []);
+  selector.handleInput(down);
+  assert.doesNotMatch(selector.render(88).join("\n"), /Could not load missing/);
+  selector.handleInput("\r"); assert.deepEqual(done, ["good"]);
+  const emptyDone: Array<string | undefined> = [];
+  const empty = new ThemeSelector([], undefined, { terminal: { rows: 40 } as TUI["terminal"], requestRender() {} },
+    () => theme, keys, () => assert.fail("empty cannot preview"), value => emptyDone.push(value));
+  assert.match(empty.render(88).join("\n"), /No themes available/);
+  empty.handleInput("\r"); assert.deepEqual(emptyDone, []);
+  empty.handleInput("\x03"); assert.deepEqual(emptyDone, [undefined]);
+});
+
+test("many themes and palettes scroll within independent fixed viewports with position cues", () => {
+  const choices = Array.from({ length: 100 }, (_, i) => ({ label: `Theme ${i}`, variants:
+    Array.from({ length: 100 }, (_, j) => ({ name: `${i}-${j}`, label: `Palette ${j}`, color: "#f38ba8" })) }));
+  const terminal = { rows: 40 } as TUI["terminal"];
+  const selector = new ThemeSelector(choices, "0-0", { terminal, requestRender() {} }, () => theme, keys,
+    () => undefined, () => {});
+  for (const width of [88, 40]) {
+    for (let i = 0; i < 100; i++) {
+      const text = selector.render(width).join("\n");
+      assert.match(text, new RegExp(`› Theme ${i}(?![0-9])`));
+      assert.match(text, new RegExp(`Themes ${i + 1}/100`));
+      assert.match(text, /↑\d|↓\d/);
+      selector.handleInput(down);
+    }
+    for (let j = 0; j < 100; j++) {
+      const text = selector.render(width).join("\n");
+      assert.match(text, new RegExp(`› ████ Palette ${j}(?![0-9])`));
+      assert.match(text, new RegExp(`Palettes ${j + 1}/100`));
+      selector.handleInput(right);
+    }
+  }
+  selector.handleInput(right); selector.handleInput(down); selector.handleInput(up);
+  assert.match(selector.render(88).join("\n"), /› ████ Palette 1(?![0-9])/);
+});
+
+test("palette swatches retain their concrete colors and selected rows have a full-width background", () => {
+  initTheme("dark");
+  const create = Reflect.get(InteractiveMode.prototype, "createExtensionUIContext");
+  const ui = create.call({}) as ExtensionContext["ui"];
+  const live = ui.getTheme("dark")!;
+  const selector = new ThemeSelector(slateThemeChoices(), "catppuccin-mocha-pink", {
+    terminal: { rows: 40 } as TUI["terminal"], requestRender() {},
+  }, () => live, keys, () => undefined, () => {});
+  const text = selector.render(88).join("\n");
+  for (const color of ["#f5c2e7", "#f38ba8", "#b4befe"]) {
+    assert(text.includes(live.style("████", { fg: parseColor(color) })));
+  }
+  assert(text.includes(live.style("› catppuccin-mocha".padEnd(38), { fg: "accent", bg: "selectedBg", bold: true })));
 });
 
 test("non-terminal modes do not start a selector or change themes", async () => {

@@ -393,18 +393,19 @@ test("system default and explicit Tokyo Night preserve unrelated native settings
   assert.deepEqual(saved.packages, ["keep-this-package"]);
 });
 
-test("/theme slate routes only its namespace and preserves legacy theme commands", async t => {
+test("/theme opens directly, retains aliases, and rejects unknown arguments", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: [] }));
   const menus: string[] = [];
   t.mock.method(f.ctx.ui, "custom", async () => { menus.push("Theme"); return undefined; });
   t.mock.method(f.ctx.ui, "setTheme", () => ({ success: true }));
+  await f.commands.get("theme")!.handler("", f.ctx);
+  await f.commands.get("theme")!.handler("  ", f.ctx);
   await f.commands.get("theme")!.handler("slate", f.ctx);
   await f.commands.get("slate")!.handler("theme", f.ctx);
-  assert.deepEqual(menus, ["Theme", "Theme"]);
-  await f.commands.get("theme")!.handler("", f.ctx);
+  assert.deepEqual(menus, ["Theme", "Theme", "Theme", "Theme"]);
   await f.commands.get("theme")!.handler("dark", f.ctx);
   await f.commands.get("theme")!.handler("slate extra", f.ctx);
-  assert.deepEqual(menus, ["Theme", "Theme"], "unrelated arguments never open the Slate picker");
+  assert.deepEqual(menus, ["Theme", "Theme", "Theme", "Theme"], "unrelated arguments never open the Slate picker");
   assert.equal(f.commands.has("settings"), false, "core settings remain untouched");
 });
 
