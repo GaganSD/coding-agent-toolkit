@@ -395,7 +395,8 @@ test("system default and explicit Tokyo Night preserve unrelated native settings
 test("/theme slate routes only its namespace and preserves legacy theme commands", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: [] }));
   const menus: string[] = [];
-  t.mock.method(f.ctx.ui, "select", async (title: string) => { menus.push(title); return undefined; });
+  t.mock.method(f.ctx.ui, "custom", async () => { menus.push("Theme"); return undefined; });
+  t.mock.method(f.ctx.ui, "setTheme", () => ({ success: true }));
   await f.commands.get("theme")!.handler("slate", f.ctx);
   await f.commands.get("slate")!.handler("theme", f.ctx);
   assert.deepEqual(menus, ["Theme", "Theme"]);
@@ -414,7 +415,7 @@ test("Black Metal is selectable by command and from the theme picker", async t =
   await f.commands.get("slate")!.handler("theme black-metal", f.ctx);
   assert.deepEqual(themes, ["black-metal"]);
   assert.equal(JSON.parse(await readFile(settingsPath, "utf8")).theme, "black-metal");
-  f.choices.push("Black Metal");
+  t.mock.method(f.ctx.ui, "custom", async () => "black-metal");
   await f.commands.get("slate")!.handler("theme", f.ctx);
   assert.deepEqual(themes, ["black-metal", "black-metal"], "picker lists Black Metal");
 });
