@@ -4,7 +4,7 @@
 
 ### Added
 
-- `catppuccin-mocha-pink` theme, selectable with `/slate theme pink` or `/slate style pink`.
+- `catppuccin-mocha-pink` theme, selected by its full name with `/slate theme catppuccin-mocha-pink` or `/slate style catppuccin-mocha-pink`.
 
 ## 0.1.18
 

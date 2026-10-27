@@ -38,6 +38,8 @@ test("flavor and style names stay official", () => {
   assert.equal(parseFlavor("frappe"), undefined);
   assert.equal(parseStyle("Mauve"), "mauve");
   assert.equal(parseStyle("canonical"), "default");
+  assert.equal(parseStyle("catppuccin-mocha-pink"), "pink");
+  assert.equal(parseStyle("pink"), undefined);
   assert.equal(parseFlavor("ink"), undefined);
   assert.equal(parseStyle("ember"), undefined);
 });
@@ -48,6 +50,7 @@ test("theme names encode flavor and style", () => {
     flavor: "mocha",
     style: "quiet",
   });
+  assert.deepEqual(parseCatppuccinTheme("catppuccin-mocha-pink"), { flavor: "mocha", style: "pink" });
   assert.equal(parseCatppuccinTheme("catppuccin-latte-quiet"), undefined);
   assert.equal(parseCatppuccinTheme("pi-slate"), undefined);
   assert.deepEqual(resolveCatppuccinTheme("pi-slate"), {

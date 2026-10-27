@@ -303,7 +303,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|black-metal|quiet|mauve|pink|sapphire|peach|teal] | style [default|quiet|mauve|pink|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|black-metal|quiet|mauve|catppuccin-mocha-pink|sapphire|peach|teal] | style [default|quiet|mauve|catppuccin-mocha-pink|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -313,7 +313,7 @@ export function withoutCurrent(label: string): string {
   return label.endsWith(" (current)") ? label.slice(0, -" (current)".length) : label;
 }
 
-const THEME_STYLES = ["default", "quiet", "mauve", "pink", "sapphire", "peach", "teal"] as const;
+const THEME_STYLES = ["default", "quiet", "mauve", "catppuccin-mocha-pink", "sapphire", "peach", "teal"] as const;
 const SLATE_COMPLETIONS = [
   "session", "session mcp", "session skills", "session prompts", "session commands", "session tasks", "session image",
   "surfaces",

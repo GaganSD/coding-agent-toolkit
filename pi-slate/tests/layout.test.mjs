@@ -289,6 +289,14 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("flavor mocha"), { ok: false });
   assert.deepEqual(parseSlateArgs("diff"), { ok: false });
   assert.deepEqual(parseSlateArgs("style sapphire"), { ok: true, kind: "style", value: "sapphire" });
+  assert.deepEqual(parseSlateArgs("theme catppuccin-mocha-pink"), { ok: true, kind: "theme", style: "pink" });
+  assert.deepEqual(parseSlateArgs("theme mocha catppuccin-mocha-pink"), { ok: true, kind: "theme", flavor: "mocha", style: "pink" });
+  assert.deepEqual(parseSlateArgs("style catppuccin-mocha-pink"), { ok: true, kind: "style", value: "pink" });
+  assert.deepEqual(parseSlateArgs("theme pink"), { ok: false });
+  assert.deepEqual(slateArgumentCompletions("theme cat"), [
+    { value: "theme catppuccin-mocha-pink", label: "theme catppuccin-mocha-pink" },
+  ]);
+  assert.deepEqual(slateArgumentCompletions("theme p"), [{ value: "theme peach", label: "theme peach" }]);
   assert.deepEqual(parseSlateArgs("theme nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("theme mocha mauve extra"), { ok: false });
   assert.deepEqual(parseSlateArgs("bug nope"), { ok: false });

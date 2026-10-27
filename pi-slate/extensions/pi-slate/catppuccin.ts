@@ -14,7 +14,7 @@ export const STYLE_LABELS: Record<Style, string> = {
   default: "Default",
   quiet: "Quiet",
   mauve: "Mauve",
-  pink: "Pink",
+  pink: "catppuccin-mocha-pink",
   sapphire: "Sapphire",
   peach: "Peach",
   teal: "Teal",
@@ -65,6 +65,14 @@ export function parseFlavor(raw: string): Flavor | undefined {
 export function parseStyle(raw: string): Style | undefined {
   const value = raw.trim().toLowerCase();
   if (value === "canonical") return "default";
+  // Labels are the user-facing names: plain style keys except Pink, which is
+  // selected by its full theme name (`catppuccin-mocha-pink`).
+  return STYLES.find((style) => STYLE_LABELS[style].toLowerCase() === value);
+}
+
+/** Theme files encode the style key (e.g. `catppuccin-mocha-pink`), not the label. */
+function styleFromThemeName(value: string): Style | undefined {
+  if (value === "canonical") return "default";
   return STYLES.find((style) => style === value);
 }
 
@@ -73,7 +81,7 @@ export function parseCatppuccinTheme(name: string | undefined): { flavor: Flavor
   const match = /^catppuccin-([a-z]+)-([a-z]+)$/.exec(name);
   if (!match) return undefined;
   const flavor = parseFlavor(match[1]);
-  const style = parseStyle(match[2]);
+  const style = styleFromThemeName(match[2]);
   if (!flavor || !style) return undefined;
   return { flavor, style };
 }
@@ -90,7 +98,10 @@ export function resolveCatppuccinTheme(
 }
 
 export function themeMessage(flavor: Flavor, style: Style): string {
-  return `Theme set to ${FLAVOR_LABELS[flavor]} · ${STYLE_LABELS[style]}`;
+  const label = STYLE_LABELS[style];
+  return label === catppuccinThemeName(flavor, style)
+    ? `Theme set to ${label}`
+    : `Theme set to ${FLAVOR_LABELS[flavor]} · ${label}`;
 }
 
 export const THEME_SCHEMA = "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json";
