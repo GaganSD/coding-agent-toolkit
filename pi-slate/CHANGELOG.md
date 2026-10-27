@@ -4,6 +4,8 @@
 
 ### Added
 
+- `/theme slate` opens the Slate theme menu; `/slate theme [name]` remains supported. Pi's `/settings` theme selection is unchanged.
+
 - `catppuccin-mocha-pink` theme, selected by its full name with `/slate theme catppuccin-mocha-pink` or `/slate style catppuccin-mocha-pink`.
 
 ## 0.1.18

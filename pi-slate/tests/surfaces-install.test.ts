@@ -392,6 +392,20 @@ test("system default and explicit Tokyo Night preserve unrelated native settings
   assert.deepEqual(saved.packages, ["keep-this-package"]);
 });
 
+test("/theme slate routes only its namespace and preserves legacy theme commands", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: [] }));
+  const menus: string[] = [];
+  t.mock.method(f.ctx.ui, "select", async (title: string) => { menus.push(title); return undefined; });
+  await f.commands.get("theme")!.handler("slate", f.ctx);
+  await f.commands.get("slate")!.handler("theme", f.ctx);
+  assert.deepEqual(menus, ["Theme", "Theme"]);
+  await f.commands.get("theme")!.handler("", f.ctx);
+  await f.commands.get("theme")!.handler("dark", f.ctx);
+  await f.commands.get("theme")!.handler("slate extra", f.ctx);
+  assert.deepEqual(menus, ["Theme", "Theme"], "unrelated arguments never open the Slate picker");
+  assert.equal(f.commands.has("settings"), false, "core settings remain untouched");
+});
+
 test("Black Metal is selectable by command and from the theme picker", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   const settingsPath = join(dirname(f.path), "settings.json");

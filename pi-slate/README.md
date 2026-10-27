@@ -66,7 +66,7 @@ Other extensions can publish detached terminals or jobs to the sidebar's task sh
 
 ### Themes
 
-Slate supports the following themes and can be changed with `/slate theme <name>`:
+Open `/theme slate` to choose a Slate theme. Direct selection with `/slate theme <name>` remains supported:
 
 | Themes | Accent |
 | --- | --- |
@@ -80,7 +80,7 @@ Slate supports the following themes and can be changed with `/slate theme <name>
 | `teal` | 🟩 |
 | `default` | Pi's system theme |
 
-Black Metal is an optional bundled theme, not an install default: pick it with `/slate theme black-metal` or the `/slate theme` menu. Every selection is saved and also appears in `/settings`.
+Black Metal is an optional bundled theme, not an install default: pick it with `/slate theme black-metal` or `/theme slate` (`/slate theme` also opens the menu). Every selection is saved and also appears in `/settings`.
 
 With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin style, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; the effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
 
