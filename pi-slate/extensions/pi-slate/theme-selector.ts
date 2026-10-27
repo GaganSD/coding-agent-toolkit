@@ -1,16 +1,19 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, parseColor, truncateToWidth, visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { buildCatppuccinTheme, catppuccinThemeName, parseCatppuccinTheme, STYLES, STYLE_LABELS } from "./catppuccin.ts";
+import { buildCatppuccinTheme, catppuccinThemeName, parseCatppuccinTheme, STYLE_LABELS } from "./catppuccin.ts";
 
 export type ThemeVariant = { name: string; label: string; color?: string };
 export type ThemeChoice = { label: string; variants: ThemeVariant[] };
+
+// Keep the picker cycle independent of styles retained for legacy commands.
+const PICKER_STYLES = ["pink", "red", "lavender"] as const;
 
 export function slateThemeChoices(initial?: string): ThemeChoice[] {
   const choices: ThemeChoice[] = [
     { label: "System default", variants: [{ name: "system", label: "Terminal palette" }] },
     { label: "Tokyo Night", variants: [{ name: "tokyo-night", label: "Default", color: "#7aa2f7" }] },
     { label: "Black Metal", variants: [{ name: "black-metal", label: "Default", color: "#dd9999" }] },
-    { label: "catppuccin-mocha", variants: STYLES.map(style => ({
+    { label: "catppuccin-mocha", variants: PICKER_STYLES.map(style => ({
       name: catppuccinThemeName("mocha", style), label: style === "pink" ? "Pink" : STYLE_LABELS[style],
       color: buildCatppuccinTheme("mocha", style).vars.accent,
     })) },

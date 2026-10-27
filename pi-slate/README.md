@@ -69,7 +69,7 @@ Other extensions can publish detached terminals or jobs to the sidebar's task sh
 Open `/theme slate` for a centered theme selector with live preview:
 
 - **↑ / ↓** selects and immediately applies a theme; **← / →** changes its labeled palette variant.
-- Catppuccin variants include **Pink**, **Red** (`#f38ba8`), and **Lavender** (`#b4befe`), alongside the existing styles. Each theme remembers its variant while the selector is open.
+- The Catppuccin picker cycles through **Pink** → **Red** (`#f38ba8`) → **Lavender** (`#b4befe`). Each theme remembers its variant while the selector is open. Existing styles remain available through legacy commands; opening from one preserves it in a separate current-palette row.
 - **Enter** confirms and saves; **Escape** (or **Ctrl+C**) restores the original visible theme without changing saved theme settings or Slate configuration.
 
 The selector requires interactive terminal mode. Pi 1.4 has no built-in `/theme` command; core theme selection remains in `/settings`. After previewing and cancelling, Pi's public theme-instance API restores the original palette but pauses automatic terminal-appearance following (including `system` and light/dark pairs) until `/reload`. Merely opening and cancelling without previewing does not affect appearance following.
