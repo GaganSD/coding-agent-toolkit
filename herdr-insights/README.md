@@ -8,8 +8,6 @@ Reads local sessions from **Pi, Codex, Claude Code, and OpenCode**.
 
 ![Insights](preview.png)
 
-*Preview uses synthetic data. The installed dashboard only shows recorded usage.*
-
 ## Install
 
 Requires Herdr and **Node.js 22.15+**. No dependencies or account needed.
@@ -36,10 +34,6 @@ are unchanged. Set `HERDR_APP_HOME` to use a different app home.
 - Explore a stacked usage chart, daily heatmap, lifetime totals, and streaks.
 - Open **Settings** to choose sources, edit paths, toggle cached tokens, or
   change the palette and refresh interval.
-
-Periods are calendar-to-date. Model filters affect the chart and leaderboard;
-activity history and lifetime metrics stay all-time. Counts come from recorded
-usage, not estimates; missing usage or durations cannot be reconstructed.
 
 ## Privacy
 
