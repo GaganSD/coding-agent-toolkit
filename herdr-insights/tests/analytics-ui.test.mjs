@@ -8,7 +8,30 @@ const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).t
 const analyticsUrl = dataUrl(analyticsSource);
 const analytics = await import(analyticsUrl);
 const analyticsNames = Object.keys(analytics).join(", ");
-const { compactDashboard, deriveDashboard } = analytics;
+const { buildHeatmap, compactDashboard, deriveDashboard } = analytics;
+
+function fakeNativeElement() {
+  const node = { childNodes: [], style: {} };
+  let element;
+  const methods = {
+    child(value) { node.childNodes.push(value); return element; },
+    children(values) { node.childNodes.push(...values); return element; },
+    when(condition, branch) { if (condition) branch(element); return element; },
+    w(value) { node.style.width = value; return element; },
+    whitespace_nowrap() { node.style.whitespace = "nowrap"; return element; },
+  };
+  element = new Proxy(node, {
+    get(target, property) {
+      if (property in methods) return methods[property];
+      if (property in target) return target[property];
+      if (typeof property === "symbol") return undefined;
+      return () => element;
+    },
+  });
+  return element;
+}
+
+globalThis.__insightsTestNative = { create: fakeNativeElement };
 
 globalThis.__insightsTestHostCalls = { inputStates: 0, editorStates: 0 };
 
@@ -44,10 +67,14 @@ globalThis.__insightsTestEditorState = {
 };
 
 const transformedMain = mainSource
-  .replace(/^import \{ View, div \} from "gpui-kit";$/m, "const View = class View {};")
+  .replace(/^import \{ View, div \} from "gpui-kit";$/m, `const View = class View {};
+const div = () => globalThis.__insightsTestNative.create("div");`)
   .replace(
     /^import \{[^}]*\} from "gpui-base";$/m,
-    "const InputState = globalThis.__insightsTestInputState;\nconst EditorState = globalThis.__insightsTestEditorState;",
+    `const InputState = globalThis.__insightsTestInputState;
+const EditorState = globalThis.__insightsTestEditorState;
+const v_flex = () => globalThis.__insightsTestNative.create("v_flex");
+const h_flex = () => globalThis.__insightsTestNative.create("h_flex");`,
   )
   .replace(
     /^import \{[^}]*\} from "herdr";$/m,
@@ -396,6 +423,40 @@ test("dashboard render uses the precomputed presentation and builds closed filte
   assert.doesNotMatch(mainSource, /const (source|provider|model|project)Options = buildFacetOptions/);
   assert.doesNotMatch(mainSource, /safeAvatarPath|AvatarImage|AvatarFallback|Profile/);
   assert.match(mainSource, /scheduleDashboard\(clickCx, \{ force: true \}\)/);
+});
+
+test("heatmap month labels keep their spans while partial labels cannot wrap", () => {
+  const instance = blankInstance();
+  const heatmap = buildHeatmap([], { endDay: "2024-01-28", weeks: 53, weekStartsOn: 0 });
+  assert.equal(heatmap.months[0].span, 1, "the fixture must start with a partial month");
+
+  const totals = {
+    total: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0,
+    sessions: 0, messages: 0, longestTaskMs: 0,
+  };
+  const card = instance.heatmapCard(
+    { background: "#101010" },
+    { palette: "blue", includeCache: true },
+    heatmap,
+    heatmap.range.dataEnd,
+    0,
+    totals,
+    null,
+  );
+  const grid = card.childNodes[1].childNodes[0];
+  const monthNodes = grid.childNodes[0].childNodes.slice(1);
+  assert.equal(monthNodes.length, heatmap.months.length);
+
+  heatmap.months.forEach((month, index) => {
+    const node = monthNodes[index];
+    assert.equal(node.style.width, month.span * 14, `${month.label} keeps its week span`);
+    if (month.span === 1) {
+      assert.deepEqual(node.childNodes, [], "a one-week partial month has no label to wrap");
+    } else {
+      assert.deepEqual(node.childNodes, [month.label]);
+      assert.equal(node.style.whitespace, "nowrap", `${month.label} must not wrap`);
+    }
+  });
 });
 
 test("initial async snapshot publishes the dashboard before settings host controls exist", async () => {

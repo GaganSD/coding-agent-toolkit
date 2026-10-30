@@ -1408,8 +1408,10 @@ export default class Insights extends View {
     const dark = isDarkTheme(t);
     const palette = PALETTES.includes(config.palette) ? config.palette : "blue";
     const contentWidth = DAY_LABEL_WIDTH + (heatmap.weeks.length * WEEK_WIDTH);
+    // A one-week leading partial month is only 14px wide, so keep the span but omit text that would wrap.
     const months = heatmap.months.map((month) => div().w(month.span * WEEK_WIDTH).flex_none()
-      .text_size(9.5).text_color(t.dim).child(month.label));
+      .text_size(9.5).text_color(t.dim)
+      .when(month.span >= 2, (el) => el.whitespace_nowrap().child(month.label)));
     const weekLabels = weekdayLabels(heatmap.weekStartsOn).map((label) => div().h(CELL).text_size(9)
       .text_color(t.dim).child(label));
 
