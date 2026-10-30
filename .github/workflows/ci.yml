@@ -140,13 +140,29 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  insights:
+    name: Herdr Insights
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      # Dependency-free; native Herdr checks run locally, not on headless CI.
+      - run: npm test --prefix herdr-insights
+      - run: npm run check --prefix herdr-insights
+
   secrets:
     uses: ./.github/workflows/secret-scan.yml
 
   passed:
     name: CI passed
     if: always()
-    needs: [changes, tooling, packages, secrets]
+    needs: [changes, tooling, packages, insights, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -156,7 +172,7 @@ jobs:
         run: |
           node -e '
             const jobs = JSON.parse(process.env.RESULTS);
-            for (const name of ["changes", "tooling", "secrets"]) {
+            for (const name of ["changes", "tooling", "insights", "secrets"]) {
               if (jobs[name].result !== "success") process.exit(1);
             }
             const expected = {

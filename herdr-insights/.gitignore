@@ -1,0 +1,11 @@
+node_modules/
+*.tgz
+*.log
+.DS_Store
+coverage/
+.artifacts/
+
+# Herdr rewrites these generated files on start; never commit or install them.
+mods/insights/**/*.d.ts
+mods/insights/**/jsconfig.json
+*.error
