@@ -5,7 +5,7 @@
 Let the agent do the work you authorized. Get interrupted when it needs more authority—not whenever it uses a tool.
 
 > **Archived product/UX specification · 2026-10-11.**
-> This preserves the accepted proposal, including future capabilities and unachieved targets. The implementation now lives entirely in `pi-extensions/pi-automode/`. See the [package README](../README.md) and [implementation plan](../IMPLEMENTATION.md) for the actual beta scope, install instructions and settings. Calibrated semantic approval, nested/child/codemode coverage and measured interruption benefits are not shipped claims.
+> This preserves the accepted proposal, including future capabilities and unachieved targets. The implementation now lives entirely in `coding-agent-toolkit/pi-automode/`. See the [package README](../README.md) and [implementation plan](../IMPLEMENTATION.md) for the actual beta scope, install instructions and settings. Calibrated semantic approval, nested/child/codemode coverage and measured interruption benefits are not shipped claims.
 >
 > **Jev first, through Pi’s native classifier support. Useful without a key. Local models are a separate, later alternative.** A permission reviewer, not a sandbox or a guarantee against damage.
 
@@ -53,7 +53,7 @@ This is the **target experience**, not a claim that an installed extension alrea
 **After implementation**, from a checkout of the extension monorepo:
 
 ```sh
-pi install /absolute/path/to/pi-extensions/pi-automode
+pi install /absolute/path/to/coding-agent-toolkit/pi-automode
 ```
 
 Then `/reload` and `/automode`. There is no setup command and no setup wizard: the panel opens showing the On/Off control, host check and current settings. The published npm name is **`@gagansd/pi-automode`**; the product/package directory is **pi-automode**. No install command in this document downloads an existing release.
@@ -477,7 +477,7 @@ These do not block the document; they do block the corresponding release claim:
 
 Read on 2026-10-11. Public docs move; installed Pi was 1.1.0. Source inspection is not a runtime audit. No extension implementation, installation, Jev benchmark, training or cloud provisioning was performed for this plan.
 
-1. **Monorepo philosophy:** [pi-extensions README / Design Principles](https://github.com/GaganSD/pi-extensions/tree/3ce0f05a2d3161e05a4f06c1956ae9479152bb0f#design-principles). Also inspected local `pi-web-search/src/jev/api.ts` for native classifier selection/validation and `pi-subagents/src/session.ts` for child isolation.
+1. **Monorepo philosophy:** [Coding Agent Toolkit README / Design Principles](https://github.com/GaganSD/coding-agent-toolkit/tree/3ce0f05a2d3161e05a4f06c1956ae9479152bb0f#design-principles). Also inspected local `pi-web-search/src/jev/api.ts` for native classifier selection/validation and `pi-subagents/src/session.ts` for child isolation.
 2. **Competitor:** [package listing](https://pi.dev/packages/pi-verdict), [pinned README](https://github.com/jesset/pi-verdict/blob/3744feb2a4e1a0d785d3ca2dccb1f20758854815/README.md), [native-classifier ADR](https://github.com/jesset/pi-verdict/blob/3744feb2a4e1a0d785d3ca2dccb1f20758854815/docs/adr/0005-native-classifier-migration.md), [nested-call ADR](https://github.com/jesset/pi-verdict/blob/3744feb2a4e1a0d785d3ca2dccb1f20758854815/docs/adr/0006-codemode-nested-calls-policy.md), [security principles](https://github.com/jesset/pi-verdict/blob/3744feb2a4e1a0d785d3ca2dccb1f20758854815/docs/security-principles.md). Source: `extensions/pi-verdict.ts`, especially `VERDICT_QUESTIONS`, `classifyNative` and `adjudicate`.
 3. **Pi integration:** [extensions](https://pi.dev/docs/latest/extensions), [models](https://pi.dev/docs/latest/models), [codemode](https://pi.dev/docs/latest/codemode), [packages](https://pi.dev/docs/latest/packages), [security](https://pi.dev/docs/latest/security). Read installed docs and `examples/extensions/jev-router.ts`, `permission-gate.ts`; checked registry declarations, mutable tool events and direct codemode model calls.
 4. **Original enforcement findings:** the local Pi coverage research (outside this repository). Rechecked the current child `noExtensions` setting, mutable tool input, shell spawn transformation and codemode registry-service paths. Full integration behavior remains untested.

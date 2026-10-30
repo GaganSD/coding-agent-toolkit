@@ -1,12 +1,12 @@
 {
-  "name": "pi-extensions",
+  "name": "coding-agent-toolkit",
   "private": true,
-  "description": "Monorepo of Pi extensions I use and build, including keyless public web/code search through native Pi MCP.",
+  "description": "Pi coding-agent extensions and native Herdr mods, including keyless web/code search and local token-usage insights.",
   "license": "MIT",
   "author": "Gagan Devagiri",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git"
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git"
   },
   "scripts": {
     "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search && npm test --prefix pi-subagents && npm test --prefix pi-automode",

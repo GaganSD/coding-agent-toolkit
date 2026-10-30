@@ -10,10 +10,10 @@
     "pi",
     "subagents"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-subagents",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-subagents",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-subagents"
   },
   "exports": {

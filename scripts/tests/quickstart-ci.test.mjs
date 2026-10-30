@@ -50,7 +50,7 @@ test("quickstart waits through npm's post-publish processing delay", () => {
 test("README badges point at workflows that run on main", () => {
   const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
   assert.match(readme, /actions\/workflows\/publish\.yml/);
-  assert.match(readme, /workflow\/status\/GaganSD\/pi-extensions\/publish\.yml\?branch=main/);
+  assert.match(readme, /workflow\/status\/GaganSD\/coding-agent-toolkit\/publish\.yml\?branch=main/);
   assert.match(readme, /actions\/workflows\/quickstart\.yml/);
-  assert.match(readme, /workflow\/status\/GaganSD\/pi-extensions\/quickstart\.yml\?branch=main/);
+  assert.match(readme, /workflow\/status\/GaganSD\/coding-agent-toolkit\/quickstart\.yml\?branch=main/);
 });

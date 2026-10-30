@@ -174,7 +174,7 @@ Complete these steps before the first release:
    `@gagansd/pi-subagents`, `@gagansd/pi-web-search`, and
    `@gagansd/pi-automode`, configure:
    - GitHub owner: `GaganSD`
-   - Repository: `pi-extensions`
+   - Repository: `coding-agent-toolkit`
    - Workflow filename: `publish.yml` (not the full path)
    - Environment: `npm`
    - Allow direct `npm publish`
@@ -188,6 +188,13 @@ Complete these steps before the first release:
    under repository Settings → Security. These were enabled during setup.
    They protect supported credential formats before GitHub accepts a push;
    the Actions scanner is not a replacement.
+
+### Repository rename follow-up
+
+After a GitHub repository rename, update each npm package's trusted publisher to
+`GaganSD/coding-agent-toolkit` before publishing. GitHub URL redirects do not
+update npm's external trust configuration. Also verify the release GitHub App's
+repository access and any external Snyk integration after the rename.
 
 ## Snyk dependency scan
 

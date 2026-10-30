@@ -61,7 +61,7 @@ function npmUpdates() {
 }
 
 async function github(pathname) {
-  const headers = { accept: "application/vnd.github+json", "user-agent": "pi-extensions-dependency-check" };
+  const headers = { accept: "application/vnd.github+json", "user-agent": "coding-agent-toolkit-dependency-check" };
   if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   const response = await fetch(`https://api.github.com${pathname}`, { headers });
   if (response.status === 404) return undefined;
