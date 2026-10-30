@@ -11,15 +11,12 @@ layouts, and keys alone.
 **What you see:** A restrained near-black/native dashboard built from Herdr
 theme colors. The root is vertically scrollable, centers content at a maximum
 width of 1180px, and uses 12px / 18px / 24px page padding below 620px / below
-900px / above that. At the top, a centered profile block shows an 84px round
-avatar (or initials fallback), a 25px name input, and a handle input with an `@`
-prefix. Profile fields are always editable; a dirty profile reveals a Save
-profile button, and settings repeats the same fields. Avatar values are
-app-relative paths; remote URLs are not fetched. Below the profile is the filter
-bar: a segmented Week / Month / Year / All period control, a year stepper when
-Year is active, and Source / Provider / Model / Project menus plus Clear filters
-when a dimension is active. The project menu lists at most the top 250 projects
-by tokens, but the selected project remains selected even outside that list.
+900px / above that. At the top is the usage filter bar: a segmented Week / Month
+/ Year / All period control, a year stepper when Year is active, and Source /
+Provider / Model / Project menus plus Clear filters when a dimension is active.
+The dashboard has no profile, avatar, name, or handle hero. The project menu
+lists at most the top 250 projects by tokens, but the selected project remains
+selected even outside that list.
 
 Below the filters are five metric cards in a responsive strip (five across at
 860px+, then 3+2, then 2+2+1): lifetime tokens, peak day, longest task, longest
@@ -38,7 +35,7 @@ The heatmap switches between Daily, Weekly, and Cumulative. Weekly mode repeats
 the full week's total on every day of that week. Cumulative mode is the all-time
 running total through each day, including history before the visible window.
 The selected-day panel shows the mode value, that day's exact token total, input,
-output (with reasoning inside output), cache read/write, sessions, messages,
+output (with reasoning inside output), cache read/write, sessions, usage events,
 longest task, and the top model when present.
 
 Below the heatmap is a ranked leaderboard limited to 12 groups, split into two
@@ -52,25 +49,28 @@ byte counts, and up to six source-tagged warnings. Loading, empty, and error
 states are explicit and never show fake rows.
 
 The Settings view uses the same native surfaces and is vertically scrollable at
-narrow widths. It includes profile fields, palette (blue/green/purple), week
-start (Sunday/Monday), include-cache toggle, refresh interval, source toggles,
-one-root-per-line/comma root editors, and a 330px-high JSON editor with Format
-and Reset. The full editor and toggles preserve custom source mappings and other
-unknown-to-the-toggle fields; saves go through the collector's `configure`
-command. The avatar, source, and settings controls do not clip at narrow widths.
+narrow widths. It includes palette (blue/green/purple), week start
+(Sunday/Monday), include-cache toggle, refresh interval, source toggles,
+one-root-per-line/comma root editors, and a JSON editor with Format and Reset.
+There are no name, handle, or avatar controls; legacy `config.profile` values can
+stay in the full JSON but are not displayed. The full editor and toggles preserve
+custom source mappings and other unknown-to-the-toggle fields; saves go through
+the collector's `configure` command. The source and settings controls do not clip
+at narrow widths.
 
 **How it behaves:** The header refresh is incremental and guarded against
 overlapping runs; while the tab is alive it polls at the configured interval
 (default 60 seconds, validated 30–3600). A no-op scan does not rewrite the store,
-so the store's mtime and size stay unchanged. A profile/palette/cache/week-start/
-refresh change keeps collected rows; changing a source id, adapter, enabled flag,
-root, or mapping clears collected rows and rescans. `--rebuild` is the explicit
-manual reset. Filters narrow all views. Periods are calendar-to-date: the current
-week runs from its configured start through today, the current month from the
-first through today, and the current year from January 1 through today (a past
-year is complete). Leaderboard comparison uses the same calendar portion of the
-previous week/month/year; month-end clamping means March 31 month-to-date compares
-with February 1–28/29, not a same-day-count window. All has no previous period.
+so the store's mtime and size stay unchanged. A palette/cache/week-start/refresh
+change, or a legacy profile-only JSON change, keeps collected rows; changing a
+source id, adapter, enabled flag, root, or mapping clears collected rows and
+rescans. `--rebuild` is the explicit manual reset. Filters narrow all views.
+Periods are calendar-to-date: the current week runs from its configured start
+through today, the current month from the first through today, and the current
+year from January 1 through today (a past year is complete). Leaderboard
+comparison uses the same calendar portion of the previous week/month/year;
+month-end clamping means March 31 month-to-date compares with February 1–28/29,
+not a same-day-count window. All has no previous period.
 Leaderboard change handles new, no-previous-period, and zero-total cases without
 dividing by zero. Project filtering uses the top 250 by tokens while retaining
 the selected value. The source/settings interface can toggle built-in sources,
@@ -128,15 +128,21 @@ summary-only. Weekly heatmap cells intentionally repeat the full week's total;
 cumulative cells are all-time through the day, not period-only. Period comparison
 is calendar-to-date against the same portion of the previous period, with month/
 year end clamping. Current streak uses yesterday grace; duration 0 means unknown
-and displays as a dash. Avatar paths are app-relative, not remote. The project
-filter caps options at 250 while retaining the selected project. The collector is
-the source of truth for config validation, deduplication, token arithmetic, and
-the custom mapping schema; the UI must not guess provider creators or add
-reasoning twice. Codex files can expose both `token_usage_record` and
-`event_msg.token_count`; count them once and turn cumulative counters into
-deltas. Claude streamed duplicates share `message.id`; max-upsert the revised
-fields. Tokens are reported/counted usage, not tokenizer estimates: `input` is
-uncached, `output` includes `reasoning`, `reasoning` is a subset, cache fields are
+and displays as a dash. Legacy `config.profile` is tolerated but not displayed.
+The project filter caps options at 250 while retaining the selected project. The
+collector is the source of truth for config validation, deduplication, token
+arithmetic, and the custom mapping schema; the UI must not guess provider
+creators or add reasoning twice. Pi usage includes assistant `message.usage`,
+top-level `type: "usage"` events (cache warming), `compaction.usage`, and
+`branch_summary.usage`; count each reported entry once, including copied fork
+entries, and treat `row.messages` as usage-event count (UI: Usage events), not
+assistant-message count. Codex files can expose both `token_usage_record` and
+`event_msg.token_count`; reconcile them at the record level, count a turn once,
+and turn cumulative counters into deltas. Forked Codex sessions keep their own
+thread identity when reconciling usage. Claude streamed duplicates share
+`message.id`; max-upsert the revised fields. Tokens are reported/counted usage,
+not tokenizer estimates: `input` is uncached,
+`output` includes `reasoning`, `reasoning` is a subset, cache fields are
 counted once, and `total = input + output + cacheRead + cacheWrite`. A normal
 refresh is incremental, not a forced rebuild; cold scans are O(data), warm scans
 O(metadata) plus appends, and `--rebuild` is only a manual repair. Removed files
@@ -177,5 +183,4 @@ refused even with `--force`. The collector snapshot command prints one compact
 JSON object with the contract shape, and invalid config exits nonzero. In the live
 UI, real data drives the five metrics, heatmap modes, filters, selected-day
 detail, and leaderboard comparisons; loading, empty, and error states are visible,
-and no fabricated rows appear. The final `preview.png` is a real capture of the
-rendered dashboard after the native visual check.
+and no fabricated rows appear.

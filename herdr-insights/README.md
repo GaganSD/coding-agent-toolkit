@@ -85,10 +85,10 @@ version gate, so an older Node can still remove a clean install.
 
 ## What it shows
 
-- A centered profile with an 84px avatar (or initials fallback), name, and
-  optional handle. The name, handle, and avatar fields are always editable; a
-  dirty profile shows a Save profile action, and settings can save the same
-  fields. Avatar paths are app-relative; remote URLs are not fetched.
+- A top usage filter bar: period (week, month, year, all), a year selector for
+  year periods, and source, provider, model, and project filters. The project
+  filter lists the top 250 projects by tokens; an already selected project
+  remains selected even if it falls outside that list.
 - A five-metric strip: lifetime tokens, peak-day tokens, longest observed task,
   longest streak, and current streak. A missing or zero task duration displays
   as a dash rather than an invented value. Current streak gives yesterday
@@ -97,18 +97,19 @@ version gate, so an older Node can still remove a clean install.
   daily / weekly / cumulative modes. Weekly mode repeats the full week's total
   on each day of that week. Cumulative mode is the all-time running total
   through each day. Future cells are dimmed and are not clickable.
-- Filters for source, provider, model, and project, plus period (week, month,
-  year, all) and a year selector for year periods. The project filter lists the
-  top 250 projects by tokens; an already selected project remains selected even
-  if it falls outside that list.
 - A ranked model/provider leaderboard with total tokens, share, and change
   versus the previous calendar period. Grouping switches between models and
   providers. Rows are summary-only; they do not expand.
 - A token breakdown and scan status for the selected period, with per-source
   status and warnings. Loading, empty, and error states are explicit.
-- Settings with profile fields, source toggles and root editors, palette, week
-  start, cache inclusion, refresh interval, and a full JSON config editor.
-  Toggles mutate only their own fields and preserve custom source mappings.
+- Settings with source toggles and root editors, palette, week start, cache
+  inclusion, refresh interval, and a full JSON config editor. There are no name,
+  handle, or avatar controls; a legacy `profile` object is accepted and
+  preserved through the full JSON config but is not displayed. Toggles mutate
+  only their own fields and preserve custom source mappings.
+
+The dashboard has no profile or avatar header; usage filters and data start the
+view.
 
 Periods are calendar-to-date windows: the current week runs from its configured
 start through today, the current month from the first through today, and the
@@ -163,9 +164,13 @@ The default normalized shape is:
 }
 ```
 
-- `profile.name`, `profile.handle`, and `profile.avatar` are strings. The handle
-  is stored without a leading `@`. An avatar is an app-relative path such as
-  `mods/insights/avatar.png`; URLs, absolute paths, and traversal are rejected.
+`profile` remains in the normalized shape for backward compatibility. It is
+accepted and preserved through the full JSON editor, but the dashboard and
+settings no longer display it.
+
+- `profile.name`, `profile.handle`, and `profile.avatar` are legacy string
+  fields. They remain validated (the handle is stored without a leading `@`; an
+  avatar must be an app-relative path), but the UI does not show or edit them.
 - `palette`: `blue`, `green`, or `purple`.
 - `includeCache`: include cache read/write in displayed totals and heatmap
   intensity. The collector's row totals always include cache; this setting
@@ -208,10 +213,10 @@ zero.
 A normal refresh is incremental. `--rebuild` is available for a deliberate
 manual repair, not for every refresh. The collector validates a config before
 writing it atomically. A change to any source signature (id, adapter, enabled,
-roots, or mapping) invalidates collected rows and rescans; profile, palette,
-cache, week-start, and refresh-only changes keep the rows. The accepted config
-is persisted before scanning, so a scan failure can still leave the new sources
-visible in the UI with an error.
+roots, or mapping) invalidates collected rows and rescans; a legacy profile,
+palette, cache, week-start, or refresh-only change keeps the rows. The accepted
+config is persisted before scanning, so a scan failure can still leave the new
+sources visible in the UI with an error.
 
 Operations on one store are serialized by a lock file. An unchanged scan does
 not rewrite the store, so the store's size and mtime stay unchanged. No stdin is
@@ -225,8 +230,9 @@ The snapshot contains `version` (1), `generatedAt`, `lastScanAt`, `config`,
 session, harness, provider, model, and project. Each row has
 `tokens.input`, `tokens.output`, `tokens.cacheRead`, `tokens.cacheWrite`,
 `tokens.reasoning`, `tokens.total`, `messages`, `activeMs`, and `longestTaskMs`.
-Session identity is stable and opaque to the UI. Unknown provider or model
-fields remain the string `unknown` rather than being guessed.
+`messages` counts reported usage events (shown as "Usage events" in the UI), not
+assistant messages. Session identity is stable and opaque to the UI. Unknown
+provider or model fields remain the string `unknown` rather than being guessed.
 
 `stats` reports `files`, `filesRead`, `bytesRead`, `unchangedFiles`, and
 `errors` for the scan. `sourceStats` is keyed by source id and each entry has
@@ -253,7 +259,7 @@ character counts.
 - `tokens.reasoning` is a subset of output, never added twice.
 - `tokens.cacheRead` and `tokens.cacheWrite` are counted once.
 - `tokens.total` is `input + output + cacheRead + cacheWrite`.
-- A message counts only when the harness reports nonzero usage.
+- A usage event counts only when the harness reports nonzero usage.
 - A source that does not report usage contributes no invented usage.
 
 Some harnesses report provider routing that differs from the model's creator.
@@ -283,17 +289,21 @@ until a rebuild.
 
 Source-specific behavior:
 
-- **Pi:** usage records are assistant messages with `message.usage` and
-  `message.model` / `message.provider`; the session header supplies `session.cwd`
-  and `session.id`. Pi sub-agent transcript artifacts are counted with their own
-  stable session. Failed assistant records do not close a task.
-- **Claude Code:** duplicate streamed messages with the same `message.id` are
+- **Pi:** usage comes from assistant `message.usage` records plus top-level
+  `type: "usage"` events (cache warming), `compaction.usage`, and
+  `branch_summary.usage`. Each reported usage entry counts once by stable entry
+  identity, including entries copied into forked sessions; copied forks also do
+  not duplicate task durations. The session header supplies `session.cwd` and
+  `session.id`; sub-agent transcript artifacts use their own stable session.
+  Failed assistant records do not close a task.
+- **Claude Code:** duplicate streamed entries with the same `message.id` are
   max-upserted, so revised usage fields count once at their largest values.
   Cache fields are counted once. Tool-result and meta user records do not start
   a new task; failed assistant records do not close one.
-- **Codex:** modern `token_usage_record` counters win over
-  `event_msg.token_count`; the two views are not double-counted. Legacy
+- **Codex:** modern `token_usage_record` counters and `event_msg.token_count`
+  are reconciled at the record level, so mixed files are counted once. Legacy
   cumulative counters are converted to deltas, including across restarts.
+  Forked sessions keep their own thread identity when reconciling usage.
   `task_complete` supplies exact task durations when present.
 
 Task duration is grounded in task boundaries when the transcript provides them:
@@ -386,7 +396,7 @@ duration is 2500ms.
 ## Privacy and safety
 
 - **Local only:** Insights makes no network requests. It has no telemetry and no
-  remote service. Avatar paths are local app-relative files, not remote URLs.
+  remote service.
 - **Reads transcripts:** the collector reads the transcript directories listed in
   config (for example `~/.pi/agent/sessions`, `~/.claude/projects`, and
   `~/.codex/sessions`). Those paths are outside the Herdr app home and are never
@@ -396,7 +406,7 @@ duration is 2500ms.
   It is not a sandbox.
 - **Metadata-only store:** the store contains the normalized config, file paths
   and scan metadata, aggregated rows (day, session identity, harness, provider,
-  model, project, numeric usage, message counts, and task durations), and
+  model, project, numeric usage, usage-event counts, and task durations), and
   deduplication/task keys. Prompts, assistant text, code, tool calls, tool
   results, credentials, and full raw records are not stored.
 - **Errors:** error text is useful for diagnosis but never includes raw
