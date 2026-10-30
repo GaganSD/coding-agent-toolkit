@@ -110,7 +110,7 @@ const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(..
     /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
     `const { ${uiNames} } = await import("${uiUrl}");`,
   );
-const { default: Insights } = await import(dataUrl(transformedMain));
+const { default: Insights, heatmapMetrics } = await import(dataUrl(transformedMain));
 
 function optionArgument(args) {
   const index = args.indexOf("--options");
@@ -230,7 +230,6 @@ function blankInstance() {
   instance.period = "all";
   instance.filters = { source: "all", provider: "all", model: "all", project: "all" };
   instance.heatmapMode = "daily";
-  instance.leaderboardGroup = "model";
   instance.years = [2024];
   instance.dashboard = null;
   instance.dashboardKey = null;
@@ -346,7 +345,7 @@ test("init reads the runtime config once and waits before the first snapshot", a
   assert.equal(state.execCalls.length, 1);
   assert.equal(state.execCalls[0].command, "node");
   assert.equal(state.execCalls[0].args[1], "snapshot");
-  assert.equal(calls.timers.length, 1);
+  assert.equal(calls.timers.length, 2, "the refresh interval plus the scan progress poll");
 
   instance.refresh(cx);
   await flush();
@@ -466,13 +465,14 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
     totals,
     null,
   );
-  const grid = card.childNodes[1].childNodes[0];
+  const metrics = heatmapMetrics(undefined, heatmap.weeks.length);
+  const grid = card.childNodes[1].childNodes[0].childNodes[0];
   const monthNodes = grid.childNodes[0].childNodes.slice(1);
   assert.equal(monthNodes.length, heatmap.months.length);
 
   heatmap.months.forEach((month, index) => {
     const node = monthNodes[index];
-    assert.equal(node.style.width, month.span * 14, `${month.label} keeps its week span`);
+    assert.equal(node.style.width, month.span * metrics.weekWidth, `${month.label} keeps its week span`);
     if (month.span === 1) {
       assert.deepEqual(node.childNodes, [], "a one-week partial month has no label to wrap");
     } else {
@@ -480,6 +480,111 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
       assert.equal(node.style.whitespace, "nowrap", `${month.label} must not wrap`);
     }
   });
+});
+
+test("heatmap cells grow and center on wide views", () => {
+  const wide = heatmapMetrics(1600, 53);
+  const narrow = heatmapMetrics(480, 53);
+  assert.ok(wide.cell > narrow.cell, "wider views get larger cells");
+  assert.ok(wide.cell <= 20, "cells stay capped");
+  assert.equal(wide.centered, true);
+  assert.equal(wide.weekWidth, wide.cell + 2);
+  assert.match(mainSource, /metrics\.centered, \(el\) => el\.justify_center\(\)/);
+});
+
+test("dashboard is divided into token and model usage sections", () => {
+  assert.match(mainSource, /sectionHeader\("Token usage"/);
+  assert.match(mainSource, /sectionHeader\("Model usage"/);
+  assert.match(mainSource, /"Tokens History"/);
+  assert.match(mainSource, /"Model Usage"/);
+  assert.doesNotMatch(mainSource, /Contribution history|Usage leaders/);
+});
+
+test("model usage leaderboard is models-only with ranked change rows", () => {
+  assert.doesNotMatch(mainSource, /ins-leaders-group|leaderboardGroup|insights\.group/);
+  const instance = blankInstance();
+  const c = ui.tokens({
+    background: "#101010",
+    surface: "#181818",
+    border: "#333333",
+    foreground: "#f5f5f5",
+    muted: "#9a9a9a",
+    dim: "#707070",
+    accent: "#5aa7ff",
+  });
+  const rows = [
+    { day: "2024-01-10", model: "model-a", provider: "p-one", tokens: { input: 100, output: 50 } },
+    { day: "2024-01-10", model: "model-b", provider: "p-two", tokens: { input: 40, output: 10 } },
+  ];
+  const leaders = analytics.leaderboard(rows, null, { groupBy: "model", includeCache: true });
+  const card = instance.leaderboardCard(c, leaders, { label: "All time" });
+  const column = card.childNodes[1].childNodes[0];
+  const firstRow = column.childNodes[0];
+
+  assert.equal(firstRow.childNodes.length, 4, "rank, avatar, name, and value only; no share bar");
+  assert.deepEqual(firstRow.childNodes[0].childNodes, ["1."]);
+  const nameColumn = firstRow.childNodes[2];
+  assert.deepEqual(nameColumn.childNodes[0].childNodes, ["model-a"]);
+  assert.deepEqual(nameColumn.childNodes[1].childNodes, ["by p-one"]);
+  const valueColumn = firstRow.childNodes[3];
+  assert.deepEqual(valueColumn.childNodes[0].childNodes, ["150 tokens"]);
+  assert.deepEqual(valueColumn.childNodes[1].childNodes, ["—"], "no previous period shows a dash");
+});
+
+test("loading state shows live scan progress and scan status lives in settings", () => {
+  assert.doesNotMatch(mainSource, /Reading local session history|collector and presentation helper|Preparing the compact dashboard|Initializing the native source|bottomGrid/);
+  assert.match(mainSource, /children\(\[preferences, sources, scan, json\]\)/);
+
+  const instance = blankInstance();
+  instance.loading = true;
+  instance.scanProgress = { processed: 42, total: 1183, file: "/home/u/.codex/sessions/a.jsonl" };
+  const c = ui.tokens({
+    background: "#101010",
+    surface: "#181818",
+    border: "#333333",
+    foreground: "#f5f5f5",
+    muted: "#9a9a9a",
+    dim: "#707070",
+    accent: "#5aa7ff",
+  });
+  const card = instance.initialState(c);
+  assert.deepEqual(card.childNodes[1].childNodes, ["Scanning 42 of 1,183 files"]);
+  assert.deepEqual(card.childNodes[2].childNodes, ["/home/u/.codex/sessions/a.jsonl"]);
+
+  instance.scanProgress = null;
+  const quiet = instance.initialState(c);
+  assert.equal(quiet.childNodes.length, 1, "no static body or detail while progress is unknown");
+});
+
+test("model chart card renders stacked weekly bars, axis labels and a legend", () => {
+  const instance = blankInstance();
+  const c = ui.tokens({
+    background: "#101010",
+    surface: "#181818",
+    border: "#333333",
+    foreground: "#f5f5f5",
+    muted: "#9a9a9a",
+    dim: "#707070",
+    accent: "#5aa7ff",
+  });
+  const rows = [
+    { day: "2024-01-02", model: "model-a", tokens: { input: 100, output: 0 } },
+    { day: "2024-01-09", model: "model-b", tokens: { input: 300, output: 0 } },
+    { day: "2024-01-09", model: "model-a", tokens: { input: 100, output: 0 } },
+  ];
+  const series = analytics.buildModelSeries(rows, { endDay: "2024-01-14", weeks: 4, weekStartsOn: 0 });
+  assert.equal(series.weeks.length, 4);
+  assert.equal(series.maxTotal, 400);
+
+  const card = instance.modelChartCard(c, series);
+  const chart = card.childNodes[1];
+  const barsRow = chart.childNodes[0].childNodes[1];
+  assert.equal(barsRow.childNodes.length, 4, "one column per week");
+  const tallest = barsRow.childNodes[2];
+  assert.equal(tallest.childNodes.length, 1, "active week has a stacked column");
+  assert.equal(tallest.childNodes[0].childNodes.length, 2, "two models stack in one week");
+  const legend = chart.childNodes[2];
+  assert.equal(legend.childNodes.length, series.models.length, "one legend entry per model");
 });
 
 test("stat grids top-align rows when optional notes change sibling heights", () => {

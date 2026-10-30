@@ -13,6 +13,7 @@ const {
   activityDays,
   availableYears,
   buildHeatmap,
+  buildModelSeries,
   compareChange,
   createDashboardCache,
   dayKey,
@@ -298,6 +299,37 @@ test("leaderboard ranks, dedupes sessions and handles New and zero comparisons",
   assert.equal(compareChange(10, 10, false).label, "—");
 });
 
+test("model series stacks weekly tokens by top model with an Other bucket", () => {
+  const rows = [
+    row({ day: "2024-01-02", model: "model-a", tokens: { input: 100, output: 0 } }),
+    row({ day: "2024-01-03", model: "model-b", tokens: { input: 200, output: 0 } }),
+    row({ day: "2024-01-09", model: "model-a", tokens: { input: 300, output: 0 } }),
+    row({ day: "2024-01-10", model: "model-c", tokens: { input: 50, output: 0 } }),
+    row({ day: "2023-12-01", model: "model-a", tokens: { input: 999, output: 0 } }),
+  ];
+
+  const series = buildModelSeries(rows, { endDay: "2024-01-14", weeks: 4, weekStartsOn: 0, limit: 2, includeCache: false });
+  assert.equal(series.weeks.length, 4);
+  assert.deepEqual(series.weeks.map((week) => week.start), ["2023-12-24", "2023-12-31", "2024-01-07", "2024-01-14"]);
+  // model-c falls outside the top 2 and becomes Other; the out-of-window row is ignored.
+  assert.deepEqual(series.models, ["model-a", "model-b", "Other"]);
+  assert.equal(series.windowTotal, 650);
+  assert.equal(series.maxTotal, 350);
+  assert.deepEqual(series.weeks[1].segments, [
+    { name: "model-a", tokens: 100 },
+    { name: "model-b", tokens: 200 },
+  ]);
+  assert.deepEqual(series.weeks[2].segments, [
+    { name: "model-a", tokens: 300 },
+    { name: "Other", tokens: 50 },
+  ]);
+  assert.deepEqual(series.weeks[0].segments, []);
+  assert.equal(series.range.end, "2024-01-14");
+
+  const noOther = buildModelSeries(rows.slice(0, 2), { endDay: "2024-01-14", weeks: 3, weekStartsOn: 0, includeCache: false });
+  assert.deepEqual(noOther.models, ["model-b", "model-a"]);
+});
+
 test("compact values cover billions and exact values keep every digit", () => {
   assert.equal(formatCompact(0), "0");
   assert.equal(formatCompact(999), "999");
@@ -314,8 +346,8 @@ test("compact values cover billions and exact values keep every digit", () => {
   assert.equal(formatDuration(0), "—");
   assert.equal(formatDuration(900), "<1s");
   assert.equal(formatDuration(65000), "1m");
-  assert.equal(formatDuration(3660000), "1h 1m");
-  assert.equal(formatDuration(90000000), "1d 1h");
+  assert.equal(formatDuration(3660000), "1H 1m");
+  assert.equal(formatDuration(90000000), "1D 1H");
   assert.equal(initials("Ada Lovelace"), "AL");
   assert.equal(intensityLevel(0, 100), 0);
   assert.equal(intensityLevel(25, 100), 1);

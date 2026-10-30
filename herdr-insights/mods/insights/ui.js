@@ -218,7 +218,7 @@ export function stateCard(c, options = {}) {
     .child(h_flex().items_center().gap(G.sm)
       .child(div().size(8).flex_none().rounded_full().bg(tone))
       .child(div().text_size(T.card).font_semibold().text_color(c.text).child(options.title)))
-    .child(div().text_size(T.body).text_color(c.mutedForeground).child(options.body))
+    .when(Boolean(options.body), (el) => el.child(div().text_size(T.body).text_color(c.mutedForeground).child(options.body)))
     .when(Boolean(options.detail), (el) => el.child(div().text_size(T.label).text_color(c.dim).child(options.detail)))
     .when(Boolean(options.action), (el) => el.child(h_flex().pt(G.xs).child(options.action)));
 }

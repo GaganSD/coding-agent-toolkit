@@ -206,10 +206,10 @@ export function formatDuration(ms) {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  if (hours < 24) return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+  if (hours < 24) return remainder ? `${hours}H ${remainder}m` : `${hours}H`;
   const days = Math.floor(hours / 24);
   const remainingHours = hours % 24;
-  return remainingHours ? `${days}d ${remainingHours}h` : `${days}d`;
+  return remainingHours ? `${days}D ${remainingHours}H` : `${days}D`;
 }
 
 export function formatBytes(value) {
@@ -693,6 +693,86 @@ export function leaderboard(rows, previousRows, options = {}) {
   };
 }
 
+/**
+ * Weekly stacked model usage over a trailing window. Buckets each week's
+ * tokens per model, keeps the top models, and folds the rest into "Other".
+ * Pure presentation data: no row identity, only names and token totals.
+ */
+export function buildModelSeries(rows, options = {}) {
+  const weekStartsOn = options.weekStartsOn === 1 ? 1 : 0;
+  const includeCache = options.includeCache !== false;
+  const weekCount = Math.max(1, Math.floor(Number(options.weeks) || 26));
+  const limit = Math.max(1, Math.floor(Number(options.limit) || 7));
+  const endDay = isDay(options.endDay)
+    ? options.endDay
+    : isDay(options.today)
+      ? options.today
+      : todayKey();
+  const endWeekStart = startOfWeek(endDay, weekStartsOn);
+  const startDay = addDays(endWeekStart, -(weekCount - 1) * 7);
+
+  const modelTotals = new Map();
+  const weekly = new Map();
+  for (const row of rows ?? []) {
+    if (!isDay(row?.day) || row.day < startDay || row.day > endDay) continue;
+    const name = displayName(row?.model, "model");
+    const tokens = rowTokenTotal(row, includeCache);
+    modelTotals.set(name, (modelTotals.get(name) ?? 0) + tokens);
+    const weekStart = startOfWeek(row.day, weekStartsOn);
+    let bucket = weekly.get(weekStart);
+    if (!bucket) {
+      bucket = new Map();
+      weekly.set(weekStart, bucket);
+    }
+    bucket.set(name, (bucket.get(name) ?? 0) + tokens);
+  }
+
+  const top = [...modelTotals.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([name]) => name);
+  const keep = new Set(top);
+
+  const weeks = [];
+  let maxTotal = 0;
+  let windowTotal = 0;
+  let hasOther = false;
+  for (let index = 0; index < weekCount; index += 1) {
+    const weekStart = addDays(startDay, index * 7);
+    const bucket = weekly.get(weekStart);
+    const segments = [];
+    let total = 0;
+    for (const name of top) {
+      const tokens = bucket?.get(name) ?? 0;
+      if (tokens > 0) segments.push({ name, tokens });
+      total += tokens;
+    }
+    let other = 0;
+    if (bucket) {
+      for (const [name, tokens] of bucket) {
+        if (!keep.has(name)) other += tokens;
+      }
+    }
+    if (other > 0) {
+      hasOther = true;
+      segments.push({ name: "Other", tokens: other });
+      total += other;
+    }
+    if (total > maxTotal) maxTotal = total;
+    windowTotal += total;
+    weeks.push({ start: weekStart, total, segments });
+  }
+
+  return {
+    weeks,
+    models: hasOther ? [...top, "Other"] : top,
+    maxTotal,
+    windowTotal,
+    includeCache,
+    range: { start: startDay, end: endDay },
+  };
+}
+
 export function intensityLevel(value, maximum) {
   const amount = finite(value);
   const max = finite(maximum);
@@ -876,6 +956,11 @@ export function deriveDashboard(snapshot, options = {}) {
     includeCache,
     limit: 12,
   });
+  const modelSeries = buildModelSeries(dimensionRows, {
+    endDay: range.end,
+    weekStartsOn: config.weekStartsOn,
+    includeCache,
+  });
 
   const selectedInRange = heatmap.cells.find((cell) => cell.date === settings.selectedDay && !cell.future);
   const selectedDay = selectedInRange ? settings.selectedDay : heatmap.range.dataEnd;
@@ -925,6 +1010,7 @@ export function deriveDashboard(snapshot, options = {}) {
     selectedTotals,
     selectedTop,
     facets,
+    modelSeries,
   };
 }
 
@@ -1000,6 +1086,7 @@ export function compactDashboard(derived) {
     selectedRowCount: Array.isArray(derived?.selectedRows) ? derived.selectedRows.length : 0,
     rowCount: Array.isArray(derived?.rows) ? derived.rows.length : 0,
     facets: derived?.facets ?? {},
+    modelSeries: derived?.modelSeries ?? null,
     heatmap: {
       mode: heatmap.mode,
       weekStartsOn: heatmap.weekStartsOn,

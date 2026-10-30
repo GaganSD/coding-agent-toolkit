@@ -44,10 +44,36 @@ import {
   tokens,
 } from "./ui.js";
 
-const CELL = 12;
+const MIN_CELL = 12;
+const MAX_CELL = 20;
 const CELL_GAP = 2;
-const WEEK_WIDTH = CELL + CELL_GAP;
 const DAY_LABEL_WIDTH = 30;
+
+/**
+ * Heatmap cells stay small on narrow views and grow up to MAX_CELL on wide
+ * ones so the grid reads centered instead of pinned to the left edge.
+ */
+export function heatmapMetrics(width, weekCount) {
+  const viewWidth = Number.isFinite(width) ? width : 960;
+  const weeks = Math.max(1, weekCount);
+  const pagePadding = (viewWidth < 620 ? G.md : viewWidth < 900 ? G.lg : G.xl) * 2;
+  const available = Math.max(320, Math.min(1180, viewWidth - pagePadding) - G.lg * 2);
+  const fitted = Math.floor((available - DAY_LABEL_WIDTH - (weeks - 1) * CELL_GAP) / weeks);
+  const cell = Math.max(MIN_CELL, Math.min(MAX_CELL, fitted));
+  const weekWidth = cell + CELL_GAP;
+  const contentWidth = DAY_LABEL_WIDTH + weeks * weekWidth;
+  return { cell, weekWidth, contentWidth, centered: contentWidth <= available };
+}
+
+/** Categorical chart palette that reads on both dark and light themes. */
+const MODEL_CHART_COLORS = ["#5b8def", "#3fb27f", "#e0a23c", "#d96c92", "#8f6fe0", "#41b3ba", "#e2704f"];
+const OTHER_CHART_COLOR = "#8a8f98";
+const CHART_HEIGHT = 168;
+
+function modelChartColor(name, index) {
+  if (name === "Other") return OTHER_CHART_COLOR;
+  return MODEL_CHART_COLORS[index % MODEL_CHART_COLORS.length];
+}
 const MAX_FACET_OPTIONS = 250;
 const DEFAULT_NODE = "node";
 const RUNTIME_FILE = "mods/insights/runtime.json";
@@ -156,7 +182,6 @@ function presentationKey(snapshot, options = {}) {
     period: options.period ?? "all",
     year: options.year ?? null,
     heatmapMode: options.heatmapMode ?? "daily",
-    leaderboardGroup: options.leaderboardGroup ?? "model",
     selectedDay: options.selectedDay ?? null,
     today: options.today ?? null,
   });
@@ -323,18 +348,7 @@ function selectedFacet(facet, value, field, config) {
   return { value, label: facetLabel(field, found?.value ?? value, config) };
 }
 
-function metricCard(label, value, sub, c, options = {}) {
-  return v_flex().flex_1().min_w(0).p(G.md).gap(G.xs).rounded(R.card).bg(c.card)
-    .border_1().border_color(c.border)
-    .child(metaLabel(label, c))
-    .child(div().text_size(T.metric).font_semibold().text_color(options.color ?? c.text).truncate()
-      .tooltip(options.tooltip ?? String(value)).child(value))
-    .child(div().text_size(T.small).text_color(c.mutedForeground).truncate().child(sub));
-}
 
-function metricRow(cards) {
-  return h_flex().w_full().gap(G.sm).items_stretch().children(cards);
-}
 
 function preferenceRow(label, control, c) {
   return h_flex().w_full().flex_wrap().gap(G.md).items_center().justify_between()
@@ -353,7 +367,6 @@ export default class Insights extends View {
     this.period = "all";
     this.year = Number(todayKey().slice(0, 4));
     this.heatmapMode = "daily";
-    this.leaderboardGroup = "model";
     this.selectedDay = todayKey();
     this.showSettings = false;
     this.openFilter = null;
@@ -387,6 +400,8 @@ export default class Insights extends View {
     this.dashboardError = null;
     this.dashboardTimer = null;
     this.dashboardTask = null;
+    this.progressTimer = null;
+    this.scanProgress = null;
     this.dashboardQueued = false;
     this.dashboardGeneration = 0;
     this.dashboardWatchdog = null;
@@ -438,13 +453,6 @@ export default class Insights extends View {
             this.scheduleDashboard(commandCx, { force: true });
             commandCx.notify();
           }
-        } else if (name.startsWith("group.")) {
-          const group = name.slice("group.".length);
-          if (group === "model" || group === "provider") {
-            this.leaderboardGroup = group;
-            this.scheduleDashboard(commandCx, { force: true });
-            commandCx.notify();
-          }
         } else if (name.startsWith("source.")) {
           const value = name.slice("source.".length);
           this.filters = { ...this.filters, source: value === "all" ? "all" : value };
@@ -465,6 +473,7 @@ export default class Insights extends View {
     try { this.dashboardTask?.cancel(); } catch { /* already gone */ }
     try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.refreshWatchdog?.cancel(); } catch { /* already gone */ }
+    try { this.progressTimer?.cancel(); } catch { /* already gone */ }
     try { this.saveWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.settingsTask?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
@@ -607,7 +616,6 @@ export default class Insights extends View {
       period: this.period,
       year: this.year,
       heatmapMode: this.heatmapMode,
-      leaderboardGroup: this.leaderboardGroup,
       selectedDay: this.selectedDay,
       today: todayKey(),
     };
@@ -615,6 +623,41 @@ export default class Insights extends View {
 
   // Analytics run in the Node presentation helper. QuickJS only stores the
   // compact result and renders it; no derivation runs in a render frame.
+  progressPath() {
+    return `${this.storePath()}.progress.json`;
+  }
+
+  // The collector writes a small progress file while scanning. Poll it only
+  // while a refresh is in flight so the loading card can name the live file.
+  armProgress(cx) {
+    this.cancelProgress();
+    // Self-terminating: if a refresh continuation is interrupted before its
+    // finally runs, the poll must not leak into a permanent notify loop.
+    let ticks = 0;
+    this.progressTimer = cx.timer.every(500, (timerCx) => {
+      ticks += 1;
+      if (!this.loading || ticks > 240) {
+        this.cancelProgress();
+        return;
+      }
+      let next = null;
+      try {
+        const parsed = JSON.parse(readTextFile(this.progressPath()));
+        if (parsed && Number.isFinite(Number(parsed.processed)) && Number.isFinite(Number(parsed.total))) next = parsed;
+      } catch { /* the progress file is best-effort */ }
+      const changed = (next?.processed ?? null) !== (this.scanProgress?.processed ?? null)
+        || (next?.file ?? null) !== (this.scanProgress?.file ?? null);
+      this.scanProgress = next;
+      if (changed) timerCx.notify();
+    });
+  }
+
+  cancelProgress() {
+    try { this.progressTimer?.cancel(); } catch { /* already gone */ }
+    this.progressTimer = null;
+    this.scanProgress = null;
+  }
+
   armWatchdog(kind, cx) {
     const field = kind === "refresh" ? "refreshWatchdog" : "saveWatchdog";
     try { this[field]?.cancel(); } catch { /* already gone */ }
@@ -750,6 +793,7 @@ export default class Insights extends View {
     this.error = null;
     cx.notify();
     this.armWatchdog("refresh", cx);
+    this.armProgress(cx);
     const presenter = this.presenterPath();
     const store = this.storePath();
     const options = this.dashboardOptions();
@@ -774,6 +818,7 @@ export default class Insights extends View {
       } finally {
         this.loading = false;
         this.cancelWatchdog("refresh");
+        this.cancelProgress();
         if (failure) {
           this.error = sanitizeError(failure);
           refreshCx.notify();
@@ -1185,15 +1230,17 @@ export default class Insights extends View {
   }
 
   initialState(c) {
-    const title = this.loading ? "Loading local insights" : "Insights needs its collector";
-    const body = this.loading
-      ? "Reading local session history. Nothing leaves this machine."
-      : this.error || "The collector did not return a snapshot yet.";
+    const progress = this.scanProgress;
+    const total = Number(progress?.total) || 0;
+    const processed = Number(progress?.processed) || 0;
+    const file = typeof progress?.file === "string" ? progress.file : "";
     return stateCard(c, {
       tone: this.loading ? c.accent : c.destructive,
-      title,
-      body,
-      detail: "The collector and presentation helper run as local Node processes. No network, no transcripts, no prompts.",
+      title: this.loading ? "Loading local insights" : "Insights needs its collector",
+      body: this.loading
+        ? (total > 0 ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files` : null)
+        : (this.error || "The collector did not return a snapshot yet."),
+      detail: this.loading && file ? file : null,
       action: this.busy() ? null : button("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), c, {
         variant: "primary",
       }),
@@ -1212,7 +1259,6 @@ export default class Insights extends View {
   }
 
   dashboardView(c) {
-    const snapshot = this.snapshot;
     const derived = this.dashboard;
     if (!derived) {
       const retry = (id, primary) => button(id, "Retry", (_event, clickCx) => {
@@ -1230,7 +1276,6 @@ export default class Insights extends View {
       return stateCard(c, {
         tone: c.accent,
         title: "Preparing insights",
-        body: "Preparing the compact dashboard in the local Node helper.",
         action: retry("insights-prepare-retry", false),
       });
     }
@@ -1240,39 +1285,47 @@ export default class Insights extends View {
       .child(this.metricStrip(c, lifetime, peak, streaks))
       .child(this.filtersBar(c, config, range, derived.facets, years))
       .when(rowCount === 0, (el) => el.child(this.emptyNotice(c, config)))
+      .child(this.sectionHeader("Token usage", c))
       .child(this.heatmapCard(c, config, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop))
-      .child(this.leaderboardCard(c, leaders, range))
-      .child(this.bottomGrid(c, totals, range, config, snapshot));
+      .child(this.breakdownCard(c, totals, range, config))
+      .child(this.sectionHeader("Model usage", c))
+      .when(Boolean(derived.modelSeries?.weeks?.length), (el) => el.child(this.modelChartCard(c, derived.modelSeries)))
+      .child(this.leaderboardCard(c, leaders, range));
   }
 
-  filtersBar(c, config, range, facets, years) {
+  sectionHeader(title, c) {
+    return h_flex().w_full().items_center().gap(G.md).pt(G.sm)
+      .child(div().text_size(T.card).font_semibold().text_color(c.text).child(title))
+      .child(div().flex_1().h(1).bg(c.border));
+  }
+
+  filtersBar(c, config, _range, facets, years) {
     const active = Object.values(this.filters).some((value) => value !== "all");
 
-    return card(c, G.md, G.sm)
-      .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center()
-        .child(segmented("ins-period", [
-          { key: "week", label: "Week" },
-          { key: "month", label: "Month" },
-          { key: "year", label: "Year" },
-          { key: "all", label: "All" },
-        ], this.period, (key, changeCx) => this.setPeriod(key, changeCx), c))
-        .when(this.period === "year", (el) => el.child(h_flex().gap(G.xs).items_center()
-          .child(iconButton("ins-year-older", "‹", "Older year", (_event, clickCx) => { this.setYear(1, clickCx); clickCx.notify(); }, c))
-          .child(div().min_w(36).text_center().text_size(T.body).font_medium().text_color(c.text).child(String(this.year)))
-          .child(iconButton("ins-year-newer", "›", "Newer year", (_event, clickCx) => { this.setYear(-1, clickCx); clickCx.notify(); }, c, {
-            color: this.year >= years[0] ? c.dim : c.mutedForeground,
-          })))))
-      .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center()
-        .child(this.filterMenu("source", "Source", this.filters.source, facets.source, config, c, (value, pickCx) => { this.filters.source = value; this.scheduleDashboard(pickCx, { force: true }); }))
-        .child(this.filterMenu("provider", "Provider", this.filters.provider, facets.provider, config, c, (value, pickCx) => { this.filters.provider = value; this.scheduleDashboard(pickCx, { force: true }); }))
-        .child(this.filterMenu("model", "Model", this.filters.model, facets.model, config, c, (value, pickCx) => { this.filters.model = value; this.scheduleDashboard(pickCx, { force: true }); }))
-        .child(this.filterMenu("project", "Project", this.filters.project, facets.project, config, c, (value, pickCx) => { this.filters.project = value; this.scheduleDashboard(pickCx, { force: true }); }))
-        .when(active, (el) => el.child(button("ins-clear-filters", "Clear filters", (_event, clickCx) => {
-          this.filters = { source: "all", provider: "all", model: "all", project: "all" };
-          this.scheduleDashboard(clickCx, { force: true });
-          clickCx.notify();
-        }, c, { variant: "ghost" }))))
-      .child(mutedText(this.period === "all" ? range.label : `${range.label} · calendar period`, c));
+    // A plain toolbar row: period first, then facet filters. No card chrome,
+    // so it reads as page navigation instead of a floating section.
+    return h_flex().w_full().flex_wrap().gap(G.sm).items_center()
+      .child(segmented("ins-period", [
+        { key: "week", label: "Week" },
+        { key: "month", label: "Month" },
+        { key: "year", label: "Year" },
+        { key: "all", label: "All" },
+      ], this.period, (key, changeCx) => this.setPeriod(key, changeCx), c))
+      .when(this.period === "year", (el) => el.child(h_flex().gap(G.xs).items_center()
+        .child(iconButton("ins-year-older", "‹", "Older year", (_event, clickCx) => { this.setYear(1, clickCx); clickCx.notify(); }, c))
+        .child(div().min_w(36).text_center().text_size(T.body).font_medium().text_color(c.text).child(String(this.year)))
+        .child(iconButton("ins-year-newer", "›", "Newer year", (_event, clickCx) => { this.setYear(-1, clickCx); clickCx.notify(); }, c, {
+          color: this.year >= years[0] ? c.dim : c.mutedForeground,
+        }))))
+      .child(this.filterMenu("source", "Source", this.filters.source, facets.source, config, c, (value, pickCx) => { this.filters.source = value; this.scheduleDashboard(pickCx, { force: true }); }))
+      .child(this.filterMenu("provider", "Provider", this.filters.provider, facets.provider, config, c, (value, pickCx) => { this.filters.provider = value; this.scheduleDashboard(pickCx, { force: true }); }))
+      .child(this.filterMenu("model", "Model", this.filters.model, facets.model, config, c, (value, pickCx) => { this.filters.model = value; this.scheduleDashboard(pickCx, { force: true }); }))
+      .child(this.filterMenu("project", "Project", this.filters.project, facets.project, config, c, (value, pickCx) => { this.filters.project = value; this.scheduleDashboard(pickCx, { force: true }); }))
+      .when(active, (el) => el.child(button("ins-clear-filters", "Clear filters", (_event, clickCx) => {
+        this.filters = { source: "all", provider: "all", model: "all", project: "all" };
+        this.scheduleDashboard(clickCx, { force: true });
+        clickCx.notify();
+      }, c, { variant: "ghost" })));
   }
 
   filterMenu(field, label, value, facet, config, c, onPick) {
@@ -1351,62 +1404,86 @@ export default class Insights extends View {
   }
 
   metricStrip(c, lifetime, peak, streaks) {
-    const cards = [
-      metricCard("Lifetime tokens", formatCompact(lifetime.total), `${formatInt(lifetime.sessions)} sessions · all time`, c, {
+    const stats = [
+      {
+        label: "Lifetime tokens",
+        value: formatCompact(lifetime.total),
+        note: `${formatInt(lifetime.sessions)} sessions · all time`,
         tooltip: `${formatInt(lifetime.total)} tokens${lifetime.reasoning ? ` · ${formatInt(lifetime.reasoning)} reasoning inside output` : ""}`,
-      }),
-      metricCard("Peak day", peak.day ? formatCompact(peak.tokens) : "—", peak.day ? dayLabel(peak.day) : "No activity yet", c, {
+      },
+      {
+        label: "Peak day",
+        value: peak.day ? formatCompact(peak.tokens) : "—",
+        note: peak.day ? dayLabel(peak.day) : "No activity yet",
         tooltip: peak.day ? `${formatInt(peak.tokens)} tokens on ${dayLabel(peak.day)}` : "No activity yet",
-      }),
-      metricCard("Longest task", formatDuration(lifetime.longestTaskMs), lifetime.longestTaskMs > 0 ? "Observed span" : "Not reported", c, {
+      },
+      {
+        label: "Longest task",
+        value: formatDuration(lifetime.longestTaskMs),
+        note: lifetime.longestTaskMs > 0 ? "Observed span" : "Not reported",
         tooltip: lifetime.longestTaskMs > 0 ? `${formatInt(lifetime.longestTaskMs)} ms observed` : "Unknown task duration",
-      }),
-      metricCard("Longest streak", `${formatInt(streaks.longest)}d`, "Consecutive active days", c, {
+      },
+      {
+        label: "Longest streak",
+        value: `${formatInt(streaks.longest)}D`,
         tooltip: `${formatInt(streaks.longest)} consecutive active days`,
-      }),
-      metricCard("Current streak", `${formatInt(streaks.current)}d`, streaks.current > 0 ? "Includes yesterday grace" : "No active streak", c, {
+      },
+      {
+        label: "Current streak",
+        value: `${formatInt(streaks.current)}D`,
         color: streaks.current > 0 ? c.accent : c.text,
         tooltip: `${formatInt(streaks.current)} current consecutive active days`,
-      }),
+      },
     ];
-    if ((this.width || 960) >= 860) return metricRow(cards);
-    if ((this.width || 960) >= 560) {
-      return v_flex().w_full().gap(G.sm)
-        .child(metricRow(cards.slice(0, 3)))
-        .child(metricRow(cards.slice(3)));
+
+    // One summary band with hairline dividers instead of five separate boxes.
+    const stat = (item, divided) => v_flex().flex_1().min_w(0).gap(2)
+      .when(divided, (el) => el.border_l(1).border_color(c.border).pl(G.lg))
+      .child(metaLabel(item.label, c))
+      .child(div().text_size(T.metric).font_semibold().text_color(item.color ?? c.text).truncate()
+        .tooltip(item.tooltip).child(item.value))
+      .when(Boolean(item.note), (el) => el.child(mutedText(item.note, c)));
+    const row = (items) => h_flex().w_full().items_start()
+      .children(items.map((item, index) => stat(item, index > 0)));
+
+    if ((this.width || 960) >= 860) return card(c).child(row(stats));
+    const perRow = (this.width || 960) >= 560 ? 3 : 2;
+    const band = card(c);
+    for (let start = 0; start < stats.length; start += perRow) {
+      band.child(row(stats.slice(start, start + perRow)));
     }
-    return v_flex().w_full().gap(G.sm)
-      .child(metricRow(cards.slice(0, 2)))
-      .child(metricRow(cards.slice(2, 4)))
-      .child(metricRow(cards.slice(4)));
+    return band;
   }
 
   heatmapCard(c, config, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop) {
     const dark = isDarkTheme(c);
     const palette = PALETTES.includes(config.palette) ? config.palette : "blue";
-    const contentWidth = DAY_LABEL_WIDTH + (heatmap.weeks.length * WEEK_WIDTH);
-    // A one-week leading partial month is only 14px wide, so keep the span but omit text that would wrap.
-    const months = heatmap.months.map((month) => div().w(month.span * WEEK_WIDTH).flex_none()
+    const metrics = heatmapMetrics(this.width, heatmap.weeks.length);
+    const cell = metrics.cell;
+    const weekWidth = metrics.weekWidth;
+    const contentWidth = metrics.contentWidth;
+    // A one-week leading partial month is narrow, so keep the span but omit text that would wrap.
+    const months = heatmap.months.map((month) => div().w(month.span * weekWidth).flex_none()
       .text_size(9.5).text_color(c.dim)
       .when(month.span >= 2, (el) => el.whitespace_nowrap().child(month.label)));
-    const weekLabels = weekdayLabels(heatmap.weekStartsOn).map((label) => div().h(CELL).text_size(9)
+    const weekLabels = weekdayLabels(heatmap.weekStartsOn).map((label) => div().h(cell).text_size(9)
       .text_color(c.dim).child(label));
 
-    const cellElement = (cell) => {
-      const color = cell.future
+    const cellElement = (dayCell) => {
+      const color = dayCell.future
         ? c.muted
-        : cell.level > 0 ? heatColor(cell.level, palette, dark) : c.muted;
-      return div().id(`ins-cell-${cell.date}`).size(CELL).flex_none().rounded(2).bg(color)
-        .opacity(cell.future ? 0.3 : 1)
-        .when(!cell.future, (el) => el.cursor_pointer()
+        : dayCell.level > 0 ? heatColor(dayCell.level, palette, dark) : c.muted;
+      return div().id(`ins-cell-${dayCell.date}`).size(cell).flex_none().rounded(2).bg(color)
+        .opacity(dayCell.future ? 0.3 : 1)
+        .when(!dayCell.future, (el) => el.cursor_pointer()
           .hover((style) => style.opacity(0.8))
           .on_click((_event, clickCx) => {
-            this.selectedDay = cell.date;
+            this.selectedDay = dayCell.date;
             this.scheduleDashboard(clickCx, { force: true });
             clickCx.notify();
           })
-          .tooltip(cell.tooltip ?? ""))
-        .when(cell.date === selectedDay, (el) => el.border_1().border_color(c.ring));
+          .tooltip(dayCell.tooltip ?? ""))
+        .when(dayCell.date === selectedDay, (el) => el.border_1().border_color(c.ring));
     };
     const weekElements = heatmap.weeks.map((week) => v_flex().gap(CELL_GAP).children(week.days.map(cellElement)));
     const grid = v_flex().w(contentWidth).flex_none().gap(G.xs)
@@ -1428,7 +1505,7 @@ export default class Insights extends View {
     return card(c).gap(G.md)
       .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_between()
         .child(cardHeader(
-          "Contribution history",
+          "Tokens History",
           `53 weeks · ends ${dayLabel(heatmap.range.dataEnd)} · ${config.includeCache ? "cache included" : "cache excluded"}`,
           c,
         ))
@@ -1440,7 +1517,8 @@ export default class Insights extends View {
           this.heatmapMode = key;
           this.scheduleDashboard(changeCx, { force: true });
         }, c)))
-      .child(v_flex().w_full().overflow_x_scrollbar().child(grid))
+      .child(v_flex().w_full().overflow_x_scrollbar()
+        .child(h_flex().w_full().when(metrics.centered, (el) => el.justify_center()).child(grid)))
       .child(legend)
       .child(this.selectedDetail(c, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop));
   }
@@ -1493,6 +1571,51 @@ export default class Insights extends View {
         }))));
   }
 
+  modelChartCard(c, series) {
+    const weeks = series.weeks;
+    const maxTotal = series.maxTotal || 0;
+    const colors = new Map(series.models.map((name, index) => [name, modelChartColor(name, index)]));
+
+    const bar = (week) => v_flex().flex_1().min_w(0).h(CHART_HEIGHT).justify_end()
+      .tooltip(`Week of ${dayLabel(week.start)} · ${formatCompact(week.total)} tokens`)
+      .when(week.total > 0 && maxTotal > 0, (el) => el.child(
+        v_flex().w_full().flex_none().h(Math.max(2, Math.round((week.total / maxTotal) * CHART_HEIGHT)))
+          .children(week.segments.map((segment) => div().w_full().flex_grow(Math.max(0.001, segment.tokens))
+            .bg(colors.get(segment.name) ?? OTHER_CHART_COLOR)
+            .tooltip(`${segment.name} · ${formatCompact(segment.tokens)} tokens`))),
+      ));
+
+    const axisLabel = (text) => div().text_size(9).text_color(c.dim).child(text);
+    const labelStep = Math.ceil(weeks.length / 6);
+    const legend = h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.xs).items_center()
+      .children(series.models.map((name) => h_flex().items_center().gap(G.xs)
+        .child(div().size(8).flex_none().rounded_full().bg(colors.get(name) ?? OTHER_CHART_COLOR))
+        .child(div().max_w(180).truncate().text_size(T.label).text_color(c.mutedForeground).tooltip(name).child(name))));
+
+    return card(c).gap(G.md)
+      .child(cardHeader(
+        "Top models",
+        `${weeks.length} weeks · ${formatCompact(series.windowTotal)} tokens · ${series.includeCache ? "cache included" : "cache excluded"}`,
+        c,
+      ))
+      .when(maxTotal === 0, (el) => el.child(div().py(G.lg).text_size(T.body).text_color(c.mutedForeground)
+        .child("No model usage in this window.")))
+      .when(maxTotal > 0, (el) => el.child(v_flex().w_full().gap(G.sm)
+        .child(h_flex().w_full().gap(G.sm).items_end()
+          .child(v_flex().w(28).flex_none().h(CHART_HEIGHT).justify_between().children([
+            axisLabel(formatCompact(maxTotal)),
+            axisLabel(formatCompact(maxTotal / 2)),
+            axisLabel("0"),
+          ]))
+          .child(h_flex().flex_1().min_w(0).gap(CELL_GAP).items_end().children(weeks.map(bar))))
+        .child(h_flex().w_full().gap(G.sm)
+          .child(div().w(28).flex_none())
+          .child(h_flex().flex_1().min_w(0).gap(CELL_GAP).children(weeks.map((week, index) => div()
+            .flex_1().min_w(0).text_size(9).text_color(c.dim).whitespace_nowrap()
+            .child(index % labelStep === 0 ? dayLabel(week.start, { year: false }) : "")))))
+        .child(legend)));
+  }
+
   leaderboardCard(c, leaders, range) {
     const entries = leaders.entries;
     const half = Math.ceil(entries.length / 2);
@@ -1500,24 +1623,28 @@ export default class Insights extends View {
     const right = entries.slice(half);
     const twoColumns = (this.width || 960) >= 960 && right.length > 0;
 
-    const row = (entry, last) => v_flex().w_full().gap(6).py(G.sm)
+    const changeLabel = (entry) => {
+      if (entry.change.kind === "none") return "—";
+      if (entry.change.kind === "up") return `↑${entry.change.label}`;
+      if (entry.change.kind === "down") return `↓${entry.change.label}`;
+      return entry.change.label;
+    };
+
+    const row = (entry, last) => h_flex().w_full().items_center().gap(G.sm).py(G.sm)
       .when(!last, (el) => el.border_b(1).border_color(c.border))
-      .child(h_flex().items_center().gap(G.sm)
-        .child(div().w(22).text_size(T.label).text_color(c.dim).child(`#${entry.rank}`))
-        .child(h_flex().size(24).flex_none().rounded(R.control).bg(c.secondary).border_1().border_color(c.border)
-          .items_center().justify_center()
-          .child(div().text_size(9).font_semibold().text_color(c.mutedForeground).child(initials(entry.name, 2))))
-        .child(v_flex().flex_1().min_w(0).gap(1)
-          .child(div().text_size(12).font_medium().text_color(c.text).truncate().tooltip(entry.name).child(entry.name))
-          .child(div().text_size(10).text_color(c.dim).truncate().child(entry.sublabel)))
-        .child(v_flex().items_end().gap(1)
-          .child(div().text_size(12).font_semibold().text_color(c.text).tooltip(`${formatInt(entry.tokens)} tokens`).child(formatCompact(entry.tokens)))
-          .child(div().text_size(T.label).text_color(changeColor(entry.change, c))
-            .tooltip(entry.change.kind === "none" ? "No previous period" : `Previous ${formatInt(entry.previous ?? 0)} tokens`)
-            .child(`${entry.change.kind === "up" ? "▲ " : entry.change.kind === "down" ? "▼ " : ""}${entry.change.label}`))))
-      .child(h_flex().h(3).w_full().rounded(2).bg(c.muted)
-        .child(h_flex().h(3).rounded(2).bg(c.accent).flex_grow(Math.max(0.001, entry.sharePct)))
-        .child(div().flex_grow(Math.max(0.001, 100 - entry.sharePct))));
+      .child(div().w(20).text_size(T.body).text_color(c.dim).child(`${entry.rank}.`))
+      .child(h_flex().size(26).flex_none().rounded(R.control).bg(c.secondary).border_1().border_color(c.border)
+        .items_center().justify_center()
+        .child(div().text_size(9).font_semibold().text_color(c.mutedForeground).child(initials(entry.name, 2))))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(div().text_size(12).font_medium().text_color(c.text).truncate().tooltip(entry.name).child(entry.name))
+        .child(div().text_size(10).text_color(c.dim).truncate().child(`by ${entry.sublabel}`)))
+      .child(v_flex().items_end().gap(1)
+        .child(div().text_size(12).font_semibold().text_color(c.text).tooltip(`${formatInt(entry.tokens)} tokens`)
+          .child(`${formatCompact(entry.tokens)} tokens`))
+        .child(div().text_size(T.small).text_color(changeColor(entry.change, c))
+          .tooltip(entry.change.kind === "none" ? "No previous period" : `Previous ${formatInt(entry.previous ?? 0)} tokens`)
+          .child(changeLabel(entry))));
 
     const empty = v_flex().w_full().items_center().gap(G.sm).p(G.lg)
       .child(div().text_size(12).font_medium().text_color(c.text).child("No usage in this period"))
@@ -1528,19 +1655,11 @@ export default class Insights extends View {
       }, c, { variant: "outline" }));
 
     return card(c).gap(G.md)
-      .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_between()
-        .child(cardHeader(
-          "Usage leaders",
-          `${range.label} · ${formatCompact(leaders.totalTokens)} tokens · ${formatInt(leaders.totalSessions)} sessions${leaders.hasPrevious ? "" : " · no previous period"}`,
-          c,
-        ))
-        .child(segmented("ins-leaders-group", [
-          { key: "model", label: "Models" },
-          { key: "provider", label: "Providers" },
-        ], this.leaderboardGroup, (key, changeCx) => {
-          this.leaderboardGroup = key;
-          this.scheduleDashboard(changeCx, { force: true });
-        }, c)))
+      .child(cardHeader(
+        "Model Usage",
+        `${range.label} · ${formatCompact(leaders.totalTokens)} tokens · ${formatInt(leaders.totalSessions)} sessions`,
+        c,
+      ))
       .when(entries.length === 0, (el) => el.child(empty))
       .when(entries.length > 0 && twoColumns, (el) => el.child(h_flex().w_full().gap(G.xl).items_start()
         .child(v_flex().flex_1().min_w(0).gap(0).children(left.map((entry, index) => row(entry, index === left.length - 1))))
@@ -1549,17 +1668,6 @@ export default class Insights extends View {
         .children(entries.map((entry, index) => row(entry, index === entries.length - 1)))))
       .when(leaders.totalGroups > entries.length, (el) => el.child(mutedText(
         `Showing top ${entries.length} of ${leaders.totalGroups} by tokens.`, c)));
-  }
-
-  bottomGrid(c, totals, range, config, snapshot) {
-    const breakdown = this.breakdownCard(c, totals, range, config);
-    const status = this.statusCard(c, snapshot, config);
-    if ((this.width || 960) >= 960) {
-      return h_flex().w_full().gap(G.lg).items_start()
-        .child(div().flex_1().min_w(0).child(breakdown))
-        .child(div().flex_1().min_w(0).child(status));
-    }
-    return v_flex().w_full().gap(G.lg).children([breakdown, status]);
   }
 
   breakdownCard(c, totals, range, config) {
@@ -1638,7 +1746,6 @@ export default class Insights extends View {
       return stateCard(c, {
         tone: c.accent,
         title: "Preparing settings",
-        body: "Initializing the native source and configuration controls.",
       });
     }
     const config = normalizeConfig(this.configDraft ?? this.snapshot?.config ?? {});
@@ -1688,6 +1795,8 @@ export default class Insights extends View {
       .when(sourceCards.length === 0, (el) => el.child(mutedText("No sources in this configuration. Add one in the JSON editor.", c)))
       .children(sourceCards);
 
+    const scan = this.statusCard(c, this.snapshot ?? {}, config);
+
     const json = card(c).gap(G.sm)
       .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_between()
         .child(cardHeader("Configuration JSON", "", c))
@@ -1704,6 +1813,6 @@ export default class Insights extends View {
           variant: "primary",
         })));
 
-    return v_flex().w_full().gap(G.lg).children([preferences, sources, json]);
+    return v_flex().w_full().gap(G.lg).children([preferences, sources, scan, json]);
   }
 }
