@@ -4,6 +4,8 @@ A native [Herdr](https://herdr.dev) dashboard for coding-agent token usage.
 See which models you use, how usage changes over time, and your daily activity.
 Reads local sessions from **Pi, Codex, Claude Code, and OpenCode**.
 
+<img width="1204" height="538" alt="image" src="https://github.com/user-attachments/assets/c850bf7f-e94f-49f3-829f-bfdb6e4d3260" />
+
 ![Insights](preview.png)
 
 *Preview uses synthetic data. The installed dashboard only shows recorded usage.*
