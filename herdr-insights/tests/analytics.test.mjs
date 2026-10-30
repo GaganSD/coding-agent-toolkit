@@ -1,0 +1,334 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+// Exercise the file as an ES module without relying on a package.json "type".
+process.env.TZ = "America/New_York";
+const source = await readFile(new URL("../mods/insights/analytics.js", import.meta.url), "utf8");
+const analytics = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const {
+  addDays,
+  addMonthsClamped,
+  addYearsClamped,
+  activityDays,
+  availableYears,
+  buildHeatmap,
+  compareChange,
+  dayKey,
+  dayLabel,
+  filterRows,
+  filterRowsByRange,
+  formatCompact,
+  formatDuration,
+  formatInt,
+  heatmapTooltip,
+  initials,
+  intensityLevel,
+  isDay,
+  leaderboard,
+  normalizeConfig,
+  parseDay,
+  peakDay,
+  periodRange,
+  startOfWeek,
+  streakStats,
+  sumTokens,
+  tokenTotal,
+  weekdayLabels,
+} = analytics;
+
+function row(overrides = {}) {
+  return {
+    day: "2024-01-01",
+    session: "session-1",
+    harness: "pi",
+    provider: "openai",
+    model: "gpt-test",
+    project: "/repo/insights",
+    tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 15 },
+    messages: 1,
+    activeMs: 1000,
+    longestTaskMs: 1000,
+    ...overrides,
+  };
+}
+
+test("token accounting counts cache only when included and reasoning only once", () => {
+  const tokens = { input: 100, output: 20, cacheRead: 80, cacheWrite: 5, reasoning: 5, total: 999 };
+  assert.equal(tokenTotal(tokens, true), 205);
+  assert.equal(tokenTotal(tokens, false), 120);
+  assert.equal(tokenTotal({ total: 50 }, false), 50);
+
+  const rows = [
+    row({ session: "s1", tokens }),
+    row({ session: "s2", tokens }),
+  ];
+  const included = sumTokens(rows, true);
+  assert.equal(included.total, 410);
+  assert.equal(included.input, 200);
+  assert.equal(included.output, 40);
+  assert.equal(included.cacheRead, 160);
+  assert.equal(included.cacheWrite, 10);
+  assert.equal(included.reasoning, 10);
+  assert.equal(included.sessions, 2);
+
+  const excluded = sumTokens(rows, false);
+  assert.equal(excluded.total, 240);
+  assert.equal(excluded.cacheRead, 160);
+});
+
+test("local calendar arithmetic handles leap days and DST", () => {
+  assert.equal(isDay("2024-02-29"), true);
+  assert.equal(isDay("2023-02-29"), false);
+  assert.equal(isDay("2024-13-01"), false);
+  assert.equal(dayKey(parseDay("2024-02-29")), "2024-02-29");
+
+  assert.equal(addDays("2024-02-28", 1), "2024-02-29");
+  assert.equal(addDays("2024-02-29", 1), "2024-03-01");
+  assert.equal(addDays("2024-03-09", 1), "2024-03-10");
+  assert.equal(addDays("2024-03-10", 1), "2024-03-11");
+  assert.equal(addDays("2024-11-02", 1), "2024-11-03");
+  assert.equal(addDays("2024-03-10", -1), "2024-03-09");
+
+  assert.equal(addMonthsClamped("2024-01-31", 1), "2024-02-29");
+  assert.equal(addMonthsClamped("2023-01-31", 1), "2023-02-28");
+  assert.equal(addYearsClamped("2024-02-29", 1), "2025-02-28");
+
+  assert.equal(startOfWeek("2024-01-03", 0), "2023-12-31");
+  assert.equal(startOfWeek("2024-01-03", 1), "2024-01-01");
+  assert.deepEqual(weekdayLabels(1).slice(0, 2), ["Mon", ""]);
+  assert.equal(dayLabel("2024-01-03", { year: false }), "Jan 3");
+});
+
+test("heatmap is 53 local weeks of 7 consecutive days", () => {
+  const heatmap = buildHeatmap([], { endDay: "2024-03-10", weeks: 53, weekStartsOn: 0 });
+  assert.equal(heatmap.weeks.length, 53);
+  assert.equal(heatmap.cells.length, 371);
+  assert.equal(heatmap.weeks[0].days[0].date, addDays(startOfWeek("2024-03-10", 0), -52 * 7));
+  assert.equal(heatmap.weeks[52].days[0].date, startOfWeek("2024-03-10", 0));
+  assert.ok(heatmap.cells.some((cell) => cell.date === "2024-03-10"));
+  assert.equal(heatmap.cells.filter((cell) => cell.date === "2024-03-10").length, 1);
+  assert.equal(heatmap.months.reduce((total, month) => total + month.span, 0), 53);
+  for (let index = 1; index < heatmap.cells.length; index += 1) {
+    assert.equal(heatmap.cells[index].date, addDays(heatmap.cells[index - 1].date, 1));
+  }
+});
+
+test("heatmap daily, weekly and cumulative math is exact", () => {
+  const rows = [
+    row({ day: "2024-01-01", session: "a", tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ day: "2024-01-02", session: "a", tokens: { input: 20, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ day: "2024-01-08", session: "b", tokens: { input: 5, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+  ];
+  const options = { endDay: "2024-01-14", weeks: 3, weekStartsOn: 0 };
+  const daily = buildHeatmap(rows, { ...options, mode: "daily" });
+  const byDay = (heatmap, day) => heatmap.cells.find((cell) => cell.date === day);
+  assert.equal(byDay(daily, "2024-01-01").value, 10);
+  assert.equal(byDay(daily, "2024-01-02").value, 20);
+  assert.equal(byDay(daily, "2024-01-08").value, 5);
+  assert.equal(daily.maxValue, 20);
+  assert.equal(byDay(daily, "2024-01-01").sessions, 1);
+  assert.equal(byDay(daily, "2024-01-08").sessions, 1);
+
+  const weekly = buildHeatmap(rows, { ...options, mode: "weekly" });
+  assert.equal(byDay(weekly, "2024-01-01").value, 30);
+  assert.equal(byDay(weekly, "2024-01-06").value, 30);
+  assert.equal(byDay(weekly, "2024-01-08").value, 5);
+  assert.equal(byDay(weekly, "2024-01-14").value, 0);
+  assert.equal(weekly.maxValue, 30);
+  assert.equal(byDay(weekly, "2024-01-08").weekSessions, 1);
+
+  const cumulative = buildHeatmap(rows, { ...options, mode: "cumulative" });
+  assert.equal(byDay(cumulative, "2024-01-01").value, 10);
+  assert.equal(byDay(cumulative, "2024-01-02").value, 30);
+  assert.equal(byDay(cumulative, "2024-01-07").value, 30);
+  assert.equal(byDay(cumulative, "2024-01-08").value, 35);
+  assert.equal(byDay(cumulative, "2024-01-14").value, 35);
+  assert.equal(byDay(cumulative, "2024-01-08").cumulativeSessions, 2);
+  assert.equal(cumulative.maxValue, 35);
+
+  const future = byDay(daily, "2024-01-15");
+  assert.equal(future.future, true);
+  assert.equal(future.level, 0);
+  assert.equal(heatmapTooltip(future, "daily"), "");
+  assert.match(heatmapTooltip(byDay(daily, "2024-01-02"), "daily"), /Jan 2, 2024: 20 tokens/);
+  assert.match(heatmapTooltip(byDay(weekly, "2024-01-08"), "weekly"), /Week of Jan 7: 5 tokens/);
+  assert.match(heatmapTooltip(byDay(cumulative, "2024-01-08"), "cumulative"), /Through Mon, Jan 8, 2024: 35 tokens/);
+});
+
+test("heatmap respects includeCache", () => {
+  const rows = [row({ day: "2024-01-01", tokens: { input: 0, output: 0, cacheRead: 100, cacheWrite: 0 } })];
+  const included = buildHeatmap(rows, { endDay: "2024-01-13", weeks: 2, mode: "daily", includeCache: true });
+  const excluded = buildHeatmap(rows, { endDay: "2024-01-13", weeks: 2, mode: "daily", includeCache: false });
+  assert.equal(included.cells.find((cell) => cell.date === "2024-01-01").value, 100);
+  assert.equal(excluded.cells.find((cell) => cell.date === "2024-01-01").value, 0);
+});
+
+test("filters match source, provider, model and project exactly", () => {
+  const rows = [
+    row({ harness: "pi", provider: "openai", model: "gpt-a", project: "/a" }),
+    row({ harness: "claude", provider: "anthropic", model: "claude-a", project: "/b" }),
+  ];
+  assert.equal(filterRows(rows, { source: "pi" }).length, 1);
+  assert.equal(filterRows(rows, { source: "all" }).length, 2);
+  assert.equal(filterRows(rows, { harness: "claude", provider: "anthropic" }).length, 1);
+  assert.equal(filterRows(rows, { model: "gpt-a", project: "/a" }).length, 1);
+  assert.equal(filterRows(rows, { provider: "missing" }).length, 0);
+});
+
+test("period ranges use calendar boundaries and equivalent previous periods", () => {
+  const week = periodRange("week", { today: "2024-01-10", weekStartsOn: 1 });
+  assert.deepEqual(week.start, "2024-01-08");
+  assert.deepEqual(week.end, "2024-01-10");
+  assert.deepEqual(week.previous, { start: "2024-01-01", end: "2024-01-03" });
+
+  const month = periodRange("month", { today: "2024-03-31" });
+  assert.equal(month.start, "2024-03-01");
+  assert.equal(month.end, "2024-03-31");
+  assert.deepEqual(month.previous, { start: "2024-02-01", end: "2024-02-29" });
+
+  const pastYear = periodRange("year", { today: "2024-03-31", year: 2023 });
+  assert.equal(pastYear.start, "2023-01-01");
+  assert.equal(pastYear.end, "2023-12-31");
+  assert.deepEqual(pastYear.previous, { start: "2022-01-01", end: "2022-12-31" });
+
+  const currentYear = periodRange("year", { today: "2024-03-31", year: 2024 });
+  assert.equal(currentYear.end, "2024-03-31");
+  assert.deepEqual(currentYear.previous, { start: "2023-01-01", end: "2023-03-31" });
+
+  const all = periodRange("all", { today: "2024-03-31" });
+  assert.equal(all.start, null);
+  assert.equal(all.previous, null);
+
+  assert.equal(filterRowsByRange([row({ day: "2024-01-01" }), row({ day: "2024-02-01" })], month).length, 0);
+  assert.equal(filterRowsByRange([row({ day: "2024-01-01" })], all).length, 1);
+});
+
+test("streaks are deduped by day and current streak has yesterday grace", () => {
+  const today = "2024-01-10";
+  const days = (...values) => values.map((day) => row({ day, session: `s-${day}` }));
+  assert.deepEqual(streakStats(days("2024-01-08", "2024-01-09"), { today }), {
+    current: 2,
+    longest: 2,
+    activeDays: 2,
+    lastActive: "2024-01-09",
+  });
+  assert.equal(streakStats(days("2024-01-08"), { today }).current, 0);
+  assert.equal(streakStats(days("2024-01-10"), { today }).current, 1);
+  assert.equal(streakStats(days("2024-01-10", "2024-01-08"), { today }).current, 1);
+  const split = streakStats(days("2024-01-01", "2024-01-02", "2024-01-03", "2024-01-08", "2024-01-09"), { today });
+  assert.equal(split.longest, 3);
+  assert.equal(split.current, 2);
+  assert.equal(streakStats(days("2024-01-11"), { today }).current, 0);
+  assert.equal(activityDays([row({ day: "2024-01-01", tokens: {}, messages: 1 })]).length, 1);
+  const cacheOnly = [row({ day: "2024-01-09", session: "cache", messages: 0, longestTaskMs: 0, tokens: { input: 0, output: 0, cacheRead: 50, cacheWrite: 0 } })];
+  assert.equal(streakStats(cacheOnly, { today, includeCache: true }).current, 1);
+  assert.equal(streakStats(cacheOnly, { today, includeCache: false }).current, 0);
+});
+
+test("peak day dedupes sessions and respects includeCache", () => {
+  const rows = [
+    row({ day: "2024-01-01", session: "a", tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ day: "2024-01-01", session: "a", tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ day: "2024-01-02", session: "b", tokens: { input: 15, output: 0, cacheRead: 100, cacheWrite: 0 } }),
+  ];
+  const peak = peakDay(rows, true);
+  assert.deepEqual(peak, { day: "2024-01-02", tokens: 115, sessions: 1 });
+  const noCache = peakDay(rows, false);
+  assert.deepEqual(noCache, { day: "2024-01-01", tokens: 20, sessions: 1 });
+});
+
+test("leaderboard ranks, dedupes sessions and handles New and zero comparisons", () => {
+  const current = [
+    row({ session: "s1", model: "model-a", provider: "p1", tokens: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ session: "s1", model: "model-a", provider: "p1", tokens: { input: 50, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ session: "s2", model: "model-b", provider: "p2", tokens: { input: 50, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ session: "s3", model: "model-c", provider: "p2", tokens: { input: 0, output: 0, cacheRead: 10, cacheWrite: 0 } }),
+  ];
+  const previous = [
+    row({ session: "old-a", model: "model-a", provider: "p1", tokens: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ session: "old-b", model: "model-b", provider: "p2", tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    row({ session: "old-c", model: "model-c", provider: "p2", tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+  ];
+
+  const models = leaderboard(current, previous, { groupBy: "model", includeCache: false, limit: 0 });
+  assert.equal(models.totalTokens, 200);
+  assert.equal(models.totalSessions, 3);
+  assert.deepEqual(models.entries.map((entry) => [entry.rank, entry.name, entry.tokens]), [
+    [1, "model-a", 150],
+    [2, "model-b", 50],
+    [3, "model-c", 0],
+  ]);
+  assert.equal(models.entries[0].sessions, 1);
+  assert.equal(models.entries[0].change.label, "+50.0%");
+  assert.equal(models.entries[1].change.kind, "new");
+  assert.equal(models.entries[1].change.label, "New");
+  assert.equal(models.entries[2].change.kind, "flat");
+  assert.equal(models.entries[2].change.label, "0%");
+  assert.equal(models.entries[0].share, 0.75);
+  assert.equal(models.entries[0].sublabel, "p1");
+
+  const providers = leaderboard(current, previous, { groupBy: "provider", includeCache: false, limit: 0 });
+  assert.deepEqual(providers.entries.map((entry) => [entry.name, entry.tokens, entry.sublabel]), [
+    ["p1", 150, "1 model"],
+    ["p2", 50, "2 models"],
+  ]);
+
+  const noPrevious = leaderboard(current, null, { groupBy: "model", includeCache: false, limit: 0 });
+  assert.equal(noPrevious.hasPrevious, false);
+  assert.equal(noPrevious.entries[0].change.kind, "none");
+  assert.equal(noPrevious.entries[0].change.label, "—");
+
+  const emptyPrevious = leaderboard(current, [], { groupBy: "model", includeCache: false, limit: 0 });
+  assert.equal(emptyPrevious.entries[0].change.kind, "new");
+
+  assert.deepEqual(compareChange(0, 0, true), { kind: "flat", direction: "flat", pct: 0, label: "0%" });
+  assert.equal(compareChange(10, 0, true).kind, "new");
+  assert.equal(compareChange(0, 10, true).label, "-100.0%");
+  assert.equal(compareChange(10, 10, true).label, "0%");
+  assert.equal(compareChange(10, 10, false).label, "—");
+});
+
+test("compact values cover billions and exact values keep every digit", () => {
+  assert.equal(formatCompact(0), "0");
+  assert.equal(formatCompact(999), "999");
+  assert.equal(formatCompact(1000), "1K");
+  assert.equal(formatCompact(1234), "1.23K");
+  assert.equal(formatCompact(12345), "12.3K");
+  assert.equal(formatCompact(123456), "123K");
+  assert.equal(formatCompact(1234567), "1.23M");
+  assert.equal(formatCompact(1234567890), "1.23B");
+  assert.equal(formatCompact(999999999), "1B");
+  assert.equal(formatCompact(999999), "1M");
+  assert.equal(formatCompact(1000000000000), "1T");
+  assert.equal(formatInt(1234567890), "1,234,567,890");
+  assert.equal(formatDuration(0), "—");
+  assert.equal(formatDuration(900), "<1s");
+  assert.equal(formatDuration(65000), "1m");
+  assert.equal(formatDuration(3660000), "1h 1m");
+  assert.equal(formatDuration(90000000), "1d 1h");
+  assert.equal(initials("Ada Lovelace"), "AL");
+  assert.equal(intensityLevel(0, 100), 0);
+  assert.equal(intensityLevel(25, 100), 1);
+  assert.equal(intensityLevel(100, 100), 4);
+});
+
+test("config and year helpers are defensive", () => {
+  const mapping = { session: "session.id", tokens: { input: "usage.input" }, nested: { keep: true } };
+  const config = normalizeConfig({
+    profile: { name: "Ada", handle: "ada", avatar: "" },
+    palette: "purple",
+    includeCache: false,
+    weekStartsOn: 1,
+    refreshSeconds: 2,
+    sources: [{ id: "custom", adapter: "custom", enabled: true, roots: ["~/.custom"], mapping }],
+    extra: { preserved: true },
+  });
+  assert.equal(config.palette, "purple");
+  assert.equal(config.includeCache, false);
+  assert.equal(config.weekStartsOn, 1);
+  assert.equal(config.refreshSeconds, 30);
+  assert.deepEqual(config.sources[0].mapping, mapping);
+  assert.deepEqual(config.extra, { preserved: true });
+  assert.deepEqual(availableYears([row({ day: "2023-01-01" }), row({ day: "2024-01-01" })], "2025-01-01"), [2025, 2024, 2023]);
+});
