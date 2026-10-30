@@ -116,7 +116,9 @@ reads runtime.json once and uses that binary for `exec`, so Herdr's older `node`
 on PATH is bypassed without changing PATH. The installer writes the ownership
 manifest with SHA-256 hashes, treats runtime.json like every other owned file, and
 never follows symlinks or writes layouts/keys. Node >=22.15 is required because
-the collector imports Node's zstd support. No HTML, CSS, web view, network
+the collector imports Node's zstd support, and the installer actively checks the
+running Node before creating or writing the app home rather than trusting npm's
+advisory engines field. No HTML, CSS, web view, network
 request, shell interpolation, npm dependency, Pi extension registration, or
 publishing step is part of the build.
 
@@ -152,8 +154,10 @@ edited owned files unless `--force`; it must never follow symlinks, write
 from the running installer Node, replace any source runtime.json with that generated
 file, and still reject a source runtime symlink; do not copy a stale source runtime
 or change PATH. A manual mod copy without runtime.json falls back to `node` on PATH,
-which must be >=22.15. The preview must be a real `herdr-app shot` of the installed
-dashboard, not a drawn mockup.
+which must be >=22.15. The installer must reject an older Node before creating mod
+or data folders and report the actual version; npm's engines field alone is not
+enough. The uninstaller should stay usable on older Node. The preview must be a
+real `herdr-app shot` of the installed dashboard, not a drawn mockup.
 
 **Done when:** `npm test --prefix herdr-insights` passes the synthetic install
 tests with a temporary app home and fake `herdr-app`, including runtime.json
@@ -165,7 +169,8 @@ preservation; `npm run check --prefix herdr-insights` validates the package
 configured. `npm run install:local --prefix herdr-insights -- --open` installs
 only the owned tree plus generated runtime.json, runs `herdr-app check
 <appHome>/mods/insights` successfully, and opens the Insights tab with `herdr-app
-do tab.new` using the exact JSON argument. A reinstall preserves
+do tab.new` using the exact JSON argument. An older Node is refused before any
+mod or data folder is created. A reinstall preserves
 `data/insights/insights.json`, unknown local files, and unedited layouts/keys; a
 locally edited owned file is refused without `--force`; an unowned collision is
 refused even with `--force`. The collector snapshot command prints one compact

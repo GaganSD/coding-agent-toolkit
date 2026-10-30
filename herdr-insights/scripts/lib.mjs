@@ -9,6 +9,7 @@ export const PACKAGE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+export const MIN_NODE_VERSION = "22.15";
 export const MOD_REL = "mods/insights";
 export const DATA_REL = "data/insights";
 export const MANIFEST_NAME = "install-manifest.json";
@@ -16,6 +17,21 @@ export const RUNTIME_NAME = "runtime.json";
 export const MANIFEST_VERSION = 1;
 export const MANIFEST_OWNER = "herdr-insights";
 export const HASH_RE = /^[0-9a-f]{64}$/;
+
+export function isNodeVersionSupported(version) {
+  if (typeof version !== "string") return false;
+  const match = /^v?(\d+)\.(\d+)(?:\.\d+)?(?:[-+].*)?$/.exec(version.trim());
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const [minimumMajor, minimumMinor] = MIN_NODE_VERSION.split(".").map(Number);
+  return major > minimumMajor || (major === minimumMajor && minor >= minimumMinor);
+}
+
+export function assertSupportedNodeVersion(version = process.versions.node) {
+  if (isNodeVersionSupported(version)) return;
+  throw new Error(`Node >=${MIN_NODE_VERSION} is required; running ${version}.`);
+}
 
 export function sha256(data) {
   return createHash("sha256").update(data).digest("hex");

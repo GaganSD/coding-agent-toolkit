@@ -3,7 +3,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
+  MIN_NODE_VERSION,
   PACKAGE_ROOT,
+  assertSupportedNodeVersion,
   collectSourceFiles,
   lstatOrNull,
 } from "./lib.mjs";
@@ -81,8 +83,9 @@ async function checkPackage() {
 
   if (packageJson.private !== true) fail("package.json must stay private: true");
   if (packageJson.type !== "module") fail('package.json must use "type": "module"');
-  if (packageJson.engines?.node !== ">=22.15") {
-    fail('package.json must declare "engines": { "node": ">=22.15" }');
+  const expectedEngines = `>=${MIN_NODE_VERSION}`;
+  if (packageJson.engines?.node !== expectedEngines) {
+    fail(`package.json must declare "engines": { "node": "${expectedEngines}" }`);
   }
 
   for (const field of [
@@ -119,6 +122,7 @@ async function checkFiles() {
     "scripts/lib.mjs",
     "scripts/uninstall.mjs",
     "tests/install.test.mjs",
+    "tests/node-version.test.mjs",
   ]) {
     const stat = await lstatOrNull(path.join(PACKAGE_ROOT, relative));
     if (!stat || !stat.isFile()) fail(`Missing owned file: ${relative}`);
@@ -224,9 +228,10 @@ async function checkSourceIfPresent() {
 }
 
 function checkNodeVersion() {
-  const [major, minor] = process.versions.node.split(".").map(Number);
-  if (!Number.isInteger(major) || major < 22 || (major === 22 && minor < 15)) {
-    fail(`Node >=22.15 is required; running ${process.versions.node}`);
+  try {
+    assertSupportedNodeVersion(process.versions.node);
+  } catch (error) {
+    fail(error.message);
   }
 }
 

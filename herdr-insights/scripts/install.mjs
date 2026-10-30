@@ -5,6 +5,7 @@ import {
   PACKAGE_ROOT,
   RUNTIME_NAME,
   assertNoSymlinkComponents,
+  assertSupportedNodeVersion,
   collectSourceFiles,
   createRuntimeFile,
   dataDir,
@@ -124,6 +125,7 @@ async function addParentIssues(targetDirectory, target, issues) {
 }
 
 async function install(options) {
+  assertSupportedNodeVersion();
   const appHome = await resolveAppHome(options.appHome);
   const sourceRoot = options.source
     ? path.resolve(expandHome(options.source))

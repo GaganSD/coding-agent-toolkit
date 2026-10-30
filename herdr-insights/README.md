@@ -11,8 +11,10 @@ Herdr UI is native gpui-kit, not HTML or a web view.
 ## Install
 
 Requirements: a current Herdr app and Node >=22.15. No `npm install` is needed;
-the package has no dependencies. Node >=22.15 is required for the collector's
-zstd support.
+the package has no dependencies. The installer checks the running Node version
+before it creates or writes the app home and refuses an older runtime with the
+version it found; npm's `engines` field is advisory. Node >=22.15 is required for
+the collector's zstd support.
 
 ```sh
 npm test --prefix herdr-insights
@@ -78,7 +80,8 @@ when the Herdr CLI is not on `PATH` (the default is `herdr-app`).
 
 The optional uninstaller reads `data/insights/install-manifest.json`, removes only
 unchanged owned files, and leaves edited files, unowned files, `insights.json`,
-and the rest of the app home alone.
+and the rest of the app home alone. It does not enforce the installer's Node
+version gate, so an older Node can still remove a clean install.
 
 ## What it shows
 

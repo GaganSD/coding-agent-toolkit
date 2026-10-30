@@ -7,6 +7,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { isNodeVersionSupported } from "../scripts/lib.mjs";
+
 const PACKAGE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -588,6 +590,75 @@ test("manifest path traversal is refused before any target write", async (t) => 
   assert.deepEqual(await readLog(fake), []);
 });
 
+test("installer rejects an older Node before creating mod or data folders", async (t) => {
+  const oldNode = findUnsupportedNode();
+  if (!oldNode) {
+    t.skip("No local Node older than 22.15 is available");
+    return;
+  }
+
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root);
+  const appHome = path.join(root, "old node app home");
+  const fake = await createFakeRunner(root);
+  const environment = makeEnvironment(root, appHome, fake, { pathLookup: true });
+
+  const result = spawnSync(
+    oldNode.binary,
+    [INSTALL_SCRIPT, "--source", sourceRoot, "--app-home", appHome],
+    {
+      cwd: PACKAGE_ROOT,
+      encoding: "utf8",
+      env: environment,
+      maxBuffer: 10 * 1024 * 1024,
+      shell: false,
+      timeout: 30_000,
+    },
+  );
+
+  assertFailure(result);
+  assert.match(result.stderr, /Node >=22\.15 is required/);
+  assert.match(result.stderr, new RegExp(`running ${oldNode.version.replaceAll(".", "\\.")}`));
+  assert.equal(await exists(appHome), false);
+  assert.equal(await exists(path.join(appHome, "mods", "insights")), false);
+  assert.equal(await exists(path.join(appHome, "data", "insights")), false);
+  assert.deepEqual(await readLog(fake), []);
+});
+
+test("uninstaller remains usable on an older Node runtime", async (t) => {
+  const oldNode = findUnsupportedNode();
+  if (!oldNode) {
+    t.skip("No local Node older than 22.15 is available");
+    return;
+  }
+
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root);
+  const appHome = path.join(root, "old node uninstall app home");
+  const fake = await createFakeRunner(root);
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+
+  const result = spawnSync(
+    oldNode.binary,
+    [UNINSTALL_SCRIPT, "--app-home", appHome],
+    {
+      cwd: PACKAGE_ROOT,
+      encoding: "utf8",
+      env: { ...process.env, HERDR_APP_HOME: appHome },
+      maxBuffer: 10 * 1024 * 1024,
+      shell: false,
+      timeout: 30_000,
+    },
+  );
+
+  assertSuccess(result);
+  assert.equal(await exists(path.join(appHome, "mods", "insights")), false);
+  assert.equal(
+    await exists(path.join(appHome, "data", "insights", "install-manifest.json")),
+    false,
+  );
+});
+
 test("the package stays private, dependency-free, and the check script passes", async () => {
   const packageJson = await readJson(path.join(PACKAGE_ROOT, "package.json"));
   assert.equal(packageJson.private, true);
@@ -618,6 +689,27 @@ test("the package stays private, dependency-free, and the check script passes", 
   assertSuccess(result);
   assert.match(result.stdout, /Insights package checks passed/);
 });
+
+function findUnsupportedNode() {
+  const candidates = [
+    "/usr/local/bin/node",
+    "/opt/homebrew/opt/node@20/bin/node",
+    "/usr/bin/node",
+  ];
+
+  for (const binary of new Set(candidates)) {
+    const result = spawnSync(binary, ["--version"], {
+      encoding: "utf8",
+      shell: false,
+      timeout: 10_000,
+    });
+    if (result.error || result.status !== 0) continue;
+    const match = /^v?(\d+\.\d+\.\d+)$/.exec((result.stdout || "").trim());
+    if (!match || isNodeVersionSupported(match[1])) continue;
+    return { binary, version: match[1] };
+  }
+  return null;
+}
 
 async function temporaryRoot(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "herdr-insights-test-"));
