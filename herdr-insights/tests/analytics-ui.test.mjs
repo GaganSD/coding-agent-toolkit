@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const mainSource = await readFile(new URL("../mods/insights/main.js", import.meta.url), "utf8");
 const analyticsSource = await readFile(new URL("../mods/insights/analytics.js", import.meta.url), "utf8");
+const uiSource = await readFile(new URL("../mods/insights/ui.js", import.meta.url), "utf8");
 const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 const analyticsUrl = dataUrl(analyticsSource);
 const analytics = await import(analyticsUrl);
@@ -66,6 +67,19 @@ globalThis.__insightsTestEditorState = {
   },
 };
 
+const transformedUi = uiSource
+  .replace(/^import \{ div \} from "gpui-kit";$/m, `const div = () => globalThis.__insightsTestNative.create("div");`)
+  .replace(
+    /^import \{[^}]*\} from "gpui-base";$/m,
+    `const v_flex = () => globalThis.__insightsTestNative.create("v_flex");
+const h_flex = () => globalThis.__insightsTestNative.create("h_flex");
+const Button = { new: (id) => globalThis.__insightsTestNative.create("Button") };
+const Toggle = { new: (id) => globalThis.__insightsTestNative.create("Toggle") };`,
+  );
+const uiUrl = dataUrl(transformedUi);
+const ui = await import(uiUrl);
+const uiNames = Object.keys(ui).join(", ");
+
 const transformedMain = mainSource
   .replace(/^import \{ View, div \} from "gpui-kit";$/m, `const View = class View {};
 const div = () => globalThis.__insightsTestNative.create("div");`)
@@ -74,7 +88,8 @@ const div = () => globalThis.__insightsTestNative.create("div");`)
     `const InputState = globalThis.__insightsTestInputState;
 const EditorState = globalThis.__insightsTestEditorState;
 const v_flex = () => globalThis.__insightsTestNative.create("v_flex");
-const h_flex = () => globalThis.__insightsTestNative.create("h_flex");`,
+const h_flex = () => globalThis.__insightsTestNative.create("h_flex");
+const Button = { new: (id) => globalThis.__insightsTestNative.create("Button") };`,
   )
   .replace(
     /^import \{[^}]*\} from "herdr";$/m,
@@ -89,6 +104,10 @@ const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(..
   .replace(
     /^import \{[\s\S]*?\} from "\.\/analytics\.js";$/m,
     `const { ${analyticsNames} } = await import("${analyticsUrl}");`,
+  )
+  .replace(
+    /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
+    `const { ${uiNames} } = await import("${uiUrl}");`,
   );
 const { default: Insights } = await import(dataUrl(transformedMain));
 
@@ -288,6 +307,9 @@ test("native mod keeps timers and shell use inside the Herdr contract", () => {
   assert.match(mainSource, /EditorState\.new/);
   assert.match(mainSource, /result\.code !== 0/);
   assert.match(mainSource, /\.release\(\)/);
+  assert.match(mainSource, /from "\.\/ui\.js"/);
+  assert.doesNotMatch(mainSource, /smallButton|detailStat|togglePill|shadow_md/);
+  assert.doesNotMatch(mainSource, /rounded\([12][0-9]\)/);
 });
 
 test("analytics stays host-free and the UI keeps configuration JSON editable", () => {
@@ -408,8 +430,8 @@ test("refresh and configure share one single-flight guard", () => {
 
   instance.saving = false;
   assert.equal(instance.busy(), false);
-  assert.match(mainSource, /smallButton\("insights-refresh",[^;]*?disabled: this\.busy\(\)/);
-  assert.match(mainSource, /smallButton\("ins-config-save",[\s\S]*?disabled: this\.busy\(\)/);
+  assert.match(mainSource, /button\("insights-refresh",[^;]*?disabled: this\.busy\(\)/);
+  assert.match(mainSource, /button\("ins-config-save",[\s\S]*?disabled: this\.busy\(\)/);
   assert.doesNotMatch(mainSource, /insights-save-profile|profileDirty|AvatarImage|nameInput|handleInput|avatarInput/);
 });
 

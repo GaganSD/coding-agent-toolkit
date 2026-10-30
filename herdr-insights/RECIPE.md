@@ -8,10 +8,12 @@ layouts, and keys alone.
 
 ![Insights](preview.png)
 
-**What you see:** A restrained near-black/native dashboard built from Herdr
-theme colors. The root is vertically scrollable, centers content at a maximum
-width of 1180px, and uses 12px / 18px / 24px page padding below 620px / below
-900px / above that. At the top is the usage filter bar: a segmented Week / Month
+**What you see:** A restrained, theme-driven native dashboard built from Herdr
+theme colors with a shadcn-inspired visual system: paired surface/foreground
+tokens, one monochrome primary action, 1px borders, 6px control / 8px card
+radii, no decorative shadows, and a 4/8/12/16/24 spacing rhythm. The root is
+vertically scrollable, centers content at a maximum width of 1180px, and uses
+12px / 16px / 24px page padding below 620px / below 900px / above that. At the top is the usage filter bar: a segmented Week / Month
 / Year / All period control, a year stepper when Year is active, and Source /
 Provider / Model / Project menus plus Clear filters when a dimension is active.
 The dashboard has no profile, avatar, name, or handle hero. The project menu
@@ -34,12 +36,14 @@ period's end date.
 The heatmap switches between Daily, Weekly, and Cumulative. Weekly mode repeats
 the full week's total on every day of that week. Cumulative mode is the all-time
 running total through each day, including history before the visible window.
-The selected-day panel shows the mode value, that day's exact token total, input,
-output (with reasoning inside output), cache read/write, sessions, usage events,
-longest task, and the top model when present.
+The selected-day detail is a flat, aligned data grid separated by a hairline
+rather than a filled panel. It shows the mode value, that day's exact token
+total, input, output (with reasoning inside output), cache read/write, sessions,
+usage events, longest task, and the top model when present. Exact values stay in
+tooltips, and an unreported task duration stays a dash.
 
 Below the heatmap is a ranked leaderboard limited to 12 groups, split into two
-columns at 960px+ and one column below that. Each row shows rank, a colored
+columns at 960px+ and one column below that. Each row shows rank, a neutral
 initial tile, model/provider name and sublabel, compact tokens, share bar, and
 change versus the previous calendar portion with New / zero-safe states. Rows are
 summary-only; they do not expand. The grouping control switches between Models
@@ -48,10 +52,11 @@ sourceStats (`disabled`, `missing`, `empty`, `ok`, `error`), file/read/unchanged
 byte counts, and up to six source-tagged warnings. Loading, empty, and error
 states are explicit and never show fake rows.
 
-The Settings view uses the same native surfaces and is vertically scrollable at
-narrow widths. It includes palette (blue/green/purple), week start
-(Sunday/Monday), include-cache toggle, refresh interval, source toggles,
-one-root-per-line/comma root editors, and a JSON editor with Format and Reset.
+The Settings view uses the same native surfaces and visual language and is
+vertically scrollable at narrow widths. It includes palette
+(blue/green/purple), week start (Sunday/Monday), include-cache toggle, refresh
+interval, source toggles, one-root-per-line/comma root editors, and a JSON editor
+with Format, Reset, and one clearly primary Save configuration action.
 There are no name, handle, or avatar controls; legacy `config.profile` values can
 stay in the full JSON but are not displayed. The full editor and toggles preserve
 custom source mappings and other unknown-to-the-toggle fields; saves go through

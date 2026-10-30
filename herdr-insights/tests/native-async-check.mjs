@@ -13,7 +13,9 @@
 // Usage:
 //   node tests/native-async-check.mjs
 //   node tests/native-async-check.mjs --rows 10000 --snapshot /path/to/snapshot.json
-//   node tests/native-async-check.mjs --keep
+//   node tests/native-async-check.mjs --store /tmp/store-copy.json --wait 5000
+//   node tests/native-async-check.mjs --settings --appearance light --zoom-out 2
+//   node tests/native-async-check.mjs --menu --shot /tmp/menu.png --keep
 //
 // Only the Herdr process started here is stopped. It creates no terminals,
 // spaces, tabs, or user-home writes.
@@ -141,9 +143,19 @@ if (requestedRows !== null && (!Number.isInteger(requestedRows) || requestedRows
   throw new Error("--rows must be a positive integer");
 }
 const keep = process.argv.includes("--keep");
+const settingsMode = process.argv.includes("--settings");
+const menuMode = process.argv.includes("--menu");
+const zoomOut = Number(argument("--zoom-out", "0"));
+if (!Number.isInteger(zoomOut) || zoomOut < 0 || zoomOut > 6) {
+  throw new Error("--zoom-out must be an integer from 0 to 6");
+}
+const appearance = argument("--appearance", null);
+if (appearance !== null && !["dark", "light"].includes(appearance)) {
+  throw new Error("--appearance must be dark or light");
+}
 const home = realpathSync(mkdtempSync(join(tmpdir(), "insights-native-async-")));
 const logPath = "/tmp/insights-native-async.log";
-const shotPath = "/tmp/insights-native-async.png";
+const shotPath = argument("--shot", "/tmp/insights-native-async.png");
 const mod = join(home, "mods", "insights");
 const storePath = join(home, "data", "insights", "insights.json");
 const appBinary = process.env.HERDR_APP_BINARY ?? "/Applications/Herdr.app/Contents/MacOS/Herdr";
@@ -181,6 +193,26 @@ try {
 
   cpSync(modSource, mod, { recursive: true });
   writeFileSync(join(mod, "runtime.json"), `${JSON.stringify({ node: process.execPath })}\n`);
+  if (settingsMode || menuMode) {
+    const mainPath = join(mod, "main.js");
+    const main = readFileSync(mainPath, "utf8");
+    const marker = "    this.commandTask = cx.spawn(async (commandCx) => {";
+    if (!main.includes(marker)) throw new Error("cannot find main.js settings injection point");
+    let injected = "";
+    if (settingsMode) injected += "    this.showSettings = true;\n";
+    if (menuMode) {
+      injected += [
+        "    cx.timer.after(4000, (menuCx) => {",
+        "      if (!this.dashboard) return;",
+        "      this.openFilter = \"ins-project-filter\";",
+        "      this.openOptions = buildFacetOptions(\"project\", this.dashboard.facets.project, normalizeConfig(this.snapshot.config));",
+        "      menuCx.notify();",
+        "    });",
+        "",
+      ].join("\n");
+    }
+    writeFileSync(mainPath, main.replace(marker, `${injected}${marker}`));
+  }
   mkdirSync(join(home, "layouts"), { recursive: true });
   writeFileSync(
     join(home, "layouts", "insights-async.json"),
@@ -191,9 +223,11 @@ try {
       children: [{ id: "insights", type: "block", content: { mod: "insights" } }],
     }, null, 2)}\n`,
   );
-  writeFileSync(join(home, "settings.json"), '{"zoom":1}\n');
+  writeFileSync(join(home, "settings.json"), `${JSON.stringify(appearance ? { zoom: 1, appearance } : { zoom: 1 })}\n`);
   writeFileSync(join(home, "keys.json"), '{}\n');
   writeFileSync(join(home, "seen.json"), '["frame-welcome"]\n');
+  // The welcome frame asks shared state, not seen.json, before opening.
+  writeFileSync(join(home, "shared.json"), '{"frame.welcomed":"skipped"}\n');
 
   const today = todayKey();
   const options = JSON.stringify({
@@ -241,13 +275,36 @@ try {
     await sleep(500);
   }
   if (!status) throw new Error("Herdr did not become ready");
-  // Close startup overlays before the layout switch. Closing them afterwards
-  // forces a second redraw and can hide a failed first dashboard frame.
-  const closed = await runCli(["do", "overlay.close"], home);
-  if (closed.code !== 0) throw new Error(closed.stderr || "overlay.close failed");
+  // Close startup overlays before the layout switch. A first launch can stack
+  // more than one (for example a welcome window and an update notice), and
+  // overlay.close closes only the top one. Closing them afterwards forces a
+  // second redraw and can hide a failed first dashboard frame.
+  console.log(`startup overlays: ${status.overlays?.length ?? 0}`);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const probe = await runCli(["status"], home);
+    if (probe.code !== 0) throw new Error(probe.stderr || "status failed");
+    const current = JSON.parse(probe.stdout);
+    if (!Array.isArray(current.overlays) || current.overlays.length === 0) break;
+    for (const overlay of current.overlays) {
+      const id = typeof overlay === "string" ? overlay : overlay?.id;
+      const closed = await runCli(id ? ["do", "overlay.close", "--id", id] : ["do", "overlay.close"], home);
+      if (closed.code !== 0) throw new Error(closed.stderr || `overlay.close failed for ${id ?? "top"}`);
+    }
+    await sleep(300);
+  }
+  const ready = await runCli(["status"], home);
+  if (ready.code !== 0) throw new Error(ready.stderr || "status failed");
+  const readyStatus = JSON.parse(ready.stdout);
+  if (Array.isArray(readyStatus.overlays) && readyStatus.overlays.length) {
+    throw new Error(`startup overlays did not close: ${JSON.stringify(readyStatus.overlays)}`);
+  }
   await sleep(500);
   const switched = await runCli(["do", "layout.switch", "--name", "insights-async"], home);
   if (switched.code !== 0) throw new Error(switched.stderr || "layout.switch failed");
+  for (let step = 0; step < zoomOut; step += 1) {
+    const zoomed = await runCli(["do", "app.zoom_out"], home);
+    if (zoomed.code !== 0) throw new Error(zoomed.stderr || "app.zoom_out failed");
+  }
   await sleep(Number(argument("--wait", sourceStorePath ? 20_000 : 8_000)));
 
   // Capture the first settled frame before asking for status again.
@@ -264,7 +321,7 @@ try {
     throw new Error("the app log contains the old interrupted promise continuation");
   }
   writeFileSync(logPath, output);
-  console.log(`native async check passed: ${preparedRows} rows, no mod errors`);
+  console.log(`native async check passed: ${preparedRows} rows, no mod errors${appearance ? `, ${appearance}` : ""}${settingsMode ? ", settings" : ""}${menuMode ? ", menu" : ""}${zoomOut ? `, zoom out ${zoomOut}` : ""}`);
   console.log(`status: layout=${status.layout} overlays=${status.overlays?.length ?? 0}`);
   console.log(`screenshot: ${shotPath}`);
   console.log(`log: ${logPath}`);

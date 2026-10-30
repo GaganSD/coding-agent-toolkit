@@ -131,6 +131,21 @@ period has no previous period.
 The live UI never uses fabricated demo data. Loading and empty states are
 explicit.
 
+### Visual system
+
+The dashboard and settings share one native, shadcn-inspired visual system
+(`mods/insights/ui.js`). It maps Herdr's theme into paired semantic roles:
+`card`/`popover` on `canvas`, a monochrome `primary` action with contrasting
+text, muted and selected neutrals, and one accent used for focus and meaningful
+data. Routine actions use secondary, outline or ghost emphasis; destructive red
+is reserved for errors and failed source states. Controls and cards use 1px
+borders, 6px/8px radii, a 4/8/12/16/24 spacing rhythm and 30px control heights,
+with no decorative shadows. The heatmap keeps the configured blue/green/purple
+palette, and the selected-day detail is a flat, aligned data grid rather than a
+filled panel. Native `Button` and `Toggle` controls provide keyboard activation
+and focus styling. The system is theme-driven and dependency-free; it does not
+add a webview, CSS or a runtime package.
+
 ## Configuration
 
 `configure` accepts a partial top-level config object. Omitted top-level fields
