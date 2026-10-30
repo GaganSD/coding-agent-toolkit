@@ -154,6 +154,37 @@ test("real SDK: contact_agent round trip and run-owned reply", async t => {
   assert.equal(f.manager.status(id!).contextUsage!.tokens, 8, "occupancy uses latest response only");
 });
 
+test("real SDK: queued steering runs before follow-up and settlement saves the follow-up report", async t => {
+  const first = createAssistantMessageEventStream();
+  let initialModel!: Model<Api>;
+  const inputs: string[][] = [];
+  const f = await fixture(t, (model, context) => {
+    const users = context.messages.filter(message => message.role === "user").map(message =>
+      typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("\n"));
+    inputs.push(users);
+    if (inputs.length === 1) { initialModel = model; return first; }
+    return response(model, [{ type: "text", text: `Report after ${users.at(-1)}` }]);
+  });
+  const [id] = await f.manager.launch([prepareNative(f.options)]);
+  await until(() => inputs.length === 1);
+  // Queue in reverse priority while the first native model response is held open.
+  assert.equal(await f.manager.followUp(id!, "follow-up task"), "queued");
+  assert.equal(await f.manager.steer(id!, "steering task"), "queued");
+  for await (const event of response(initialModel, [{ type: "text", text: "Initial report" }])) first.push(event);
+  first.end();
+  await f.manager.settled(id!);
+  const record = f.manager.status(id!);
+  assert.equal(record.state, "completed", record.error ?? "no error");
+  assert.deepEqual(inputs, [
+    [f.options.task.task],
+    [f.options.task.task, "steering task"],
+    [f.options.task.task, "steering task", "follow-up task"],
+  ]);
+  assert.match(await readFile(record.reportPath!, "utf8"), /Report after follow-up task/);
+  assert.match(await readFile(record.sessionPath!, "utf8"), /Report after follow-up task/);
+  await assert.rejects(f.manager.followUp(id!, "too late"), /running/);
+});
+
 test("real SDK: provider errors and empty output cannot succeed", async t => {
   for (const fail of [true, false]) {
     const f = await fixture(t, model => response(model, fail ? [{ type: "text", text: "" }] : [], fail ? "error" : "stop"));
