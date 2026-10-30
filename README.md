@@ -18,9 +18,7 @@
 
 </td></tr></table>
 
-<h1 align="center">pi-extensions</h1>
-
-<p align="center"><strong>High-performance, context-efficient tools for the <a href="https://pi.dev">Pi</a> agent harness.</strong></p>
+<p align="center"><strong>Coding Agent Tools For Herdr and <a href="https://pi.dev">Pi</a></strong></p>
 
 <p align="center">
   <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/publish.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
