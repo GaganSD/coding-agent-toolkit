@@ -18,7 +18,7 @@
 
 </td></tr></table>
 
-<p align="center"><strong>Coding Agent Tools For Herdr and <a href="https://pi.dev">Pi</a></strong></p>
+<p align="center"><strong>Extensions for <a href="https://pi.dev">Pi</a> · Mods for <a href="https://herdr.dev">Herdr</a></strong></p>
 
 <p align="center">
   <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/publish.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
@@ -32,17 +32,20 @@
 
 ---
 
-A monorepo of modular extensions engineered specifically for the Pi coding agent. Each package adheres to strict context-efficiency principles, zero-bloat architecture, and native Pi integration. Detailed subagent delegation benchmarks live in [`benchmarks/README.md`](./benchmarks/README.md).
+A monorepo of **Pi coding-agent extensions** and **Herdr mods**. Each integrates natively with its host, with minimal overhead and focused functionality. Pi extensions and Herdr mods are installed separately.
+
+- [Pi extensions](#pi-extensions): terminal UI, subagent delegation, web search, interactive interviews, and permission controls.
+- [Herdr mods](#herdr-mods): a local-first token-usage dashboard for Pi, Codex, Claude Code, and OpenCode sessions.
 
 ## Design Principles
 
-- **Minimal by Design** — Engineered for zero-context bloat and preserve the agent's context window. Prompts and schemas stay minimal while benchmaxxing every tool for effectiveness.
-- **Keyless by Default** — Essential utilities like public web and code retrieval work instantly out of the box.
-- **Pi-Native** — Built strictly around Pi's extension lifecycle, tools, custom slash commands, themes, and configuration store.
+- **Minimal by Design** — Focused tools with minimal overhead. Pi prompts and schemas stay small to preserve the agent's context window.
+- **Keyless by Default** — Public web and code retrieval work without API keys; Insights reads local session data without an account.
+- **Native Integration** — Pi extensions use Pi's extension lifecycle, tools, slash commands, and themes. Herdr mods use Herdr's native mod system.
 
 ---
 
-## Packages
+## Pi extensions
 
 | Package | Description | Install |
 | :--- | :--- | :--- |
@@ -52,20 +55,11 @@ A monorepo of modular extensions engineered specifically for the Pi coding agent
 | [pi-ask](./pi-ask/) | Structured interactive TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
 | [pi-automode](./pi-automode/) (beta) | Permission gate for Pi: risky calls stop for a local decision, protected paths block, exact rules cut repeated asks. | `pi install npm:@gagansd/pi-automode` |
 
----
+### Install Pi extensions
 
-## Herdr mods
+#### All-in-one (local checkout)
 
-[Insights](./herdr-insights/) is a native token-usage dashboard for
-[Herdr](https://herdr.dev), with model rankings, usage trends, and an activity
-heatmap. It reads local Pi, Codex, Claude Code, and OpenCode sessions. Install it
-separately from the Pi extensions; see its [README](./herdr-insights/README.md).
-
-## Installation
-
-### All-in-One Suite (Monorepo)
-
-Point Pi to a clone of this repository to register all 5 extensions, skills, and Slate themes simultaneously:
+Requires Node.js `>=22.19.0` and Pi `>=1.0.0`. Point Pi to a clone of this repository to register all five Pi extensions, skills, and Slate themes. This does **not** install Herdr mods:
 
 ```bash
 git clone https://github.com/GaganSD/pi-extensions.git
@@ -75,7 +69,7 @@ pi install .
 
 Then reload Pi with `/reload`.
 
-### Standalone (NPM)
+#### Individual extensions (npm)
 
 Install individual extensions directly:
 
@@ -89,7 +83,29 @@ pi install npm:@gagansd/pi-automode   # Permission gate (opt-in, off by default)
 
 ---
 
+## Herdr mods
+
+| Mod | Description | Install |
+| :--- | :--- | :--- |
+| [Insights](./herdr-insights/) | Local-first token-usage dashboard with model rankings, usage trends, and an activity heatmap. Reads Pi, Codex, Claude Code, and OpenCode sessions. | From a checkout: `npm run install:local --prefix herdr-insights -- --open` |
+
+### Install Insights
+
+Requires [Herdr](https://herdr.dev) and **Node.js 22.15+**. No dependencies or account needed. From this repository's root:
+
+```bash
+npm run install:local --prefix herdr-insights -- --open
+```
+
+The installer validates the mod with `herdr-app check` and opens an **Insights** tab. It installs only `mods/insights/` under `~/.config/herdr-app`, leaving layouts, keys, and terminals unchanged. No Pi extension installation is required.
+
+See the [Insights README](./herdr-insights/README.md) for standalone checkout instructions, settings, privacy details, and uninstallation, or [RECIPE.md](./herdr-insights/RECIPE.md) for the mod specification.
+
+---
+
 ## Development & Building
+
+### Pi extensions
 
 **Prerequisites**: Node.js `>=22.19.0`, npm `>=10.0.0`, Pi `>=1.0.0`.
 
@@ -104,7 +120,16 @@ npm run build --prefix pi-slate       # or pi-subagents, pi-web-search, pi-ask, 
 
 After `pi install .`, local edits apply on `/reload`.
 
-### Token counter
+### Herdr mods
+
+Insights uses Node.js `22.15+`; its native validation requires Herdr. Run its checks separately from the root Pi extension suite:
+
+```bash
+npm test --prefix herdr-insights
+npm run check --prefix herdr-insights
+```
+
+### Shared token counter
 
 After installing root development dependencies, count literal text locally (no API calls):
 
@@ -127,7 +152,7 @@ individual extensions.
 
 ---
 
-## Benchmarks & Performance
+## Pi Subagent Benchmarks & Performance
 
 `@gagansd/pi-subagents` is continuously benchmarked against standard delegation alternatives on dynamic multi-step workflows (parallel join, bounded repair, conditional fanout):
 
@@ -151,6 +176,7 @@ pi-extensions/
 ├── pi-web-search/      # Multi-provider web & code search with classifier
 ├── pi-ask/             # Structured TUI interview & clarification modal
 ├── pi-automode/        # Parent-session permission gate with verified launcher
+├── herdr-insights/     # Native Herdr mod: local coding-agent token-usage dashboard
 ├── benchmarks/         # Multi-model workflow benchmarking suite
 ├── docs/               # Architecture, CI/CD, and release guides
 └── scripts/            # Build, test, security scanning, and release tools
