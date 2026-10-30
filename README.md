@@ -18,7 +18,7 @@
 
 </td></tr></table>
 
-<p align="center"><strong>Extensions for <a href="https://pi.dev">Pi</a> · Mods for <a href="https://herdr.dev">Herdr</a></strong></p>
+<p align="center"><strong>A Monorepo of Pi Extensions <a href="https://pi.dev">Pi</a> and <a href="https://herdr.dev">Herdr</a></strong> Mods</p>
 
 <p align="center">
   <a href="https://github.com/GaganSD/coding-agent-toolkit/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/coding-agent-toolkit/publish.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
