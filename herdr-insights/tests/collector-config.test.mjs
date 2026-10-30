@@ -153,6 +153,22 @@ test("configure rejects incomplete or invalid configs atomically", async () => {
         },
       ],
     },
+    {
+      profile: {
+        name: "Unsafe",
+        handle: "",
+        avatar: "https://evil.example/avatar.png",
+      },
+    },
+    {
+      profile: { name: "Unsafe", handle: "", avatar: "/etc/passwd" },
+    },
+    {
+      profile: { name: "Unsafe", handle: "", avatar: "../outside.png" },
+    },
+    {
+      profile: { name: "Unsafe", handle: "", avatar: "mods/../../outside.png" },
+    },
     { extra: true },
   ];
   for (const config of invalidConfigs) {
@@ -377,7 +393,7 @@ test("default config source order and shape round-trip through configure", async
     "pi-main.jsonl",
   );
   const config = {
-    profile: { name: "Dev", handle: "@dev", avatar: "" },
+    profile: { name: "Dev", handle: "@dev", avatar: "data/insights/avatar.png" },
     palette: "purple",
     includeCache: false,
     weekStartsOn: 1,

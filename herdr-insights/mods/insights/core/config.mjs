@@ -96,6 +96,16 @@ function primitive(value) {
   );
 }
 
+function validAvatarPath(value) {
+  if (value === "") return true;
+  if (typeof value !== "string" || value.length > 2048) return false;
+  if (/[\u0000-\u001f\\]/.test(value)) return false;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return false; // network/data URLs
+  if (value.startsWith("/") || value.startsWith("~")) return false;
+  const parts = value.split("/");
+  return parts.every((part) => part.length > 0 && part !== "." && part !== "..");
+}
+
 function normalizeFieldSpec(value, label, { required = false } = {}) {
   if (value === undefined) {
     if (required) fail(`${label} is required`);
@@ -280,6 +290,11 @@ export function normalizeConfig(input) {
   };
   for (const [key, value] of Object.entries(profile)) {
     if (typeof value !== "string") fail(`profile.${key} must be a string`);
+  }
+  if (!validAvatarPath(profile.avatar)) {
+    fail(
+      "profile.avatar must be an app-relative path without URLs, absolute paths, or traversal",
+    );
   }
 
   const palette = input.palette === undefined ? DEFAULT_CONFIG.palette : input.palette;
