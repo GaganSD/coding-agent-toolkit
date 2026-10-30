@@ -1471,7 +1471,9 @@ export default class Insights extends View {
           .child(mutedText(`${dayExact} tokens on this day`, c, T.label))))
       .when(selectedRowCount === 0, (el) => el.child(div().text_size(T.body).text_color(c.mutedForeground)
         .child("No usage recorded on this day.")))
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md)
+      // Stat cells keep optional notes below the value, so top-align the row
+      // rather than centering cells against the tallest note-bearing sibling.
+      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
         .child(statCell("Input", formatCompact(selectedTotals.input), c, { tooltip: `${formatInt(selectedTotals.input)} input tokens` }))
         .child(statCell("Output", formatCompact(selectedTotals.output), c, {
           note: "includes reasoning",
@@ -1485,7 +1487,7 @@ export default class Insights extends View {
           note: cacheNote,
           tooltip: `${formatInt(selectedTotals.cacheWrite)} cache-write tokens`,
         })))
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md)
+      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
         .child(statCell("Sessions", formatInt(selectedTotals.sessions), c, { tooltip: `${formatInt(selectedTotals.sessions)} sessions on this day` }))
         .child(statCell("Usage events", formatInt(selectedTotals.messages), c, { tooltip: `${formatInt(selectedTotals.messages)} nonzero reported usage records` }))
         .child(statCell("Longest task", formatDuration(selectedTotals.longestTaskMs), c, {
@@ -1574,7 +1576,8 @@ export default class Insights extends View {
         .child(cardHeader("Token breakdown", `${range.label} · ${cacheNote}`, c))
         .child(div().text_size(20).font_semibold().text_color(c.text).tooltip(`${formatInt(totals.total)} tokens`)
           .child(formatCompact(totals.total))))
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md)
+      // Keep the same baseline contract when notes are present in a card row.
+      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
         .child(statCell("Input", formatCompact(totals.input), c, { tooltip: `${formatInt(totals.input)} input tokens` }))
         .child(statCell("Output", formatCompact(totals.output), c, {
           note: "includes reasoning",
@@ -1605,7 +1608,8 @@ export default class Insights extends View {
         ))
         .child(div().text_size(T.small).text_color(errors > 0 ? c.destructive : errors === 0 ? c.done : c.dim)
           .child(errors === null ? "No scan stats" : errors > 0 ? `${formatInt(errors)} errors` : "No scan errors")))
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md)
+      // Status rows follow the same top-aligned contract if a note is added.
+      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
         .child(statCell("Files", statCount(stats?.files), c, { tooltip: stats?.files === undefined ? "No scan stats" : `${formatInt(stats.files)} files indexed` }))
         .child(statCell("Read", statCount(stats?.filesRead), c, { tooltip: stats?.filesRead === undefined ? "No scan stats" : `${formatInt(stats.filesRead)} files read` }))
         .child(statCell("Unchanged", statCount(stats?.unchangedFiles), c, { tooltip: stats?.unchangedFiles === undefined ? "No scan stats" : `${formatInt(stats.unchangedFiles)} unchanged files` }))

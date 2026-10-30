@@ -20,6 +20,7 @@ function fakeNativeElement() {
     when(condition, branch) { if (condition) branch(element); return element; },
     w(value) { node.style.width = value; return element; },
     whitespace_nowrap() { node.style.whitespace = "nowrap"; return element; },
+    items_start() { node.style.alignItems = "start"; return element; },
   };
   element = new Proxy(node, {
     get(target, property) {
@@ -479,6 +480,48 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
       assert.equal(node.style.whitespace, "nowrap", `${month.label} must not wrap`);
     }
   });
+});
+
+test("stat grids top-align rows when optional notes change sibling heights", () => {
+  const instance = blankInstance();
+  const c = ui.tokens({
+    background: "#101010",
+    surface: "#181818",
+    border: "#333333",
+    foreground: "#f5f5f5",
+    muted: "#9a9a9a",
+    dim: "#707070",
+    accent: "#5aa7ff",
+  });
+  const totals = {
+    total: 1200, input: 800, output: 300, reasoning: 100, cacheRead: 100, cacheWrite: 0,
+    sessions: 2, messages: 3, longestTaskMs: 4000,
+  };
+  const heatmap = buildHeatmap([], { endDay: "2024-01-20", weeks: 3, weekStartsOn: 0 });
+  const detail = instance.selectedDetail(c, heatmap, "2024-01-10", 1, totals, {
+    name: "model-a",
+    sublabel: "provider-a",
+  });
+  const breakdown = instance.breakdownCard(c, totals, { label: "All time" }, { includeCache: true });
+  const snapshot = savedSnapshot();
+  const status = instance.statusCard(c, snapshot, snapshot.config);
+  const statRows = [
+    detail.childNodes[1],
+    detail.childNodes[2],
+    breakdown.childNodes[1],
+    status.childNodes[1],
+  ];
+
+  for (const row of statRows) {
+    assert.equal(row.childNodes.length, 4);
+    assert.equal(row.style.alignItems, "start");
+  }
+
+  const noted = statRows[0].childNodes.filter((cell) => cell.childNodes.length === 3);
+  const plain = statRows[0].childNodes.filter((cell) => cell.childNodes.length === 2);
+  assert.ok(noted.length > 0, "the fixture must include a note-bearing cell");
+  assert.ok(plain.length > 0, "the fixture must include a cell without a note");
+  assert.equal(statRows[3].childNodes.every((cell) => cell.childNodes.length === 2), true);
 });
 
 test("initial async snapshot publishes the dashboard before settings host controls exist", async () => {
