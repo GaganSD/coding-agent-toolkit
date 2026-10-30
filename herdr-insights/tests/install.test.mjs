@@ -564,6 +564,36 @@ test("uninstall removes a clean install, keeps data, and is safe without a manif
   );
 });
 
+test("uninstall of a missing app home creates nothing", async (t) => {
+  const root = await temporaryRoot(t);
+  const appHome = path.join(root, "missing app home");
+  const result = runUninstall({ appHome });
+  assertSuccess(result);
+  assert.match(result.stdout, /nothing to remove/);
+  assert.equal(await exists(appHome), false);
+});
+
+test("uninstall prunes only owned-file parents and preserves nested unowned empty directories", async (t) => {
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root);
+  const appHome = path.join(root, "app home");
+  const fake = await createFakeRunner(root);
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+
+  const unownedNested = path.join(appHome, "mods", "insights", "unowned-empty", "nested");
+  const unownedWithinOwnedParent = path.join(appHome, "mods", "insights", "icons", "local-empty", "nested");
+  await fs.mkdir(unownedNested, { recursive: true });
+  await fs.mkdir(unownedWithinOwnedParent, { recursive: true });
+
+  assertSuccess(runUninstall({ appHome }));
+  assert.equal(await exists(unownedNested), true);
+  assert.equal(await exists(unownedWithinOwnedParent), true);
+  assert.equal(await exists(path.join(appHome, "mods", "insights", "unowned-empty")), true);
+  assert.equal(await exists(path.join(appHome, "mods", "insights", "icons")), true);
+  assert.equal(await exists(path.join(appHome, "mods", "insights", "core")), false);
+  assert.equal(await exists(path.join(appHome, "mods", "insights", "collector.mjs")), false);
+});
+
 test("source validation requires main.js and mod.json with place none", async (t) => {
   const root = await temporaryRoot(t);
   const fake = await createFakeRunner(root);
@@ -576,6 +606,7 @@ test("source validation requires main.js and mod.json with place none", async (t
   const wrongPlace = runInstall({ appHome: wrongPlaceApp, fake, sourceRoot: wrongPlaceRoot });
   assertFailure(wrongPlace);
   assert.match(wrongPlace.stderr, /place.*none/i);
+  assert.equal(await exists(wrongPlaceApp), false);
   assert.equal(await exists(path.join(wrongPlaceApp, "mods", "insights")), false);
 
   const noMainRoot = path.join(root, "no main source");
@@ -586,6 +617,7 @@ test("source validation requires main.js and mod.json with place none", async (t
   const noMain = runInstall({ appHome: noMainApp, fake, sourceRoot: noMainRoot });
   assertFailure(noMain);
   assert.match(noMain.stderr, /main\.js/);
+  assert.equal(await exists(noMainApp), false);
   assert.equal(await exists(path.join(noMainApp, "mods", "insights")), false);
   assert.deepEqual(await readLog(fake), []);
 });

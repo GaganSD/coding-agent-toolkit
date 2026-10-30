@@ -80,12 +80,22 @@ export function expandHome(value) {
   return value;
 }
 
-export async function resolveAppHome(explicit) {
+export async function resolveAppHome(explicit, options = {}) {
   const configured =
     explicit && explicit.length > 0
       ? explicit
       : process.env.HERDR_APP_HOME || path.join(os.homedir(), ".config", "herdr-app");
   const absolute = path.resolve(expandHome(configured));
+  const create = options.create !== false;
+
+  if (!create) {
+    const existing = await lstatOrNull(absolute);
+    if (!existing) return null;
+    if (!existing.isDirectory() || existing.isSymbolicLink()) {
+      throw new Error(`App home is not a directory: ${absolute}`);
+    }
+    return fs.realpath(absolute);
+  }
 
   try {
     await fs.mkdir(absolute, { recursive: true });
@@ -96,7 +106,7 @@ export async function resolveAppHome(explicit) {
   }
 
   const stat = await fs.lstat(absolute);
-  if (!stat.isDirectory()) {
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
     throw new Error(`App home is not a directory: ${absolute}`);
   }
   return fs.realpath(absolute);

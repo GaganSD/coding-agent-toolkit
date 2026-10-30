@@ -6,9 +6,6 @@ and opens in its own tab without changing terminals, layouts, or keys.
 
 ![Insights](preview.png)
 
-The screenshot uses synthetic data for illustration. Never include those rows or
-future model names as defaults: the installed mod shows only recorded usage.
-
 **What you see:** A vertically scrollable dashboard centered at a maximum width
 of 1180px. Use Herdr theme colors, 1px borders, 8px card corners, 6px control
 corners, no decorative shadows, and 4/8/12/16/24px spacing. Page padding is 12px
@@ -46,7 +43,7 @@ metrics or heatmap. Menus cap choices at 250 while retaining selected values.
 Week, month, and current-year periods are calendar-to-date; past years are full.
 Compare with the same calendar portion of the previous period, clamping month
 ends. All has no comparison. The chart always spans 26 weeks ending at the selected
-period's end, rather than switching to daily buckets as in the illustrative preview.
+period's end.
 
 Weekly heatmap mode repeats each week's total on every day in that week;
 cumulative mode includes all preceding history. A streak ending yesterday still
@@ -65,8 +62,9 @@ are **Insights**; the native mod ID is `insights`.
 semantic colors, `on_size_change`, and fresh callback contexts. Do not retain `cx`.
 Cancel tasks/timers and release native editor/input state on close. Use native
 animations, never redraw timers. No DOM, web view, shell interpolation, or network.
-`ui.js` centralizes surfaces, typography, spacing, and controls; bundle monochrome
-provider/model SVGs in `logos/`. Pure `analytics.js` runs in Node and prepares totals,
+`ui.js` centralizes surfaces, typography, spacing, and controls; bundle provider/model
+SVGs in `logos/`. Some logos carry brand colors, so do not assume they are
+monochrome or theme-tintable. Pure `analytics.js` runs in Node and prepares totals,
 facets, chart buckets, heatmap, and leaderboard comparisons.
 
 The UI invokes a local Node `presenter.mjs` through Herdr `exec` with separate
@@ -93,8 +91,10 @@ cacheWrite, and reasoning field specs. `roles` filters the mapped role; `include
 is a list of `{path, equals}` or `{path, exists}` conditions. Reject unknown keys
 and executable mappings. `core/config.mjs` defines and validates the full schema.
 
-Provide dependency-free Node install/uninstall scripts. Require Node >=22.15 before
-writing anything. Install only the mod tree and generate `runtime.json` with the
+Provide dependency-free Node install/uninstall scripts. The installer requires
+Node >=22.15 and validates it before writing anything; the uninstaller intentionally
+has no Node gate so it remains usable on older runtimes. Install only the mod tree
+(plus its manifest under `data/insights/`) and generate `runtime.json` with the
 absolute installer Node path; the UI uses that path, falling back to `node` on PATH
 only for manual copies. Track ownership/hashes in a separate install manifest.
 Refuse symlinks and unowned collisions; refuse edited owned files unless explicitly
@@ -114,8 +114,6 @@ a backup before rebuilding; read-only prepare must not repair or create stores.
 
 Never write layouts, keys, source transcripts, or an existing user's usage data
 from the installer. Do not copy an absolute runtime path from another machine.
-The preview is a native UI screenshot with synthetic data; the production dashboard
-must not imitate its daily-bucket mock behavior or fabricated model list.
 
 **Done when:** Package tests and checks pass, including distribution naming,
 PNG preview, recipe structure, no layouts, token accounting, deduplication,

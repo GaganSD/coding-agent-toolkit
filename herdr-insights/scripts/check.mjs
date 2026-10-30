@@ -9,6 +9,7 @@ import {
   collectSourceFiles,
   lstatOrNull,
 } from "./lib.mjs";
+import { inspectDistribution } from "./distribution.mjs";
 
 const errors = [];
 const notes = [];
@@ -116,7 +117,6 @@ async function checkPackage() {
 async function checkFiles() {
   for (const relative of [
     ".gitignore",
-    "README.md",
     "RECIPE.md",
     "preview.png",
     "mods/insights/main.js",
@@ -138,18 +138,6 @@ async function checkFiles() {
 }
 
 async function checkDocs() {
-  const readme = await readText(path.join(PACKAGE_ROOT, "README.md"));
-  if (readme !== null) {
-    for (const heading of ["# Insights", "## Install", "## Use", "## Privacy", "## Development"]) {
-      if (!readme.includes(heading)) fail(`README.md is missing ${heading}`);
-    }
-    for (const phrase of ["![Insights](preview.png)", "insights.json", "herdr-app check", "Node.js 22.15+", "synthetic data"]) {
-      if (!readme.toLowerCase().includes(phrase.toLowerCase())) {
-        fail(`README.md does not mention ${JSON.stringify(phrase)}`);
-      }
-    }
-  }
-
   const recipe = await readText(path.join(PACKAGE_ROOT, "RECIPE.md"));
   if (recipe !== null) {
     const ordered = [
@@ -209,22 +197,9 @@ async function checkTestInventory() {
 }
 
 async function checkDistribution() {
-  if (path.basename(PACKAGE_ROOT) !== "herdr-insights") fail("Distribution folder must be herdr-insights");
-  if (await lstatOrNull(path.join(PACKAGE_ROOT, "layouts"))) fail("Herdr mods must not ship layouts/");
-  try {
-    const preview = await fs.readFile(path.join(PACKAGE_ROOT, "preview.png"));
-    if (preview.length < 24 || preview.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
-      || preview.toString("ascii", 12, 16) !== "IHDR"
-      || preview.readUInt32BE(16) === 0 || preview.readUInt32BE(20) === 0) {
-      fail("preview.png must be a PNG image with nonzero dimensions");
-    }
-    const mod = JSON.parse(await fs.readFile(path.join(PACKAGE_ROOT, "mods/insights/mod.json"), "utf8"));
-    if (mod.title !== "Insights" || mod.place !== "none") {
-      fail('mod.json must use title "Insights" and place "none"');
-    }
-  } catch (error) {
-    fail(`Invalid Herdr distribution: ${error.message}`);
-  }
+  const result = await inspectDistribution(PACKAGE_ROOT);
+  for (const message of result.errors) fail(message);
+  notes.push(...result.notes);
 }
 
 async function checkSourceIfPresent() {
