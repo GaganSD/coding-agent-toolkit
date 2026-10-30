@@ -56,6 +56,13 @@ A monorepo of modular extensions engineered specifically for the Pi coding agent
 
 ---
 
+## Herdr mods
+
+[Insights](./herdr-insights/) is a native token-usage dashboard for
+[Herdr](https://herdr.dev), with model rankings, usage trends, and an activity
+heatmap. It reads local Pi, Codex, Claude Code, and OpenCode sessions. Install it
+separately from the Pi extensions; see its [README](./herdr-insights/README.md).
+
 ## Installation
 
 ### All-in-One Suite (Monorepo)

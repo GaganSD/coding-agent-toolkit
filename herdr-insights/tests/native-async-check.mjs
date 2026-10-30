@@ -204,8 +204,8 @@ try {
       injected += [
         "    cx.timer.after(4000, (menuCx) => {",
         "      if (!this.dashboard) return;",
-        "      this.openFilter = \"ins-project-filter\";",
-        "      this.openOptions = buildFacetOptions(\"project\", this.dashboard.facets.project, normalizeConfig(this.snapshot.config));",
+        "      this.openFilter = \"ins-model-filter\";",
+        "      this.openOptions = buildFacetOptions(\"model\", this.dashboard.facets.model, normalizeConfig(this.snapshot.config));",
         "      menuCx.notify();",
         "    });",
         "",

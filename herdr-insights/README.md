@@ -1,66 +1,63 @@
-# Insights for Herdr
+# Insights
 
-A native dashboard for coding-agent token usage. Reads local session data from
-Pi, Codex, Claude Code, and OpenCode. Zero dependencies; no account required.
+A native [Herdr](https://herdr.dev) dashboard for coding-agent token usage.
+See which models you use, how usage changes over time, and your daily activity.
+Reads local sessions from **Pi, Codex, Claude Code, and OpenCode**.
 
-![Insights model usage dashboard](preview.png)
+![Insights](preview.png)
 
-*Preview uses synthetic data.*
-
-## What it shows
-
-- Model rankings, provider attribution, and period-over-period trends.
-- Stacked usage charts with week, month, year, and all-time filters.
-- Daily activity heatmap, lifetime totals, peak usage, and streaks.
+*Preview uses synthetic data. The installed dashboard only shows recorded usage.*
 
 ## Install
 
-Requires [Herdr](https://herdr.dev) and Node.js 22.15 or newer.
-From the repository root:
+Requires Herdr and **Node.js 22.15+**. No dependencies or account needed.
+
+Ask your agent:
+
+> Read https://github.com/GaganSD/pi-extensions/tree/main/herdr-insights and install the Insights mod following its RECIPE.md and my Herdr AGENTS.md.
+
+Or install from a checkout:
 
 ```sh
+git clone https://github.com/GaganSD/pi-extensions.git
+cd pi-extensions
 npm run install:local --prefix herdr-insights -- --open
 ```
 
-The installer copies the mod into `~/.config/herdr-app/mods/insights/` and runs
-`herdr-app check`. Set `HERDR_APP_HOME` to use a different app home.
+The installer runs `herdr-app check`, then opens an **Insights** tab. It installs
+only `mods/insights/` under `~/.config/herdr-app`; your layouts, keys, and terminals
+are unchanged. Set `HERDR_APP_HOME` to use a different app home.
 
-## Configuration
+## Use
 
-Open Settings in the dashboard to choose sources, edit transcript paths,
-include or exclude cached tokens, and adjust refresh frequency and colors.
-Usage metadata is stored in `~/.config/herdr-app/data/insights/insights.json`.
+- Compare models and providers with period filters and up/down trends.
+- Explore a stacked usage chart, daily heatmap, lifetime totals, and streaks.
+- Open **Settings** to choose sources, edit paths, toggle cached tokens, or
+  change the palette and refresh interval.
 
-## Token accounting
+Periods are calendar-to-date. Model filters affect the chart and leaderboard;
+activity history and lifetime metrics stay all-time. Counts come from recorded
+usage, not estimates; missing usage or durations cannot be reconstructed.
 
-Counts come from recorded usage, not estimates. Cached tokens are included by
-default and can be excluded. Cumulative counters and forked sessions are
-reconciled to avoid counting the same usage twice.
+## Privacy
 
-## Privacy and safety
-
-Everything stays on your machine. Source transcripts are read-only; nothing is
-uploaded. The local store keeps usage metadata, not prompt or response text.
-
-## Limitations
-
-Only usage recorded by supported sources is available. Missing token counts
-or task durations cannot be reconstructed. Period filters use calendar-to-date
-windows; the activity heatmap and lifetime metrics remain all-time.
-
-## Custom source mappings
-
-Settings includes a JSON editor for adding sources and configuring field mappings
-for custom JSONL transcripts.
+No network requests or uploads. The mod runs a local Node helper, reads session
+files and OpenCode's SQLite database, and writes usage metadata to
+`~/.config/herdr-app/data/insights/insights.json`. It does not store prompt or
+response text or modify source transcripts.
 
 ## Development
+
+[RECIPE.md](RECIPE.md) describes the mod's behavior, architecture, and rebuild
+requirements. The distribution folder is `herdr-insights`; its native mod ID is
+`insights` and its display name is **Insights**. No layouts or key bindings ship.
 
 ```sh
 npm test --prefix herdr-insights
 npm run check --prefix herdr-insights
 ```
 
-To uninstall the mod while keeping usage data:
+Uninstall while keeping usage data:
 
 ```sh
 npm run uninstall:local --prefix herdr-insights

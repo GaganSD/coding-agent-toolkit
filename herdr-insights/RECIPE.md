@@ -1,203 +1,129 @@
 # Insights
 
-Insights is a native Herdr dashboard that reads the coding-agent transcripts
-already on this machine and shows token usage, streaks, a 53-week heatmap, and a
-model/provider leaderboard. It is local-first: no network, no demo rows, no
-fabricated usage. The dashboard opens as a tab and leaves existing terminals,
-layouts, and keys alone.
+A native Herdr dashboard for token usage across Pi, Codex, Claude Code, and
+OpenCode. It reads existing local session data, shows model rankings and activity,
+and opens in its own tab without changing terminals, layouts, or keys.
 
 ![Insights](preview.png)
 
-**What you see:** A restrained, theme-driven native dashboard built from Herdr
-theme colors with a shadcn-inspired visual system: paired surface/foreground
-tokens, one monochrome primary action, 1px borders, 6px control / 8px card
-radii, no decorative shadows, and a 4/8/12/16/24 spacing rhythm. The root is
-vertically scrollable, centers content at a maximum width of 1180px, and uses
-12px / 16px / 24px page padding below 620px / below 900px / above that. The Model Usage section has a segmented Week / Month / Year / All period
-control, a year stepper when Year is active, and Provider / Model menus plus
-Clear filters when a dimension is active. Menus show at most 250 values; compact
-presentation retains selected values and full totals. The dashboard has no
-profile, avatar, name, or handle hero.
+The screenshot uses synthetic data for illustration. Never include those rows or
+future model names as defaults: the installed mod shows only recorded usage.
 
-Below the filters are five metric cards in a responsive strip (five across at
-860px+, then 3+2, then 2+2+1): lifetime tokens, peak day, longest task, longest
-streak, and current streak. Values use 22px type; labels are 9.5px uppercase.
-The five metrics are all-time, independent of the model usage filters. A zero or
-missing task duration displays as a dash, not an invented duration. Current
-streak gives yesterday grace: a streak whose last active day was yesterday still
-counts today. The main column then holds a GitHub-style 53-week, seven-row
-heatmap: each cell is 12px square with a 2px gap (14px week width), the weekday
-label column is 30px, month labels sit above the grid, and the legend uses 10px
-swatches. Local calendar days are used, future cells are dimmed, and clicking a
-day updates the selected-day detail. The heatmap window ends today, independent of the model usage period.
+**What you see:** A vertically scrollable dashboard centered at a maximum width
+of 1180px. Use Herdr theme colors, 1px borders, 8px card corners, 6px control
+corners, no decorative shadows, and 4/8/12/16/24px spacing. Page padding is 12px
+below 620px, 16px below 900px, and 24px otherwise. Support light and dark themes.
 
-The heatmap switches between Daily, Weekly, and Cumulative. Weekly mode repeats
-the full week's total on every day of that week. Cumulative mode is the all-time
-running total through each day, including history before the visible window.
-The selected-day detail is a flat, aligned data grid separated by a hairline
-rather than a filled panel. It shows the mode value, that day's exact token
-total, input, output (with reasoning inside output), cache read/write, sessions,
-usage events, longest task, and the top model when present. Exact values stay in
-tooltips, and an unreported task duration stays a dash.
+Top to bottom:
+- An Insights header with last-update status, Refresh, and Settings.
+- Five all-time metrics: tokens, peak-day tokens, longest task, longest streak,
+  and current streak. Use 22px values and small uppercase labels; unknown duration
+  is a dash. The strip wraps from five columns to three or two on smaller views.
+- Token usage: a 53-week, seven-row local-calendar heatmap with month/weekday
+  labels and Daily / Weekly / Cumulative controls. Cells are 12–20px squares
+  fitted to available width, with 2px gaps; narrow views scroll horizontally.
+  Future days are dimmed. Clicking a day updates the detail card.
+- Side-by-side all-time and selected-day details: input, output, cache-hit rate,
+  and top model. Default the selected day to today.
+- Model usage: Week / Month / Year / All controls, a year stepper for Year,
+  Provider and Model menus, and Clear filters when a filter is active.
+- Top models: a 26-week stacked token chart with date labels, a token axis, and
+  a categorical legend. Keep seven model series and fold the rest into Other.
+- Model Usage: the top ten models with provider attribution, compact token totals,
+  and change versus the previous calendar period. Use two columns at 960px+, one
+  below. Show a known model logo, else a provider logo, else an initial. Up/down
+  arrows and theme success/destructive colors distinguish trends; handle New and
+  no-comparison states. Rows do not expand.
 
-Below the heatmap is a ranked leaderboard limited to 10 groups, split into two
-columns at 960px+ and one column below that. Each row shows rank, a logo tile,
-model/provider name and sublabel, compact tokens, share bar, and change versus
-the previous calendar portion with New / zero-safe states. Logo selection is a
-known model mark first (DeepSeek uses `deepseek.svg`; Grok/xAI uses `xai.svg`),
-then the provider mark, then the first letter of the model name. Rows are
-summary-only; they do not expand. The leaderboard is model-only with provider
-attribution. A token breakdown and scan-status card follow; status shows
-sourceStats (`disabled`, `missing`, `empty`, `ok`, `error`), file/read/unchanged/
-byte counts, and up to six source-tagged warnings. Loading, empty, and error
-states are explicit and never show fake rows.
+Settings replaces the dashboard content. It contains palette (blue/green/purple),
+week start, include-cache, refresh interval, per-source toggles and root editors,
+a full JSON editor, and scan status/warnings. No profile/avatar controls.
 
-The Settings view uses the same native surfaces and visual language and is
-vertically scrollable at narrow widths. It includes palette
-(blue/green/purple), week start (Sunday/Monday), include-cache toggle, refresh
-interval, source toggles, one-root-per-line/comma root editors, and a JSON editor
-with Format, Reset, and one clearly primary Save configuration action.
-There are no name, handle, or avatar controls; legacy `config.profile` values can
-stay in the full JSON but are not displayed. The full editor and toggles preserve
-custom source mappings and other unknown-to-the-toggle fields; saves go through
-the collector's `configure` command. The source and settings controls do not clip
-at narrow widths.
+**How it behaves:** Refresh incrementally on opening and every configured
+30–3600 seconds (default 60); prevent overlapping scans. No-op scans do not rewrite
+the store. Filters scope only the model chart and leaderboard, not lifetime
+metrics or heatmap. Menus cap choices at 250 while retaining selected values.
+Week, month, and current-year periods are calendar-to-date; past years are full.
+Compare with the same calendar portion of the previous period, clamping month
+ends. All has no comparison. The chart always spans 26 weeks ending at the selected
+period's end, rather than switching to daily buckets as in the illustrative preview.
 
-**How it behaves:** The header refresh is incremental and guarded against
-overlapping runs; while the tab is alive it polls at the configured interval
-(default 60 seconds, validated 30–3600). A no-op scan does not rewrite the store,
-so the store's mtime and size stay unchanged. A palette/cache/week-start/refresh
-change, or a legacy profile-only JSON change, keeps collected rows; changing a
-source id, adapter, enabled flag, root, or mapping clears collected rows and
-rescans. `--rebuild` is the explicit manual reset. Filters scope only the model
-chart and leaderboard, not token history or all-time metrics.
-Periods are calendar-to-date: the current week runs from its configured start
-through today, the current month from the first through today, and the current
-year from January 1 through today (a past year is complete). Leaderboard
-comparison uses the same calendar portion of the previous week/month/year;
-month-end clamping means March 31 month-to-date compares with February 1–28/29,
-not a same-day-count window. All has no previous period.
-Leaderboard change handles new, no-previous-period, and zero-total cases without
-dividing by zero. Project filtering uses the top 250 by tokens while retaining
-the selected value. The source/settings interface can toggle built-in sources,
-edit roots, and edit the full config JSON; invalid config or collector output
-produces a useful error state, never fake zeros. The dashboard opens only through
-the installed mod tab; it does not bind keys, dock into a shipped layout, or alter
-existing terminals. It uses `herdr-app check` as the completion gate.
+Weekly heatmap mode repeats each week's total on every day in that week;
+cumulative mode includes all preceding history. A streak ending yesterday still
+counts as current. Show explicit loading, empty, and error states, never demo rows
+or invented zeros after failures. Settings saves validate before applying; simple
+controls preserve custom mappings. Changing source configuration invalidates the
+scan cache; palette/cache/week-start/refresh changes preserve collected history.
 
-The collector's config accepts a partial top-level object, fills omitted top-level
-fields from defaults, and rejects unknown fields at every level. Its exact custom
-mapping schema is documented in README.md: required `session`, `timestamp`, and
-`usage`; optional `messageId`, `project`, `model`, `provider`, `role` + `roles`,
-`include`, `taskDurationMs`, and `harness`; fields are path strings, `{path,
-default}` objects, or `{literal}` objects. Custom usage is canonical: input is
-uncached, output includes reasoning, reasoning is a subset, and total is derived.
-`sourceStats` is keyed by source id and reports status/files/filesRead/bytesRead/
-errors; scan warnings are source-tagged. A missing root is a warning and `missing`
-status, not a fatal scan. Removed transcript history is retained until `--rebuild`.
-The store is metadata-only (config, file paths/scan offsets, aggregated numeric
-rows, dedupe/task keys), and the installer manifest at
-`data/insights/install-manifest.json` is separate from the collector store.
-Source roots are read only and never changed.
+**Built from:** Put this distribution in `herdr-insights/`, with `RECIPE.md`,
+`README.md`, `preview.png`, and `mods/insights/`. Do not include a `layouts/` folder
+or keys snippet: no bindings are needed. The recipe heading and `mod.json` title
+are **Insights**; the native mod ID is `insights`.
 
-**Built from:** A distributable Herdr mod folder, `mods/insights/`, with
-`mod.json` that has `"place": "none"`, `main.js` exporting the native gpui-kit
-`View`, pure `analytics.js` helpers that can run under Node without native
-imports, and a Node `presenter.mjs` helper. The collector lives at
-`mods/insights/collector.mjs` with declarative adapters under `core/*.mjs`; it
-discovers Pi, Codex, and Claude Code transcript roots and the OpenCode SQLite
-store from the saved config by default, then writes the single store at
-`<HERDR_APP_HOME>/data/insights/insights.json`. Custom configs remain readable.
-Herdr
-runs `node .../presenter.mjs snapshot --store <store> --home <home> --options
-<json>` (and `configure` with one JSON argv value) through `exec`, off the UI
-thread. The presenter calls the collector once and prints one compact
-presentation payload; `prepare` reads only the existing store and re-derives the
-dashboard for filter/period/year/heatmap/group/day changes without scanning or
-writing the store. Raw rows stay in Node. Diagnostics go to stderr and nonzero
-results surface in the UI. The UI assumes the compact
-`kind`/`version`/`command`/`options`/`snapshot`/`dashboard` payload, with
-snapshot metadata `version`, `rowCount`, `stats`, `sourceStats`, `warnings`,
-`config`, `generatedAt`, and `lastScanAt`. It uses
-`theme()` colors, `on_size_change` for responsive layout, and a guarded
-`cx.timer` poll rather than `setTimeout` or a spinner timer. The installer installs
-only `mods/insights/`, generates `runtime.json` as `{"node": process.execPath}`
-(the absolute installer Node path), creates `data/insights/`, preserves
-`insights.json`, and runs `herdr-app check` with spawn argv before optionally
-running `herdr-app do tab.new '{"name":"Insights","mod":"insights"}'`. The UI
-reads runtime.json once and uses that binary for `exec`, so Herdr's older `node`
-on PATH is bypassed without changing PATH. The installer writes the ownership
-manifest with SHA-256 hashes, treats runtime.json like every other owned file, and
-never follows symlinks or writes layouts/keys. Node >=22.15 is required because
-the collector imports Node's zstd support, and the installer actively checks the
-running Node before creating or writing the app home rather than trusting npm's
-advisory engines field. No HTML, CSS, web view, network
-request, shell interpolation, npm dependency, Pi extension registration, or
-publishing step is part of the build.
+`mods/insights/mod.json` contains `{"place":"none","title":"Insights"}`.
+`main.js` default-exports a gpui-kit `View`; use gpui-base flex/controls, `theme()`
+semantic colors, `on_size_change`, and fresh callback contexts. Do not retain `cx`.
+Cancel tasks/timers and release native editor/input state on close. Use native
+animations, never redraw timers. No DOM, web view, shell interpolation, or network.
+`ui.js` centralizes surfaces, typography, spacing, and controls; bundle monochrome
+provider/model SVGs in `logos/`. Pure `analytics.js` runs in Node and prepares totals,
+facets, chart buckets, heatmap, and leaderboard comparisons.
 
-**Watch out:** Do not add a mock collector or demo rows to production; “no data”
-must look empty, not invented. Do not claim leaderboard expansion: rows are
-summary-only. Weekly heatmap cells intentionally repeat the full week's total;
-cumulative cells are all-time through the day, not period-only. Period comparison
-is calendar-to-date against the same portion of the previous period, with month/
-year end clamping. Current streak uses yesterday grace; duration 0 means unknown
-and displays as a dash. Legacy `config.profile` is tolerated but not displayed.
-The project filter caps options at 250 while retaining the selected project. The
-collector is the source of truth for config validation, deduplication, token
-arithmetic, and the custom mapping schema; the UI must not guess provider
-creators or add reasoning twice. Defaults are Pi, Codex, OpenCode, and Claude
-Code; untouched pre-Claude default stores gain Claude Code on the next collector
-run, while customized source lists are left alone. Pi usage includes assistant and tool-result `message.usage`,
-top-level `type: "usage"` events (cache warming), `compaction.usage`, and
-`branch_summary.usage`; count each reported entry once, including copied fork
-entries, and treat `row.messages` as usage-event count (UI: Usage events), not
-assistant-message count. Codex files can expose both `token_usage_record` and
-`event_msg.token_count`; reconcile them at the record level, count a turn once,
-and turn cumulative counters into deltas. Forked Codex sessions keep their own
-thread identity when reconciling usage. Claude Code reads local JSONL sessions
-from `~/.claude/projects`, uses stable session IDs and `cwd`, treats an absent
-provider as `anthropic`, and max-upserts streamed duplicates that share
-`message.id`. Tokens are reported/counted usage,
-not tokenizer estimates: `input` is uncached,
-`output` includes `reasoning`, `reasoning` is a subset, cache fields are
-counted once, and `total = input + output + cacheRead + cacheWrite`. A normal
-refresh is incremental, not a forced rebuild; cold scans are O(data), warm scans
-O(metadata) plus appends, and `--rebuild` is only a manual repair. Removed files
-or roots retain historical rows until rebuild; a missing root is a warning and
-`missing` status. The incremental cache assumes append-only growth, so a same-size
-in-place rewrite may need a rebuild. Concurrent collector operations use an ownership-marked lock directory
-(20s wait, dead same-host owner reclaim; live owners are never age-evicted); a corrupt store is preserved with a
-`.corrupt-<timestamp>` backup and replaced with a fresh store plus a warning/error.
-Task duration must use exact boundaries when present, otherwise a conservative
-capped turn span — never the idle session lifetime. Use local calendar days, not
-UTC. The custom mapping schema is the exact README schema; do not invent mapping
-keys or add executable code. The installer refuses unowned collisions and locally
-edited owned files unless `--force`; it must never follow symlinks, write
-`layouts/` or `keys.json`, or replace `insights.json`. It must generate runtime.json
-from the running installer Node, replace any source runtime.json with that generated
-file, and still reject a source runtime symlink; do not copy a stale source runtime
-or change PATH. A manual mod copy without runtime.json falls back to `node` on PATH,
-which must be >=22.15. The installer must reject an older Node before creating mod
-or data folders and report the actual version; npm's engines field alone is not
-enough. The uninstaller should stay usable on older Node. The preview must be a
-real `herdr-app shot` of the installed dashboard, not a drawn mockup.
+The UI invokes a local Node `presenter.mjs` through Herdr `exec` with separate
+argv values. `snapshot` collects then presents; `configure` validates and saves;
+`prepare` reads existing metadata and re-derives without scanning or writing.
+Keep raw rows and analytics work in Node, not QuickJS rendering. Return a versioned
+`insights-presentation` payload with options, compact snapshot metadata, dashboard,
+and error. Coalesce filter requests and reject stale results. Send diagnostics to
+stderr and surface nonzero exits. Settings controls are initialized lazily.
 
-**Done when:** `npm test --prefix herdr-insights` passes the synthetic install
-tests with a temporary app home and fake `herdr-app`, including runtime.json
-generation from the current installer Node, source-copy replacement and symlink
-rejection, runtime collision/local-edit protection, idempotence, and data
-preservation; `npm run check --prefix herdr-insights` validates the package
-(Node >=22.15) and, when present, `mods/insights` with `main.js`, `mod.json` place
-`none`, and no symlinks; eslint passes for the package scripts/tests where
-configured. `npm run install:local --prefix herdr-insights -- --open` installs
-only the owned tree plus generated runtime.json, runs `herdr-app check
-<appHome>/mods/insights` successfully, and opens the Insights tab with `herdr-app
-do tab.new` using the exact JSON argument. An older Node is refused before any
-mod or data folder is created. A reinstall preserves
-`data/insights/insights.json`, unknown local files, and unedited layouts/keys; a
-locally edited owned file is refused without `--force`; an unowned collision is
-refused even with `--force`. The collector snapshot command prints one compact
-JSON object with the contract shape, and invalid config exits nonzero. In the live
-UI, real data drives the five metrics, heatmap modes, filters, selected-day
-detail, and leaderboard comparisons; loading, empty, and error states are visible,
-and no fabricated rows appear.
+`collector.mjs` and `core/{config,adapters,scan,store,util}.mjs` implement collection.
+Default roots are `~/.pi/agent/sessions`, `~/.codex/sessions`,
+`~/.codex/archived_sessions`, `~/.claude/projects`, and `~/.local/share/opencode`.
+Read JSONL/zstd transcripts and OpenCode SQLite in read-only mode. The metadata-only
+store is `<HERDR_APP_HOME>/data/insights/insights.json`; never save prompt/response
+text. Use source-tagged status/warnings for missing, disabled, empty, and failed
+sources. Preserve historical rows from removed files until explicit rebuild.
+
+Custom sources use a declarative `mapping`: required `session`, `timestamp`, and
+`usage`; optional `messageId`, `project`, `model`, `provider`, `role`, `roles`,
+`include`, `taskDurationMs`, and `harness`. Field specs are dot paths,
+`{path, default?}`, or `{literal}`. `usage` accepts input, output, cacheRead,
+cacheWrite, and reasoning field specs. `roles` filters the mapped role; `include`
+is a list of `{path, equals}` or `{path, exists}` conditions. Reject unknown keys
+and executable mappings. `core/config.mjs` defines and validates the full schema.
+
+Provide dependency-free Node install/uninstall scripts. Require Node >=22.15 before
+writing anything. Install only the mod tree and generate `runtime.json` with the
+absolute installer Node path; the UI uses that path, falling back to `node` on PATH
+only for manual copies. Track ownership/hashes in a separate install manifest.
+Refuse symlinks and unowned collisions; refuse edited owned files unless explicitly
+forced. Preserve usage data and unrelated files. Run `herdr-app check` and, only
+with `--open`, `herdr-app do tab.new '{"name":"Insights","mod":"insights"}'`.
+
+**Watch out:** Canonical total is input + output + cacheRead + cacheWrite;
+input is uncached, output already includes reasoning. Never add reasoning twice.
+Reconcile cumulative Codex counters and alternate record formats; deduplicate fork
+copies and Claude streamed duplicates. Count Pi's reported usage carriers once,
+including tool-result, standalone usage, compaction, and branch-summary events.
+Task duration uses exact boundaries or conservative capped spans, never idle session
+lifetime. Use local dates, not UTC days. Append-only incremental caches may require
+explicit rebuild after same-size rewrites. Use ownership-checked store locks;
+never steal live/unknown owners' locks based on age. Preserve corrupt stores with
+a backup before rebuilding; read-only prepare must not repair or create stores.
+
+Never write layouts, keys, source transcripts, or an existing user's usage data
+from the installer. Do not copy an absolute runtime path from another machine.
+The preview is a native UI screenshot with synthetic data; the production dashboard
+must not imitate its daily-bucket mock behavior or fabricated model list.
+
+**Done when:** Package tests and checks pass, including distribution naming,
+PNG preview, recipe structure, no layouts, token accounting, deduplication,
+configuration validation, incremental recovery, and safe installation/uninstallation.
+Run `herdr-app check` on the installed mod, plus populated-render and asynchronous
+native smoke checks in temporary app homes. Inspect a native screenshot and status
+for render errors. Verify actual filters, heatmap modes, source settings, refresh,
+and empty/error states. Reinstall without changing source transcripts, layouts,
+keys, local edits, or `insights.json`. Keep the GitHub repo public and add topic
+`herdr-mod` for Community discovery after merging to the default branch; allow
+up to an hour for indexing and at least 24 hours for picture screening.

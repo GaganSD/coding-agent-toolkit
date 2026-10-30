@@ -89,16 +89,15 @@ try {
 
   const mainPath = join(mod, "main.js");
   let main = readFileSync(mainPath, "utf8");
-  const constant = "const CELL = 12;";
+  const constant = "const MIN_CELL = 12;";
   const init = "    this.commandTask = cx.spawn(async (commandCx) => {";
   if (!main.includes(constant) || !main.includes(init)) throw new Error("cannot find main.js injection points");
   const today = todayKey();
   const options = {
-    filters: { source: "all", provider: "all", model: "all", project: "all" },
+    filters: { provider: "all", model: "all" },
     period: "all",
     year: Number(today.slice(0, 4)),
     heatmapMode: "daily",
-    leaderboardGroup: "model",
     selectedDay: today,
     today,
   };
@@ -113,12 +112,13 @@ try {
     error: null,
   };
   main = main.replace(constant, `const INJECTED_PRESENTATION = ${JSON.stringify(presentation)};\n${constant}`);
-  let injected = "    this.applySnapshot(INJECTED_PRESENTATION, cx);\n";
+  let injected = "    this.applySnapshot(INJECTED_PRESENTATION, cx);\n"
+    + "    if (!this.dashboard) throw new Error('Loaded check did not apply the populated dashboard');\n";
   if (mode === "settings") injected += "    this.openSettings(cx);\n";
   if (mode === "menu") {
     injected += [
-      "    this.openFilter = \"ins-project-filter\";",
-      "    this.openOptions = buildFacetOptions(\"project\", this.dashboard.facets.project, normalizeConfig(this.snapshot.config));",
+      "    this.openFilter = \"ins-model-filter\";",
+      "    this.openOptions = buildFacetOptions(\"model\", this.dashboard.facets.model, normalizeConfig(this.snapshot.config));",
       "",
     ].join("\n");
   }
