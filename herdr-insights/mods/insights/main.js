@@ -83,7 +83,7 @@ const PROVIDER_LOGO_FILES = {
   google: "googlegemini.svg",
   gemini: "googlegemini.svg",
   deepseek: "deepseek.svg",
-  xai: "x.svg",
+  xai: "xai.svg",
   meta: "meta.svg",
   mistral: "mistralai.svg",
   aws: "amazonaws.svg",
@@ -101,6 +101,33 @@ export function providerLogo(provider) {
     if (key.startsWith(prefix)) return file;
   }
   return null;
+}
+
+const MODEL_LOGO_PATTERNS = [
+  [/claude/i, "anthropic.svg"],
+  [/gpt|\bo[1-9]/i, "openai.svg"],
+  [/gemini/i, "googlegemini.svg"],
+  [/deepseek/i, "deepseek.svg"],
+  [/grok/i, "xai.svg"],
+  [/mistral|mixtral|codestral/i, "mistralai.svg"],
+  [/ollama/i, "ollama.svg"],
+  [/llama/i, "meta.svg"],
+];
+
+export function modelLogo(model) {
+  const key = String(model ?? "").toLowerCase().trim();
+  if (!key || key === "unknown" || key === "unknown model") return null;
+  const candidates = key.includes("/") ? [key.split("/").at(-1), key] : [key];
+  for (const candidate of candidates) {
+    for (const [pattern, file] of MODEL_LOGO_PATTERNS) {
+      if (pattern.test(candidate)) return file;
+    }
+  }
+  return null;
+}
+
+export function usageLogo(model, provider) {
+  return modelLogo(model) ?? providerLogo(provider);
 }
 const MAX_FACET_OPTIONS = 250;
 const DEFAULT_NODE = "node";
@@ -1687,7 +1714,7 @@ export default class Insights extends View {
     };
 
     const row = (entry, last) => {
-      const logo = providerLogo(entry.provider);
+      const logo = usageLogo(entry.name, entry.provider);
       return h_flex().w_full().items_center().gap(G.sm).py(G.sm)
         .when(!last, (el) => el.border_b(1).border_color(c.border))
         .child(div().w(20).text_size(T.body).text_color(c.dim).child(`${entry.rank}.`))
@@ -1695,7 +1722,7 @@ export default class Insights extends View {
           .items_center().justify_center()
           .child(logo
             ? svg(`mods/insights/logos/${logo}`).size(14).text_color(c.mutedForeground)
-            : div().text_size(9).font_semibold().text_color(c.mutedForeground).child(initials(entry.name, 2))))
+            : div().text_size(9).font_semibold().text_color(c.mutedForeground).child(initials(entry.name, 1))))
         .child(v_flex().flex_1().min_w(0).gap(1)
           .child(div().text_size(12).font_medium().text_color(c.text).truncate().tooltip(entry.name).child(entry.name))
           .child(div().text_size(10).text_color(c.dim).truncate().child(`by ${entry.sublabel}`)))

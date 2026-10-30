@@ -197,6 +197,24 @@ function recordCopyCandidate(entry, index, row, fileId) {
   if (!aux.copies.includes(fileId)) aux.copies.push(fileId);
 }
 
+function refreshConcreteProvider(owner, row, entry, meta) {
+  if (
+    row.provider !== "unknown" ||
+    typeof meta.provider !== "string" ||
+    meta.provider.length === 0 ||
+    meta.provider === "unknown"
+  ) {
+    return false;
+  }
+  row.provider = meta.provider;
+  // The row's bucket key changed. Rebuild the transient index lazily rather
+  // than trying to merge another row that may already occupy the new bucket.
+  delete owner._rowIndex;
+  const aux = entry[DEDUP_AUX_INDEX];
+  if (isPlainObject(aux) && validAuxMeta(aux.meta)) aux.meta.provider = meta.provider;
+  return true;
+}
+
 function dropCopyCandidate(entry, index, fileId) {
   const aux = entry[index];
   if (!isPlainObject(aux) || !Array.isArray(aux.copies)) return;
@@ -255,7 +273,7 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
     const owner = findFileById(store, entry[0]);
     const row = owner?.rows?.[entry[1]];
     if (owner && row) {
-      let changed = false;
+      let changed = refreshConcreteProvider(owner, row, entry, meta);
       const added = {
         input: 0,
         output: 0,

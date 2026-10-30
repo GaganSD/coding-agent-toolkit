@@ -111,7 +111,7 @@ const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(..
     /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
     `const { ${uiNames} } = await import("${uiUrl}");`,
   );
-const { default: Insights, heatmapMetrics, providerLogo } = await import(dataUrl(transformedMain));
+const { default: Insights, heatmapMetrics, modelLogo, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
 
 function optionArgument(args) {
   const index = args.indexOf("--options");
@@ -506,15 +506,52 @@ test("dashboard is divided into token and model usage sections", () => {
   assert.doesNotMatch(mainSource, /filterMenu\("source"|filterMenu\("project"|breakdownCard|selectedDetail/);
 });
 
-test("provider logos map known providers and fall back safely", () => {
+test("usage logos prefer model marks, then provider marks, then initials", async () => {
+  assert.equal(modelLogo("deepseek-v4.1-flash"), "deepseek.svg");
+  assert.equal(modelLogo("xai.grok-4.6"), "xai.svg");
+  assert.equal(modelLogo("grok-4.6"), "xai.svg");
+  assert.equal(modelLogo("claude-opus-5"), "anthropic.svg");
+  assert.equal(modelLogo("gpt-6.1"), "openai.svg");
+  assert.equal(modelLogo("ollama"), "ollama.svg");
+  assert.equal(modelLogo("ollama/qwen2.5"), "ollama.svg");
+  assert.equal(modelLogo("ollama/mistral"), "mistralai.svg");
+  assert.equal(modelLogo("ollama/llama3"), "meta.svg");
+  assert.equal(modelLogo("llama3.2"), "meta.svg");
+  assert.equal(modelLogo("codellama:7b"), "meta.svg");
+  assert.equal(modelLogo("tinyllama"), "meta.svg");
+  assert.equal(modelLogo("moonshot-kimi"), null);
+
+  assert.equal(usageLogo("deepseek-v4.1", "openai"), "deepseek.svg");
+  assert.equal(usageLogo("grok-4.6", "openrouter"), "xai.svg");
+  assert.equal(usageLogo("custom-model", "openai"), "openai.svg");
+  assert.equal(usageLogo("custom-model", "moonshot"), null);
+
   assert.equal(providerLogo("openai"), "openai.svg");
   assert.equal(providerLogo("amazon-bedrock"), "amazonaws.svg");
   assert.equal(providerLogo("bedrock-mantle"), "amazonaws.svg");
   assert.equal(providerLogo("opencode-go"), "opencode.svg");
-  assert.equal(providerLogo("xai"), "x.svg");
+  assert.equal(providerLogo("xai"), "xai.svg");
+  assert.equal(providerLogo("deepseek"), "deepseek.svg");
   assert.equal(providerLogo("moonshot"), null);
   assert.equal(providerLogo("unknown"), null);
   assert.equal(providerLogo(null), null);
+
+  assert.match(mainSource, /usageLogo\(entry\.name, entry\.provider\)/);
+  assert.match(mainSource, /initials\(entry\.name, 1\)/);
+  assert.doesNotMatch(mainSource, /initials\(entry\.name, 2\)/);
+  assert.doesNotMatch(mainSource, /"x\.svg"/);
+  await Promise.all([
+    "amazonaws.svg",
+    "anthropic.svg",
+    "deepseek.svg",
+    "googlegemini.svg",
+    "meta.svg",
+    "mistralai.svg",
+    "ollama.svg",
+    "openai.svg",
+    "opencode.svg",
+    "xai.svg",
+  ].map((file) => readFile(new URL(`../mods/insights/logos/${file}`, import.meta.url))));
 });
 
 test("model usage leaderboard is models-only with ranked change rows", () => {

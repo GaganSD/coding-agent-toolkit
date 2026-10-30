@@ -20,7 +20,8 @@ import {
   defaultConfig,
   normalizeConfig,
 } from "../mods/insights/core/config.mjs";
-import { emptyStore, saveStore } from "../mods/insights/core/store.mjs";
+import { emptyStore, newFileEntry, saveStore } from "../mods/insights/core/store.mjs";
+import { DEFAULT_SOURCES } from "../mods/insights/analytics.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const collector = path.join(here, "..", "mods", "insights", "collector.mjs");
@@ -425,6 +426,7 @@ test("default config and empty input include Pi, Codex, OpenCode and Claude Code
   assert.deepEqual(DEFAULT_CONFIG.sources, expectedSources);
   assert.deepEqual(defaultConfig().sources, expectedSources);
   assert.deepEqual(normalizeConfig({}).sources, expectedSources);
+  assert.deepEqual(DEFAULT_SOURCES, expectedSources, "UI fallback defaults must not drift from collector defaults");
 });
 
 test("untouched pre-Claude default stores gain Claude Code and scan local sessions", async () => {
@@ -473,6 +475,52 @@ test("untouched pre-Claude default stores gain Claude Code and scan local sessio
   assert.equal(
     persisted.config.sources.some((source) => source.id === "claude"),
     true,
+  );
+});
+
+test("configure with untouched legacy defaults keeps Claude and cached history", async () => {
+  const context = await env();
+  const legacyConfig = normalizeConfig({
+    sources: DEFAULT_CONFIG.sources.slice(0, 3).map((source) => ({
+      ...source,
+      roots: [...source.roots],
+    })),
+  });
+  const store = emptyStore(legacyConfig);
+  const entry = newFileEntry(store, {
+    sourceId: "pi",
+    path: "/removed/pi-session.jsonl",
+    adapter: "pi",
+    size: 0,
+    mtimeMs: 0,
+  });
+  entry.rows = [
+    {
+      day: "2026-03-01",
+      session: "pi:removed",
+      harness: "pi",
+      provider: "openai",
+      model: "gpt-old",
+      project: "/repo/old",
+      input: 7,
+      output: 3,
+      cacheRead: 0,
+      cacheWrite: 0,
+      reasoning: 0,
+      messages: 1,
+    },
+  ];
+  await saveStore(context.store, store);
+
+  const result = await configure(context, { sources: legacyConfig.sources });
+  assert.deepEqual(
+    result.config.sources.map((source) => source.id),
+    ["pi", "codex", "opencode", "claude"],
+  );
+  assert.equal(
+    result.rows.some((row) => row.session === "pi:removed" && row.model === "gpt-old"),
+    true,
+    "legacy-default configure must not undo the migration and clear cached rows",
   );
 });
 

@@ -41,9 +41,11 @@ usage events, longest task, and the top model when present. Exact values stay in
 tooltips, and an unreported task duration stays a dash.
 
 Below the heatmap is a ranked leaderboard limited to 10 groups, split into two
-columns at 960px+ and one column below that. Each row shows rank, a neutral
-initial tile, model/provider name and sublabel, compact tokens, share bar, and
-change versus the previous calendar portion with New / zero-safe states. Rows are
+columns at 960px+ and one column below that. Each row shows rank, a logo tile,
+model/provider name and sublabel, compact tokens, share bar, and change versus
+the previous calendar portion with New / zero-safe states. Logo selection is a
+known model mark first (DeepSeek uses `deepseek.svg`; Grok/xAI uses `xai.svg`),
+then the provider mark, then the first letter of the model name. Rows are
 summary-only; they do not expand. The leaderboard is model-only with provider
 attribution. A token breakdown and scan-status card follow; status shows
 sourceStats (`disabled`, `missing`, `empty`, `ok`, `error`), file/read/unchanged/
@@ -103,8 +105,8 @@ Source roots are read only and never changed.
 `View`, pure `analytics.js` helpers that can run under Node without native
 imports, and a Node `presenter.mjs` helper. The collector lives at
 `mods/insights/collector.mjs` with declarative adapters under `core/*.mjs`; it
-discovers Pi, Codex, OpenCode, and Claude Code transcript roots from the saved
-config by default and writes the single store at
+discovers Pi, Codex, and Claude Code transcript roots and the OpenCode SQLite
+store from the saved config by default, then writes the single store at
 `<HERDR_APP_HOME>/data/insights/insights.json`. Custom configs remain readable.
 Herdr
 runs `node .../presenter.mjs snapshot --store <store> --home <home> --options

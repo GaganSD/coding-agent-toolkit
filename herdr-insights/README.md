@@ -6,6 +6,8 @@ dashboard. Its default setup reads Pi, Codex, and Claude Code session files and
 the OpenCode SQLite store. It does not call a
 service, upload a transcript, or estimate token counts from prompt text.
 
+![Insights dashboard showing lifetime token metrics and the 53-week token history heatmap](mods/insights/image2.png)
+
 The package is private, has ZERO dependencies, and runs on Node >=22.15. The
 Herdr UI is native gpui-kit, not HTML or a web view.
 
@@ -99,7 +101,9 @@ version gate, so an older Node can still remove a clean install.
   on each day of that week. Cumulative mode is the all-time running total
   through each day. Future cells are dimmed and are not clickable.
 - A ranked top-10 Model Usage leaderboard with provider attribution, total
-  tokens, and change versus the previous calendar period. Rows are summary-only;
+  tokens, and change versus the previous calendar period. Rows prefer a known
+  model logo (including DeepSeek and Grok/xAI), fall back to the provider logo,
+  and finally show the first letter of the model name. Rows are summary-only;
   they do not expand. A stacked weekly model chart sits above it.
 - Side-by-side all-time/today token details and scan status in Settings, with
   per-source status and warnings. Loading, empty, and error states are explicit.
@@ -298,6 +302,8 @@ project. Each row has
 `messages` counts reported usage events (shown as "Usage events" in the UI), not
 assistant messages. Session identity is stable and opaque to the UI. Unknown
 provider or model fields remain the string `unknown` rather than being guessed.
+The one source-specific exception is Claude Code: an absent provider is reported
+as `anthropic`, while an explicit provider is preserved.
 
 `stats` reports `files`, `filesRead`, `bytesRead`, `unchangedFiles`, and
 `errors` for the scan. `sourceStats` is keyed by source id and each entry has

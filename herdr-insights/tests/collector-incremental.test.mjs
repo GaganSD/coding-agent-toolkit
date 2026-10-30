@@ -823,6 +823,82 @@ test("old Pi file state is rescanned once for non-message usage carriers", async
   assert.deepEqual(stable.rows, migrated.rows);
 });
 
+test("old Claude parser state rescans provider attribution once", async () => {
+  const context = await env();
+  await placeFixture(
+    context,
+    ".claude/projects/repo/session.jsonl",
+    "claude-session.jsonl",
+  );
+  const claudeSource = [
+    {
+      id: "claude",
+      label: "Claude Code",
+      adapter: "claude",
+      enabled: true,
+      roots: ["~/.claude/projects"],
+    },
+  ];
+  await configure(context, claudeSource);
+
+  const store = JSON.parse(await readFile(context.store, "utf8"));
+  const entry = Object.values(store.files)[0];
+  entry.state = { claudeParserVersion: 1 };
+  entry.rows = entry.rows.map((row) => ({ ...row, provider: "unknown" }));
+  await writeFile(context.store, JSON.stringify(store));
+
+  const migrated = await snapshot(context);
+  assert.equal(migrated.stats.errors, 0);
+  assert.ok(migrated.stats.bytesRead > 0);
+  assert.equal(
+    migrated.rows.every((row) => row.provider === "anthropic"),
+    true,
+  );
+
+  const stable = await snapshot(context);
+  assert.equal(stable.stats.bytesRead, 0);
+  assert.deepEqual(stable.rows, migrated.rows);
+});
+
+test("old Claude parser copies exchange provider-corrected ownership once", async () => {
+  const context = await env();
+  await placeFixture(context, ".claude/projects/a/session.jsonl", "claude-session.jsonl");
+  await placeFixture(context, ".claude/projects/b/session.jsonl", "claude-session.jsonl");
+  const claudeSource = [
+    {
+      id: "claude",
+      label: "Claude Code",
+      adapter: "claude",
+      enabled: true,
+      roots: ["~/.claude/projects"],
+    },
+  ];
+  await configure(context, claudeSource);
+
+  const store = JSON.parse(await readFile(context.store, "utf8"));
+  for (const entry of Object.values(store.files)) {
+    entry.state = { claudeParserVersion: 1 };
+    entry.rows = entry.rows.map((row) => ({ ...row, provider: "unknown" }));
+  }
+  for (const entry of Object.values(store.dedup)) {
+    if (entry[7]?.meta) entry[7].meta.provider = "unknown";
+  }
+  await writeFile(context.store, JSON.stringify(store));
+
+  const migrated = await snapshot(context);
+  assert.equal(migrated.stats.errors, 0);
+  assert.equal(migrated.rows.length, 2);
+  assert.equal(
+    migrated.rows.every((row) => row.provider === "anthropic"),
+    true,
+    "copy ownership transfers must not keep the pre-migration unknown provider",
+  );
+
+  const stable = await snapshot(context);
+  assert.equal(stable.stats.bytesRead, 0);
+  assert.deepEqual(stable.rows, migrated.rows);
+});
+
 test("removed transcript history is retained until an explicit rebuild", async () => {
   const context = await env();
   const file = await placeFixture(

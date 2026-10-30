@@ -4,7 +4,7 @@ import { realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { normalizeConfig, sourcesSignature } from "./core/config.mjs";
+import { migrateLoadedConfig, normalizeConfig, sourcesSignature } from "./core/config.mjs";
 import { scanSources } from "./core/scan.mjs";
 import {
   clearCollectedData,
@@ -123,7 +123,7 @@ async function configureStore(storePath, home, rawConfig, { rebuild = false } = 
   let config;
   try {
     const parsed = typeof rawConfig === "string" ? JSON.parse(rawConfig) : rawConfig;
-    config = normalizeConfig(parsed);
+    config = migrateLoadedConfig(normalizeConfig(parsed)).config;
   } catch (error) {
     const invalid = new Error(`invalid --config: ${error.message}`);
     invalid.exitCode = 2;
