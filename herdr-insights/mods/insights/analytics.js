@@ -665,6 +665,7 @@ export function leaderboard(rows, previousRows, options = {}) {
     return {
       name: group.name,
       sublabel,
+      provider: groupBy === "model" ? topKey(group.providers) : group.name,
       tokens: group.tokens,
       rows: group.rows,
       messages: group.messages,
@@ -936,16 +937,18 @@ export function deriveDashboard(snapshot, options = {}) {
   const { filters, period, year, heatmapMode, leaderboardGroup, today } = settings;
   const years = availableYears(rows, today);
   const includeCache = config.includeCache;
+  // Token usage (metrics, heatmap, day detail) always covers everything;
+  // period and facet filters scope only the model usage sections.
   const dimensionRows = filterRows(rows, filters);
   const range = periodRange(period, { today, weekStartsOn: config.weekStartsOn, year });
   const periodRows = filterRowsByRange(dimensionRows, range);
   const previousRows = range.previous ? filterRowsByRange(dimensionRows, range.previous) : null;
 
-  const lifetime = sumTokens(dimensionRows, includeCache);
-  const peak = peakDay(dimensionRows, includeCache);
-  const streaks = streakStats(dimensionRows, { today, includeCache });
-  const heatmap = buildHeatmap(dimensionRows, {
-    endDay: range.end,
+  const lifetime = sumTokens(rows, includeCache);
+  const peak = peakDay(rows, includeCache);
+  const streaks = streakStats(rows, { today, includeCache });
+  const heatmap = buildHeatmap(rows, {
+    endDay: today,
     weekStartsOn: config.weekStartsOn,
     mode: heatmapMode,
     includeCache,
@@ -964,7 +967,7 @@ export function deriveDashboard(snapshot, options = {}) {
 
   const selectedInRange = heatmap.cells.find((cell) => cell.date === settings.selectedDay && !cell.future);
   const selectedDay = selectedInRange ? settings.selectedDay : heatmap.range.dataEnd;
-  const selectedRows = dimensionRows.filter((row) => row.day === selectedDay);
+  const selectedRows = rows.filter((row) => row.day === selectedDay);
   const selectedTotals = sumTokens(selectedRows, includeCache);
   const selectedTop = selectedRows.length
     ? leaderboard(selectedRows, null, { groupBy: "model", includeCache, limit: 1 }).entries[0]

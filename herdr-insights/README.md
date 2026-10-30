@@ -2,9 +2,9 @@
 
 Insights is a local-first Herdr mod for reading coding-agent token usage from the
 transcripts already on your machine, then showing the result as a calm native
-dashboard. Its default setup reads Pi and Codex session files; legacy Claude Code
-configs remain readable. It does not call a service, upload a transcript, or
-estimate token counts from prompt text.
+dashboard. Its default setup reads Pi and Codex session files and the OpenCode
+SQLite store; legacy Claude Code configs remain readable. It does not call a
+service, upload a transcript, or estimate token counts from prompt text.
 
 The package is private, has ZERO dependencies, and runs on Node >=22.15. The
 Herdr UI is native gpui-kit, not HTML or a web view.
@@ -176,6 +176,13 @@ The default normalized shape is:
       "adapter": "codex",
       "enabled": true,
       "roots": ["~/.codex/sessions", "~/.codex/archived_sessions"]
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "adapter": "opencode",
+      "enabled": true,
+      "roots": ["~/.local/share/opencode"]
     }
   ]
 }
@@ -195,9 +202,9 @@ settings no longer display it.
 - `weekStartsOn`: `0` for Sunday or `1` for Monday.
 - `refreshSeconds`: integer 30 through 3600; the UI defaults to 60.
 - `sources[].id` must match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` and be unique.
-- `sources[].label` is non-empty; `adapter` is `pi`, `codex`, or the legacy
-  `claude`/`custom` values; `roots` is an array of non-empty paths; `enabled` is
-  boolean. New installs default to Pi and Codex only.
+- `sources[].label` is non-empty; `adapter` is `pi`, `codex`, `opencode`, or
+  the legacy `claude`/`custom` values; `roots` is an array of non-empty paths;
+  `enabled` is boolean. New installs default to Pi, Codex, and OpenCode.
 - `sources[].roots`: transcript directories. A leading `~` is expanded against
   the user's home directory. The collector reads these external directories; it
   does not copy raw transcripts into the store and never writes to them.
@@ -324,7 +331,8 @@ O(metadata) plus new bytes. Snapshot stats expose `files`, `filesRead`,
 `bytesRead`, `unchangedFiles`, and `errors`, so the UI can show what happened.
 
 Discovery reads `.jsonl` files, plus `.jsonl.zst` for Codex when Node supports
-zstd. Roots may be files or directories. Overlapping roots and duplicate inodes
+zstd, and the `opencode.db` SQLite store for OpenCode. Roots may be files or
+directories. Overlapping roots and duplicate inodes
 are scanned once. Invalid JSON lines, unreadable files, and oversized lines are
 reported as warnings and skipped rather than guessed.
 
@@ -354,6 +362,12 @@ Source-specific behavior:
   cumulative counters are converted to deltas, including across restarts.
   Forked sessions keep their own thread identity when reconciling usage.
   `task_complete` supplies exact task durations when present.
+- **OpenCode:** assistant `message` rows in `opencode.db` carry canonical
+  `tokens` (input, output, reasoning, cache read/write) with `modelID`,
+  `providerID`, and `path.cwd`. Each message counts once by id, errored
+  zero-token rows are skipped, and `time.created`/`time.completed` supply
+  exact task durations. The checkpoint fingerprints both the database and its
+  WAL, so unchanged scans read nothing.
 
 Task duration is grounded in task boundaries when the transcript provides them:
 Claude `turn_duration`, Codex `task_complete`, or a custom `taskDurationMs`.

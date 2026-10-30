@@ -277,6 +277,8 @@ test("leaderboard ranks, dedupes sessions and handles New and zero comparisons",
   assert.equal(models.entries[2].change.label, "0%");
   assert.equal(models.entries[0].share, 0.75);
   assert.equal(models.entries[0].sublabel, "p1");
+  assert.equal(models.entries[0].provider, "p1");
+  assert.equal(models.entries[1].provider, "p2");
 
   const providers = leaderboard(current, previous, { groupBy: "provider", includeCache: false, limit: 0 });
   assert.deepEqual(providers.entries.map((entry) => [entry.name, entry.tokens, entry.sublabel]), [
@@ -297,6 +299,30 @@ test("leaderboard ranks, dedupes sessions and handles New and zero comparisons",
   assert.equal(compareChange(0, 10, true).label, "-100.0%");
   assert.equal(compareChange(10, 10, true).label, "0%");
   assert.equal(compareChange(10, 10, false).label, "—");
+});
+
+test("dashboard scopes filters to model usage while the heatmap covers everything", () => {
+  const value = snapshot({
+    rows: [
+      row({ day: "2024-01-08", session: "s1", model: "model-a", provider: "p1", tokens: { input: 100, output: 0 } }),
+      row({ day: "2024-01-09", session: "s2", model: "model-b", provider: "p2", tokens: { input: 300, output: 0 } }),
+    ],
+  });
+  const derived = deriveDashboard(value, {
+    filters: { provider: "all", model: "model-a" },
+    period: "all",
+    year: 2024,
+    heatmapMode: "daily",
+    selectedDay: "2024-01-09",
+    today: "2024-01-10",
+  });
+  // Token usage is unfiltered: both days stay in the heatmap and metrics.
+  assert.equal(derived.lifetime.total, 400);
+  assert.equal(derived.heatmap.windowTotal, 400);
+  assert.equal(derived.selectedTotals.total, 300, "day detail follows the heatmap, not the filter");
+  // Model usage is filtered: only model-a leads.
+  assert.deepEqual(derived.leaders.entries.map((entry) => entry.name), ["model-a"]);
+  assert.deepEqual(derived.modelSeries.models, ["model-a"]);
 });
 
 test("model series stacks weekly tokens by top model with an Other bucket", () => {

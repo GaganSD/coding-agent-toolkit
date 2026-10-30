@@ -1,5 +1,5 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Button, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
 import { exec, appHome, home, theme, settings, nextCommand, readTextFile } from "herdr";
 import {
@@ -73,6 +73,33 @@ const CHART_HEIGHT = 168;
 function modelChartColor(name, index) {
   if (name === "Other") return OTHER_CHART_COLOR;
   return MODEL_CHART_COLORS[index % MODEL_CHART_COLORS.length];
+}
+
+/** Bundled monochrome brand marks, tinted with the surrounding text color. */
+const PROVIDER_LOGO_FILES = {
+  openai: "openai.svg",
+  anthropic: "anthropic.svg",
+  google: "googlegemini.svg",
+  gemini: "googlegemini.svg",
+  deepseek: "deepseek.svg",
+  xai: "x.svg",
+  meta: "meta.svg",
+  mistral: "mistralai.svg",
+  aws: "amazonaws.svg",
+  amazon: "amazonaws.svg",
+  bedrock: "amazonaws.svg",
+  opencode: "opencode.svg",
+  ollama: "ollama.svg",
+};
+
+export function providerLogo(provider) {
+  const key = String(provider ?? "").toLowerCase().trim();
+  if (!key || key === "unknown" || key === "unknown provider") return null;
+  if (PROVIDER_LOGO_FILES[key]) return PROVIDER_LOGO_FILES[key];
+  for (const [prefix, file] of Object.entries(PROVIDER_LOGO_FILES)) {
+    if (key.startsWith(prefix)) return file;
+  }
+  return null;
 }
 const MAX_FACET_OPTIONS = 250;
 const DEFAULT_NODE = "node";
@@ -363,7 +390,7 @@ export default class Insights extends View {
     this.error = null;
     this.width = 960;
     this.height = 800;
-    this.filters = { source: "all", provider: "all", model: "all", project: "all" };
+    this.filters = { provider: "all", model: "all" };
     this.period = "all";
     this.year = Number(todayKey().slice(0, 4));
     this.heatmapMode = "daily";
@@ -453,13 +480,8 @@ export default class Insights extends View {
             this.scheduleDashboard(commandCx, { force: true });
             commandCx.notify();
           }
-        } else if (name.startsWith("source.")) {
-          const value = name.slice("source.".length);
-          this.filters = { ...this.filters, source: value === "all" ? "all" : value };
-          this.scheduleDashboard(commandCx, { force: true });
-          commandCx.notify();
         } else if (name === "filters.clear") {
-          this.filters = { source: "all", provider: "all", model: "all", project: "all" };
+          this.filters = { provider: "all", model: "all" };
           this.scheduleDashboard(commandCx, { force: true });
           commandCx.notify();
         }
@@ -1279,16 +1301,16 @@ export default class Insights extends View {
         action: retry("insights-prepare-retry", false),
       });
     }
-    const { config, rowCount, range, lifetime, peak, streaks, heatmap, totals, leaders, selectedDay, selectedRowCount, selectedTotals, selectedTop, years } = derived;
+    const { config, rowCount, range, lifetime, peak, streaks, heatmap, leaders, selectedDay, selectedRowCount, selectedTotals, selectedTop, years } = derived;
 
     return v_flex().w_full().gap(G.lg)
       .child(this.metricStrip(c, lifetime, peak, streaks))
-      .child(this.filtersBar(c, config, range, derived.facets, years))
       .when(rowCount === 0, (el) => el.child(this.emptyNotice(c, config)))
       .child(this.sectionHeader("Token usage", c))
-      .child(this.heatmapCard(c, config, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop))
-      .child(this.breakdownCard(c, totals, range, config))
+      .child(this.heatmapCard(c, config, heatmap, selectedDay))
+      .child(this.tokenDetailCard(c, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop, lifetime))
       .child(this.sectionHeader("Model usage", c))
+      .child(this.filtersBar(c, config, range, derived.facets, years))
       .when(Boolean(derived.modelSeries?.weeks?.length), (el) => el.child(this.modelChartCard(c, derived.modelSeries)))
       .child(this.leaderboardCard(c, leaders, range));
   }
@@ -1317,12 +1339,10 @@ export default class Insights extends View {
         .child(iconButton("ins-year-newer", "›", "Newer year", (_event, clickCx) => { this.setYear(-1, clickCx); clickCx.notify(); }, c, {
           color: this.year >= years[0] ? c.dim : c.mutedForeground,
         }))))
-      .child(this.filterMenu("source", "Source", this.filters.source, facets.source, config, c, (value, pickCx) => { this.filters.source = value; this.scheduleDashboard(pickCx, { force: true }); }))
       .child(this.filterMenu("provider", "Provider", this.filters.provider, facets.provider, config, c, (value, pickCx) => { this.filters.provider = value; this.scheduleDashboard(pickCx, { force: true }); }))
       .child(this.filterMenu("model", "Model", this.filters.model, facets.model, config, c, (value, pickCx) => { this.filters.model = value; this.scheduleDashboard(pickCx, { force: true }); }))
-      .child(this.filterMenu("project", "Project", this.filters.project, facets.project, config, c, (value, pickCx) => { this.filters.project = value; this.scheduleDashboard(pickCx, { force: true }); }))
       .when(active, (el) => el.child(button("ins-clear-filters", "Clear filters", (_event, clickCx) => {
-        this.filters = { source: "all", provider: "all", model: "all", project: "all" };
+        this.filters = { provider: "all", model: "all" };
         this.scheduleDashboard(clickCx, { force: true });
         clickCx.notify();
       }, c, { variant: "ghost" })));
@@ -1455,7 +1475,7 @@ export default class Insights extends View {
     return band;
   }
 
-  heatmapCard(c, config, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop) {
+  heatmapCard(c, config, heatmap, selectedDay) {
     const dark = isDarkTheme(c);
     const palette = PALETTES.includes(config.palette) ? config.palette : "blue";
     const metrics = heatmapMetrics(this.width, heatmap.weeks.length);
@@ -1519,11 +1539,10 @@ export default class Insights extends View {
         }, c)))
       .child(v_flex().w_full().overflow_x_scrollbar()
         .child(h_flex().w_full().when(metrics.centered, (el) => el.justify_center()).child(grid)))
-      .child(legend)
-      .child(this.selectedDetail(c, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop));
+      .child(legend);
   }
 
-  selectedDetail(c, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop) {
+  tokenDetailCard(c, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop, lifetime) {
     const cell = heatmap.weeks.flatMap((week) => week.days).find((item) => item.date === selectedDay);
     const modeLabel = heatmap.mode === "weekly" ? "Week total" : heatmap.mode === "cumulative" ? "Cumulative through day" : "Daily tokens";
     const value = cell ? formatCompact(cell.value) : "0";
@@ -1531,7 +1550,7 @@ export default class Insights extends View {
     const dayExact = formatInt(selectedTotals.total);
     const cacheNote = heatmap.includeCache ? "included" : "excluded";
 
-    return v_flex().w_full().gap(G.md).pt(G.md).border_t(1).border_color(c.border)
+    return card(c).gap(G.md)
       .child(h_flex().w_full().flex_wrap().gap(G.sm).items_start().justify_between()
         .child(v_flex().gap(2)
           .child(div().text_size(12).font_semibold().text_color(c.text)
@@ -1568,7 +1587,24 @@ export default class Insights extends View {
         .when(Boolean(selectedTop), (el) => el.child(statCell("Top model", selectedTop.name, c, {
           note: selectedTop.sublabel,
           tooltip: `${selectedTop.name} · ${selectedTop.sublabel}`,
-        }))));
+        }))))
+      .child(div().h(1).w_full().bg(c.border))
+      .child(metaLabel("All time", c))
+      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
+        .child(statCell("Input", formatCompact(lifetime.input), c, { tooltip: `${formatInt(lifetime.input)} input tokens` }))
+        .child(statCell("Output", formatCompact(lifetime.output), c, {
+          note: "includes reasoning",
+          tooltip: `${formatInt(lifetime.output)} output tokens · reasoning ${formatInt(lifetime.reasoning)}`,
+        }))
+        .child(statCell("Cache read", formatCompact(lifetime.cacheRead), c, {
+          note: cacheNote,
+          tooltip: `${formatInt(lifetime.cacheRead)} cache-read tokens`,
+        }))
+        .child(statCell("Cache write", formatCompact(lifetime.cacheWrite), c, {
+          note: cacheNote,
+          tooltip: `${formatInt(lifetime.cacheWrite)} cache-write tokens`,
+        })))
+      .child(mutedText(`Reasoning ${formatInt(lifetime.reasoning)} is already inside output and is never added twice.`, c));
   }
 
   modelChartCard(c, series) {
@@ -1630,21 +1666,26 @@ export default class Insights extends View {
       return entry.change.label;
     };
 
-    const row = (entry, last) => h_flex().w_full().items_center().gap(G.sm).py(G.sm)
-      .when(!last, (el) => el.border_b(1).border_color(c.border))
-      .child(div().w(20).text_size(T.body).text_color(c.dim).child(`${entry.rank}.`))
-      .child(h_flex().size(26).flex_none().rounded(R.control).bg(c.secondary).border_1().border_color(c.border)
-        .items_center().justify_center()
-        .child(div().text_size(9).font_semibold().text_color(c.mutedForeground).child(initials(entry.name, 2))))
-      .child(v_flex().flex_1().min_w(0).gap(1)
-        .child(div().text_size(12).font_medium().text_color(c.text).truncate().tooltip(entry.name).child(entry.name))
-        .child(div().text_size(10).text_color(c.dim).truncate().child(`by ${entry.sublabel}`)))
-      .child(v_flex().items_end().gap(1)
-        .child(div().text_size(12).font_semibold().text_color(c.text).tooltip(`${formatInt(entry.tokens)} tokens`)
-          .child(`${formatCompact(entry.tokens)} tokens`))
-        .child(div().text_size(T.small).text_color(changeColor(entry.change, c))
-          .tooltip(entry.change.kind === "none" ? "No previous period" : `Previous ${formatInt(entry.previous ?? 0)} tokens`)
-          .child(changeLabel(entry))));
+    const row = (entry, last) => {
+      const logo = providerLogo(entry.provider);
+      return h_flex().w_full().items_center().gap(G.sm).py(G.sm)
+        .when(!last, (el) => el.border_b(1).border_color(c.border))
+        .child(div().w(20).text_size(T.body).text_color(c.dim).child(`${entry.rank}.`))
+        .child(h_flex().size(26).flex_none().rounded(R.control).bg(c.secondary).border_1().border_color(c.border)
+          .items_center().justify_center()
+          .child(logo
+            ? svg(`mods/insights/logos/${logo}`).size(14).text_color(c.mutedForeground)
+            : div().text_size(9).font_semibold().text_color(c.mutedForeground).child(initials(entry.name, 2))))
+        .child(v_flex().flex_1().min_w(0).gap(1)
+          .child(div().text_size(12).font_medium().text_color(c.text).truncate().tooltip(entry.name).child(entry.name))
+          .child(div().text_size(10).text_color(c.dim).truncate().child(`by ${entry.sublabel}`)))
+        .child(v_flex().items_end().gap(1)
+          .child(div().text_size(12).font_semibold().text_color(c.text).tooltip(`${formatInt(entry.tokens)} tokens`)
+            .child(`${formatCompact(entry.tokens)} tokens`))
+          .child(div().text_size(T.small).text_color(changeColor(entry.change, c))
+            .tooltip(entry.change.kind === "none" ? "No previous period" : `Previous ${formatInt(entry.previous ?? 0)} tokens`)
+            .child(changeLabel(entry))));
+    };
 
     const empty = v_flex().w_full().items_center().gap(G.sm).p(G.lg)
       .child(div().text_size(12).font_medium().text_color(c.text).child("No usage in this period"))
@@ -1668,31 +1709,6 @@ export default class Insights extends View {
         .children(entries.map((entry, index) => row(entry, index === entries.length - 1)))))
       .when(leaders.totalGroups > entries.length, (el) => el.child(mutedText(
         `Showing top ${entries.length} of ${leaders.totalGroups} by tokens.`, c)));
-  }
-
-  breakdownCard(c, totals, range, config) {
-    const cacheNote = config.includeCache ? "included in totals" : "excluded from totals";
-    return card(c).gap(G.md)
-      .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_between()
-        .child(cardHeader("Token breakdown", `${range.label} · ${cacheNote}`, c))
-        .child(div().text_size(20).font_semibold().text_color(c.text).tooltip(`${formatInt(totals.total)} tokens`)
-          .child(formatCompact(totals.total))))
-      // Keep the same baseline contract when notes are present in a card row.
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
-        .child(statCell("Input", formatCompact(totals.input), c, { tooltip: `${formatInt(totals.input)} input tokens` }))
-        .child(statCell("Output", formatCompact(totals.output), c, {
-          note: "includes reasoning",
-          tooltip: `${formatInt(totals.output)} output tokens · reasoning ${formatInt(totals.reasoning)}`,
-        }))
-        .child(statCell("Cache read", formatCompact(totals.cacheRead), c, {
-          note: cacheNote,
-          tooltip: `${formatInt(totals.cacheRead)} cache-read tokens`,
-        }))
-        .child(statCell("Cache write", formatCompact(totals.cacheWrite), c, {
-          note: cacheNote,
-          tooltip: `${formatInt(totals.cacheWrite)} cache-write tokens`,
-        })))
-      .child(mutedText(`Reasoning ${formatInt(totals.reasoning)} is already inside output and is never added twice.`, c));
   }
 
   statusCard(c, snapshot, config) {

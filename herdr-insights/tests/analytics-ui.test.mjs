@@ -82,8 +82,9 @@ const ui = await import(uiUrl);
 const uiNames = Object.keys(ui).join(", ");
 
 const transformedMain = mainSource
-  .replace(/^import \{ View, div \} from "gpui-kit";$/m, `const View = class View {};
-const div = () => globalThis.__insightsTestNative.create("div");`)
+  .replace(/^import \{ View, div, svg \} from "gpui-kit";$/m, `const View = class View {};
+const div = () => globalThis.__insightsTestNative.create("div");
+const svg = () => globalThis.__insightsTestNative.create("svg");`)
   .replace(
     /^import \{[^}]*\} from "gpui-base";$/m,
     `const InputState = globalThis.__insightsTestInputState;
@@ -110,7 +111,7 @@ const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(..
     /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
     `const { ${uiNames} } = await import("${uiUrl}");`,
   );
-const { default: Insights, heatmapMetrics } = await import(dataUrl(transformedMain));
+const { default: Insights, heatmapMetrics, providerLogo } = await import(dataUrl(transformedMain));
 
 function optionArgument(args) {
   const index = args.indexOf("--options");
@@ -228,7 +229,7 @@ function blankInstance() {
   instance.year = 2024;
   instance.selectedDay = "2024-01-10";
   instance.period = "all";
-  instance.filters = { source: "all", provider: "all", model: "all", project: "all" };
+  instance.filters = { provider: "all", model: "all" };
   instance.heatmapMode = "daily";
   instance.years = [2024];
   instance.dashboard = null;
@@ -498,6 +499,21 @@ test("dashboard is divided into token and model usage sections", () => {
   assert.match(mainSource, /"Tokens History"/);
   assert.match(mainSource, /"Model Usage"/);
   assert.doesNotMatch(mainSource, /Contribution history|Usage leaders/);
+  // Period and facet filters belong to the model usage section only.
+  assert.ok(mainSource.indexOf('sectionHeader("Model usage"') < mainSource.indexOf("this.filtersBar"));
+  assert.ok(mainSource.indexOf("this.filtersBar") > mainSource.indexOf("this.heatmapCard"));
+  assert.doesNotMatch(mainSource, /filterMenu\("source"|filterMenu\("project"|breakdownCard|selectedDetail/);
+});
+
+test("provider logos map known providers and fall back safely", () => {
+  assert.equal(providerLogo("openai"), "openai.svg");
+  assert.equal(providerLogo("amazon-bedrock"), "amazonaws.svg");
+  assert.equal(providerLogo("bedrock-mantle"), "amazonaws.svg");
+  assert.equal(providerLogo("opencode-go"), "opencode.svg");
+  assert.equal(providerLogo("xai"), "x.svg");
+  assert.equal(providerLogo("moonshot"), null);
+  assert.equal(providerLogo("unknown"), null);
+  assert.equal(providerLogo(null), null);
 });
 
 test("model usage leaderboard is models-only with ranked change rows", () => {
@@ -603,17 +619,16 @@ test("stat grids top-align rows when optional notes change sibling heights", () 
     sessions: 2, messages: 3, longestTaskMs: 4000,
   };
   const heatmap = buildHeatmap([], { endDay: "2024-01-20", weeks: 3, weekStartsOn: 0 });
-  const detail = instance.selectedDetail(c, heatmap, "2024-01-10", 1, totals, {
+  const detail = instance.tokenDetailCard(c, heatmap, "2024-01-10", 1, totals, {
     name: "model-a",
     sublabel: "provider-a",
-  });
-  const breakdown = instance.breakdownCard(c, totals, { label: "All time" }, { includeCache: true });
+  }, totals);
   const snapshot = savedSnapshot();
   const status = instance.statusCard(c, snapshot, snapshot.config);
   const statRows = [
     detail.childNodes[1],
     detail.childNodes[2],
-    breakdown.childNodes[1],
+    detail.childNodes[5],
     status.childNodes[1],
   ];
 

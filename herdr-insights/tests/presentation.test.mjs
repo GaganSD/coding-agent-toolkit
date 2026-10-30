@@ -125,8 +125,9 @@ test("prepare re-derives the compact dashboard for filter changes", async (t) =>
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.options.filters.model, "model-a");
   assert.equal(payload.dashboard.rowCount, 2);
-  assert.equal(payload.dashboard.lifetime.total, 125);
+  assert.equal(payload.dashboard.lifetime.total, 185, "lifetime covers every row, not the filter");
   assert.equal(payload.dashboard.leaders.entries[0].name, "model-a");
+  assert.equal(payload.dashboard.leaders.entries.length, 1, "model usage respects the filter");
 });
 
 test("presenter rejects missing arguments and invalid options without output", async () => {
