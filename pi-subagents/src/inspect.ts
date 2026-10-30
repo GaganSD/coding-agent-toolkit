@@ -1,5 +1,5 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, Editor, Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type MarkdownTheme, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { getMarkdownTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
+import { CURSOR_MARKER, Editor, Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
 import { formatContext, formatElapsed, plain, type NavigationHost } from "./ui.ts";
 import { HumanState, stateLabel } from "./presentation.ts";
@@ -40,7 +40,6 @@ export interface InspectActions {
   status(id: string): RunRecord;
   preview(id: string): string[];
   steer(id: string, message: string): Promise<string>;
-  followUp(id: string, message: string): Promise<string>;
   reply(id: string, requestId: string, message: string): Promise<void>;
   resume(id: string): Promise<void>;
   stop(id: string): Promise<void>;
@@ -152,22 +151,13 @@ export class InspectView implements Component, Focusable {
   private readonly actions: InspectActions;
   private readonly done: (value?: void) => void;
   private readonly state: HumanState;
-  private readonly markdownTheme: MarkdownTheme;
+  private readonly markdownTheme = getMarkdownTheme();
   private readonly markdownCache = new Map<string, string[]>();
   constructor(tui: TUI, theme: Theme, id: string,
     actions: InspectActions, done: (value?: void) => void, state = new HumanState(), notice?: string) {
     this.tui = tui; this.theme = theme; this.id = id;
     this.actions = actions; this.done = done; this.state = state;
     if (notice) this.note = notice;
-    // Host md* theme tokens and style methods; fakes degrade to unstyled text.
-    const styled = (name: "bold" | "italic" | "strikethrough" | "underline") => (text: string): string => typeof theme[name] === "function" ? theme[name](text) : text;
-    this.markdownTheme = {
-      heading: text => theme.fg("mdHeading", text), link: text => theme.fg("mdLink", text), linkUrl: text => theme.fg("mdLinkUrl", text),
-      code: text => theme.fg("mdCode", text), codeBlock: text => theme.fg("mdCodeBlock", text), codeBlockBorder: text => theme.fg("mdCodeBlockBorder", text),
-      quote: text => theme.fg("mdQuote", text), quoteBorder: text => theme.fg("mdQuoteBorder", text), hr: text => theme.fg("mdHr", text),
-      listBullet: text => theme.fg("mdListBullet", text),
-      bold: styled("bold"), italic: styled("italic"), strikethrough: styled("strikethrough"), underline: styled("underline"),
-    };
     const record = actions.status(id);
     this.state.open = id;
     this.draft = state.draft(record);

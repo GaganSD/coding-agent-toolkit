@@ -64,11 +64,9 @@ export function parseRequest(input: unknown): Request {
       keys(value, ["action", "id"], "resume");
       return { action: "resume", id: text(value.id, "id", 64) };
     case "steer":
-      keys(value, ["action", "id", "message"], "steer");
-      return { action: "steer", id: text(value.id, "id", 64), message: text(value.message, "message", 8192) };
     case "followUp":
-      keys(value, ["action", "id", "message"], "followUp");
-      return { action: "followUp", id: text(value.id, "id", 64), message: text(value.message, "message", 8192) };
+      keys(value, ["action", "id", "message"], value.action);
+      return { action: value.action, id: text(value.id, "id", 64), message: text(value.message, "message", 8192) };
     case "reply":
       keys(value, ["action", "id", "requestId", "message"], "reply");
       return { action: "reply", id: text(value.id, "id", 64), requestId: text(value.requestId, "requestId", 64), message: text(value.message, "message", 8192) };

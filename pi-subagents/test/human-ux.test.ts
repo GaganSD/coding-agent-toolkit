@@ -3,7 +3,8 @@ import test from "node:test";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { stripVTControlCharacters } from "node:util";
+import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { getKeybindings, setKeybindings, visibleWidth, TuiAltScreen, type TUI, type Terminal, type Focusable, type Component } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { InspectView, attach, type InspectActions } from "../src/inspect.ts";
@@ -13,6 +14,7 @@ import { readConversation } from "../src/conversation.ts";
 import type { RunRecord } from "../src/types.ts";
 import { until } from "./helpers.ts";
 
+initTheme("dark");
 const theme = { fg: (_color: string, text: string) => text } as Theme;
 function record(id = "opaque-run-uuid", state: RunRecord["state"] = "running"): RunRecord {
   return { id, owner: "parent-session-uuid", agent: "worker", mode: "inspect", cwd: "/workspace", workspace: "/workspace", model: "fixture/worker",
@@ -38,7 +40,6 @@ function harness(initial = record()) {
     async reply(id, requestId, text) { replies.push({ id, requestId, text }); },
     async resume(id) { resumes.push(id); },
     async steer(_id, text) { steers.push(text); return "queued"; },
-    async followUp(_id, text) { steers.push(text); return "queued"; },
     async stop() { stops++; },
   };
   return { actions, replies, steers, resumes, get stops() { return stops; }, get listeners() { return listeners.size; },
@@ -307,13 +308,17 @@ test("conversation renders native markdown instead of raw markers; tool output s
   const dir = await mkdtemp(path.join(tmpdir(), "subagent-markdown-")); t.after(() => rm(dir, { recursive: true, force: true }));
   const file = path.join(dir, "thread.jsonl");
   const entry = (role: string, text: string) => JSON.stringify({ type: "message", message: { role, content: [{ type: "text", text }] } });
-  await writeFile(file, entry("assistant", "# Plan\n\n**bold** step\n\n- one\n- two") + "\n");
-  const run = { ...record(), sessionPath: file }, h = harness(run);
-  const view = new InspectView(terminal(), theme, run.id, h.actions, () => {}, new HumanState()); t.after(() => view.dispose());
-  await until(() => view.render(80).join("\n").includes("bold step"));
-  const painted = view.render(80).join("\n");
+  await writeFile(file, entry("assistant", "# Plan\n\n**bold** step\n\n- one\n- two") + "\n"
+    + entry("toolResult", Array.from({ length: 8 }, (_, i) => `tool line ${i}`).join("\n")) + "\n");
+  const run = { ...record(), sessionPath: file }, h = harness(run), tui = terminal(); tui.resize(40);
+  const view = new InspectView(tui, theme, run.id, h.actions, () => {}, new HumanState()); t.after(() => view.dispose());
+  await until(() => stripVTControlCharacters(view.render(80).join("\n")).includes("bold step"));
+  const painted = stripVTControlCharacters(view.render(80).join("\n"));
   assert(!painted.includes("**bold**") && !painted.includes("# Plan"), "markdown markers are rendered, not shown raw");
   assert(painted.includes("Plan") && painted.includes("one"));
+  assert(painted.includes("tool line 0") && !painted.includes("tool line 7"));
+  action(view, 2);
+  assert(view.render(80).join("\n").includes("tool line 7"), "Tools expands the clamped output");
   view.dispose();
 });
 
@@ -321,15 +326,15 @@ test("invalidate re-renders cached markdown with the new theme", async t => {
   const dir = await mkdtemp(path.join(tmpdir(), "subagent-theme-")); t.after(() => rm(dir, { recursive: true, force: true }));
   const file = path.join(dir, "thread.jsonl");
   await writeFile(file, JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "# Plan\n\nbody" }] } }) + "\n");
-  let generation = 0;
-  const themed = { fg: (_color: string, text: string) => generation === 0 ? text : `NEW:${text}` } as Theme;
   const run = { ...record(), sessionPath: file }, h = harness(run);
-  const view = new InspectView(terminal(), themed, run.id, h.actions, () => {}, new HumanState()); t.after(() => view.dispose());
+  const view = new InspectView(terminal(), theme, run.id, h.actions, () => {}, new HumanState()); t.after(() => view.dispose());
   await until(() => view.render(80).join("\n").includes("Plan"));
-  generation = 1;
+  const before = view.render(80).join("\n");
+  initTheme("light"); t.after(() => initTheme("dark"));
   view.invalidate();
   const painted = view.render(80).join("\n");
-  assert(painted.includes("NEW:Plan"), "cached markdown lines do not survive theme invalidation");
+  assert.notEqual(painted, before, "cached markdown colors do not survive theme invalidation");
+  assert.equal(stripVTControlCharacters(painted), stripVTControlCharacters(before));
   view.dispose();
 });
 

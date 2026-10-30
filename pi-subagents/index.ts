@@ -155,7 +155,6 @@ export default function subagents(pi: ExtensionAPI): void {
       status: id => manager.status(id),
       preview: id => manager.preview(id),
       steer: (id, message) => manager.steer(id, message),
-      followUp: (id, message) => manager.followUp(id, message),
       reply: (id, requestId, message) => manager.reply(id, requestId, message),
       resume: id => manager.resume(id),
       stop: id => manager.stop(id),
