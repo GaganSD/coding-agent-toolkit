@@ -81,10 +81,18 @@ export function deleteFileEntry(store, key) {
 
 export function removeOwnedMetadata(store, fileId) {
   for (const [key, value] of Object.entries(store.dedup)) {
-    if (Array.isArray(value) && value[0] === fileId) delete store.dedup[key];
+    if (!Array.isArray(value)) continue;
+    dropCopyCandidate(value, DEDUP_AUX_INDEX, fileId);
+    if (value[0] !== fileId) continue;
+    if (transferDedupOwnership(store, value)) continue;
+    delete store.dedup[key];
   }
   for (const [key, value] of Object.entries(store.tasks)) {
-    if (Array.isArray(value) && value[0] === fileId) delete store.tasks[key];
+    if (!Array.isArray(value)) continue;
+    dropCopyCandidate(value, TASK_AUX_INDEX, fileId);
+    if (value[0] !== fileId) continue;
+    if (transferTaskOwnership(store, value)) continue;
+    delete store.tasks[key];
   }
 }
 
@@ -147,6 +155,92 @@ function addRowTokens(row, tokens) {
 }
 
 const TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "reasoning"];
+const DEDUP_AUX_INDEX = 7;
+const TASK_AUX_INDEX = 5;
+
+function rowMeta(row) {
+  return {
+    day: row.day,
+    session: row.session,
+    harness: row.harness,
+    provider: row.provider,
+    model: row.model,
+    project: row.project,
+  };
+}
+
+function validAuxMeta(meta) {
+  return (
+    isPlainObject(meta) &&
+    ["day", "session", "harness", "provider", "model", "project"].every(
+      (field) => typeof meta[field] === "string",
+    )
+  );
+}
+
+function auxFor(entry, index, row) {
+  let aux = entry[index];
+  if (!isPlainObject(aux)) aux = {};
+  if (!Array.isArray(aux.copies)) aux.copies = [];
+  if (!validAuxMeta(aux.meta)) aux.meta = rowMeta(row);
+  entry[index] = aux;
+  return aux;
+}
+
+function recordCopyCandidate(entry, index, row, fileId) {
+  const aux = auxFor(entry, index, row);
+  if (!aux.copies.includes(fileId)) aux.copies.push(fileId);
+}
+
+function dropCopyCandidate(entry, index, fileId) {
+  const aux = entry[index];
+  if (!isPlainObject(aux) || !Array.isArray(aux.copies)) return;
+  aux.copies = aux.copies.filter((id) => id !== fileId);
+}
+
+function takeCandidate(store, aux) {
+  while (aux.copies.length > 0) {
+    const candidateId = aux.copies.shift();
+    const candidate = findFileById(store, candidateId);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function transferDedupOwnership(store, entry) {
+  const aux = entry[DEDUP_AUX_INDEX];
+  if (!isPlainObject(aux) || !Array.isArray(aux.copies) || !validAuxMeta(aux.meta)) {
+    return false;
+  }
+  const candidate = takeCandidate(store, aux);
+  if (!candidate) return false;
+  const rowIdx = getOrCreateRow(candidate, aux.meta);
+  const row = candidate.rows[rowIdx];
+  addRowTokens(row, {
+    input: entry[2],
+    output: entry[3],
+    cacheRead: entry[4],
+    cacheWrite: entry[5],
+    reasoning: entry[6],
+  });
+  row.messages = toNonNegInt(row.messages + 1);
+  entry[0] = candidate.id;
+  entry[1] = rowIdx;
+  return true;
+}
+
+function transferTaskOwnership(store, entry) {
+  const aux = entry[TASK_AUX_INDEX];
+  if (!isPlainObject(aux) || !Array.isArray(aux.copies) || !validAuxMeta(aux.meta)) {
+    return false;
+  }
+  const candidate = takeCandidate(store, aux);
+  if (!candidate) return false;
+  const rowIdx = getOrCreateRow(candidate, aux.meta);
+  entry[0] = candidate.id;
+  entry[1] = rowIdx;
+  return true;
+}
 
 // Usage dedup is a max-upsert: Claude streams the same message.id repeatedly
 // and revises its numbers upward. One message, maximum numeric value per field.
@@ -157,14 +251,25 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
     const row = owner?.rows?.[entry[1]];
     if (owner && row) {
       let changed = false;
+      const added = {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+      };
       for (let index = 0; index < TOKEN_FIELDS.length; index += 1) {
         const field = TOKEN_FIELDS[index];
         const previous = toNonNegInt(entry[index + 2]);
         if (tokens[field] > previous) {
-          row[field] = toNonNegInt(row[field] + (tokens[field] - previous));
+          added[field] = tokens[field] - previous;
+          row[field] = toNonNegInt(row[field] + added[field]);
           entry[index + 2] = tokens[field];
           changed = true;
         }
+      }
+      if (owner.id !== file.id) {
+        recordCopyCandidate(entry, DEDUP_AUX_INDEX, row, file.id);
       }
       return {
         fileId: owner.id,
@@ -172,6 +277,7 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
         row,
         isNew: false,
         changed,
+        added,
       };
     }
     delete store.dedup[dedupKey];
@@ -190,7 +296,20 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
     tokens.cacheWrite,
     tokens.reasoning,
   ];
-  return { fileId: file.id, rowIdx, row, isNew: true, changed: true };
+  return {
+    fileId: file.id,
+    rowIdx,
+    row,
+    isNew: true,
+    changed: true,
+    added: {
+      input: tokens.input,
+      output: tokens.output,
+      cacheRead: tokens.cacheRead,
+      cacheWrite: tokens.cacheWrite,
+      reasoning: tokens.reasoning,
+    },
+  };
 }
 
 export function addTask(
@@ -201,6 +320,7 @@ export function addTask(
   durationMs,
   session,
   exact,
+  candidateFileId = fileId,
 ) {
   const ms = toNonNegInt(durationMs);
   const owner = findFileById(store, fileId);
@@ -208,6 +328,13 @@ export function addTask(
   if (!owner || !row) return false;
   const existing = store.tasks[taskKey];
   if (Array.isArray(existing)) {
+    if (existing[0] !== candidateFileId) {
+      const existingOwner = findFileById(store, existing[0]);
+      const existingRow = existingOwner?.rows?.[existing[1]];
+      if (existingOwner && existingRow) {
+        recordCopyCandidate(existing, TASK_AUX_INDEX, existingRow, candidateFileId);
+      }
+    }
     if (existing[0] === fileId && exact && existing[3] === 0) {
       existing[2] = ms;
       existing[3] = 1;
@@ -423,20 +550,36 @@ function validateLoadedStore(store) {
     throw new Error("store nextFileId is behind existing files");
   }
   for (const [key, value] of Object.entries(store.dedup)) {
+    const validAux =
+      Array.isArray(value) &&
+      (value.length === 7 ||
+        (value.length === 8 &&
+          isPlainObject(value[7]) &&
+          Array.isArray(value[7].copies) &&
+          value[7].copies.every((id) => Number.isInteger(id)) &&
+          validAuxMeta(value[7].meta)));
     if (
       !Array.isArray(value) ||
-      value.length !== 7 ||
+      !validAux ||
       !Number.isInteger(value[0]) ||
       !Number.isInteger(value[1]) ||
-      !value.slice(2).every((number) => Number.isFinite(number) && number >= 0)
+      !value.slice(2, 7).every((number) => Number.isFinite(number) && number >= 0)
     ) {
       throw new Error(`dedup entry ${key} is malformed`);
     }
   }
   for (const [key, value] of Object.entries(store.tasks)) {
+    const validAux =
+      Array.isArray(value) &&
+      (value.length === 5 ||
+        (value.length === 6 &&
+          isPlainObject(value[5]) &&
+          Array.isArray(value[5].copies) &&
+          value[5].copies.every((id) => Number.isInteger(id)) &&
+          validAuxMeta(value[5].meta)));
     if (
       !Array.isArray(value) ||
-      value.length !== 5 ||
+      !validAux ||
       !Number.isInteger(value[0]) ||
       !Number.isInteger(value[1]) ||
       !Number.isFinite(value[2]) ||

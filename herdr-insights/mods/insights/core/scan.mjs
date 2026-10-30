@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { createZstdDecompress } from "node:zlib";
+import * as zlib from "node:zlib";
 import { parseAdapterRecord } from "./adapters.mjs";
 import {
   MAX_LINE_BYTES,
@@ -292,17 +292,8 @@ async function streamRange(filePath, start, end, onChunk) {
   return bytes;
 }
 
-async function readRangeBuffers(filePath, start, end) {
-  const chunks = [];
-  const bytes = await streamRange(filePath, start, end, async (chunk) => {
-    chunks.push(Buffer.from(chunk));
-  });
-  return { chunks, bytes };
-}
-
-function hasTokenUsageMarker(chunks) {
-  const marker = Buffer.from("token_usage_record");
-  return chunks.some((chunk) => chunk.includes(marker));
+function hasZstdSupport() {
+  return typeof zlib.createZstdDecompress === "function";
 }
 
 function lineContext(store, entry, source, sink) {
@@ -318,7 +309,16 @@ function lineContext(store, entry, source, sink) {
       return addUsage(store, entry, meta, tokens, key);
     },
     addTask(fileId, rowIdx, key, durationMs, session, exact) {
-      return addTask(store, fileId, rowIdx, key, durationMs, session, exact);
+      return addTask(
+        store,
+        fileId,
+        rowIdx,
+        key,
+        durationMs,
+        session,
+        exact,
+        entry.id,
+      );
     },
     removeLatestFallback(session) {
       return removeLatestFallbackTaskForSession(store, session);
@@ -392,39 +392,9 @@ async function scanPlainFile(
 ) {
   const adapter = source.adapter;
   let dirty = false;
-  let detectionChunks = null;
-  let start = entry.offset;
-  let readingWhole = false;
+  const start = entry.offset;
 
-  if (adapter === "codex" && entry.state.modern === undefined) {
-    const full = await readRangeBuffers(filePath, 0, fileStat.size);
-    stats.bytesRead += full.bytes;
-    if (full.bytes > 0) stats.filesRead += 1;
-    detectionChunks = full.chunks;
-    entry.state.modern = hasTokenUsageMarker(full.chunks);
-    start = 0;
-    readingWhole = true;
-    dirty = true;
-  } else if (adapter === "codex" && entry.state.modern !== true && start > 0) {
-    const appended = await readRangeBuffers(filePath, start, fileStat.size);
-    stats.bytesRead += appended.bytes;
-    if (appended.bytes > 0) stats.filesRead += 1;
-    if (hasTokenUsageMarker(appended.chunks)) {
-      resetFileEntry(store, entry);
-      const full = await readRangeBuffers(filePath, 0, fileStat.size);
-      stats.bytesRead += full.bytes;
-      detectionChunks = full.chunks;
-      entry.state.modern = true;
-      start = 0;
-      readingWhole = true;
-      dirty = true;
-    } else {
-      detectionChunks = appended.chunks;
-      readingWhole = false;
-    }
-  }
-
-  if (!readingWhole && !detectionChunks && fileStat.size > start) {
+  if (fileStat.size > start) {
     const context = lineContext(store, entry, source, sink);
     const consumer = createLineConsumer((record, info) => {
       if (info.parseError) {
@@ -467,25 +437,6 @@ async function scanPlainFile(
     return dirty;
   }
 
-  if (detectionChunks) {
-    if (readingWhole) {
-      entry.state.modern = hasTokenUsageMarker(detectionChunks);
-    }
-    const result = await processStringChunks(
-      store,
-      entry,
-      source,
-      detectionChunks,
-      start,
-      fileStat.size,
-      sink,
-    );
-    entry.offset = result.offset;
-    entry.lineNo = result.lineNo;
-    dirty = true;
-    return dirty;
-  }
-
   // Size grew but the read returned no bytes; keep the cursor stable.
   if (fileStat.size > start) {
     stats.filesRead += 1;
@@ -502,19 +453,19 @@ async function scanCompressedFile(
   sink,
   stats,
 ) {
-  if (typeof createZstdDecompress !== "function") {
+  if (!hasZstdSupport()) {
     entry.size = fileStat.size;
     entry.mtimeMs = fileStat.mtimeMs;
     entry.offset = fileStat.size;
     entry.state.unsupported = "zstd";
     sink.warn(
-      `${source.adapter} ${entry.path}: .jsonl.zst needs zstd support in Node; skipped.`,
+      `${source.adapter} ${entry.path}: .jsonl.zst needs Node's zstd API (Node 22.15+); skipped.`,
     );
     return { ok: true, dirty: true };
   }
   const chunks = [];
   try {
-    const stream = createReadStream(filePath).pipe(createZstdDecompress());
+    const stream = createReadStream(filePath).pipe(zlib.createZstdDecompress());
     for await (const chunk of stream) chunks.push(Buffer.from(chunk));
   } catch (error) {
     sink.warn(
@@ -525,7 +476,6 @@ async function scanCompressedFile(
   stats.bytesRead += fileStat.size;
   if (fileStat.size > 0) stats.filesRead += 1;
   resetFileEntry(store, entry);
-  entry.state.modern = hasTokenUsageMarker(chunks);
   const result = await processStringChunks(
     store,
     entry,
@@ -579,6 +529,28 @@ async function scanOneFile(store, source, filePath, sink, stats) {
 
   const dev = String(fileStat.dev);
   const ino = String(fileStat.ino);
+  let forceRead = false;
+  if (
+    entry.adapter === "codex" &&
+    entry.state.modern === true &&
+    entry.state.codexParserVersion !== 2
+  ) {
+    // Older collectors detected modern Codex files at the file level and
+    // skipped the legacy prefix before the first token_usage_record. Rescan
+    // those Codex files once with the record-level parser.
+    resetFileEntry(store, entry);
+    forceRead = true;
+    dirty = true;
+  }
+  if (
+    entry.state.unsupported === "zstd" &&
+    hasZstdSupport() &&
+    filePath.endsWith(".jsonl.zst")
+  ) {
+    resetFileEntry(store, entry);
+    forceRead = true;
+    dirty = true;
+  }
   if (
     entry.dev !== dev ||
     entry.ino !== ino ||
@@ -587,10 +559,12 @@ async function scanOneFile(store, source, filePath, sink, stats) {
     resetFileEntry(store, entry);
     entry.dev = dev;
     entry.ino = ino;
+    forceRead = true;
     dirty = true;
   }
 
   if (
+    !forceRead &&
     entry.size === fileStat.size &&
     entry.mtimeMs === fileStat.mtimeMs
   ) {
@@ -626,6 +600,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   entry.size = fileStat.size;
   entry.mtimeMs = fileStat.mtimeMs;
   entry.path = filePath;
+  if (entry.adapter === "codex") entry.state.codexParserVersion = 2;
   return dirty;
 }
 

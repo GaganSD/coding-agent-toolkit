@@ -295,6 +295,83 @@ test("Codex legacy adapter: cumulative totals become deltas, repeats and resets 
   assert.equal(snapshot.stats.errors, 0);
 });
 
+test("Codex mixed adapter: legacy prefix, twin, model changes, suffix, and reset count once", async () => {
+  const context = await env();
+  await placeFixture(
+    context,
+    ".codex/sessions/mixed/rollout-mixed.jsonl",
+    "codex-mixed.jsonl",
+  );
+  const snapshot = await configure(context, [
+    {
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions"],
+    },
+  ]);
+  assert.equal(snapshot.rows.length, 5);
+  const rows = rowsByModel(snapshot);
+
+  const legacy = rows.get("legacy-model");
+  assert.deepEqual(legacy.tokens, {
+    input: 130,
+    output: 15,
+    cacheRead: 20,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 165,
+  });
+  assert.equal(legacy.messages, 2);
+
+  const modern = rows.get("modern-model");
+  assert.deepEqual(modern.tokens, {
+    input: 80,
+    output: 20,
+    cacheRead: 20,
+    cacheWrite: 0,
+    reasoning: 5,
+    total: 120,
+  });
+  assert.equal(modern.messages, 1);
+  assert.equal(modern.activeMs, 3000);
+
+  const modern2 = rows.get("modern-2-model");
+  assert.deepEqual(modern2.tokens, {
+    input: 35,
+    output: 10,
+    cacheRead: 10,
+    cacheWrite: 5,
+    reasoning: 2,
+    total: 60,
+  });
+  assert.equal(modern2.messages, 1);
+
+  const suffix = rows.get("suffix-model");
+  assert.deepEqual(suffix.tokens, {
+    input: 30,
+    output: 6,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 36,
+  });
+  assert.equal(suffix.messages, 1);
+
+  const reset = rows.get("reset-model");
+  assert.deepEqual(reset.tokens, {
+    input: 20,
+    output: 2,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 22,
+  });
+  assert.equal(reset.messages, 1);
+  assert.equal(snapshot.stats.errors, 0);
+});
+
 test("Custom declarative mapping: role filter, max revisions, harness/provider/model, duration", async () => {
   const context = await env();
   await placeFixture(context, "logs/custom.jsonl", "custom.jsonl");

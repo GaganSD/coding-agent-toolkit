@@ -413,10 +413,74 @@ function codexNormalized(raw) {
   });
 }
 
-function codexDelta(cur, prev) {
-  if (!Number.isFinite(prev)) return toNonNegInt(cur);
-  if (cur < prev) return toNonNegInt(cur); // counters restarted
-  return toNonNegInt(cur - prev);
+const CODEX_TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "reasoning"];
+const CODEX_TWIN_WINDOW_MS = 5 * 60 * 1000;
+
+function codexZeroTokens() {
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
+}
+
+function codexTokenVector(tokens) {
+  return CODEX_TOKEN_FIELDS.map((field) => toNonNegInt(tokens[field]));
+}
+
+function codexSameTokens(left, right) {
+  return (
+    Array.isArray(left) &&
+    Array.isArray(right) &&
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+function codexCloseInTime(left, right) {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return true;
+  return Math.abs(left - right) <= CODEX_TWIN_WINDOW_MS;
+}
+
+function codexPendingTokens(state) {
+  if (!isPlainObject(state.modernPending)) state.modernPending = codexZeroTokens();
+  for (const field of CODEX_TOKEN_FIELDS) {
+    state.modernPending[field] = toNonNegInt(state.modernPending[field]);
+  }
+  return state.modernPending;
+}
+
+function codexSubtract(tokens, represented) {
+  const out = { ...tokens };
+  for (const field of CODEX_TOKEN_FIELDS) {
+    out[field] = Math.max(0, tokens[field] - toNonNegInt(represented[field]));
+  }
+  out.nonzero = CODEX_TOKEN_FIELDS.some((field) => out[field] > 0);
+  return out;
+}
+
+function codexRememberModern(state, key, tokens, timestamp) {
+  if (!Array.isArray(state.modernRecent)) state.modernRecent = [];
+  state.modernRecent.push({
+    key,
+    tokens: codexTokenVector(tokens),
+    timestamp,
+  });
+  if (state.modernRecent.length > 8) state.modernRecent.shift();
+}
+
+function codexTakeModernTwin(state, tokens, timestamp) {
+  if (!Array.isArray(state.modernRecent)) return null;
+  const vector = codexTokenVector(tokens);
+  for (let index = state.modernRecent.length - 1; index >= 0; index -= 1) {
+    const candidate = state.modernRecent[index];
+    if (
+      isPlainObject(candidate) &&
+      typeof candidate.key === "string" &&
+      codexSameTokens(candidate.tokens, vector) &&
+      codexCloseInTime(candidate.timestamp, timestamp)
+    ) {
+      state.modernRecent.splice(index, 1);
+      return candidate.key;
+    }
+  }
+  return null;
 }
 
 function parseCodex(record, ctx) {
@@ -481,6 +545,30 @@ function parseCodex(record, ctx) {
           tokens.cacheWrite,
           tokens.reasoning,
         ];
+    let dedupKey = makeDedupKey("codex", ...identity);
+    let mergedTwin = false;
+    if (
+      responseId &&
+      isPlainObject(state.responseKeys) &&
+      typeof state.responseKeys[responseId] === "string"
+    ) {
+      dedupKey = state.responseKeys[responseId];
+      mergedTwin = true;
+    } else if (
+      isPlainObject(state.pendingTwin) &&
+      typeof state.pendingTwin.key === "string" &&
+      codexSameTokens(state.pendingTwin.tokens, codexTokenVector(tokens)) &&
+      codexCloseInTime(state.pendingTwin.timestamp, timestamp)
+    ) {
+      // A token_count twin can precede its token_usage_record. Reuse the
+      // token_count contribution instead of counting the turn twice.
+      dedupKey = state.pendingTwin.key;
+      mergedTwin = true;
+      if (responseId) {
+        if (!isPlainObject(state.responseKeys)) state.responseKeys = {};
+        state.responseKeys[responseId] = dedupKey;
+      }
+    }
     const result = ctx.addUsage(
       metaFor(
         "codex",
@@ -491,8 +579,14 @@ function parseCodex(record, ctx) {
         context.model,
       ),
       tokens,
-      makeDedupKey("codex", ...identity),
+      dedupKey,
     );
+    const pending = codexPendingTokens(state);
+    for (const field of CODEX_TOKEN_FIELDS) {
+      pending[field] = toNonNegInt(pending[field] + result.added[field]);
+    }
+    state.pendingTwin = null;
+    codexRememberModern(state, dedupKey, tokens, timestamp);
     if (turnId) {
       if (!isPlainObject(state.turns)) state.turns = {};
       const entry = state.turns[turnId] ?? context;
@@ -500,15 +594,16 @@ function parseCodex(record, ctx) {
       state.turns[turnId] = entry;
     }
     state.lastRow = { fileId: result.fileId, rowIdx: result.rowIdx };
+    if (mergedTwin) state.modern = true;
     return;
   }
 
   if (
     record.type === "event_msg" &&
-    payload.type === "token_count" &&
-    state.modern !== true
+    payload.type === "token_count"
   ) {
     if (timestamp === null) return;
+    state.pendingTwin = null;
     const info = isPlainObject(payload.info) ? payload.info : {};
     const totals = isPlainObject(info.total_token_usage)
       ? info.total_token_usage
@@ -517,6 +612,7 @@ function parseCodex(record, ctx) {
     const context = codexContext(state, asString(payload.turn_id, ""));
     let raw;
     let identityTail;
+    let reset = false;
 
     if (totals) {
       const current = {
@@ -526,10 +622,18 @@ function parseCodex(record, ctx) {
         output_tokens: toNonNegInt(totals.output_tokens),
         reasoning_output_tokens: toNonNegInt(totals.reasoning_output_tokens),
       };
-      const previous = state.legacyTotals;
+      const previous = isPlainObject(state.legacyTotals)
+        ? state.legacyTotals
+        : null;
       raw = {};
       for (const key of Object.keys(current)) {
-        raw[key] = codexDelta(current[key], previous?.[key]);
+        const prior = toNonNegInt(previous?.[key]);
+        if (previous && current[key] < prior) reset = true;
+        raw[key] = previous
+          ? current[key] < prior
+            ? current[key]
+            : current[key] - prior
+          : current[key];
       }
       state.legacyTotals = current;
       identityTail = [
@@ -556,8 +660,23 @@ function parseCodex(record, ctx) {
       return;
     }
 
-    const tokens = codexNormalized(raw);
+    let tokens = codexNormalized(raw);
+    if (totals) {
+      const pending = codexPendingTokens(state);
+      if (!reset) tokens = codexSubtract(tokens, pending);
+      state.modernPending = codexZeroTokens();
+    }
     if (!tokens.nonzero) return;
+
+    let dedupKey = makeDedupKey("codex", session, ...identityTail);
+    let usedModernTwin = false;
+    if (!reset) {
+      const modernKey = codexTakeModernTwin(state, tokens, timestamp);
+      if (modernKey) {
+        dedupKey = modernKey;
+        usedModernTwin = true;
+      }
+    }
     const result = ctx.addUsage(
       metaFor(
         "codex",
@@ -568,9 +687,20 @@ function parseCodex(record, ctx) {
         context.model,
       ),
       tokens,
-      makeDedupKey("codex", session, ...identityTail),
+      dedupKey,
     );
     state.lastRow = { fileId: result.fileId, rowIdx: result.rowIdx };
+    if (!usedModernTwin) {
+      // Keep this contribution available if the matching token_usage_record
+      // appears immediately after the token_count record.
+      state.pendingTwin = {
+        key: dedupKey,
+        tokens: codexTokenVector(tokens),
+        timestamp,
+      };
+    } else {
+      state.pendingTwin = null;
+    }
     if (payload.turn_id) {
       if (!isPlainObject(state.turns)) state.turns = {};
       const entry = state.turns[payload.turn_id] ?? context;

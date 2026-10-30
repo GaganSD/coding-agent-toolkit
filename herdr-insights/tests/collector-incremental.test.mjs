@@ -375,6 +375,224 @@ test("Codex legacy cumulative state survives restarts and appends use only the d
   assert.equal(row.longestTaskMs, 2000);
 });
 
+test("Codex mixed upgrade keeps the legacy prefix and appends without double counting", async () => {
+  const context = await env();
+  const file = path.join(
+    context.home,
+    ".codex",
+    "sessions",
+    "mixed",
+    "session.jsonl",
+  );
+  await mkdir(path.dirname(file), { recursive: true });
+  const line = (value) => `${JSON.stringify(value)}\n`;
+  const prefix = [
+    {
+      type: "session_meta",
+      timestamp: "2026-03-05T05:00:00Z",
+      payload: { id: "codex-mixed-incremental", cwd: "/repo/mixed", model_provider: "openai" },
+    },
+    {
+      type: "turn_context",
+      timestamp: "2026-03-05T05:00:01Z",
+      payload: { turn_id: "legacy-1", model: "legacy-model", cwd: "/repo/mixed" },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-03-05T05:00:02Z",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: 100,
+            cached_input_tokens: 0,
+            cache_write_input_tokens: 0,
+            output_tokens: 10,
+            reasoning_output_tokens: 0,
+          },
+        },
+      },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-03-05T05:00:03Z",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: 150,
+            cached_input_tokens: 20,
+            cache_write_input_tokens: 0,
+            output_tokens: 15,
+            reasoning_output_tokens: 0,
+          },
+        },
+      },
+    },
+  ].map(line).join("");
+  await writeFile(file, prefix);
+
+  const codexSource = [
+    {
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions"],
+    },
+  ];
+  const first = await configure(context, codexSource);
+  assert.deepEqual(first.rows[0].tokens, {
+    input: 130,
+    output: 15,
+    cacheRead: 20,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 165,
+  });
+
+  const appended = [
+    {
+      type: "turn_context",
+      timestamp: "2026-03-05T05:00:04Z",
+      payload: { turn_id: "modern-1", model: "modern-model", cwd: "/repo/mixed" },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-03-05T05:00:05Z",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: {
+            input_tokens: 100,
+            cached_input_tokens: 20,
+            cache_write_input_tokens: 0,
+            output_tokens: 20,
+            reasoning_output_tokens: 5,
+          },
+          total_token_usage: {
+            input_tokens: 250,
+            cached_input_tokens: 40,
+            cache_write_input_tokens: 0,
+            output_tokens: 35,
+            reasoning_output_tokens: 5,
+          },
+        },
+      },
+    },
+    {
+      type: "token_usage_record",
+      timestamp: "2026-03-05T05:00:06Z",
+      payload: {
+        response_id: "mixed-resp-1",
+        turn_id: "modern-1",
+        usage: {
+          input_tokens: 100,
+          cached_input_tokens: 20,
+          cache_write_input_tokens: 0,
+          output_tokens: 20,
+          reasoning_output_tokens: 5,
+        },
+      },
+    },
+    {
+      type: "turn_context",
+      timestamp: "2026-03-05T05:00:07Z",
+      payload: { turn_id: "suffix-1", model: "suffix-model", cwd: "/repo/mixed" },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-03-05T05:00:08Z",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: 280,
+            cached_input_tokens: 40,
+            cache_write_input_tokens: 0,
+            output_tokens: 41,
+            reasoning_output_tokens: 5,
+          },
+        },
+      },
+    },
+  ].map(line).join("");
+  await appendFile(file, appended);
+  const second = await snapshot(context);
+  assert.equal(second.stats.bytesRead, Buffer.byteLength(appended));
+  assert.equal(second.rows.length, 3);
+  const byModel = new Map(second.rows.map((row) => [row.model, row]));
+  assert.deepEqual(byModel.get("legacy-model").tokens, {
+    input: 130,
+    output: 15,
+    cacheRead: 20,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 165,
+  });
+  assert.deepEqual(byModel.get("modern-model").tokens, {
+    input: 80,
+    output: 20,
+    cacheRead: 20,
+    cacheWrite: 0,
+    reasoning: 5,
+    total: 120,
+  });
+  assert.equal(byModel.get("modern-model").messages, 1);
+  assert.deepEqual(byModel.get("suffix-model").tokens, {
+    input: 30,
+    output: 6,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 36,
+  });
+
+  const third = await snapshot(context);
+  assert.equal(third.stats.bytesRead, 0);
+  assert.deepEqual(third.rows, second.rows);
+});
+
+test("old file-level Codex modern state is rescanned once to recover the prefix", async () => {
+  const context = await env();
+  await placeFixture(
+    context,
+    ".codex/sessions/mixed/rollout-mixed.jsonl",
+    "codex-mixed.jsonl",
+  );
+  const codexSource = [
+    {
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions"],
+    },
+  ];
+  await configure(context, codexSource);
+
+  const store = JSON.parse(await readFile(context.store, "utf8"));
+  const entry = Object.values(store.files)[0];
+  entry.rows = [];
+  entry.tasks = [];
+  entry.state = { modern: true };
+  store.dedup = {};
+  store.tasks = {};
+  await writeFile(context.store, JSON.stringify(store));
+
+  const migrated = await snapshot(context);
+  assert.equal(migrated.stats.errors, 0);
+  assert.equal(migrated.rows.length, 5);
+  assert.equal(
+    migrated.rows.find((row) => row.model === "legacy-model").messages,
+    2,
+  );
+
+  const stable = await snapshot(context);
+  assert.equal(stable.stats.bytesRead, 0);
+  assert.deepEqual(stable.rows, migrated.rows);
+});
+
 test("removed transcript history is retained until an explicit rebuild", async () => {
   const context = await env();
   const file = await placeFixture(
