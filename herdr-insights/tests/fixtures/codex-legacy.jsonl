@@ -1,0 +1,8 @@
+{"type":"session_meta","timestamp":"2026-03-03T03:00:00Z","payload":{"id":"codex-legacy","cwd":"/repo/legacy","model_provider":"openai"}}
+{"type":"turn_context","timestamp":"2026-03-03T03:00:01Z","payload":{"turn_id":"legacy-turn","model":"legacy-model","cwd":"/repo/legacy"}}
+{"type":"event_msg","timestamp":"2026-03-03T03:00:02Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0}}}}
+{"type":"event_msg","timestamp":"2026-03-03T03:00:03Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":250,"cached_input_tokens":50,"cache_write_input_tokens":0,"output_tokens":25,"reasoning_output_tokens":0}}}}
+{"type":"event_msg","timestamp":"2026-03-03T03:00:04Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":250,"cached_input_tokens":50,"cache_write_input_tokens":0,"output_tokens":25,"reasoning_output_tokens":0}}}}
+{"type":"event_msg","timestamp":"2026-03-03T03:00:05Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":400,"cached_input_tokens":100,"cache_write_input_tokens":0,"output_tokens":50,"reasoning_output_tokens":0}}}}
+{"type":"event_msg","timestamp":"2026-03-03T03:00:06Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":10,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}}}
+{"type":"event_msg","timestamp":"2026-03-03T03:00:07Z","payload":{"type":"task_complete","turn_id":"legacy-turn","duration_ms":1000,"started_at":1770000100,"completed_at":1770000101}}

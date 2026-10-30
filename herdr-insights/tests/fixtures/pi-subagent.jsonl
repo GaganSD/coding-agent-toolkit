@@ -1,0 +1,2 @@
+{"recordType":"message","role":"user","runId":"sub-run-1","childIndex":0,"cwd":"/repo/sub","timestamp":"2026-03-05T05:00:00Z","ts":1770000000000,"message":{"role":"user","content":"subagent prompt"}}
+{"recordType":"message","role":"assistant","runId":"sub-run-1","childIndex":0,"cwd":"/repo/sub","timestamp":"2026-03-05T05:00:02Z","ts":1770000002000,"model":"sub-model","provider":"sub-provider","stopReason":"stop","usage":{"input":5,"output":2,"cacheRead":1,"cacheWrite":0,"cost":0},"message":{"role":"assistant","content":[],"responseId":"sub-response-1"}}
