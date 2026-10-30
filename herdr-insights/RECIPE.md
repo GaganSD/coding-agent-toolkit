@@ -6,6 +6,11 @@ and opens in its own tab without changing terminals, layouts, or keys.
 
 ![Insights](preview.png)
 
+Installing this existing build? Follow [INSTALL.md](INSTALL.md) and the user's
+Herdr `AGENTS.md`. This recipe is a rebuild brief; its **Done when** checks apply
+to building/releasing, not routine installation. Installation does not launch
+smoke-test windows or open a tab unless requested.
+
 **What you see:** A vertically scrollable dashboard centered at a maximum width
 of 1180px. Use Herdr theme colors, 1px borders, 8px card corners, 6px control
 corners, no decorative shadows, and 4/8/12/16/24px spacing. Page padding is 12px
@@ -53,9 +58,10 @@ controls preserve custom mappings. Changing source configuration invalidates the
 scan cache; palette/cache/week-start/refresh changes preserve collected history.
 
 **Built from:** Put this distribution in `herdr-insights/`, with `RECIPE.md`,
-`README.md`, `preview.png`, and `mods/insights/`. Do not include a `layouts/` folder
-or keys snippet: no bindings are needed. The recipe heading and `mod.json` title
-are **Insights**; the native mod ID is `insights`.
+`README.md`, `INSTALL.md`, `preview.png`, and `mods/insights/`. Keep developer
+tests, fixtures, and release-check tooling outside this distribution folder.
+Do not include a `layouts/` folder or keys snippet: no bindings are needed.
+The recipe heading and `mod.json` title are **Insights**; the native mod ID is `insights`.
 
 `mods/insights/mod.json` contains `{"place":"none","title":"Insights"}`.
 `main.js` default-exports a gpui-kit `View`; use gpui-base flex/controls, `theme()`
@@ -115,9 +121,10 @@ a backup before rebuilding; read-only prepare must not repair or create stores.
 Never write layouts, keys, source transcripts, or an existing user's usage data
 from the installer. Do not copy an absolute runtime path from another machine.
 
-**Done when:** Package tests and checks pass, including distribution naming,
-PNG preview, recipe structure, no layouts, token accounting, deduplication,
-configuration validation, incremental recovery, and safe installation/uninstallation.
+**Done when:** For a new build or release (not an installation), package tests
+and checks pass, including distribution naming, PNG preview, recipe structure,
+no layouts, token accounting, deduplication, configuration validation, incremental
+recovery, and safe installation/uninstallation.
 Run `herdr-app check` on the installed mod, plus populated-render and asynchronous
 native smoke checks in temporary app homes. Inspect a native screenshot and status
 for render errors. Verify actual filters, heatmap modes, source settings, refresh,

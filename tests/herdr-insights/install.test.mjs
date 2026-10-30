@@ -7,15 +7,15 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { isNodeVersionSupported } from "../scripts/lib.mjs";
+import { isNodeVersionSupported } from "../../herdr-insights/scripts/lib.mjs";
 
 const PACKAGE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "..",
+  "../../herdr-insights",
 );
 const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install.mjs");
 const UNINSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "uninstall.mjs");
-const CHECK_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "check.mjs");
+const CHECK_SCRIPT = fileURLToPath(new URL("../../scripts/herdr-insights/check.mjs", import.meta.url));
 const OPEN_JSON = '{"name":"Insights","mod":"insights"}';
 const RUNTIME_REL = "runtime.json";
 
@@ -743,6 +743,46 @@ test("uninstaller remains usable on an older Node runtime", async (t) => {
   );
 });
 
+test("standalone distribution installs with no repo tooling or window commands", async (t) => {
+  const root = await temporaryRoot(t);
+  const distribution = path.join(root, "herdr-insights");
+  await fs.cp(PACKAGE_ROOT, distribution, { recursive: true });
+  const appHome = path.join(root, "app");
+  const fake = await createFakeRunner(root);
+  const result = spawnSync(process.execPath, [path.join(distribution, "scripts/install.mjs")], {
+    cwd: distribution,
+    env: makeEnvironment(root, appHome, fake),
+    encoding: "utf8",
+    shell: false,
+    timeout: 30_000,
+  });
+  assertSuccess(result);
+  assert.match(result.stdout, /herdr-app check passed/);
+  assert.deepEqual((await readLog(fake)).map((entry) => entry.args),
+    [["check", path.join(await fs.realpath(appHome), "mods/insights")]]);
+  await assert.rejects(fs.lstat(path.join(appHome, "data/insights/insights.json")), { code: "ENOENT" });
+  assert.deepEqual((await fs.readdir(root)).sort(),
+    ["app", "fake bin", "fake herdr log.jsonl", "herdr-insights"]);
+});
+
+test("async smoke test refuses to open a window without explicit opt-in", async (t) => {
+  const root = await temporaryRoot(t);
+  const script = fileURLToPath(new URL("./native-async-check.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, [script], {
+    cwd: root,
+    env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root,
+      HERDR_APP_HOME: path.join(root, "must-not-create"),
+      HERDR_APP_BINARY: path.join(root, "must-not-launch") },
+    encoding: "utf8",
+    shell: false,
+    timeout: 10_000,
+  });
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /separate Herdr window.*--allow-window/);
+  assert.match(result.stderr, /never during installation/);
+  assert.deepEqual(await fs.readdir(root), []);
+});
+
 test("the package stays private, dependency-free, and the check script passes", async () => {
   const packageJson = await readJson(path.join(PACKAGE_ROOT, "package.json"));
   assert.equal(packageJson.private, true);
@@ -757,9 +797,7 @@ test("the package stays private, dependency-free, and the check script passes", 
     assert.equal(packageJson[field], undefined, field);
   }
   assert.deepEqual(packageJson.scripts, {
-    check: "node scripts/check.mjs",
     "install:local": "node scripts/install.mjs",
-    test: "node --test tests/*.test.mjs",
     "uninstall:local": "node scripts/uninstall.mjs",
   });
   assert.equal(packageJson.publishConfig, undefined);

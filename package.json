@@ -13,6 +13,8 @@
     "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search && npm run typecheck --prefix pi-subagents && npm run typecheck --prefix pi-automode",
     "lint": "eslint . --max-warnings=0",
     "test:tooling": "node --test scripts/tests/*.test.mjs",
+    "test:insights": "node --test tests/herdr-insights/*.test.mjs",
+    "check:insights": "node scripts/herdr-insights/check.mjs",
     "secrets:scan": "bash scripts/secret-scan.sh",
     "hooks:install": "bash scripts/install-hooks.sh",
     "release:prepare": "node scripts/release.mjs prepare",

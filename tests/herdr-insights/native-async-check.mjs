@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// True asynchronous lifecycle check for the Insights native mod.
+// Developer-only asynchronous lifecycle check for the Insights native mod.
+// Opens a separate Herdr window: never run during installation.
+// Requires --allow-window to acknowledge that visible side effect.
 //
 // The older loaded-render check injected applySnapshot in init, which never
 // exercised the exec -> Task continuation -> timer -> presentation helper path.
@@ -11,11 +13,11 @@
 // interrupted" signature.
 //
 // Usage:
-//   node tests/native-async-check.mjs
-//   node tests/native-async-check.mjs --rows 10000 --snapshot /path/to/snapshot.json
-//   node tests/native-async-check.mjs --store /tmp/store-copy.json --wait 5000
-//   node tests/native-async-check.mjs --settings --appearance light --zoom-out 2
-//   node tests/native-async-check.mjs --menu --shot /tmp/menu.png --keep
+//   node tests/herdr-insights/native-async-check.mjs --allow-window
+//   node tests/herdr-insights/native-async-check.mjs --allow-window --rows 10000 --snapshot /path/to/snapshot.json
+//   node tests/herdr-insights/native-async-check.mjs --allow-window --store /tmp/store-copy.json --wait 5000
+//   node tests/herdr-insights/native-async-check.mjs --allow-window --settings --appearance light --zoom-out 2
+//   node tests/herdr-insights/native-async-check.mjs --allow-window --menu --shot /tmp/menu.png --keep
 //
 // Only the Herdr process started here is stopped. It creates no terminals,
 // spaces, tabs, or user-home writes.
@@ -35,16 +37,16 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeConfig, todayKey } from "../mods/insights/analytics.js";
+import { normalizeConfig, todayKey } from "../../herdr-insights/mods/insights/analytics.js";
 import {
   emptyStore,
   newFileEntry,
   saveStore,
-} from "../mods/insights/core/store.mjs";
-import { run as runPresenter } from "../mods/insights/presenter.mjs";
+} from "../../herdr-insights/mods/insights/core/store.mjs";
+import { run as runPresenter } from "../../herdr-insights/mods/insights/presenter.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const modSource = resolve(here, "../mods/insights");
+const modSource = resolve(here, "../../herdr-insights/mods/insights");
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -163,6 +165,10 @@ if (!Number.isInteger(zoomOut) || zoomOut < 0 || zoomOut > 6) {
 const appearance = argument("--appearance", null);
 if (appearance !== null && !["dark", "light"].includes(appearance)) {
   throw new Error("--appearance must be dark or light");
+}
+if (!process.argv.includes("--allow-window")) {
+  console.error("Developer smoke test opens a separate Herdr window. Rerun with --allow-window only for explicit development/release validation; never during installation.");
+  process.exit(2);
 }
 const home = realpathSync(mkdtempSync(join(tmpdir(), "insights-native-async-")));
 const logPath = "/tmp/insights-native-async.log";

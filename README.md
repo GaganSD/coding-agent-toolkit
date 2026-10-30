@@ -86,19 +86,19 @@ pi install npm:@gagansd/pi-automode   # Permission gate (opt-in, off by default)
 
 | Mod | Description | Install |
 | :--- | :--- | :--- |
-| [Insights](./herdr-insights/) | Local-first token-usage dashboard with model rankings, usage trends, and an activity heatmap. Reads Pi, Codex, Claude Code, and OpenCode sessions. | From a checkout: `npm run install:local --prefix herdr-insights -- --open` |
+| [Insights](./herdr-insights/) | Local-first token-usage dashboard with model rankings, usage trends, and an activity heatmap. Reads Pi, Codex, Claude Code, and OpenCode sessions. | From a checkout: `npm run install:local --prefix herdr-insights` |
 
 ### Install Insights
 
 Requires [Herdr](https://herdr.dev) and **Node.js 22.15+**. No dependencies or account needed. From this repository's root:
 
 ```bash
-npm run install:local --prefix herdr-insights -- --open
+npm run install:local --prefix herdr-insights
 ```
 
-The installer validates the mod with `herdr-app check` and opens an **Insights** tab. It installs only `mods/insights/` under `~/.config/herdr-app`, leaving layouts, keys, and terminals unchanged. No Pi extension installation is required.
+The installer validates the mod with `herdr-app check` without opening a tab or test window. Add `-- --open` to open one **Insights** tab. It installs only `mods/insights/` under `~/.config/herdr-app`, leaving layouts, keys, and terminals unchanged. No Pi extension installation is required.
 
-See the [Insights README](./herdr-insights/README.md) for standalone checkout instructions, settings, privacy details, and uninstallation, or [RECIPE.md](./herdr-insights/RECIPE.md) for the mod specification.
+See the [Insights README](./herdr-insights/README.md) for standalone checkout instructions, settings, privacy details, and uninstallation, [INSTALL.md](./herdr-insights/INSTALL.md) for agent installation instructions, or [RECIPE.md](./herdr-insights/RECIPE.md) for the rebuild specification.
 
 ---
 
@@ -124,9 +124,13 @@ After `pi install .`, local edits apply on `/reload`.
 Insights uses Node.js `22.15+`; its native validation requires Herdr. Run its checks separately from the root Pi extension suite:
 
 ```bash
-npm test --prefix herdr-insights
-npm run check --prefix herdr-insights
+npm run test:insights
+npm run check:insights
 ```
+
+These are developer checks, not installation steps. See the
+[Insights development guide](./docs/herdr-insights-development.md) for opt-in
+native release validation.
 
 ### Shared token counter
 

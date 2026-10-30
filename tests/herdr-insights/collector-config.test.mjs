@@ -19,12 +19,12 @@ import {
   DEFAULT_CONFIG,
   defaultConfig,
   normalizeConfig,
-} from "../mods/insights/core/config.mjs";
-import { emptyStore, newFileEntry, saveStore } from "../mods/insights/core/store.mjs";
-import { DEFAULT_SOURCES } from "../mods/insights/analytics.js";
+} from "../../herdr-insights/mods/insights/core/config.mjs";
+import { emptyStore, newFileEntry, saveStore } from "../../herdr-insights/mods/insights/core/store.mjs";
+import { DEFAULT_SOURCES } from "../../herdr-insights/mods/insights/analytics.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const collector = path.join(here, "..", "mods", "insights", "collector.mjs");
+const collector = path.join(here, "../../herdr-insights", "mods", "insights", "collector.mjs");
 const fixtures = path.join(here, "fixtures");
 
 async function env() {

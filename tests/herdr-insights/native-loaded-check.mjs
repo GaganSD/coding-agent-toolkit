@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Loaded-render regression check for the Insights native mod.
+// Developer-only loaded-render regression check for the Insights native mod.
+// Not an installation step; this uses a temporary mod, not the installed build.
 //
 // `herdr-app check` normally renders the empty initial state, so it cannot see
 // a populated dashboard crossing the 50 ms render budget. This harness injects
@@ -7,12 +8,12 @@
 // first render. It deliberately replaces runtime resolution and refresh timers
 // in the temporary mod copy, so no collector runs and no user transcript roots
 // are scanned. The true exec -> Task -> timer lifecycle is covered separately
-// by tests/native-async-check.mjs.
+// by tests/herdr-insights/native-async-check.mjs.
 //
 // Usage:
-//   node tests/native-loaded-check.mjs
-//   node tests/native-loaded-check.mjs --rows 10000 --mode menu
-//   node tests/native-loaded-check.mjs --snapshot /path/to/warm-snapshot.json
+//   node tests/herdr-insights/native-loaded-check.mjs
+//   node tests/herdr-insights/native-loaded-check.mjs --rows 10000 --mode menu
+//   node tests/herdr-insights/native-loaded-check.mjs --snapshot /path/to/warm-snapshot.json
 //
 // The snapshot file is read only. Nothing is installed into the user's Herdr
 // home: the check runs against a temporary HERDR_APP_HOME.
@@ -22,10 +23,10 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compactDashboard, deriveDashboard, todayKey } from "../mods/insights/analytics.js";
+import { compactDashboard, deriveDashboard, todayKey } from "../../herdr-insights/mods/insights/analytics.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const modSource = resolve(here, "../mods/insights");
+const modSource = resolve(here, "../../herdr-insights/mods/insights");
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -144,7 +145,7 @@ try {
   writeFileSync(mainPath, main);
 
   const result = spawnSync("herdr-app", ["check", mod], {
-    cwd: resolve(here, ".."),
+    cwd: resolve(here, "../../herdr-insights"),
     env: { ...process.env, HERDR_APP_HOME: home, HOME: home },
     encoding: "utf8",
     timeout: 120_000,

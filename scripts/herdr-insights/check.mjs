@@ -8,9 +8,10 @@ import {
   assertSupportedNodeVersion,
   collectSourceFiles,
   lstatOrNull,
-} from "./lib.mjs";
+} from "../../herdr-insights/scripts/lib.mjs";
 import { inspectDistribution } from "./distribution.mjs";
 
+const TEST_ROOT = path.resolve(PACKAGE_ROOT, "../tests/herdr-insights");
 const errors = [];
 const notes = [];
 
@@ -102,9 +103,7 @@ async function checkPackage() {
   }
 
   const expectedScripts = {
-    check: "node scripts/check.mjs",
     "install:local": "node scripts/install.mjs",
-    test: "node --test tests/*.test.mjs",
     "uninstall:local": "node scripts/uninstall.mjs",
   };
   for (const [name, expected] of Object.entries(expectedScripts)) {
@@ -117,6 +116,7 @@ async function checkPackage() {
 async function checkFiles() {
   for (const relative of [
     ".gitignore",
+    "INSTALL.md",
     "RECIPE.md",
     "preview.png",
     "mods/insights/main.js",
@@ -124,8 +124,6 @@ async function checkFiles() {
     "scripts/install.mjs",
     "scripts/lib.mjs",
     "scripts/uninstall.mjs",
-    "tests/install.test.mjs",
-    "tests/node-version.test.mjs",
   ]) {
     const stat = await lstatOrNull(path.join(PACKAGE_ROOT, relative));
     if (!stat || !stat.isFile()) fail(`Missing owned file: ${relative}`);
@@ -165,8 +163,8 @@ async function checkDocs() {
 }
 
 async function checkScriptsAndTests() {
-  const directories = ["scripts", "tests"]
-    .map((relative) => path.join(PACKAGE_ROOT, relative));
+  const directories = [path.join(PACKAGE_ROOT, "scripts"),
+    path.resolve(PACKAGE_ROOT, "../scripts/herdr-insights"), TEST_ROOT];
   for (const directory of directories) {
     const files = (await walkFiles(directory)).filter((file) =>
       /\.(?:mjs|js)$/.test(file),
@@ -190,10 +188,10 @@ async function checkScriptsAndTests() {
 }
 
 async function checkTestInventory() {
-  const tests = (await walkFiles(path.join(PACKAGE_ROOT, "tests"))).filter((file) =>
+  const tests = (await walkFiles(TEST_ROOT)).filter((file) =>
     /install.*\.test\.mjs$/.test(path.basename(file)),
   );
-  if (tests.length === 0) fail("No tests/install*.test.mjs files found");
+  if (tests.length === 0) fail("No tests/herdr-insights/install*.test.mjs files found");
 }
 
 async function checkDistribution() {

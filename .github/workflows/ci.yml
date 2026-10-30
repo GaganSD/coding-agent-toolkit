@@ -153,8 +153,8 @@ jobs:
           node-version: '24'
           package-manager-cache: false
       # Dependency-free; native Herdr checks run locally, not on headless CI.
-      - run: npm test --prefix herdr-insights
-      - run: npm run check --prefix herdr-insights
+      - run: npm run test:insights
+      - run: npm run check:insights
 
   secrets:
     uses: ./.github/workflows/secret-scan.yml

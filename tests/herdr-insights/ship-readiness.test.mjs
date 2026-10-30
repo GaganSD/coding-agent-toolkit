@@ -5,13 +5,13 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { registerHooks } from "node:module";
 import test from "node:test";
-import { progressWriter } from "../mods/insights/collector.mjs";
-import { compactDashboard, deriveDashboard } from "../mods/insights/analytics.js";
-import { MAX_LINE_BYTES, withStoreLock } from "../mods/insights/core/util.mjs";
-import { normalizeConfig } from "../mods/insights/core/config.mjs";
-import { scanSources } from "../mods/insights/core/scan.mjs";
-import { run as present } from "../mods/insights/presenter.mjs";
-import { emptyStore, getOrCreateRow, newFileEntry, resetFileEntry, snapshotRows } from "../mods/insights/core/store.mjs";
+import { progressWriter } from "../../herdr-insights/mods/insights/collector.mjs";
+import { compactDashboard, deriveDashboard } from "../../herdr-insights/mods/insights/analytics.js";
+import { MAX_LINE_BYTES, withStoreLock } from "../../herdr-insights/mods/insights/core/util.mjs";
+import { normalizeConfig } from "../../herdr-insights/mods/insights/core/config.mjs";
+import { scanSources } from "../../herdr-insights/mods/insights/core/scan.mjs";
+import { run as present } from "../../herdr-insights/mods/insights/presenter.mjs";
+import { emptyStore, getOrCreateRow, newFileEntry, resetFileEntry, snapshotRows } from "../../herdr-insights/mods/insights/core/store.mjs";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), "insights-ship-"));
