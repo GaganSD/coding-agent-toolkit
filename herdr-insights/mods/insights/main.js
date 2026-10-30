@@ -5,12 +5,9 @@ import { exec, appHome, home, theme, settings, nextCommand } from "herdr";
 import {
   PALETTES,
   availableYears,
-  buildHeatmap,
   clampRefreshSeconds,
+  createDashboardCache,
   dayLabel,
-  facetStats,
-  filterRows,
-  filterRowsByRange,
   formatBytes,
   formatCompact,
   formatDuration,
@@ -20,13 +17,10 @@ import {
   initials,
   isDay,
   isSnapshot,
-  leaderboard,
   normalizeConfig,
-  peakDay,
   periodRange,
   projectName,
-  streakStats,
-  sumTokens,
+  safeAvatarPath,
   todayKey,
   weekdayLabels,
 } from "./analytics.js";
@@ -66,7 +60,7 @@ function prettyJson(value) {
 }
 
 function sanitizeError(error) {
-  let text = "";
+  let text;
   if (error && typeof error === "object") text = error.message ?? error.error ?? "";
   else text = String(error ?? "");
   text = text.replace(/\s+/g, " ").trim();
@@ -233,9 +227,8 @@ function facetLabel(field, value, config) {
   return value === "unknown" ? "Unknown project" : projectName(value);
 }
 
-function buildFacetOptions(field, rows, filters, includeCache, config) {
-  const baseRows = filterRows(rows, { ...filters, [field]: "all" });
-  const stats = facetStats(baseRows, field, includeCache);
+function buildFacetOptions(field, facet, config) {
+  const stats = facet?.stats ?? [];
   const options = stats.map((stat) => ({
     value: stat.value,
     label: facetLabel(field, stat.value, config),
@@ -261,7 +254,7 @@ function buildFacetOptions(field, rows, filters, includeCache, config) {
     }
   }
   options.sort((left, right) => right.tokens - left.tokens || left.label.localeCompare(right.label));
-  const total = sumTokens(baseRows, includeCache).total;
+  const total = facet?.total ?? 0;
   const truncated = options.length > MAX_FACET_OPTIONS;
   const visible = options.slice(0, MAX_FACET_OPTIONS);
   return {
@@ -376,6 +369,7 @@ export default class Insights extends View {
     this.timer = null;
     this.timerSeconds = null;
     this.commandTask = null;
+    this.dashboardCache = createDashboardCache();
 
     const t = theme();
     const editorOptions = {
@@ -469,6 +463,10 @@ export default class Insights extends View {
     try { this.configEditor?.release(); } catch { /* already released */ }
   }
 
+  busy() {
+    return this.loading || this.saving;
+  }
+
   collectorPath() {
     return `${appHome()}/mods/insights/collector.mjs`;
   }
@@ -486,7 +484,7 @@ export default class Insights extends View {
   }
 
   refresh(cx) {
-    if (this.loading) return;
+    if (this.busy()) return;
     this.loading = true;
     this.error = null;
     cx.notify();
@@ -510,21 +508,36 @@ export default class Insights extends View {
 
   applySnapshot(snapshot, cx) {
     this.snapshot = snapshot;
-    const config = normalizeConfig(snapshot.config);
+    const savedConfig = normalizeConfig(snapshot.config);
+    const config = this.configDirty || this.editorDirty ? this.draftConfig(savedConfig) : savedConfig;
     const today = todayKey();
     const years = availableYears(snapshot.rows, today);
     if (!Number.isInteger(this.year) || !years.includes(this.year)) this.year = years[0] ?? Number(today.slice(0, 4));
     if (!isDay(this.selectedDay)) this.selectedDay = today;
 
     if (!this.configDirty && !this.editorDirty) {
-      this.configDraft = deepClone(config);
+      this.configDraft = deepClone(savedConfig);
       this.setEditorText(prettyJson(this.configDraft));
     }
+    // A poll must never release source inputs that only exist in an unsaved draft.
     this.ensureSourceInputs(config);
     if (!this.profileDirty) this.syncProfileInputs(config);
     if (!this.rootsDirty) this.syncSourceInputs(config);
     if (!this.refreshDirty) this.syncRefreshInput(config);
     this.schedule(cx);
+  }
+
+  draftConfig(fallback) {
+    const base = this.configDraft ?? fallback ?? this.snapshot?.config ?? {};
+    if (this.editorDirty) {
+      try {
+        const parsed = JSON.parse(this.configEditor.value());
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return normalizeConfig(parsed);
+      } catch {
+        // Invalid JSON keeps the last valid draft alive during background refreshes.
+      }
+    }
+    return normalizeConfig(base);
   }
 
   setEditorText(text) {
@@ -648,7 +661,7 @@ export default class Insights extends View {
       try {
         parsed = JSON.parse(this.configEditor.value());
       } catch (error) {
-        throw new Error(`Configuration JSON is invalid: ${sanitizeError(error)}`);
+        throw new Error(`Configuration JSON is invalid: ${sanitizeError(error)}`, { cause: error });
       }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error("Configuration must be a JSON object.");
@@ -664,6 +677,7 @@ export default class Insights extends View {
       config.profile.handle = this.handleInput.value().trim().replace(/^@+/, "");
       config.profile.avatar = this.avatarInput.value().trim();
     }
+    config.profile.avatar = safeAvatarPath(config.profile.avatar);
 
     if (!Array.isArray(config.sources)) config.sources = [];
     if (this.rootsDirty || !this.editorDirty) {
@@ -685,7 +699,7 @@ export default class Insights extends View {
   }
 
   saveConfig(cx) {
-    if (this.saving) return;
+    if (this.busy()) return;
     let config;
     try {
       config = this.buildConfigForSave();
@@ -774,7 +788,7 @@ export default class Insights extends View {
 
   openSettings(cx) {
     this.showSettings = true;
-    if (this.snapshot) this.ensureSourceInputs(normalizeConfig(this.configDraft ?? this.snapshot.config));
+    if (this.snapshot) this.ensureSourceInputs(this.draftConfig(normalizeConfig(this.snapshot.config)));
     cx.notify();
   }
 
@@ -823,14 +837,14 @@ export default class Insights extends View {
 
   header(t) {
     const updated = this.snapshot ? formatTimestamp(this.snapshot.lastScanAt || this.snapshot.generatedAt) : "";
-    const status = this.loading ? "Refreshing…" : this.error ? (this.snapshot ? "Showing last snapshot" : "Unavailable") : updated ? `Updated ${updated}` : "";
+    const status = this.loading ? "Refreshing…" : this.saving ? "Saving…" : this.error ? (this.snapshot ? "Showing last snapshot" : "Unavailable") : updated ? `Updated ${updated}` : "";
     return h_flex().w_full().flex_wrap().gap(10).items_center().justify_between()
       .child(v_flex().gap(2)
         .child(div().text_size(21).font_semibold().child("Insights"))
         .child(div().text_size(11.5).text_color(t.dim).child("Local AI usage · private by design")))
       .child(h_flex().flex_wrap().gap(8).items_center()
         .when(Boolean(status), (el) => el.child(div().text_size(10.5).text_color(this.error ? t.blocked : t.dim).child(status)))
-        .child(smallButton("insights-refresh", "↻ Refresh", (_event, clickCx) => this.refresh(clickCx), t, { disabled: this.loading }))
+        .child(smallButton("insights-refresh", "↻ Refresh", (_event, clickCx) => this.refresh(clickCx), t, { disabled: this.busy() }))
         .when(Boolean(this.snapshot), (el) => el.child(smallButton(
           "insights-settings",
           this.showSettings ? "Dashboard" : "Settings",
@@ -853,7 +867,7 @@ export default class Insights extends View {
       .child(v_flex().flex_1().min_w(0).gap(3)
         .child(div().text_size(12).font_medium().child("Could not refresh insights"))
         .child(div().text_size(11).text_color(t.muted).child(this.error)))
-      .child(smallButton("insights-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), t, { disabled: this.loading }));
+      .child(smallButton("insights-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), t, { disabled: this.busy() }));
   }
 
   initialState(t) {
@@ -867,48 +881,26 @@ export default class Insights extends View {
         .child(div().text_size(14).font_semibold().child(title)))
       .child(div().text_size(12).text_color(t.muted).child(body))
       .child(div().text_size(10.5).text_color(t.dim).child("The collector runs as a local Node process and prints one JSON snapshot. No network, no transcripts, no prompts."))
-      .when(!this.loading, (el) => el.child(h_flex().pt(4)
+      .when(!this.busy(), (el) => el.child(h_flex().pt(4)
         .child(smallButton("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), t, { primary: true }))));
   }
 
   dashboardView(t) {
     const snapshot = this.snapshot;
-    const config = normalizeConfig(snapshot.config);
-    const rows = snapshot.rows ?? [];
-    const dimensionRows = filterRows(rows, this.filters);
-    const today = todayKey();
-    const range = periodRange(this.period, { today, weekStartsOn: config.weekStartsOn, year: this.year });
-    const periodRows = filterRowsByRange(dimensionRows, range);
-    const previousRows = range.previous ? filterRowsByRange(dimensionRows, range.previous) : null;
-    const includeCache = config.includeCache;
-
-    const lifetime = sumTokens(dimensionRows, includeCache);
-    const peak = peakDay(dimensionRows, includeCache);
-    const streaks = streakStats(dimensionRows, { today, includeCache });
-    const heatmap = buildHeatmap(dimensionRows, {
-      endDay: range.end,
-      weekStartsOn: config.weekStartsOn,
-      mode: this.heatmapMode,
-      includeCache,
+    const derived = this.dashboardCache.read(snapshot, {
+      filters: this.filters,
+      period: this.period,
+      year: this.year,
+      heatmapMode: this.heatmapMode,
+      leaderboardGroup: this.leaderboardGroup,
+      selectedDay: this.selectedDay,
+      today: todayKey(),
     });
-    const totals = sumTokens(periodRows, includeCache);
-    const leaders = leaderboard(periodRows, previousRows, {
-      groupBy: this.leaderboardGroup,
-      includeCache,
-      limit: 12,
-    });
-
-    const selectedInRange = heatmap.cells.find((cell) => cell.date === this.selectedDay && !cell.future);
-    const selectedDay = selectedInRange ? this.selectedDay : heatmap.range.dataEnd;
-    const selectedRows = dimensionRows.filter((row) => row.day === selectedDay);
-    const selectedTotals = sumTokens(selectedRows, includeCache);
-    const selectedTop = selectedRows.length
-      ? leaderboard(selectedRows, null, { groupBy: "model", includeCache, limit: 1 }).entries[0]
-      : null;
+    const { config, rows, range, lifetime, peak, streaks, heatmap, totals, leaders, selectedDay, selectedRows, selectedTotals, selectedTop } = derived;
 
     return v_flex().w_full().gap(14)
       .child(this.hero(t, config, lifetime, streaks))
-      .child(this.filtersBar(t, rows, config, range))
+      .child(this.filtersBar(t, rows, config, range, derived.facets, derived.today))
       .when(rows.length === 0, (el) => el.child(this.emptyNotice(t, config)))
       .child(this.metricStrip(t, lifetime, peak, streaks))
       .child(this.heatmapCard(t, config, heatmap, selectedDay, selectedRows, selectedTotals, selectedTop))
@@ -917,7 +909,7 @@ export default class Insights extends View {
   }
 
   hero(t, config, lifetime, streaks) {
-    const avatarPath = config.profile.avatar;
+    const avatarPath = safeAvatarPath(config.profile.avatar);
     const avatar = Avatar.new().size(84).rounded_full().overflow_hidden().bg(t.raised).border_1().border_color(t.border)
       .when(Boolean(avatarPath), (el) => el.image(AvatarImage.new(avatarPath).size_full()))
       .fallback(AvatarFallback.new().size_full().items_center().justify_center()
@@ -943,16 +935,16 @@ export default class Insights extends View {
         this.saving ? "Saving…" : "Save profile",
         (_event, clickCx) => this.saveConfig(clickCx),
         t,
-        { primary: true, disabled: this.saving },
+        { primary: true, disabled: this.busy() },
       )));
   }
 
-  filtersBar(t, rows, config, range) {
-    const sourceOptions = buildFacetOptions("source", rows, this.filters, config.includeCache, config);
-    const providerOptions = buildFacetOptions("provider", rows, this.filters, config.includeCache, config);
-    const modelOptions = buildFacetOptions("model", rows, this.filters, config.includeCache, config);
-    const projectOptions = buildFacetOptions("project", rows, this.filters, config.includeCache, config);
-    const years = availableYears(rows, todayKey());
+  filtersBar(t, rows, config, range, facets, today) {
+    const sourceOptions = buildFacetOptions("source", facets.source, config);
+    const providerOptions = buildFacetOptions("provider", facets.provider, config);
+    const modelOptions = buildFacetOptions("model", facets.model, config);
+    const projectOptions = buildFacetOptions("project", facets.project, config);
+    const years = availableYears(rows, today);
     const active = Object.values(this.filters).some((value) => value !== "all");
 
     return card(t, 12).gap(9)
@@ -1305,7 +1297,7 @@ export default class Insights extends View {
       .child(v_flex().gap(2)
         .child(div().text_size(14).font_semibold().child("Profile"))
         .child(div().text_size(10.5).text_color(t.dim).child("Shown at the top of the dashboard.")))
-      .child(field("Avatar path", textInput(this.avatarInput), t, "A path under the Herdr app folder, such as mods/insights/avatar.png. Initials are used when empty."))
+      .child(field("Avatar path", textInput(this.avatarInput), t, "A local path under the Herdr app folder, such as mods/insights/avatar.png. Remote URLs are ignored; initials are used when empty."))
       .child(field("Name", textInput(this.nameInput), t))
       .child(field("Handle", textInput(this.handleInput), t, "Stored without the @."));
 
@@ -1381,7 +1373,7 @@ export default class Insights extends View {
           .when(!this.saveError && !this.saveMessage, (el) => el.child(div().text_size(10.5).text_color(t.dim).child("Changes are validated before they are saved."))))
         .child(smallButton("ins-config-save", this.saving ? "Saving…" : "Save configuration", (_event, clickCx) => this.saveConfig(clickCx), t, {
           primary: true,
-          disabled: this.saving,
+          disabled: this.busy(),
         })));
 
     return v_flex().w_full().gap(14)

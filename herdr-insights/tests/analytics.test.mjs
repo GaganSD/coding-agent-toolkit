@@ -14,8 +14,10 @@ const {
   availableYears,
   buildHeatmap,
   compareChange,
+  createDashboardCache,
   dayKey,
   dayLabel,
+  deriveDashboard,
   filterRows,
   filterRowsByRange,
   formatCompact,
@@ -30,6 +32,7 @@ const {
   parseDay,
   peakDay,
   periodRange,
+  safeAvatarPath,
   startOfWeek,
   streakStats,
   sumTokens,
@@ -331,4 +334,97 @@ test("config and year helpers are defensive", () => {
   assert.deepEqual(config.sources[0].mapping, mapping);
   assert.deepEqual(config.extra, { preserved: true });
   assert.deepEqual(availableYears([row({ day: "2023-01-01" }), row({ day: "2024-01-01" })], "2025-01-01"), [2025, 2024, 2023]);
+});
+
+function snapshot(overrides = {}) {
+  return {
+    version: 1,
+    generatedAt: "2024-01-10T12:00:00Z",
+    lastScanAt: "2024-01-10T12:00:00Z",
+    config: {
+      profile: { name: "Ada", handle: "ada", avatar: "mods/insights/avatar.png" },
+      palette: "blue",
+      includeCache: true,
+      weekStartsOn: 0,
+      refreshSeconds: 60,
+      sources: [{ id: "pi", label: "Pi", adapter: "pi", enabled: true, roots: ["~/.pi"] }],
+    },
+    rows: [
+      row({ day: "2024-01-01", session: "s1", model: "model-a", tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+      row({ day: "2024-01-02", session: "s2", model: "model-b", tokens: { input: 20, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    ],
+    stats: { files: 2, filesRead: 2, bytesRead: 100, unchangedFiles: 0, errors: 0 },
+    warnings: [],
+    ...overrides,
+  };
+}
+
+test("avatar paths stay local and app-relative", () => {
+  assert.equal(safeAvatarPath("mods/insights/avatar.png"), "mods/insights/avatar.png");
+  assert.equal(safeAvatarPath("  avatars/ada.png  "), "avatars/ada.png");
+  assert.equal(safeAvatarPath(""), "");
+  assert.equal(safeAvatarPath(undefined), "");
+  assert.equal(safeAvatarPath("https://example.com/avatar.png"), "");
+  assert.equal(safeAvatarPath("http://example.com/avatar.png"), "");
+  assert.equal(safeAvatarPath("//example.com/avatar.png"), "");
+  assert.equal(safeAvatarPath("data:image/png;base64,AAAA"), "");
+  assert.equal(safeAvatarPath("file:///tmp/avatar.png"), "");
+  assert.equal(safeAvatarPath("/tmp/avatar.png"), "");
+  assert.equal(safeAvatarPath("../outside.png"), "");
+  assert.equal(safeAvatarPath("mods/../../outside.png"), "");
+  assert.equal(safeAvatarPath("C:\\avatar.png"), "");
+});
+
+test("dashboard cache reuses facet-aware derivation until snapshot or state changes", () => {
+  const value = snapshot();
+  const options = {
+    filters: { source: "all", provider: "all", model: "all", project: "all" },
+    period: "all",
+    year: 2024,
+    heatmapMode: "daily",
+    leaderboardGroup: "model",
+    selectedDay: "2024-01-02",
+    today: "2024-01-10",
+  };
+  let calls = 0;
+  const cache = createDashboardCache((snap, viewOptions) => {
+    calls += 1;
+    return deriveDashboard(snap, viewOptions);
+  });
+
+  const first = cache.read(value, options);
+  const repeated = cache.read(value, { ...options, filters: { ...options.filters } });
+  assert.equal(calls, 1);
+  assert.equal(repeated, first);
+  assert.equal(repeated.facets.model, first.facets.model);
+  assert.deepEqual(Object.keys(first.facets).sort(), ["model", "project", "provider", "source"]);
+  assert.equal(first.facets.model.total, 30);
+
+  const filtered = cache.read(value, { ...options, filters: { ...options.filters, model: "model-a" } });
+  assert.notEqual(filtered, first);
+  assert.equal(calls, 2);
+  assert.equal(cache.read(value, { ...options, filters: { model: "model-a", source: "all", provider: "all", project: "all" } }), filtered);
+  assert.equal(calls, 2);
+
+  cache.read(value, { ...options, selectedDay: "2024-01-01" });
+  assert.equal(calls, 3);
+  cache.read(value, { ...options, today: "2024-01-11" });
+  assert.equal(calls, 4);
+
+  const nextSnapshot = { ...value, rows: [...value.rows] };
+  cache.read(nextSnapshot, options);
+  assert.equal(calls, 5);
+
+  value.config = { ...value.config, includeCache: false };
+  cache.read(value, options);
+  assert.equal(calls, 6);
+
+  for (const change of [{ period: "week" }, { year: 2023 }, { heatmapMode: "weekly" }, { leaderboardGroup: "provider" }]) {
+    cache.read(value, { ...options, ...change });
+  }
+  assert.equal(calls, 10);
+
+  cache.invalidate();
+  cache.read(value, options);
+  assert.equal(calls, 11);
 });

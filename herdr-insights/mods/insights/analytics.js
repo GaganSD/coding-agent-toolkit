@@ -239,6 +239,18 @@ export function normalizeConfig(config) {
   };
 }
 
+/** Only app-relative avatar files are handed to the native image loader. */
+export function safeAvatarPath(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (/[\u0000-\u001f\u007f]/.test(text)) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(text)) return "";
+  if (/^[\\/]/.test(text) || text.startsWith("~")) return "";
+  if (/^[a-z]:[\\/]/i.test(text)) return "";
+  if (text.split(/[\\/]+/).includes("..")) return "";
+  return text;
+}
+
 export function isSnapshot(value) {
   return Boolean(
     value
@@ -740,6 +752,156 @@ export function buildHeatmap(rows, options = {}) {
     windowTotal,
     months,
     range: { start: startDay, end: lastDay, dataEnd: endDay },
+  };
+}
+
+function resolvedDashboardOptions(options = {}, fallbackToday = todayKey()) {
+  const today = isDay(options.today) ? options.today : fallbackToday;
+  return {
+    filters: options.filters && typeof options.filters === "object" ? options.filters : {},
+    period: PERIODS.includes(options.period) ? options.period : "all",
+    year: Number.isInteger(options.year) ? options.year : Number(today.slice(0, 4)),
+    heatmapMode: HEATMAP_MODES.includes(options.heatmapMode) ? options.heatmapMode : "daily",
+    leaderboardGroup: options.leaderboardGroup === "provider" ? "provider" : "model",
+    selectedDay: isDay(options.selectedDay) ? options.selectedDay : today,
+    today,
+  };
+}
+
+/**
+ * One complete dashboard derivation. Keep this pure so the native view can
+ * memoize it without serializing a snapshot for a cache key.
+ */
+export function deriveDashboard(snapshot, options = {}) {
+  const config = normalizeConfig(snapshot?.config ?? {});
+  const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
+  const settings = resolvedDashboardOptions(options);
+  const { filters, period, year, heatmapMode, leaderboardGroup, today } = settings;
+  const includeCache = config.includeCache;
+  const dimensionRows = filterRows(rows, filters);
+  const range = periodRange(period, { today, weekStartsOn: config.weekStartsOn, year });
+  const periodRows = filterRowsByRange(dimensionRows, range);
+  const previousRows = range.previous ? filterRowsByRange(dimensionRows, range.previous) : null;
+
+  const lifetime = sumTokens(dimensionRows, includeCache);
+  const peak = peakDay(dimensionRows, includeCache);
+  const streaks = streakStats(dimensionRows, { today, includeCache });
+  const heatmap = buildHeatmap(dimensionRows, {
+    endDay: range.end,
+    weekStartsOn: config.weekStartsOn,
+    mode: heatmapMode,
+    includeCache,
+  });
+  const totals = sumTokens(periodRows, includeCache);
+  const leaders = leaderboard(periodRows, previousRows, {
+    groupBy: leaderboardGroup,
+    includeCache,
+    limit: 12,
+  });
+
+  const selectedInRange = heatmap.cells.find((cell) => cell.date === settings.selectedDay && !cell.future);
+  const selectedDay = selectedInRange ? settings.selectedDay : heatmap.range.dataEnd;
+  const selectedRows = dimensionRows.filter((row) => row.day === selectedDay);
+  const selectedTotals = sumTokens(selectedRows, includeCache);
+  const selectedTop = selectedRows.length
+    ? leaderboard(selectedRows, null, { groupBy: "model", includeCache, limit: 1 }).entries[0]
+    : null;
+
+  const facets = {};
+  for (const field of ["source", "provider", "model", "project"]) {
+    const baseRows = filterRows(rows, { ...filters, [field]: "all" });
+    const stats = facetStats(baseRows, field, includeCache);
+    facets[field] = {
+      stats,
+      total: stats.reduce((total, stat) => total + stat.tokens, 0),
+    };
+  }
+
+  return {
+    snapshot,
+    config,
+    rows,
+    filters,
+    period,
+    year,
+    heatmapMode,
+    leaderboardGroup,
+    includeCache,
+    today,
+    dimensionRows,
+    periodRows,
+    previousRows,
+    range,
+    lifetime,
+    peak,
+    streaks,
+    heatmap,
+    totals,
+    leaders,
+    selectedDay,
+    selectedRows,
+    selectedTotals,
+    selectedTop,
+    facets,
+  };
+}
+
+const DASHBOARD_KEY_FIELDS = [
+  "snapshot",
+  "configSource",
+  "includeCache",
+  "weekStartsOn",
+  "source",
+  "provider",
+  "model",
+  "project",
+  "period",
+  "year",
+  "heatmapMode",
+  "leaderboardGroup",
+  "selectedDay",
+  "today",
+];
+
+function sameDashboardKey(left, right) {
+  return DASHBOARD_KEY_FIELDS.every((field) => left[field] === right[field]);
+}
+
+/**
+ * Snapshot-identity plus small scalar key. Repeated reads from unrelated
+ * renders return the exact same derived object, including facet stats.
+ */
+export function createDashboardCache(compute = deriveDashboard) {
+  let cached = null;
+  return {
+    read(snapshot, options = {}) {
+      const resolved = resolvedDashboardOptions(options);
+      const config = normalizeConfig(snapshot?.config ?? {});
+      const filters = resolved.filters;
+      const key = {
+        snapshot,
+        configSource: snapshot?.config ?? null,
+        includeCache: config.includeCache,
+        weekStartsOn: config.weekStartsOn,
+        source: cleanFilter(filters.source ?? filters.harness) ?? "all",
+        provider: cleanFilter(filters.provider) ?? "all",
+        model: cleanFilter(filters.model) ?? "all",
+        project: cleanFilter(filters.project) ?? "all",
+        period: resolved.period,
+        year: resolved.year,
+        heatmapMode: resolved.heatmapMode,
+        leaderboardGroup: resolved.leaderboardGroup,
+        selectedDay: resolved.selectedDay,
+        today: resolved.today,
+      };
+      if (cached && sameDashboardKey(cached.key, key)) return cached.result;
+      const result = compute(snapshot, { ...options, ...resolved });
+      cached = { key, result };
+      return result;
+    },
+    invalidate() {
+      cached = null;
+    },
   };
 }
 
