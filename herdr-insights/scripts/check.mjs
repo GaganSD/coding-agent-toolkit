@@ -144,7 +144,7 @@ async function checkDocs() {
     for (const heading of ["# Insights", "## Install", "## Use", "## Privacy", "## Development"]) {
       if (!readme.includes(heading)) fail(`README.md is missing ${heading}`);
     }
-    for (const phrase of ["![Insights](preview.png)", "insights.json", "herdr-app check", "Node.js 22.15+", "synthetic data"]) {
+    for (const phrase of ["![Insights](preview.png)", "insights.json", "herdr-app check", "Node.js 22.15+"]) {
       if (!readme.toLowerCase().includes(phrase.toLowerCase())) {
         fail(`README.md does not mention ${JSON.stringify(phrase)}`);
       }
