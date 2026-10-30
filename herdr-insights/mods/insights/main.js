@@ -36,7 +36,6 @@ import {
   metaLabel,
   mutedText,
   notice,
-  pageSubtitle,
   pageTitle,
   segmented,
   statCell,
@@ -337,11 +336,9 @@ function metricRow(cards) {
   return h_flex().w_full().gap(G.sm).items_stretch().children(cards);
 }
 
-function preferenceRow(label, help, control, c) {
+function preferenceRow(label, control, c) {
   return h_flex().w_full().flex_wrap().gap(G.md).items_center().justify_between()
-    .child(v_flex().gap(2)
-      .child(fieldLabel(label, c))
-      .child(div().text_size(T.label).text_color(c.dim).child(help)))
+    .child(fieldLabel(label, c))
     .child(control);
 }
 
@@ -1152,11 +1149,7 @@ export default class Insights extends View {
               : updated ? `Updated ${updated}` : "";
     const statusError = Boolean(this.error || this.dashboardError);
     return h_flex().w_full().flex_wrap().gap(G.md).items_center().justify_between()
-      .child(v_flex().gap(G.xs)
-        .child(pageTitle(this.showSettings ? "Settings" : "Insights", c))
-        .child(pageSubtitle(this.showSettings
-          ? "Sources and the complete local configuration."
-          : "Local AI usage · private by design", c)))
+      .child(pageTitle(this.showSettings ? "Settings" : "Insights", c))
       .child(h_flex().flex_wrap().gap(G.sm).items_center()
         .when(Boolean(status), (el) => el.child(div().text_size(T.small)
           .text_color(statusError ? c.destructive : c.dim).child(status)))
@@ -1653,19 +1646,18 @@ export default class Insights extends View {
     const refreshInput = controlInput(Input.new(this.refreshInput).w(110), c);
 
     const preferences = card(c).gap(G.md)
-      .child(cardHeader("Preferences", "Theme-adaptive dashboard settings.", c))
-      .child(preferenceRow("Heatmap palette", "Blue, green or purple intensity.", segmented("ins-palette", [
+      .child(cardHeader("Preferences", "", c))
+      .child(preferenceRow("Heatmap palette", segmented("ins-palette", [
         { key: "blue", label: "Blue" },
         { key: "green", label: "Green" },
         { key: "purple", label: "Purple" },
       ], config.palette, (key) => this.updateDraft((draft) => { draft.palette = key; }), c), c))
-      .child(preferenceRow("Week starts on", "Calendar weeks and heatmap rows.", segmented("ins-week-start", [
+      .child(preferenceRow("Week starts on", segmented("ins-week-start", [
         { key: "0", label: "Sunday" },
         { key: "1", label: "Monday" },
       ], String(config.weekStartsOn), (key) => this.updateDraft((draft) => { draft.weekStartsOn = Number(key); }), c), c))
       .child(preferenceRow(
         "Include cache tokens",
-        "Count cache read/write in totals and heatmap intensity.",
         toggleSwitch("ins-include-cache", config.includeCache, (checked) => this.updateDraft((draft) => { draft.includeCache = checked; }), c, {
           label: "Include cache tokens",
         }),
@@ -1673,7 +1665,6 @@ export default class Insights extends View {
       ))
       .child(preferenceRow(
         "Refresh interval",
-        "Seconds, 30 to 3600. Default 60.",
         h_flex().gap(G.xs).items_center().child(refreshInput).child(mutedText("sec", c)),
         c,
       ));
@@ -1687,40 +1678,32 @@ export default class Insights extends View {
             const target = (draft.sources ?? []).find((item, itemIndex) => sourceKey(item, itemIndex) === key);
             if (target) target.enabled = checked;
           }), c, { label: `${source?.label || source?.adapter || `Source ${index + 1}`} enabled` }))
-          .child(v_flex().flex_1().min_w(0).gap(1)
-            .child(fieldLabel(source?.label || source?.adapter || `Source ${index + 1}`, c))
-            .child(mutedText(`adapter ${source?.adapter || source?.id || "unknown"} · ${source?.enabled === false ? "disabled" : "enabled"}`, c))))
+          .child(fieldLabel(source?.label || source?.adapter || `Source ${index + 1}`, c)))
         .when(state, (el) => el.child(textInput(state)))
-        .when(!state, (el) => el.child(mutedText(rootsText(source) || "No roots configured", c)))
-        .child(mutedText("Comma-separated roots.", c));
+        .when(!state, (el) => el.child(mutedText(rootsText(source) || "No roots configured", c)));
     });
 
     const sources = card(c).gap(G.sm)
-      .child(cardHeader("Sources", "Toggle harnesses and edit their roots. Changed mappings are invalidated by the collector.", c))
+      .child(cardHeader("Sources", "", c))
       .when(sourceCards.length === 0, (el) => el.child(mutedText("No sources in this configuration. Add one in the JSON editor.", c)))
-      .children(sourceCards)
-      .child(mutedText("Custom JSONL adapters are declarative field mappings in the configuration JSON below.", c));
+      .children(sourceCards);
 
     const json = card(c).gap(G.sm)
       .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_between()
-        .child(cardHeader("Configuration JSON", "Full declarative config, including custom adapters.", c))
+        .child(cardHeader("Configuration JSON", "", c))
         .child(h_flex().flex_wrap().gap(G.xs)
           .child(button("ins-config-format", "Format", (_event, clickCx) => this.formatConfigEditor(clickCx), c, { variant: "outline" }))
           .child(button("ins-config-reset", "Reset", (_event, clickCx) => this.resetConfigDraft(clickCx), c, { variant: "ghost" }))))
       .child(Editor.new(this.configEditor).w_full().h(320).rounded(R.control).border_1().border_color(c.input))
-      .child(mutedText("Saved with the collector's configure command. Invalid JSON or an invalid adapter is reported below and nothing is written.", c));
-
-    const save = card(c).gap(G.sm)
       .child(h_flex().w_full().flex_wrap().gap(G.md).items_center().justify_between()
         .child(v_flex().flex_1().min_w(0).gap(2)
           .when(Boolean(this.saveError), (el) => el.child(div().text_size(T.body).text_color(c.destructive).child(this.saveError)))
-          .when(Boolean(this.saveMessage), (el) => el.child(div().text_size(T.body).text_color(c.done).child(this.saveMessage)))
-          .when(!this.saveError && !this.saveMessage, (el) => el.child(mutedText("Changes are validated before they are saved.", c))))
+          .when(Boolean(this.saveMessage), (el) => el.child(div().text_size(T.body).text_color(c.done).child(this.saveMessage))))
         .child(button("ins-config-save", this.saving ? "Saving…" : "Save configuration", (_event, clickCx) => this.saveConfig(clickCx), c, {
           disabled: this.busy(),
           variant: "primary",
         })));
 
-    return v_flex().w_full().gap(G.lg).children([preferences, sources, json, save]);
+    return v_flex().w_full().gap(G.lg).children([preferences, sources, json]);
   }
 }
