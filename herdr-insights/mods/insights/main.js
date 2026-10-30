@@ -1551,12 +1551,11 @@ export default class Insights extends View {
       .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
         .child(statCell("Input", formatCompact(totals.input), c, { tooltip: `${formatInt(totals.input)} input tokens` }))
         .child(statCell("Output", formatCompact(totals.output), c, {
-          note: "includes reasoning",
           tooltip: `${formatInt(totals.output)} output tokens · reasoning ${formatInt(totals.reasoning)}`,
         }))
         .child(statCell("Cache hit rate", formatHitRate(totals.input, totals.cacheRead), c, { tooltip: hitTooltip(totals) }))
         .child(statCell("Top model", top?.name ?? "—", c, top
-          ? { note: top.sublabel, tooltip: `${top.name} · ${top.sublabel}` }
+          ? { tooltip: `${top.name} · ${top.sublabel}` }
           : { tooltip: "No model usage" })));
 
     const dayHeading = selectedDay === today ? "Today" : dayLabel(selectedDay, { weekday: true });

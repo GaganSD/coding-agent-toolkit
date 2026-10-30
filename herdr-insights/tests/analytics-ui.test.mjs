@@ -644,9 +644,8 @@ test("stat grids top-align rows when optional notes change sibling heights", () 
   assert.deepEqual(allTimeColumn.childNodes[0].childNodes, ["ALL TIME"]);
 
   const noted = statRows[0].childNodes.filter((cell) => cell.childNodes.length === 3);
-  const plain = statRows[0].childNodes.filter((cell) => cell.childNodes.length === 2);
-  assert.ok(noted.length > 0, "the fixture must include a note-bearing cell");
-  assert.ok(plain.length > 0, "the fixture must include a cell without a note");
+  assert.equal(noted.length, 0, "the detail card shows values only, no notes");
+  assert.equal(statRows[1].childNodes.every((cell) => cell.childNodes.length === 2), true);
   assert.equal(statRows[2].childNodes.every((cell) => cell.childNodes.length === 2), true);
 });
 
