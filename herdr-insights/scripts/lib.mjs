@@ -62,7 +62,9 @@ export async function resolveAppHome(explicit) {
   try {
     await fs.mkdir(absolute, { recursive: true });
   } catch (error) {
-    throw new Error(`Cannot create or use app home ${absolute}: ${error.message}`);
+    throw new Error(`Cannot create or use app home ${absolute}: ${error.message}`, {
+      cause: error,
+    });
   }
 
   const stat = await fs.lstat(absolute);
@@ -173,7 +175,9 @@ export async function readManifest(appHome) {
   try {
     parsed = JSON.parse(await fs.readFile(file, "utf8"));
   } catch (error) {
-    throw new Error(`Install manifest is not valid JSON: ${file}: ${error.message}`);
+    throw new Error(`Install manifest is not valid JSON: ${file}: ${error.message}`, {
+      cause: error,
+    });
   }
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -243,7 +247,7 @@ async function renameWithReplace(source, target) {
     ) {
       const existing = await lstatOrNull(target);
       if (existing?.isSymbolicLink() || (existing && !existing.isFile())) {
-        throw new Error(`Refusing to replace a non-regular file: ${target}`);
+        throw new Error(`Refusing to replace a non-regular file: ${target}`, { cause: error });
       }
       if (existing) await fs.unlink(target);
       await fs.rename(source, target);
@@ -269,6 +273,10 @@ export async function writeFileAtomic(target, data, mode = 0o644) {
     await fs.rm(temporary, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+function isGeneratedSourceFile(name) {
+  return name === "jsconfig.json" || name.endsWith(".d.ts");
 }
 
 export async function collectSourceFiles(sourceRoot) {
@@ -298,6 +306,7 @@ export async function collectSourceFiles(sourceRoot) {
       if (entry.isDirectory() && (entry.name === ".git" || entry.name === "node_modules")) {
         continue;
       }
+      if (entry.isFile() && isGeneratedSourceFile(entry.name)) continue;
 
       const absolute = path.join(directory, entry.name);
       const relative = relativeDirectory
@@ -350,7 +359,9 @@ export async function collectSourceFiles(sourceRoot) {
     const text = modJsonFile.data.toString("utf8").replace(/^\uFEFF/, "");
     modJson = JSON.parse(text);
   } catch (error) {
-    throw new Error(`Source mod.json is not valid JSON: ${error.message}`);
+    throw new Error(`Source mod.json is not valid JSON: ${error.message}`, {
+      cause: error,
+    });
   }
   if (!modJson || typeof modJson !== "object" || Array.isArray(modJson)) {
     throw new Error("Source mod.json must contain a JSON object.");

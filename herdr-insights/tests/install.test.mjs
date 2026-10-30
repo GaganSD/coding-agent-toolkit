@@ -91,6 +91,47 @@ test("fresh install copies only owned mod files and preserves local app state", 
   }
 });
 
+test("Herdr-generated declarations and jsconfig.json are ignored by source installs", async (t) => {
+  const root = await temporaryRoot(t);
+  const generatedFiles = {
+    "insights.d.ts": "declare const generated: true;\n",
+    "jsconfig.json": '{"compilerOptions":{"strict":true}}\n',
+    "nested/schema.d.ts": "export type Generated = true;\n",
+    "nested/jsconfig.json": '{"compilerOptions":{}}\n',
+  };
+  const sourceRoot = await createSource(root, {
+    ...DEFAULT_MOD_FILES,
+    ...generatedFiles,
+  });
+  const appHome = path.join(root, "app home");
+  const fake = await createFakeRunner(root);
+
+  const result = runInstall({ appHome, fake, sourceRoot });
+  assertSuccess(result);
+  assert.match(result.stdout, /Installed 6 owned file/);
+
+  const installed = await listFiles(path.join(appHome, "mods", "insights"));
+  assert.deepEqual(installed, Object.keys(DEFAULT_MOD_FILES).sort());
+
+  const manifest = await readJson(
+    path.join(appHome, "data", "insights", "install-manifest.json"),
+  );
+  assert.deepEqual(Object.keys(manifest.files).sort(), Object.keys(DEFAULT_MOD_FILES).sort());
+  for (const relative of Object.keys(generatedFiles)) {
+    assert.equal(
+      await exists(path.join(sourceRoot, "mods", "insights", relative)),
+      true,
+      `generated source ${relative}`,
+    );
+    assert.equal(
+      await exists(path.join(appHome, "mods", "insights", relative)),
+      false,
+      `not copied ${relative}`,
+    );
+    assert.equal(manifest.files[relative], undefined, `not hashed ${relative}`);
+  }
+});
+
 test("--open uses argv-safe executable arguments and runs only after a passing check", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root, DEFAULT_MOD_FILES, "reviewed source's tree");
