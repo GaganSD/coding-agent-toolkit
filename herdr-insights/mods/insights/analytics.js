@@ -581,6 +581,13 @@ export function peakDay(rows, includeCache = true) {
   return best.tokens > 0 ? best : { day: null, tokens: 0, sessions: 0 };
 }
 
+/** Cache reads as a share of all input-side tokens, as a short percent. */
+export function formatHitRate(input, cacheRead) {
+  const total = finite(input) + finite(cacheRead);
+  if (total <= 0) return "—";
+  return `${round1((finite(cacheRead) / total) * 100)}%`;
+}
+
 /** Percent change with explicit New / zero-safe / no-previous states. */
 export function compareChange(current, previous, hasPrevious = true) {
   const now = finite(current);
@@ -972,6 +979,9 @@ export function deriveDashboard(snapshot, options = {}) {
   const selectedTop = selectedRows.length
     ? leaderboard(selectedRows, null, { groupBy: "model", includeCache, limit: 1 }).entries[0]
     : null;
+  const lifetimeTop = rows.length
+    ? leaderboard(rows, null, { groupBy: "model", includeCache, limit: 1 }).entries[0] ?? null
+    : null;
 
   const facetStatsByField = facetStatsAll(rows, filters, includeCache);
   const facets = {};
@@ -1012,6 +1022,7 @@ export function deriveDashboard(snapshot, options = {}) {
     selectedRows,
     selectedTotals,
     selectedTop,
+    lifetimeTop,
     facets,
     modelSeries,
   };
@@ -1086,6 +1097,7 @@ export function compactDashboard(derived) {
     selectedDay: derived?.selectedDay,
     selectedTotals: derived?.selectedTotals,
     selectedTop: derived?.selectedTop ?? null,
+    lifetimeTop: derived?.lifetimeTop ?? null,
     selectedRowCount: Array.isArray(derived?.selectedRows) ? derived.selectedRows.length : 0,
     rowCount: Array.isArray(derived?.rows) ? derived.rows.length : 0,
     facets: derived?.facets ?? {},

@@ -619,29 +619,41 @@ test("stat grids top-align rows when optional notes change sibling heights", () 
     sessions: 2, messages: 3, longestTaskMs: 4000,
   };
   const heatmap = buildHeatmap([], { endDay: "2024-01-20", weeks: 3, weekStartsOn: 0 });
-  const detail = instance.tokenDetailCard(c, heatmap, "2024-01-10", 1, totals, {
+  const detail = instance.tokenDetailCard(c, heatmap, "2024-01-10", "2024-01-20", totals, {
     name: "model-a",
     sublabel: "provider-a",
-  }, totals);
+  }, totals, { name: "model-b", sublabel: "provider-b" });
   const snapshot = savedSnapshot();
   const status = instance.statusCard(c, snapshot, snapshot.config);
+  const allTimeColumn = detail.childNodes[0].childNodes[0];
+  const todayColumn = detail.childNodes[0].childNodes[1];
   const statRows = [
-    detail.childNodes[1],
-    detail.childNodes[2],
-    detail.childNodes[5],
+    allTimeColumn.childNodes[1],
+    todayColumn.childNodes[1],
     status.childNodes[1],
   ];
 
   for (const row of statRows) {
-    assert.equal(row.childNodes.length, 4);
     assert.equal(row.style.alignItems, "start");
   }
+  assert.deepEqual(
+    allTimeColumn.childNodes[1].childNodes.map((cell) => cell.childNodes[0].childNodes[0]),
+    ["INPUT", "OUTPUT", "CACHE HIT RATE", "TOP MODEL"],
+    "the detail card keeps only input, output, hit rate and top model",
+  );
+  assert.deepEqual(allTimeColumn.childNodes[0].childNodes, ["ALL TIME"]);
 
   const noted = statRows[0].childNodes.filter((cell) => cell.childNodes.length === 3);
   const plain = statRows[0].childNodes.filter((cell) => cell.childNodes.length === 2);
   assert.ok(noted.length > 0, "the fixture must include a note-bearing cell");
   assert.ok(plain.length > 0, "the fixture must include a cell without a note");
-  assert.equal(statRows[3].childNodes.every((cell) => cell.childNodes.length === 2), true);
+  assert.equal(statRows[2].childNodes.every((cell) => cell.childNodes.length === 2), true);
+});
+
+test("cache hit rate is a share of input-side tokens", () => {
+  assert.equal(analytics.formatHitRate(100, 900), "90%");
+  assert.equal(analytics.formatHitRate(0, 0), "—");
+  assert.equal(analytics.formatHitRate(200, 0), "0%");
 });
 
 test("initial async snapshot publishes the dashboard before settings host controls exist", async () => {

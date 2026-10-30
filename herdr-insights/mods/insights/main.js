@@ -9,6 +9,7 @@ import {
   formatBytes,
   formatCompact,
   formatDuration,
+  formatHitRate,
   formatInt,
   formatTimestamp,
   initials,
@@ -1301,14 +1302,14 @@ export default class Insights extends View {
         action: retry("insights-prepare-retry", false),
       });
     }
-    const { config, rowCount, range, lifetime, peak, streaks, heatmap, leaders, selectedDay, selectedRowCount, selectedTotals, selectedTop, years } = derived;
+    const { config, rowCount, range, lifetime, peak, streaks, heatmap, leaders, selectedDay, selectedTotals, selectedTop, years } = derived;
 
     return v_flex().w_full().gap(G.lg)
       .child(this.metricStrip(c, lifetime, peak, streaks))
       .when(rowCount === 0, (el) => el.child(this.emptyNotice(c, config)))
       .child(this.sectionHeader("Token usage", c))
       .child(this.heatmapCard(c, config, heatmap, selectedDay))
-      .child(this.tokenDetailCard(c, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop, lifetime))
+      .child(this.tokenDetailCard(c, heatmap, selectedDay, derived.today, selectedTotals, selectedTop, lifetime, derived.lifetimeTop))
       .child(this.sectionHeader("Model usage", c))
       .child(this.filtersBar(c, config, range, derived.facets, years))
       .when(Boolean(derived.modelSeries?.weeks?.length), (el) => el.child(this.modelChartCard(c, derived.modelSeries)))
@@ -1542,69 +1543,27 @@ export default class Insights extends View {
       .child(legend);
   }
 
-  tokenDetailCard(c, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop, lifetime) {
-    const cell = heatmap.weeks.flatMap((week) => week.days).find((item) => item.date === selectedDay);
-    const modeLabel = heatmap.mode === "weekly" ? "Week total" : heatmap.mode === "cumulative" ? "Cumulative through day" : "Daily tokens";
-    const value = cell ? formatCompact(cell.value) : "0";
-    const exact = cell ? formatInt(cell.value) : "0";
-    const dayExact = formatInt(selectedTotals.total);
-    const cacheNote = heatmap.includeCache ? "included" : "excluded";
+  tokenDetailCard(c, heatmap, selectedDay, today, selectedTotals, selectedTop, lifetime, lifetimeTop) {
+    const hitTooltip = (totals) => `${formatInt(totals.cacheRead)} cache reads of ${formatInt(totals.input + totals.cacheRead)} input-side tokens`;
+    const column = (label, totals, top, divided) => v_flex().flex_1().min_w(0).gap(G.sm)
+      .when(divided, (el) => el.border_l(1).border_color(c.border).pl(G.lg))
+      .child(metaLabel(label, c))
+      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
+        .child(statCell("Input", formatCompact(totals.input), c, { tooltip: `${formatInt(totals.input)} input tokens` }))
+        .child(statCell("Output", formatCompact(totals.output), c, {
+          note: "includes reasoning",
+          tooltip: `${formatInt(totals.output)} output tokens · reasoning ${formatInt(totals.reasoning)}`,
+        }))
+        .child(statCell("Cache hit rate", formatHitRate(totals.input, totals.cacheRead), c, { tooltip: hitTooltip(totals) }))
+        .child(statCell("Top model", top?.name ?? "—", c, top
+          ? { note: top.sublabel, tooltip: `${top.name} · ${top.sublabel}` }
+          : { tooltip: "No model usage" })));
 
-    return card(c).gap(G.md)
-      .child(h_flex().w_full().flex_wrap().gap(G.sm).items_start().justify_between()
-        .child(v_flex().gap(2)
-          .child(div().text_size(12).font_semibold().text_color(c.text)
-            .child(dayLabel(selectedDay, { weekday: true, longWeekday: true })))
-          .child(mutedText(`${modeLabel}${heatmap.mode === "daily" ? "" : ` · this day ${formatCompact(selectedTotals.total)} tokens`}`, c, T.label)))
-        .child(v_flex().items_end().gap(1)
-          .child(div().text_size(18).font_semibold().text_color(c.text).tooltip(`${exact} tokens`).child(value))
-          .child(mutedText(`${dayExact} tokens on this day`, c, T.label))))
-      .when(selectedRowCount === 0, (el) => el.child(div().text_size(T.body).text_color(c.mutedForeground)
-        .child("No usage recorded on this day.")))
-      // Stat cells keep optional notes below the value, so top-align the row
-      // rather than centering cells against the tallest note-bearing sibling.
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
-        .child(statCell("Input", formatCompact(selectedTotals.input), c, { tooltip: `${formatInt(selectedTotals.input)} input tokens` }))
-        .child(statCell("Output", formatCompact(selectedTotals.output), c, {
-          note: "includes reasoning",
-          tooltip: `${formatInt(selectedTotals.output)} output tokens · reasoning ${formatInt(selectedTotals.reasoning)}`,
-        }))
-        .child(statCell("Cache read", formatCompact(selectedTotals.cacheRead), c, {
-          note: cacheNote,
-          tooltip: `${formatInt(selectedTotals.cacheRead)} cache-read tokens`,
-        }))
-        .child(statCell("Cache write", formatCompact(selectedTotals.cacheWrite), c, {
-          note: cacheNote,
-          tooltip: `${formatInt(selectedTotals.cacheWrite)} cache-write tokens`,
-        })))
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
-        .child(statCell("Sessions", formatInt(selectedTotals.sessions), c, { tooltip: `${formatInt(selectedTotals.sessions)} sessions on this day` }))
-        .child(statCell("Usage events", formatInt(selectedTotals.messages), c, { tooltip: `${formatInt(selectedTotals.messages)} nonzero reported usage records` }))
-        .child(statCell("Longest task", formatDuration(selectedTotals.longestTaskMs), c, {
-          note: selectedTotals.longestTaskMs > 0 ? "observed" : "not reported",
-          tooltip: selectedTotals.longestTaskMs > 0 ? `${formatInt(selectedTotals.longestTaskMs)} ms observed` : "Unknown task duration",
-        }))
-        .when(Boolean(selectedTop), (el) => el.child(statCell("Top model", selectedTop.name, c, {
-          note: selectedTop.sublabel,
-          tooltip: `${selectedTop.name} · ${selectedTop.sublabel}`,
-        }))))
-      .child(div().h(1).w_full().bg(c.border))
-      .child(metaLabel("All time", c))
-      .child(h_flex().w_full().flex_wrap().gap_x(G.lg).gap_y(G.md).items_start()
-        .child(statCell("Input", formatCompact(lifetime.input), c, { tooltip: `${formatInt(lifetime.input)} input tokens` }))
-        .child(statCell("Output", formatCompact(lifetime.output), c, {
-          note: "includes reasoning",
-          tooltip: `${formatInt(lifetime.output)} output tokens · reasoning ${formatInt(lifetime.reasoning)}`,
-        }))
-        .child(statCell("Cache read", formatCompact(lifetime.cacheRead), c, {
-          note: cacheNote,
-          tooltip: `${formatInt(lifetime.cacheRead)} cache-read tokens`,
-        }))
-        .child(statCell("Cache write", formatCompact(lifetime.cacheWrite), c, {
-          note: cacheNote,
-          tooltip: `${formatInt(lifetime.cacheWrite)} cache-write tokens`,
-        })))
-      .child(mutedText(`Reasoning ${formatInt(lifetime.reasoning)} is already inside output and is never added twice.`, c));
+    const dayHeading = selectedDay === today ? "Today" : dayLabel(selectedDay, { weekday: true });
+    return card(c)
+      .child(h_flex().w_full().items_start().gap(G.lg)
+        .child(column("All time", lifetime, lifetimeTop, false))
+        .child(column(dayHeading, selectedTotals, selectedTop, true)));
   }
 
   modelChartCard(c, series) {
