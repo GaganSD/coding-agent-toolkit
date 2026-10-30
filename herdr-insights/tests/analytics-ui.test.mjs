@@ -312,15 +312,54 @@ test("refresh and configure share one single-flight guard", () => {
   assert.equal(instance.busy(), false);
   assert.match(mainSource, /smallButton\("insights-refresh",[^;]*?disabled: this\.busy\(\)/);
   assert.match(mainSource, /smallButton\("ins-config-save",[\s\S]*?disabled: this\.busy\(\)/);
-  assert.match(mainSource, /insights-save-profile[\s\S]*?disabled: this\.busy\(\)/);
+  assert.doesNotMatch(mainSource, /insights-save-profile|profileDirty|AvatarImage|nameInput|handleInput|avatarInput/);
 });
 
-test("dashboard render reads the memoized derivation instead of recomputing analytics", () => {
-  assert.match(mainSource, /dashboardCache\.read\(snapshot/);
+test("dashboard render uses cached analytics and builds closed filter menus lazily", () => {
+  assert.match(mainSource, /dashboardCache\.peek\(snapshot, this\.dashboardOptions\(\)\)/);
   assert.doesNotMatch(mainSource, /\b(buildHeatmap|facetStats|filterRows|filterRowsByRange|leaderboard|peakDay|streakStats|sumTokens)\(/);
-  assert.match(mainSource, /buildFacetOptions\("model", facets\.model, config\)/);
-  assert.match(mainSource, /safeAvatarPath\(config\.profile\.avatar\)/);
-  assert.doesNotMatch(mainSource, /AvatarImage\.new\(config\.profile\.avatar\)/);
+  assert.match(mainSource, /if \(this\.openFilter === id && this\.openOptions\)/);
+  assert.match(mainSource, /this\.openOptions = open \? buildFacetOptions/);
+  assert.match(mainSource, /menu\.content\(this\.filterMenuContent/);
+  assert.doesNotMatch(mainSource, /const (source|provider|model|project)Options = buildFacetOptions/);
+  assert.doesNotMatch(mainSource, /safeAvatarPath|AvatarImage|AvatarFallback|Profile/);
+  assert.match(mainSource, /this\.updateDashboard\(\);/);
+});
+
+test("form saves preserve the legacy profile and multi-root source mappings", () => {
+  const instance = blankInstance();
+  const saved = savedSnapshot();
+  const profile = { name: "Legacy Name", handle: "legacy", avatar: "mods/insights/legacy.png" };
+  const mapping = { session: "session.id", timestamp: "ts", usage: { input: "usage.input" } };
+  saved.config.profile = profile;
+  saved.config.sources = [{
+    id: "codex",
+    label: "Codex",
+    adapter: "codex",
+    enabled: true,
+    roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
+    mapping,
+  }];
+  Object.assign(instance, {
+    snapshot: saved,
+    configDirty: true,
+    editorDirty: false,
+    rootsDirty: false,
+    refreshDirty: true,
+    configDraft: JSON.parse(JSON.stringify(saved.config)),
+    sourceInputs: new Map(),
+    syncingInputs: false,
+    refreshInput: { value: () => "120" },
+    configEditor: { value: () => JSON.stringify(saved.config), set_value() {}, on() {} },
+  });
+  instance.ensureSourceInputs(instance.configDraft);
+  const state = instance.sourceInputs.get("codex");
+  assert.equal(state.value(), "~/.codex/sessions, ~/.codex/archived_sessions");
+  const config = instance.buildConfigForSave();
+  assert.deepEqual(config.profile, profile);
+  assert.deepEqual(config.sources[0].roots, ["~/.codex/sessions", "~/.codex/archived_sessions"]);
+  assert.deepEqual(config.sources[0].mapping, mapping);
+  assert.equal(config.refreshSeconds, 120);
 });
 
 test("background snapshots preserve dirty draft sources and custom fields", () => {
@@ -335,18 +374,15 @@ test("background snapshots preserve dirty draft sources and custom fields", () =
   Object.assign(instance, {
     configDirty: true,
     editorDirty: false,
-    profileDirty: false,
     rootsDirty: false,
     refreshDirty: false,
     configDraft: draft,
     sourceInputs: new Map([["custom", customState]]),
-    nameInput: { set_value() {}, value: () => "" },
-    handleInput: { set_value() {}, value: () => "" },
-    avatarInput: { set_value() {}, value: () => "" },
     refreshInput: { set_value() {}, value: () => "120" },
     configEditor: { value: () => JSON.stringify(draft), set_value() {}, on() {} },
     setEditorText() { this.editorTextWrites = (this.editorTextWrites ?? 0) + 1; },
     schedule() { this.scheduleCalls = (this.scheduleCalls ?? 0) + 1; },
+    updateDashboard() { this.dashboardUpdates = (this.dashboardUpdates ?? 0) + 1; },
   });
 
   instance.applySnapshot(savedSnapshot(), fakeCx());
@@ -371,18 +407,15 @@ test("background snapshots preserve dirty draft sources and custom fields", () =
   Object.assign(editorInstance, {
     configDirty: false,
     editorDirty: true,
-    profileDirty: false,
     rootsDirty: false,
     refreshDirty: false,
     configDraft: JSON.parse(JSON.stringify(savedSnapshot().config)),
     sourceInputs: new Map([["saved", savedState]]),
-    nameInput: { set_value() {}, value: () => "" },
-    handleInput: { set_value() {}, value: () => "" },
-    avatarInput: { set_value() {}, value: () => "" },
     refreshInput: { set_value() {}, value: () => "60" },
     configEditor: { value: () => JSON.stringify(draft), set_value() {}, on() {} },
     setEditorText() { this.editorTextWrites = (this.editorTextWrites ?? 0) + 1; },
     schedule() { this.scheduleCalls = (this.scheduleCalls ?? 0) + 1; },
+    updateDashboard() { this.dashboardUpdates = (this.dashboardUpdates ?? 0) + 1; },
   });
 
   editorInstance.applySnapshot(savedSnapshot(), fakeCx());

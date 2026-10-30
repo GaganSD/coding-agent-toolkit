@@ -18,6 +18,7 @@ const {
   dayKey,
   dayLabel,
   deriveDashboard,
+  facetStatsAll,
   filterRows,
   filterRowsByRange,
   formatCompact,
@@ -32,7 +33,6 @@ const {
   parseDay,
   peakDay,
   periodRange,
-  safeAvatarPath,
   startOfWeek,
   streakStats,
   sumTokens,
@@ -155,6 +155,7 @@ test("heatmap daily, weekly and cumulative math is exact", () => {
   assert.equal(future.level, 0);
   assert.equal(heatmapTooltip(future, "daily"), "");
   assert.match(heatmapTooltip(byDay(daily, "2024-01-02"), "daily"), /Jan 2, 2024: 20 tokens/);
+  assert.match(byDay(daily, "2024-01-02").tooltip, /Jan 2, 2024: 20 tokens/);
   assert.match(heatmapTooltip(byDay(weekly, "2024-01-08"), "weekly"), /Week of Jan 7: 5 tokens/);
   assert.match(heatmapTooltip(byDay(cumulative, "2024-01-08"), "cumulative"), /Through Mon, Jan 8, 2024: 35 tokens/);
 });
@@ -177,6 +178,11 @@ test("filters match source, provider, model and project exactly", () => {
   assert.equal(filterRows(rows, { harness: "claude", provider: "anthropic" }).length, 1);
   assert.equal(filterRows(rows, { model: "gpt-a", project: "/a" }).length, 1);
   assert.equal(filterRows(rows, { provider: "missing" }).length, 0);
+
+  const facets = facetStatsAll(rows, { source: "pi" });
+  assert.deepEqual(facets.source.map((stat) => stat.value).sort(), ["claude", "pi"]);
+  assert.deepEqual(facets.provider.map((stat) => stat.value), ["openai"]);
+  assert.match(facets.provider[0].meta, /\d/);
 });
 
 test("period ranges use calendar boundaries and equivalent previous periods", () => {
@@ -359,22 +365,6 @@ function snapshot(overrides = {}) {
   };
 }
 
-test("avatar paths stay local and app-relative", () => {
-  assert.equal(safeAvatarPath("mods/insights/avatar.png"), "mods/insights/avatar.png");
-  assert.equal(safeAvatarPath("  avatars/ada.png  "), "avatars/ada.png");
-  assert.equal(safeAvatarPath(""), "");
-  assert.equal(safeAvatarPath(undefined), "");
-  assert.equal(safeAvatarPath("https://example.com/avatar.png"), "");
-  assert.equal(safeAvatarPath("http://example.com/avatar.png"), "");
-  assert.equal(safeAvatarPath("//example.com/avatar.png"), "");
-  assert.equal(safeAvatarPath("data:image/png;base64,AAAA"), "");
-  assert.equal(safeAvatarPath("file:///tmp/avatar.png"), "");
-  assert.equal(safeAvatarPath("/tmp/avatar.png"), "");
-  assert.equal(safeAvatarPath("../outside.png"), "");
-  assert.equal(safeAvatarPath("mods/../../outside.png"), "");
-  assert.equal(safeAvatarPath("C:\\avatar.png"), "");
-});
-
 test("dashboard cache reuses facet-aware derivation until snapshot or state changes", () => {
   const value = snapshot();
   const options = {
@@ -399,6 +389,10 @@ test("dashboard cache reuses facet-aware derivation until snapshot or state chan
   assert.equal(repeated.facets.model, first.facets.model);
   assert.deepEqual(Object.keys(first.facets).sort(), ["model", "project", "provider", "source"]);
   assert.equal(first.facets.model.total, 30);
+  assert.deepEqual(first.years, [2024]);
+  assert.equal(cache.peek(value, options), first);
+  assert.equal(cache.peek(value, { ...options, period: "week" }), null);
+  assert.equal(calls, 1, "peek never computes analytics");
 
   const filtered = cache.read(value, { ...options, filters: { ...options.filters, model: "model-a" } });
   assert.notEqual(filtered, first);

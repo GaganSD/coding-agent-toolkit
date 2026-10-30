@@ -1,6 +1,6 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex, Input, InputState, Editor, EditorState, Popover, Avatar, AvatarImage, AvatarFallback } from "gpui-base";
+import { v_flex, h_flex, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
 import { exec, appHome, home, theme, settings, nextCommand, readTextFile } from "herdr";
 import {
   PALETTES,
@@ -13,14 +13,12 @@ import {
   formatDuration,
   formatInt,
   formatTimestamp,
-  heatmapTooltip,
   initials,
   isDay,
   isSnapshot,
   normalizeConfig,
   periodRange,
   projectName,
-  safeAvatarPath,
   todayKey,
   weekdayLabels,
 } from "./analytics.js";
@@ -131,7 +129,7 @@ function sourceKey(source, index) {
 }
 
 function rootsText(source) {
-  return Array.isArray(source?.roots) ? source.roots.join("\n") : "";
+  return Array.isArray(source?.roots) ? source.roots.join(", ") : "";
 }
 
 function splitRoots(text) {
@@ -263,9 +261,9 @@ function buildFacetOptions(field, facet, config) {
     value: stat.value,
     label: facetLabel(field, stat.value, config),
     detail: field === "project" && stat.value !== "unknown" ? stat.value : "",
-    meta: formatCompact(stat.tokens),
+    meta: stat.meta ?? formatCompact(stat.tokens),
     tokens: stat.tokens,
-    tooltip: `${formatInt(stat.tokens)} tokens · ${formatInt(stat.sessions)} sessions`,
+    tooltip: stat.tooltip ?? `${formatInt(stat.tokens)} tokens · ${formatInt(stat.sessions)} sessions`,
   }));
   const seen = new Set(options.map((option) => option.value));
   if (field === "source") {
@@ -291,17 +289,16 @@ function buildFacetOptions(field, facet, config) {
     truncated,
     total,
     options: [
-      { value: "all", label: allLabelFor(field), detail: "", meta: formatCompact(total), tokens: total, tooltip: `${formatInt(total)} tokens` },
+      { value: "all", label: allLabelFor(field), detail: "", meta: facet?.totalMeta ?? formatCompact(total), tokens: total, tooltip: facet?.totalTooltip ?? `${formatInt(total)} tokens` },
       ...visible,
     ],
   };
 }
 
-function selectedFacet(options, value, field, config) {
-  const found = options.find((option) => option.value === value);
-  if (found) return found;
-  if (value === "all") return { value: "all", label: allLabelFor(field), meta: "", tooltip: "" };
-  return { value, label: facetLabel(field, value, config), meta: "", tooltip: "" };
+function selectedFacet(facet, value, field, config) {
+  if (value === "all") return { value: "all", label: allLabelFor(field) };
+  const found = (facet?.stats ?? []).find((stat) => stat.value === value);
+  return { value, label: facetLabel(field, found?.value ?? value, config) };
 }
 
 function smallButton(id, label, onClick, t, options = {}) {
@@ -341,13 +338,6 @@ function card(t, padding = 16) {
   return v_flex().w_full().min_w(0).p(padding).gap(12).rounded(14).bg(t.surface).border_1().border_color(t.border);
 }
 
-function field(label, input, t, hint) {
-  return v_flex().w_full().gap(5)
-    .child(div().text_size(10.5).font_medium().text_color(t.dim).child(label))
-    .child(input)
-    .when(Boolean(hint), (el) => el.child(div().text_size(10).text_color(t.dim).child(hint)));
-}
-
 function detailStat(label, display, t, options = {}) {
   return v_flex().min_w(82).gap(3)
     .child(div().text_size(9.5).font_medium().text_color(t.dim).child(label.toUpperCase()))
@@ -383,11 +373,11 @@ export default class Insights extends View {
     this.selectedDay = todayKey();
     this.showSettings = false;
     this.openFilter = null;
+    this.openOptions = null;
     this.configDraft = null;
     this.configText = "";
     this.configDirty = false;
     this.editorDirty = false;
-    this.profileDirty = false;
     this.rootsDirty = false;
     this.refreshDirty = false;
     this.saving = false;
@@ -404,6 +394,7 @@ export default class Insights extends View {
     this.runtimeError = null;
     this.nodeBinary = null;
     this.dashboardCache = createDashboardCache();
+    this.deriving = false;
 
     const t = theme();
     const editorOptions = {
@@ -425,23 +416,9 @@ export default class Insights extends View {
     };
     if (settings()?.font_family) editorOptions.font_family = settings().font_family;
 
-    this.nameInput = InputState.new({ placeholder: "Your name" });
-    this.handleInput = InputState.new({ placeholder: "handle" });
-    this.avatarInput = InputState.new({ placeholder: "mods/insights/avatar.png" });
     this.refreshInput = InputState.new({ value: "60" });
     this.configEditor = EditorState.new(editorOptions);
 
-    const markProfile = () => {
-      if (this.syncingInputs) return;
-      this.profileDirty = true;
-      this.configDirty = true;
-      this.saveMessage = null;
-    };
-    for (const state of [this.nameInput, this.handleInput, this.avatarInput]) {
-      state.on("change", markProfile);
-      state.on("blur", (_event, notifyCx) => notifyCx.notify());
-      state.on("submit", (_event, submitCx) => this.saveConfig(submitCx));
-    }
     this.refreshInput.on("change", () => {
       if (this.syncingInputs) return;
       this.refreshDirty = true;
@@ -504,9 +481,7 @@ export default class Insights extends View {
     try { this.timer?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
     try { this.runtimeTask?.cancel(); } catch { /* already gone */ }
-    for (const state of [this.nameInput, this.handleInput, this.avatarInput, this.refreshInput]) {
-      try { state?.release(); } catch { /* already released */ }
-    }
+    try { this.refreshInput?.release(); } catch { /* already released */ }
     for (const state of this.sourceInputs.values()) {
       try { state.release(); } catch { /* already released */ }
     }
@@ -535,6 +510,24 @@ export default class Insights extends View {
     try { this.timer?.cancel(); } catch { /* already gone */ }
     this.timerSeconds = seconds;
     this.timer = cx.timer.every(seconds * 1000, (timerCx) => this.refresh(timerCx));
+  }
+
+  dashboardOptions() {
+    return {
+      filters: this.filters,
+      period: this.period,
+      year: this.year,
+      heatmapMode: this.heatmapMode,
+      leaderboardGroup: this.leaderboardGroup,
+      selectedDay: this.selectedDay,
+      today: todayKey(),
+    };
+  }
+
+  // Analytics run in init, tasks and events (500 ms), never in render (50 ms).
+  updateDashboard() {
+    if (!this.snapshot) return null;
+    return this.dashboardCache.read(this.snapshot, this.dashboardOptions());
   }
 
   refresh(cx) {
@@ -582,9 +575,9 @@ export default class Insights extends View {
     }
     // A poll must never release source inputs that only exist in an unsaved draft.
     this.ensureSourceInputs(config);
-    if (!this.profileDirty) this.syncProfileInputs(config);
     if (!this.rootsDirty) this.syncSourceInputs(config);
     if (!this.refreshDirty) this.syncRefreshInput(config);
+    this.updateDashboard();
     this.schedule(cx);
   }
 
@@ -609,18 +602,6 @@ export default class Insights extends View {
       this.configEditor.set_value(text);
     } finally {
       this.syncingEditor = false;
-    }
-  }
-
-  syncProfileInputs(config) {
-    if (this.profileDirty) return;
-    this.syncingInputs = true;
-    try {
-      this.nameInput.set_value(config.profile.name ?? "");
-      this.handleInput.set_value(config.profile.handle ?? "");
-      this.avatarInput.set_value(config.profile.avatar ?? "");
-    } finally {
-      this.syncingInputs = false;
     }
   }
 
@@ -683,7 +664,6 @@ export default class Insights extends View {
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
       this.configDraft = parsed;
       const config = normalizeConfig(parsed);
-      this.syncProfileInputs(config);
       this.ensureSourceInputs(config);
       this.syncSourceInputs(config);
       this.syncRefreshInput(config);
@@ -709,7 +689,6 @@ export default class Insights extends View {
     this.saveMessage = null;
     this.setEditorText(prettyJson(this.configDraft));
     const config = normalizeConfig(this.configDraft);
-    this.syncProfileInputs(config);
     this.ensureSourceInputs(config);
     this.syncSourceInputs(config);
     this.syncRefreshInput(config);
@@ -731,14 +710,6 @@ export default class Insights extends View {
     } else {
       config = deepClone(this.configDraft ?? normalizeConfig(this.snapshot?.config ?? {}));
     }
-
-    if (!config.profile || typeof config.profile !== "object" || Array.isArray(config.profile)) config.profile = {};
-    if (this.profileDirty || !this.editorDirty) {
-      config.profile.name = this.nameInput.value().trim();
-      config.profile.handle = this.handleInput.value().trim().replace(/^@+/, "");
-      config.profile.avatar = this.avatarInput.value().trim();
-    }
-    config.profile.avatar = safeAvatarPath(config.profile.avatar);
 
     if (!Array.isArray(config.sources)) config.sources = [];
     if (this.rootsDirty || !this.editorDirty) {
@@ -799,7 +770,6 @@ export default class Insights extends View {
         if (!isSnapshot(snapshot)) throw new Error("The collector returned an unexpected snapshot.");
         this.configDirty = false;
         this.editorDirty = false;
-        this.profileDirty = false;
         this.rootsDirty = false;
         this.refreshDirty = false;
         this.error = null;
@@ -819,12 +789,10 @@ export default class Insights extends View {
     const config = normalizeConfig(this.snapshot.config);
     this.configDirty = false;
     this.editorDirty = false;
-    this.profileDirty = false;
     this.rootsDirty = false;
     this.refreshDirty = false;
     this.configDraft = deepClone(config);
     this.setEditorText(prettyJson(this.configDraft));
-    this.syncProfileInputs(config);
     this.ensureSourceInputs(config);
     this.syncSourceInputs(config);
     this.syncRefreshInput(config);
@@ -868,6 +836,7 @@ export default class Insights extends View {
       if (!years.includes(this.year)) this.year = years[0] ?? Number(today.slice(0, 4));
     }
     this.selectedDay = periodRange(period, { today, weekStartsOn: config.weekStartsOn, year: this.year }).end;
+    this.updateDashboard();
   }
 
   setYear(delta) {
@@ -878,9 +847,10 @@ export default class Insights extends View {
     this.year = years[next] ?? Number(today.slice(0, 4));
     const config = normalizeConfig(this.snapshot?.config ?? {});
     this.selectedDay = periodRange("year", { today, weekStartsOn: config.weekStartsOn, year: this.year }).end;
+    this.updateDashboard();
   }
 
-  render() {
+  render(cx) {
     const t = theme();
     const width = this.width || 960;
     const padding = width < 620 ? 12 : width < 900 ? 18 : 24;
@@ -888,7 +858,7 @@ export default class Insights extends View {
     if (this.error && this.snapshot) content.push(this.errorBanner(t));
     if (!this.snapshot) content.push(this.initialState(t));
     else if (this.showSettings) content.push(this.settingsView(t));
-    else content.push(this.dashboardView(t));
+    else content.push(this.dashboardView(t, cx));
 
     return v_flex().id("insights-root").size_full().min_h(0).bg(t.canvas ?? t.background).text_color(t.foreground)
       .overflow_y_scrollbar()
@@ -952,66 +922,34 @@ export default class Insights extends View {
         .child(smallButton("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), t, { primary: true }))));
   }
 
-  dashboardView(t) {
+  dashboardView(t, cx) {
     const snapshot = this.snapshot;
-    const derived = this.dashboardCache.read(snapshot, {
-      filters: this.filters,
-      period: this.period,
-      year: this.year,
-      heatmapMode: this.heatmapMode,
-      leaderboardGroup: this.leaderboardGroup,
-      selectedDay: this.selectedDay,
-      today: todayKey(),
-    });
-    const { config, rows, range, lifetime, peak, streaks, heatmap, totals, leaders, selectedDay, selectedRows, selectedTotals, selectedTop } = derived;
+    const derived = this.dashboardCache.peek(snapshot, this.dashboardOptions());
+    if (!derived) {
+      // State changes derive in their event handler; this only catches a miss.
+      if (!this.deriving && cx) {
+        this.deriving = true;
+        cx.spawn(async (deriveCx) => {
+          try { this.updateDashboard(); } finally { this.deriving = false; }
+          deriveCx.notify();
+        });
+      }
+      return card(t, 20).gap(8)
+        .child(div().text_size(14).font_semibold().child("Preparing insights"))
+        .child(div().text_size(11.5).text_color(t.muted).child("Crunching the local snapshot outside the render frame."));
+    }
+    const { config, rows, range, lifetime, peak, streaks, heatmap, totals, leaders, selectedDay, selectedRows, selectedTotals, selectedTop, years } = derived;
 
     return v_flex().w_full().gap(14)
-      .child(this.hero(t, config, lifetime, streaks))
-      .child(this.filtersBar(t, rows, config, range, derived.facets, derived.today))
-      .when(rows.length === 0, (el) => el.child(this.emptyNotice(t, config)))
       .child(this.metricStrip(t, lifetime, peak, streaks))
+      .child(this.filtersBar(t, config, range, derived.facets, years))
+      .when(rows.length === 0, (el) => el.child(this.emptyNotice(t, config)))
       .child(this.heatmapCard(t, config, heatmap, selectedDay, selectedRows, selectedTotals, selectedTop))
       .child(this.leaderboardCard(t, leaders, range))
       .child(this.bottomGrid(t, totals, range, config, snapshot));
   }
 
-  hero(t, config, lifetime, streaks) {
-    const avatarPath = safeAvatarPath(config.profile.avatar);
-    const avatar = Avatar.new().size(84).rounded_full().overflow_hidden().bg(t.raised).border_1().border_color(t.border)
-      .when(Boolean(avatarPath), (el) => el.image(AvatarImage.new(avatarPath).size_full()))
-      .fallback(AvatarFallback.new().size_full().items_center().justify_center()
-        .child(div().text_size(27).font_semibold().text_color(t.accent).child(initials(config.profile.name || "Insights"))));
-
-    const nameInput = Input.new(this.nameInput).w_full().max_w(340).h(38).px(10).text_center().text_size(25)
-      .font_semibold().text_color(t.foreground).bg(t.canvas).rounded(9).border_1().border_color(t.border)
-      .focus((style) => style.border_color(t.accent));
-    const handleInput = Input.new(this.handleInput).w(170).h(30).px(8).text_size(12.5)
-      .text_color(t.foreground).bg(t.canvas).rounded(8).border_1().border_color(t.border)
-      .focus((style) => style.border_color(t.accent));
-
-    return v_flex().w_full().items_center().gap(8).py(8)
-      .child(avatar)
-      .child(nameInput)
-      .child(h_flex().items_center().gap(2)
-        .child(div().text_size(13).text_color(t.dim).child("@"))
-        .child(handleInput))
-      .child(div().text_size(10.5).text_color(t.dim)
-        .child(`${formatInt(lifetime.sessions)} sessions · ${formatInt(streaks.activeDays)} active days`))
-      .when(this.profileDirty, (el) => el.child(smallButton(
-        "insights-save-profile",
-        this.saving ? "Saving…" : "Save profile",
-        (_event, clickCx) => this.saveConfig(clickCx),
-        t,
-        { primary: true, disabled: this.busy() },
-      )));
-  }
-
-  filtersBar(t, rows, config, range, facets, today) {
-    const sourceOptions = buildFacetOptions("source", facets.source, config);
-    const providerOptions = buildFacetOptions("provider", facets.provider, config);
-    const modelOptions = buildFacetOptions("model", facets.model, config);
-    const projectOptions = buildFacetOptions("project", facets.project, config);
-    const years = availableYears(rows, today);
+  filtersBar(t, config, range, facets, years) {
     const active = Object.values(this.filters).some((value) => value !== "all");
 
     return card(t, 12).gap(9)
@@ -1027,19 +965,21 @@ export default class Insights extends View {
           .child(div().min_w(38).text_center().text_size(12).font_medium().child(String(this.year)))
           .child(iconButton("ins-year-newer", "›", "Newer year", (_event, clickCx) => { this.setYear(-1); clickCx.notify(); }, t, { color: this.year >= years[0] ? t.dim : t.muted })))))
       .child(h_flex().w_full().flex_wrap().gap(8).items_center()
-        .child(this.filterMenu("source", "Source", this.filters.source, sourceOptions, t, (value) => { this.filters.source = value; }))
-        .child(this.filterMenu("provider", "Provider", this.filters.provider, providerOptions, t, (value) => { this.filters.provider = value; }))
-        .child(this.filterMenu("model", "Model", this.filters.model, modelOptions, t, (value) => { this.filters.model = value; }))
-        .child(this.filterMenu("project", "Project", this.filters.project, projectOptions, t, (value) => { this.filters.project = value; }))
+        .child(this.filterMenu("source", "Source", this.filters.source, facets.source, config, t, (value) => { this.filters.source = value; this.updateDashboard(); }))
+        .child(this.filterMenu("provider", "Provider", this.filters.provider, facets.provider, config, t, (value) => { this.filters.provider = value; this.updateDashboard(); }))
+        .child(this.filterMenu("model", "Model", this.filters.model, facets.model, config, t, (value) => { this.filters.model = value; this.updateDashboard(); }))
+        .child(this.filterMenu("project", "Project", this.filters.project, facets.project, config, t, (value) => { this.filters.project = value; this.updateDashboard(); }))
         .when(active, (el) => el.child(smallButton("ins-clear-filters", "Clear filters", (_event, clickCx) => {
           this.filters = { source: "all", provider: "all", model: "all", project: "all" };
+          this.updateDashboard();
           clickCx.notify();
         }, t))))
       .child(div().text_size(10.5).text_color(t.dim).child(this.period === "all" ? range.label : `${range.label} · calendar period`));
   }
 
-  filterMenu(field, label, value, facet, t, onPick) {
-    const selected = selectedFacet(facet.options, value, field, normalizeConfig(this.snapshot?.config ?? {}));
+  filterMenu(field, label, value, facet, config, t, onPick) {
+    const selected = selectedFacet(facet, value, field, config);
+    const id = `ins-${field}-filter`;
     const trigger = h_flex().id(`ins-${field}-trigger`).h(31).px(9).gap(8).items_center().rounded(8)
       .border_1().border_color(value === "all" ? t.border : t.accent).bg(t.surface).cursor_pointer()
       .hover((style) => style.bg(t.hover))
@@ -1047,14 +987,31 @@ export default class Insights extends View {
       .child(div().max_w(132).truncate().text_size(11.5).text_color(t.foreground).child(selected.label))
       .child(div().text_size(11).text_color(t.dim).child("⌄"));
 
-    const content = v_flex().w(230).max_h(310).overflow_y_scrollbar().p(4).gap(1).rounded(10)
+    const menu = Popover.new(id).trigger(trigger)
+      .open(this.openFilter === id)
+      .on_open_change((open, changeCx) => {
+        this.openFilter = open ? id : null;
+        // Menu data is prepared in this event, never in the 50 ms render pass.
+        this.openOptions = open ? buildFacetOptions(field, facet, config) : null;
+        changeCx.notify();
+      });
+    // Closed menus build no option elements; only the trigger is rendered.
+    if (this.openFilter === id && this.openOptions) {
+      menu.content(this.filterMenuContent(field, value, this.openOptions, t, onPick));
+    }
+    return menu;
+  }
+
+  filterMenuContent(field, value, options, t, onPick) {
+    return v_flex().w(230).max_h(310).overflow_y_scrollbar().p(4).gap(1).rounded(10)
       .bg(t.popover).border_1().border_color(t.border).shadow_md()
-      .children(facet.options.map((option, index) => h_flex().id(`ins-${field}-option-${index}`)
+      .children(options.options.map((option, index) => h_flex().id(`ins-${field}-option-${index}`)
         .h(28).px(7).gap(7).items_center().rounded(6).cursor_pointer()
         .when(option.value === value, (el) => el.bg(t.selected))
         .hover((style) => style.bg(t.hover))
         .on_click((_event, clickCx) => {
           this.openFilter = null;
+          this.openOptions = null;
           onPick(option.value);
           clickCx.notify();
         })
@@ -1063,15 +1020,8 @@ export default class Insights extends View {
           .child(div().text_size(11.5).text_color(t.foreground).truncate().tooltip(option.tooltip || option.label).child(option.label))
           .when(Boolean(option.detail), (el) => el.child(div().text_size(9.5).text_color(t.dim).truncate().child(option.detail))))
         .child(div().text_size(9.5).text_color(t.dim).child(option.meta ?? ""))))
-      .when(facet.truncated, (el) => el.child(div().p(6).text_size(9.5).text_color(t.dim)
+      .when(options.truncated, (el) => el.child(div().p(6).text_size(9.5).text_color(t.dim)
         .child(`Showing top ${MAX_FACET_OPTIONS} by tokens.`)));
-
-    return Popover.new(`ins-${field}-filter`).trigger(trigger).content(content)
-      .open(this.openFilter === `ins-${field}-filter`)
-      .on_open_change((open, changeCx) => {
-        this.openFilter = open ? `ins-${field}-filter` : null;
-        changeCx.notify();
-      });
   }
 
   emptyNotice(t, config) {
@@ -1140,8 +1090,12 @@ export default class Insights extends View {
         .opacity(cell.future ? 0.35 : 1)
         .when(!cell.future, (el) => el.cursor_pointer()
           .hover((style) => style.opacity(0.8))
-          .on_click((_event, clickCx) => { this.selectedDay = cell.date; clickCx.notify(); })
-          .tooltip(heatmapTooltip(cell, heatmap.mode)))
+          .on_click((_event, clickCx) => {
+            this.selectedDay = cell.date;
+            this.updateDashboard();
+            clickCx.notify();
+          })
+          .tooltip(cell.tooltip ?? ""))
         .when(cell.date === selectedDay, (el) => el.border_1().border_color(t.accent));
     };
     const weekElements = heatmap.weeks.map((week) => v_flex().gap(CELL_GAP).children(week.days.map(cellElement)));
@@ -1171,7 +1125,7 @@ export default class Insights extends View {
           { key: "daily", label: "Daily" },
           { key: "weekly", label: "Weekly" },
           { key: "cumulative", label: "Cumulative" },
-        ], this.heatmapMode, (key) => { this.heatmapMode = key; }, t)))
+        ], this.heatmapMode, (key) => { this.heatmapMode = key; this.updateDashboard(); }, t)))
       .child(v_flex().w_full().overflow_x_scrollbar().child(grid))
       .child(legend)
       .child(this.selectedDetail(t, heatmap, selectedDay, selectedRows, selectedTotals, selectedTop));
@@ -1211,7 +1165,7 @@ export default class Insights extends View {
         })))
       .child(h_flex().w_full().flex_wrap().gap(14)
         .child(detailStat("Sessions", formatInt(selectedTotals.sessions), t, { tooltip: `${formatInt(selectedTotals.sessions)} sessions on this day` }))
-        .child(detailStat("Messages", formatInt(selectedTotals.messages), t, { tooltip: `${formatInt(selectedTotals.messages)} messages with usage` }))
+        .child(detailStat("Usage events", formatInt(selectedTotals.messages), t, { tooltip: `${formatInt(selectedTotals.messages)} nonzero reported usage records` }))
         .child(detailStat("Longest task", formatDuration(selectedTotals.longestTaskMs), t, {
           tooltip: selectedTotals.longestTaskMs > 0 ? `${formatInt(selectedTotals.longestTaskMs)} ms observed` : "Unknown task duration",
         }))
@@ -1262,7 +1216,7 @@ export default class Insights extends View {
         .child(segmented("ins-leaders-group", [
           { key: "model", label: "Models" },
           { key: "provider", label: "Providers" },
-        ], this.leaderboardGroup, (key) => { this.leaderboardGroup = key; }, t)))
+        ], this.leaderboardGroup, (key) => { this.leaderboardGroup = key; this.updateDashboard(); }, t)))
       .when(entries.length === 0, (el) => el.child(empty))
       .when(entries.length > 0 && twoColumns, (el) => el.child(h_flex().w_full().gap(10).items_start()
         .child(v_flex().flex_1().min_w(0).gap(7).children(left.map(row)))
@@ -1360,14 +1314,6 @@ export default class Insights extends View {
     const refreshInput = Input.new(this.refreshInput).w(110).h(34).px(10).rounded(8).border_1().border_color(t.input)
       .bg(t.background).text_size(12.5).text_color(t.foreground).focus((style) => style.border_color(t.accent));
 
-    const profile = card(t).gap(11)
-      .child(v_flex().gap(2)
-        .child(div().text_size(14).font_semibold().child("Profile"))
-        .child(div().text_size(10.5).text_color(t.dim).child("Shown at the top of the dashboard.")))
-      .child(field("Avatar path", textInput(this.avatarInput), t, "A local path under the Herdr app folder, such as mods/insights/avatar.png. Remote URLs are ignored; initials are used when empty."))
-      .child(field("Name", textInput(this.nameInput), t))
-      .child(field("Handle", textInput(this.handleInput), t, "Stored without the @."));
-
     const preferences = card(t).gap(13)
       .child(v_flex().gap(2)
         .child(div().text_size(14).font_semibold().child("Preferences"))
@@ -1409,7 +1355,7 @@ export default class Insights extends View {
             .child(div().text_size(9.5).text_color(t.dim).child(`adapter ${source?.adapter || source?.id || "unknown"} · ${source?.enabled === false ? "disabled" : "enabled"}`))))
         .when(state, (el) => el.child(textInput(state)))
         .when(!state, (el) => el.child(div().text_size(10.5).text_color(t.dim).child(rootsText(source) || "No roots configured")))
-        .child(div().text_size(9.5).text_color(t.dim).child("One root per line or comma-separated."));
+        .child(div().text_size(9.5).text_color(t.dim).child("Comma-separated roots."));
     });
 
     const sources = card(t).gap(10)
@@ -1447,12 +1393,11 @@ export default class Insights extends View {
       .child(h_flex().w_full().flex_wrap().gap(8).items_center().justify_between()
         .child(v_flex().gap(2)
           .child(div().text_size(18).font_semibold().child("Settings"))
-          .child(div().text_size(10.5).text_color(t.dim).child("Profile, sources and the complete declarative configuration.")))
+          .child(div().text_size(10.5).text_color(t.dim).child("Sources and the complete declarative configuration.")))
         .child(smallButton("ins-settings-back", "Back to dashboard", (_event, clickCx) => {
           this.showSettings = false;
           clickCx.notify();
         }, t)))
-      .child(profile)
       .child(preferences)
       .child(sources)
       .child(json)

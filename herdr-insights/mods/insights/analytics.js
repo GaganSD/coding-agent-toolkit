@@ -156,7 +156,14 @@ export function formatCompact(value) {
     if (absolute >= divisor * 0.9995) {
       const scaled = absolute / divisor;
       const decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
-      const text = scaled.toFixed(decimals).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+      let text = scaled.toFixed(decimals);
+      const dot = text.indexOf(".");
+      if (dot >= 0) {
+        let end = text.length;
+        while (end > dot + 1 && text.charCodeAt(end - 1) === 48) end -= 1;
+        if (end === dot + 1) end = dot;
+        text = text.slice(0, end);
+      }
       return `${sign}${text}${suffix}`;
     }
   }
@@ -239,18 +246,6 @@ export function normalizeConfig(config) {
   };
 }
 
-/** Only app-relative avatar files are handed to the native image loader. */
-export function safeAvatarPath(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-  if (/[\u0000-\u001f\u007f]/.test(text)) return "";
-  if (/^[a-z][a-z0-9+.-]*:/i.test(text)) return "";
-  if (/^[\\/]/.test(text) || text.startsWith("~")) return "";
-  if (/^[a-z]:[\\/]/i.test(text)) return "";
-  if (text.split(/[\\/]+/).includes("..")) return "";
-  return text;
-}
-
 export function isSnapshot(value) {
   return Boolean(
     value
@@ -313,7 +308,9 @@ export function sumTokens(rows, includeCache = true) {
     cacheRead += tokens.cacheRead;
     cacheWrite += tokens.cacheWrite;
     reasoning += tokens.reasoning;
-    total += rowTokenTotal(row, includeCache);
+    total += tokens.hasParts
+      ? tokens.input + tokens.output + (includeCache ? tokens.cacheRead + tokens.cacheWrite : 0)
+      : tokens.total;
     messages += finite(row?.messages);
     activeMs += finite(row?.activeMs);
     longestTaskMs = Math.max(longestTaskMs, finite(row?.longestTaskMs));
@@ -342,29 +339,56 @@ function cleanFilter(value) {
   return text;
 }
 
-export function matchesFilters(row, filters = {}) {
+function compileFilters(filters = {}) {
+  return {
+    source: cleanFilter(filters.source ?? filters.harness),
+    provider: cleanFilter(filters.provider),
+    model: cleanFilter(filters.model),
+    project: cleanFilter(filters.project),
+  };
+}
+
+function matchesCompiled(row, filters) {
   if (!row) return false;
-  const source = cleanFilter(filters.source ?? filters.harness);
-  const provider = cleanFilter(filters.provider);
-  const model = cleanFilter(filters.model);
-  const project = cleanFilter(filters.project);
-  if (source && row.harness !== source) return false;
-  if (provider && row.provider !== provider) return false;
-  if (model && row.model !== model) return false;
-  if (project && row.project !== project) return false;
+  if (filters.source && row.harness !== filters.source) return false;
+  if (filters.provider && row.provider !== filters.provider) return false;
+  if (filters.model && row.model !== filters.model) return false;
+  if (filters.project && row.project !== filters.project) return false;
   return true;
 }
 
+export function matchesFilters(row, filters = {}) {
+  return matchesCompiled(row, compileFilters(filters));
+}
+
 export function filterRows(rows, filters = {}) {
-  return (rows ?? []).filter((row) => matchesFilters(row, filters));
+  const compiled = compileFilters(filters);
+  return (rows ?? []).filter((row) => matchesCompiled(row, compiled));
+}
+
+function facetValue(row, field) {
+  const raw = field === "source" ? row?.harness : row?.[field];
+  return raw === null || raw === undefined || raw === "" ? "unknown" : String(raw);
+}
+
+function facetResult(map) {
+  return [...map.values()]
+    .map((item) => ({
+      value: item.value,
+      rows: item.rows,
+      sessions: item.sessions.size,
+      tokens: item.tokens,
+      meta: formatCompact(item.tokens),
+      tooltip: `${formatInt(item.tokens)} tokens · ${formatInt(item.sessions.size)} sessions`,
+    }))
+    .sort((a, b) => b.tokens - a.tokens || a.value.localeCompare(b.value));
 }
 
 /** Distinct values with token and session counts, ready for filter menus. */
 export function facetStats(rows, field, includeCache = true) {
   const map = new Map();
   for (const row of rows ?? []) {
-    const raw = field === "source" ? row?.harness : row?.[field];
-    const value = raw === null || raw === undefined || raw === "" ? "unknown" : String(raw);
+    const value = facetValue(row, field);
     let item = map.get(value);
     if (!item) {
       item = { value, rows: 0, sessions: new Set(), tokens: 0 };
@@ -374,9 +398,40 @@ export function facetStats(rows, field, includeCache = true) {
     if (row?.session) item.sessions.add(row.session);
     item.tokens += rowTokenTotal(row, includeCache);
   }
-  return [...map.values()]
-    .map((item) => ({ value: item.value, rows: item.rows, sessions: item.sessions.size, tokens: item.tokens }))
-    .sort((a, b) => b.tokens - a.tokens || a.value.localeCompare(b.value));
+  return facetResult(map);
+}
+
+/**
+ * All four filter facets in one pass over the snapshot. Each facet ignores its
+ * own active filter so a selected value can always be changed or cleared.
+ */
+export function facetStatsAll(rows, filters = {}, includeCache = true) {
+  const base = compileFilters(filters);
+  const fields = ["source", "provider", "model", "project"];
+  const compiled = {};
+  const maps = {};
+  for (const field of fields) {
+    compiled[field] = { ...base, [field]: null };
+    maps[field] = new Map();
+  }
+  for (const row of rows ?? []) {
+    const tokens = rowTokenTotal(row, includeCache);
+    for (const field of fields) {
+      if (!matchesCompiled(row, compiled[field])) continue;
+      const value = facetValue(row, field);
+      let item = maps[field].get(value);
+      if (!item) {
+        item = { value, rows: 0, sessions: new Set(), tokens: 0 };
+        maps[field].set(value, item);
+      }
+      item.rows += 1;
+      if (row?.session) item.sessions.add(row.session);
+      item.tokens += tokens;
+    }
+  }
+  const result = {};
+  for (const field of fields) result[field] = facetResult(maps[field]);
+  return result;
 }
 
 export function availableYears(rows, today = todayKey()) {
@@ -486,10 +541,12 @@ export function dailyTotals(rows, includeCache = true) {
 }
 
 export function peakDay(rows, includeCache = true) {
-  const totals = dailyTotals(rows, includeCache);
+  const totals = new Map();
   const sessions = new Map();
   for (const row of rows ?? []) {
-    if (!isDay(row?.day) || !row?.session) continue;
+    if (!isDay(row?.day)) continue;
+    totals.set(row.day, (totals.get(row.day) ?? 0) + rowTokenTotal(row, includeCache));
+    if (!row?.session) continue;
     let set = sessions.get(row.day);
     if (!set) {
       set = new Set();
@@ -723,6 +780,7 @@ export function buildHeatmap(rows, options = {}) {
   }
   for (const cell of cells) {
     cell.level = cell.future ? 0 : intensityLevel(cell.value, maxValue);
+    cell.tooltip = cell.future ? "" : heatmapTooltip(cell, mode);
   }
 
   const months = [];
@@ -777,6 +835,7 @@ export function deriveDashboard(snapshot, options = {}) {
   const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
   const settings = resolvedDashboardOptions(options);
   const { filters, period, year, heatmapMode, leaderboardGroup, today } = settings;
+  const years = availableYears(rows, today);
   const includeCache = config.includeCache;
   const dimensionRows = filterRows(rows, filters);
   const range = periodRange(period, { today, weekStartsOn: config.weekStartsOn, year });
@@ -807,13 +866,16 @@ export function deriveDashboard(snapshot, options = {}) {
     ? leaderboard(selectedRows, null, { groupBy: "model", includeCache, limit: 1 }).entries[0]
     : null;
 
+  const facetStatsByField = facetStatsAll(rows, filters, includeCache);
   const facets = {};
   for (const field of ["source", "provider", "model", "project"]) {
-    const baseRows = filterRows(rows, { ...filters, [field]: "all" });
-    const stats = facetStats(baseRows, field, includeCache);
+    const stats = facetStatsByField[field];
+    const total = stats.reduce((sum, stat) => sum + stat.tokens, 0);
     facets[field] = {
       stats,
-      total: stats.reduce((total, stat) => total + stat.tokens, 0),
+      total,
+      totalMeta: formatCompact(total),
+      totalTooltip: `${formatInt(total)} tokens`,
     };
   }
 
@@ -821,6 +883,7 @@ export function deriveDashboard(snapshot, options = {}) {
     snapshot,
     config,
     rows,
+    years,
     filters,
     period,
     year,
@@ -867,6 +930,28 @@ function sameDashboardKey(left, right) {
   return DASHBOARD_KEY_FIELDS.every((field) => left[field] === right[field]);
 }
 
+function dashboardKey(snapshot, options = {}) {
+  const resolved = resolvedDashboardOptions(options);
+  const config = normalizeConfig(snapshot?.config ?? {});
+  const filters = resolved.filters;
+  return {
+    snapshot,
+    configSource: snapshot?.config ?? null,
+    includeCache: config.includeCache,
+    weekStartsOn: config.weekStartsOn,
+    source: cleanFilter(filters.source ?? filters.harness) ?? "all",
+    provider: cleanFilter(filters.provider) ?? "all",
+    model: cleanFilter(filters.model) ?? "all",
+    project: cleanFilter(filters.project) ?? "all",
+    period: resolved.period,
+    year: resolved.year,
+    heatmapMode: resolved.heatmapMode,
+    leaderboardGroup: resolved.leaderboardGroup,
+    selectedDay: resolved.selectedDay,
+    today: resolved.today,
+  };
+}
+
 /**
  * Snapshot-identity plus small scalar key. Repeated reads from unrelated
  * renders return the exact same derived object, including facet stats.
@@ -876,28 +961,16 @@ export function createDashboardCache(compute = deriveDashboard) {
   return {
     read(snapshot, options = {}) {
       const resolved = resolvedDashboardOptions(options);
-      const config = normalizeConfig(snapshot?.config ?? {});
-      const filters = resolved.filters;
-      const key = {
-        snapshot,
-        configSource: snapshot?.config ?? null,
-        includeCache: config.includeCache,
-        weekStartsOn: config.weekStartsOn,
-        source: cleanFilter(filters.source ?? filters.harness) ?? "all",
-        provider: cleanFilter(filters.provider) ?? "all",
-        model: cleanFilter(filters.model) ?? "all",
-        project: cleanFilter(filters.project) ?? "all",
-        period: resolved.period,
-        year: resolved.year,
-        heatmapMode: resolved.heatmapMode,
-        leaderboardGroup: resolved.leaderboardGroup,
-        selectedDay: resolved.selectedDay,
-        today: resolved.today,
-      };
+      const key = dashboardKey(snapshot, resolved);
       if (cached && sameDashboardKey(cached.key, key)) return cached.result;
       const result = compute(snapshot, { ...options, ...resolved });
       cached = { key, result };
       return result;
+    },
+    /** A cache hit only; never runs analytics during a render. */
+    peek(snapshot, options = {}) {
+      const key = dashboardKey(snapshot, options);
+      return cached && sameDashboardKey(cached.key, key) ? cached.result : null;
     },
     invalidate() {
       cached = null;
