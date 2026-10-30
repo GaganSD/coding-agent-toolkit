@@ -117,7 +117,6 @@ async function checkPackage() {
 async function checkFiles() {
   for (const relative of [
     ".gitignore",
-    "README.md",
     "RECIPE.md",
     "preview.png",
     "mods/insights/main.js",
@@ -139,18 +138,6 @@ async function checkFiles() {
 }
 
 async function checkDocs() {
-  const readme = await readText(path.join(PACKAGE_ROOT, "README.md"));
-  if (readme !== null) {
-    for (const heading of ["# Insights", "## Install", "## Use", "## Privacy", "## Development"]) {
-      if (!readme.includes(heading)) fail(`README.md is missing ${heading}`);
-    }
-    for (const phrase of ["![Insights](preview.png)", "insights.json", "herdr-app check", "Node.js 22.15+"]) {
-      if (!readme.toLowerCase().includes(phrase.toLowerCase())) {
-        fail(`README.md does not mention ${JSON.stringify(phrase)}`);
-      }
-    }
-  }
-
   const recipe = await readText(path.join(PACKAGE_ROOT, "RECIPE.md"));
   if (recipe !== null) {
     const ordered = [

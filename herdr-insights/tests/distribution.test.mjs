@@ -21,15 +21,13 @@ test("Herdr distribution has the requested folder and display name, with no layo
   assert.match(await read("RECIPE.md"), /^# Insights\n/);
 });
 
-test("Community preview is a complete PNG referenced by both human and agent instructions", async () => {
+test("Community preview is a complete PNG referenced by the recipe", async () => {
   const image = await readFile(path.join(root, "preview.png"));
   const parsed = validatePng(image);
   assert.ok(parsed.width > 0 && parsed.height > 0);
-  for (const file of ["README.md", "RECIPE.md"]) {
-    const text = await read(file);
-    assert.match(text, /!\[Insights\]\(preview\.png\)/);
-    assert.doesNotMatch(text, /image2\.png/);
-  }
+  const recipe = await read("RECIPE.md");
+  assert.match(recipe, /!\[Insights\]\(preview\.png\)/);
+  assert.doesNotMatch(recipe, /image2\.png/);
 });
 
 test("PNG validation rejects truncated and corrupted previews", async () => {
