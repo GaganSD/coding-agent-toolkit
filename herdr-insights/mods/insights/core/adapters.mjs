@@ -504,6 +504,81 @@ function codexPendingTokens(state) {
   return state.modernPending;
 }
 
+function codexAddPending(state, tokens) {
+  const pending = codexPendingTokens(state);
+  for (const field of CODEX_TOKEN_FIELDS) {
+    pending[field] = toNonNegInt(pending[field] + tokens[field]);
+  }
+}
+
+// Local per-file request state. Global dedup only reports the delta a copy adds
+// to the store, which is zero for a copied file; the legacy cumulative counter
+// in that file still has to subtract everything the file itself observed.
+function codexObserveModern(state, key, tokens) {
+  if (!isPlainObject(state.modernObserved)) state.modernObserved = {};
+  const previous = Array.isArray(state.modernObserved[key])
+    ? state.modernObserved[key]
+    : [];
+  const vector = codexTokenVector(tokens);
+  const next = vector.map((value, index) =>
+    Math.max(value, toNonNegInt(previous[index])),
+  );
+  const added = codexZeroTokens();
+  for (let index = 0; index < CODEX_TOKEN_FIELDS.length; index += 1) {
+    added[CODEX_TOKEN_FIELDS[index]] = toNonNegInt(next[index] - toNonNegInt(previous[index]));
+  }
+  state.modernObserved[key] = next;
+  return added;
+}
+
+function codexCumulativeVector(raw) {
+  return isPlainObject(raw) ? codexTokenVector(codexNormalized(raw)) : null;
+}
+
+function codexKnownCumulative(entry) {
+  if (Array.isArray(entry.thread)) return entry.thread;
+  if (Array.isArray(entry.turn)) return entry.turn;
+  return null;
+}
+
+// Cumulative counters are the strong identity. The vector/time fallback is
+// only used for older payloads where either side lacks those counters.
+function codexCumulativeTwin(entry, cumulative) {
+  const known = codexKnownCumulative(entry);
+  if (!Array.isArray(known) || !Array.isArray(cumulative)) return true;
+  return codexSameTokens(known, cumulative);
+}
+
+function codexPendingTwinKey(
+  pending,
+  tokens,
+  timestamp,
+  cumulative,
+  responseId,
+  turnId,
+) {
+  if (
+    !isPlainObject(pending) ||
+    typeof pending.key !== "string" ||
+    !codexSameTokens(pending.tokens, codexTokenVector(tokens)) ||
+    !codexCloseInTime(pending.timestamp, timestamp)
+  ) {
+    return null;
+  }
+  if (responseId && pending.responseId && responseId !== pending.responseId) {
+    return null;
+  }
+  if (
+    Array.isArray(pending.cumulative) &&
+    Array.isArray(cumulative) &&
+    !codexSameTokens(pending.cumulative, cumulative)
+  ) {
+    return null;
+  }
+  if (turnId && pending.turnId && turnId !== pending.turnId) return null;
+  return pending.key;
+}
+
 function codexSubtract(tokens, represented) {
   const out = { ...tokens };
   for (const field of CODEX_TOKEN_FIELDS) {
@@ -513,17 +588,28 @@ function codexSubtract(tokens, represented) {
   return out;
 }
 
-function codexRememberModern(state, key, tokens, timestamp) {
+function codexRememberModern(state, key, tokens, timestamp, identity) {
   if (!Array.isArray(state.modernRecent)) state.modernRecent = [];
   state.modernRecent.push({
     key,
     tokens: codexTokenVector(tokens),
     timestamp,
+    thread: identity.thread,
+    turn: identity.turn,
+    responseId: identity.responseId,
+    turnId: identity.turnId,
   });
   if (state.modernRecent.length > 8) state.modernRecent.shift();
 }
 
-function codexTakeModernTwin(state, tokens, timestamp) {
+function codexTakeModernTwin(
+  state,
+  tokens,
+  timestamp,
+  cumulative,
+  responseId,
+  turnId,
+) {
   if (!Array.isArray(state.modernRecent)) return null;
   const vector = codexTokenVector(tokens);
   for (let index = state.modernRecent.length - 1; index >= 0; index -= 1) {
@@ -532,7 +618,10 @@ function codexTakeModernTwin(state, tokens, timestamp) {
       isPlainObject(candidate) &&
       typeof candidate.key === "string" &&
       codexSameTokens(candidate.tokens, vector) &&
-      codexCloseInTime(candidate.timestamp, timestamp)
+      codexCloseInTime(candidate.timestamp, timestamp) &&
+      codexCumulativeTwin(candidate, cumulative) &&
+      (!responseId || !candidate.responseId || responseId === candidate.responseId) &&
+      (!turnId || !candidate.turnId || turnId === candidate.turnId)
     ) {
       state.modernRecent.splice(index, 1);
       return candidate.key;
@@ -604,6 +693,9 @@ function parseCodex(record, ctx) {
     const tokens = codexNormalized(usage);
     if (!tokens.nonzero) return;
     const responseId = asString(payload.response_id, "");
+    const thread = codexCumulativeVector(payload.thread_token_usage);
+    const turn = codexCumulativeVector(payload.turn_token_usage);
+    const cumulative = thread ?? turn;
     const identity = responseId
       ? ["response", responseId]
       : [
@@ -619,6 +711,14 @@ function parseCodex(record, ctx) {
         ];
     let dedupKey = makeDedupKey("codex", ...identity);
     let mergedTwin = false;
+    const twinKey = codexPendingTwinKey(
+      state.pendingTwin,
+      tokens,
+      timestamp,
+      cumulative,
+      responseId,
+      turnId,
+    );
     if (
       responseId &&
       isPlainObject(state.responseKeys) &&
@@ -626,15 +726,10 @@ function parseCodex(record, ctx) {
     ) {
       dedupKey = state.responseKeys[responseId];
       mergedTwin = true;
-    } else if (
-      isPlainObject(state.pendingTwin) &&
-      typeof state.pendingTwin.key === "string" &&
-      codexSameTokens(state.pendingTwin.tokens, codexTokenVector(tokens)) &&
-      codexCloseInTime(state.pendingTwin.timestamp, timestamp)
-    ) {
+    } else if (twinKey) {
       // A token_count twin can precede its token_usage_record. Reuse the
       // token_count contribution instead of counting the turn twice.
-      dedupKey = state.pendingTwin.key;
+      dedupKey = twinKey;
       mergedTwin = true;
       if (responseId) {
         if (!isPlainObject(state.responseKeys)) state.responseKeys = {};
@@ -653,12 +748,15 @@ function parseCodex(record, ctx) {
       tokens,
       dedupKey,
     );
-    const pending = codexPendingTokens(state);
-    for (const field of CODEX_TOKEN_FIELDS) {
-      pending[field] = toNonNegInt(pending[field] + result.added[field]);
-    }
+    const observed = codexObserveModern(state, dedupKey, tokens);
+    if (!twinKey) codexAddPending(state, observed);
     state.pendingTwin = null;
-    codexRememberModern(state, dedupKey, tokens, timestamp);
+    codexRememberModern(state, dedupKey, tokens, timestamp, {
+      thread,
+      turn,
+      responseId,
+      turnId,
+    });
     if (turnId) {
       if (!isPlainObject(state.turns)) state.turns = {};
       const entry = state.turns[turnId] ?? context;
@@ -733,7 +831,9 @@ function parseCodex(record, ctx) {
     }
 
     let tokens = codexNormalized(raw);
+    let cumulative = null;
     if (totals) {
+      cumulative = codexCumulativeVector(totals);
       const pending = codexPendingTokens(state);
       if (!reset) tokens = codexSubtract(tokens, pending);
       state.modernPending = codexZeroTokens();
@@ -743,7 +843,14 @@ function parseCodex(record, ctx) {
     let dedupKey = makeDedupKey("codex", session, ...identityTail);
     let usedModernTwin = false;
     if (!reset) {
-      const modernKey = codexTakeModernTwin(state, tokens, timestamp);
+      const modernKey = codexTakeModernTwin(
+        state,
+        tokens,
+        timestamp,
+        cumulative,
+        asString(payload.response_id, ""),
+        asString(payload.turn_id ?? payload.root_turn_id, ""),
+      );
       if (modernKey) {
         dedupKey = modernKey;
         usedModernTwin = true;
@@ -769,6 +876,9 @@ function parseCodex(record, ctx) {
         key: dedupKey,
         tokens: codexTokenVector(tokens),
         timestamp,
+        cumulative,
+        responseId: asString(payload.response_id, ""),
+        turnId: asString(payload.turn_id ?? payload.root_turn_id, ""),
       };
     } else {
       state.pendingTwin = null;

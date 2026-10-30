@@ -129,6 +129,39 @@ function tinyPi(sessionId, input, timestamp = "2026-04-01T10:00:00Z", cwd = "/re
   );
 }
 
+function codexUsage(input, output) {
+  return {
+    input_tokens: input,
+    cached_input_tokens: 0,
+    cache_write_input_tokens: 0,
+    output_tokens: output,
+    reasoning_output_tokens: 0,
+  };
+}
+
+function codexTurnUsage(responseId, usage, cumulative) {
+  return {
+    type: "token_usage_record",
+    payload: {
+      response_id: responseId,
+      turn_id: "turn-1",
+      usage,
+      turn_token_usage: cumulative,
+      thread_token_usage: cumulative,
+    },
+  };
+}
+
+function codexTokenCount(last, total) {
+  return {
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: { last_token_usage: last, total_token_usage: total },
+    },
+  };
+}
+
 test("unchanged snapshots do not rewrite the store; append, restart cache, and partial tails are safe", async () => {
   const context = await env();
   const file = await placeFixture(
@@ -551,6 +584,173 @@ test("Codex mixed upgrade keeps the legacy prefix and appends without double cou
   const third = await snapshot(context);
   assert.equal(third.stats.bytesRead, 0);
   assert.deepEqual(third.rows, second.rows);
+});
+
+test("Codex modern copies subtract locally observed usage from their legacy suffix", async () => {
+  const context = await env();
+  const source = path.join(
+    context.home,
+    ".codex",
+    "sessions",
+    "copy-a",
+    "session.jsonl",
+  );
+  await mkdir(path.dirname(source), { recursive: true });
+  const config = [
+    {
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions"],
+    },
+  ];
+  const sessionMeta = {
+    type: "session_meta",
+    timestamp: "2026-03-08T08:00:00Z",
+    payload: { id: "codex-copy", cwd: "/repo/copy", model_provider: "openai" },
+  };
+  const turnContext = {
+    type: "turn_context",
+    timestamp: "2026-03-08T08:00:01Z",
+    payload: { turn_id: "turn-1", model: "copy-model", cwd: "/repo/copy" },
+  };
+  const prefix = [
+    sessionMeta,
+    turnContext,
+    codexTurnUsage("response-a", codexUsage(10, 2), codexUsage(10, 2)),
+    codexTurnUsage("response-b", codexUsage(15, 3), codexUsage(25, 5)),
+    codexTokenCount(codexUsage(15, 3), codexUsage(25, 5)),
+  ]
+    .map((record) => `${JSON.stringify(record)}\n`)
+    .join("");
+  await writeFile(source, prefix);
+
+  const first = await configure(context, config);
+  assert.equal(first.stats.errors, 0);
+  assert.deepEqual(first.rows[0].tokens, {
+    input: 25,
+    output: 5,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 30,
+  });
+  assert.equal(first.rows[0].messages, 2);
+
+  const restarted = await snapshot(context);
+  assert.deepEqual(restarted.rows, first.rows);
+
+  const copy = path.join(
+    context.home,
+    ".codex",
+    "sessions",
+    "copy-b",
+    "session.jsonl",
+  );
+  await mkdir(path.dirname(copy), { recursive: true });
+  await copyFile(source, copy);
+  const copied = await snapshot(context);
+  assert.equal(copied.stats.errors, 0);
+  assert.deepEqual(copied.rows, first.rows);
+
+  const appended = [
+    codexTurnUsage("response-c", codexUsage(5, 1), codexUsage(30, 6)),
+    codexTokenCount(codexUsage(5, 1), codexUsage(30, 6)),
+    codexTurnUsage("response-c", codexUsage(7, 2), codexUsage(32, 7)),
+    codexTokenCount(codexUsage(2, 1), codexUsage(32, 7)),
+  ]
+    .map((record) => `${JSON.stringify(record)}\n`)
+    .join("");
+  await appendFile(copy, appended);
+  const appendedSnapshot = await snapshot(context);
+  assert.equal(appendedSnapshot.stats.bytesRead, Buffer.byteLength(appended));
+  assert.equal(appendedSnapshot.stats.errors, 0);
+  assert.deepEqual(appendedSnapshot.rows[0].tokens, {
+    input: 32,
+    output: 7,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 39,
+  });
+  assert.equal(appendedSnapshot.rows[0].messages, 3);
+  assert.deepEqual((await snapshot(context)).rows, appendedSnapshot.rows);
+});
+
+test("Codex identical token vectors stay distinct when cumulative counters disagree", async () => {
+  const context = await env();
+  const config = [
+    {
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions"],
+    },
+  ];
+  const writeSession = async (dir, sessionId, records) => {
+    const file = path.join(context.home, ".codex", "sessions", dir, "session.jsonl");
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(
+      file,
+      [
+        {
+          type: "session_meta",
+          timestamp: "2026-03-09T09:00:00Z",
+          payload: { id: sessionId, cwd: "/repo/twins", model_provider: "openai" },
+        },
+        {
+          type: "turn_context",
+          timestamp: "2026-03-09T09:00:01Z",
+          payload: { turn_id: "turn-1", model: "twin-model", cwd: "/repo/twins" },
+        },
+        ...records,
+      ]
+        .map((record) => `${JSON.stringify(record)}\n`)
+        .join(""),
+    );
+    return file;
+  };
+
+  // token_count request a, then TUR request b with the same vector but a
+  // different thread cumulative total: the pending twin must not absorb b.
+  await writeSession("twins-a", "codex-twins-a", [
+    codexTokenCount(codexUsage(10, 2), codexUsage(10, 2)),
+    codexTurnUsage("response-b", codexUsage(10, 2), codexUsage(20, 4)),
+  ]);
+
+  // Two TUR requests with the same vector but different thread totals, then
+  // a third independent token_count. Older vector/time matching folded the
+  // third request into response-b.
+  await writeSession("twins-b", "codex-twins-b", [
+    codexTurnUsage("b-response-a", codexUsage(10, 2), codexUsage(10, 2)),
+    codexTurnUsage("b-response-b", codexUsage(10, 2), codexUsage(20, 4)),
+    codexTokenCount(codexUsage(10, 2), codexUsage(20, 4)),
+    codexTokenCount(codexUsage(10, 2), codexUsage(30, 6)),
+  ]);
+
+  const result = await configure(context, config);
+  assert.equal(result.stats.errors, 0);
+  const rows = new Map(result.rows.map((row) => [row.session, row]));
+  assert.deepEqual(rows.get("codex:codex-twins-a").tokens, {
+    input: 20,
+    output: 4,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 24,
+  });
+  assert.equal(rows.get("codex:codex-twins-a").messages, 2);
+  assert.deepEqual(rows.get("codex:codex-twins-b").tokens, {
+    input: 30,
+    output: 6,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    total: 36,
+  });
+  assert.equal(rows.get("codex:codex-twins-b").messages, 3);
 });
 
 test("old file-level Codex modern state is rescanned once to recover the prefix", async () => {

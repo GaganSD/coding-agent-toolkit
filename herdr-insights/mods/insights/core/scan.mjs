@@ -537,10 +537,10 @@ async function scanOneFile(store, source, filePath, sink, stats) {
     forceRead = true;
     dirty = true;
   }
-  if (entry.adapter === "codex" && entry.state.codexParserVersion !== 3) {
-    // Older collectors detected modern Codex files at the file level, dropped
-    // the legacy prefix, and could rewrite fork thread identity from parent
-    // session_meta records. Rescan Codex files once with the current parser.
+  if (entry.adapter === "codex" && entry.state.codexParserVersion !== 4) {
+    // Older collectors accumulated only globally-new Codex deltas into the
+    // local pending counter, so copied files could double count their legacy
+    // suffix. Rescan Codex files once with local request accounting.
     resetFileEntry(store, entry);
     forceRead = true;
     dirty = true;
@@ -604,7 +604,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   entry.mtimeMs = fileStat.mtimeMs;
   entry.path = filePath;
   if (entry.adapter === "pi") entry.state.piParserVersion = 2;
-  if (entry.adapter === "codex") entry.state.codexParserVersion = 3;
+  if (entry.adapter === "codex") entry.state.codexParserVersion = 4;
   return dirty;
 }
 
