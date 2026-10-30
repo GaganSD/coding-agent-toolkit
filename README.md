@@ -32,14 +32,13 @@
 
 ---
 
-A monorepo of **Pi coding-agent extensions** and **Herdr mods**. Each integrates natively with its host, with minimal overhead and focused functionality. Pi extensions and Herdr mods are installed separately.
-
+A monorepo of benchmarked/minimal overhead tools I've built for Pi & Herdr:
 - [Pi extensions](#pi-extensions): terminal UI, subagent delegation, web search, interactive interviews, and permission controls.
-- [Herdr mods](#herdr-mods): a local-first token-usage dashboard for Pi, Codex, Claude Code, and OpenCode sessions.
+- [Herdr mods](#herdr-mods): Currently, just one - a local-first token-usage dashboard for Pi, Codex & different coding agents.
 
 ## Design Principles
 
-- **Minimal by Design** — Focused tools with minimal overhead. Pi prompts and schemas stay small to preserve the agent's context window.
+- **Minimal by Design** — Focused tools with minimal overhead. Context and schemas stay small to preserve the agent's context window.
 - **Keyless by Default** — Public web and code retrieval work without API keys; Insights reads local session data without an account.
 - **Native Integration** — Pi extensions use Pi's extension lifecycle, tools, slash commands, and themes. Herdr mods use Herdr's native mod system.
 
