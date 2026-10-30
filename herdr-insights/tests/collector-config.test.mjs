@@ -390,7 +390,7 @@ test("sourceStats distinguishes disabled, missing, empty, ok, and error sources"
   assert.ok(result.warnings.some((warning) => warning.startsWith("[bad]")));
 });
 
-test("default config and empty input include only Pi and Codex sources", () => {
+test("default config and empty input include Pi, Codex and OpenCode sources", () => {
   const expectedSources = [
     {
       id: "pi",
@@ -405,6 +405,13 @@ test("default config and empty input include only Pi and Codex sources", () => {
       adapter: "codex",
       enabled: true,
       roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
+    },
+    {
+      id: "opencode",
+      label: "OpenCode",
+      adapter: "opencode",
+      enabled: true,
+      roots: ["~/.local/share/opencode"],
     },
   ];
   assert.deepEqual(DEFAULT_CONFIG.sources, expectedSources);

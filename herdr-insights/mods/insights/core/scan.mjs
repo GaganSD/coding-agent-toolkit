@@ -8,14 +8,17 @@ import {
   MAX_LINE_BYTES,
   expandHome,
   isPlainObject,
+  localDay,
 } from "./util.mjs";
 import {
   addTask,
   addUsage,
+  dedupKeyFor,
   fileKey,
   newFileEntry,
   removeLatestFallbackTaskForSession,
   resetFileEntry,
+  taskKeyFor,
 } from "./store.mjs";
 
 const CHUNK_BYTES = 256 * 1024;
@@ -45,6 +48,7 @@ function warningSink(warnings, stats, sourceState) {
 }
 
 function isEligible(adapter, filePath) {
+  if (adapter === "opencode") return path.basename(filePath) === "opencode.db";
   if (adapter === "codex") {
     return filePath.endsWith(".jsonl") || filePath.endsWith(".jsonl.zst");
   }
@@ -490,6 +494,144 @@ async function scanCompressedFile(
   return { ok: true, dirty: true };
 }
 
+function openCodeString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "unknown";
+}
+
+function openCodeInt(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+/**
+ * OpenCode stores sessions in one SQLite database. Messages are immutable
+ * once completed and each assistant row carries canonical tokens, so a full
+ * re-read through the max-upsert dedup is exact. The WAL file changes on
+ * every write while the main database may not, so the checkpoint fingerprint
+ * covers both files.
+ */
+async function scanOpenCodeDb(store, source, filePath, sink, stats) {
+  let dbStat;
+  try {
+    dbStat = await stat(filePath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      sink.warn(`opencode ${filePath}: cannot stat file: ${error.message}`);
+    }
+    return false;
+  }
+  if (!dbStat.isFile()) return false;
+  let walStat = null;
+  try {
+    walStat = await stat(`${filePath}-wal`);
+  } catch { /* no WAL right now */ }
+  const fingerprint = `${dbStat.mtimeMs}:${dbStat.size}:${walStat?.mtimeMs ?? 0}:${walStat?.size ?? 0}`;
+
+  const key = fileKey(source.id, filePath);
+  let entry = store.files[key];
+  let dirty = false;
+  if (!entry) {
+    entry = newFileEntry(store, {
+      sourceId: source.id,
+      adapter: source.adapter,
+      path: filePath,
+      dev: String(dbStat.dev),
+      ino: String(dbStat.ino),
+      size: 0,
+      mtimeMs: 0,
+      compressed: false,
+    });
+    dirty = true;
+  }
+  if (entry.state.opencodeParserVersion === 1 && entry.state.opencodeFingerprint === fingerprint) {
+    stats.unchangedFiles += 1;
+    return dirty;
+  }
+
+  let sqlite;
+  try {
+    sqlite = await import("node:sqlite");
+  } catch {
+    if (entry.state.unsupported !== "sqlite") {
+      sink.warn(`opencode ${filePath}: node:sqlite is unavailable in this Node runtime; skipped.`);
+      entry.state.unsupported = "sqlite";
+      dirty = true;
+    }
+    stats.unchangedFiles += 1;
+    return dirty;
+  }
+
+  let db;
+  let records;
+  try {
+    try {
+      db = new sqlite.DatabaseSync(filePath, { readOnly: true });
+    } catch {
+      db = new sqlite.DatabaseSync(filePath);
+    }
+    records = db.prepare("SELECT session_id, id, time_created, data FROM message").all();
+  } catch (error) {
+    sink.warn(`opencode ${filePath}: scan failed: ${error.message}`);
+    try { db?.close(); } catch { /* already closed */ }
+    stats.unchangedFiles += 1;
+    return dirty;
+  }
+  try { db.close(); } catch { /* close is best-effort */ }
+
+  resetFileEntry(store, entry);
+  delete entry.state.unsupported;
+  for (const record of records) {
+    let data;
+    try {
+      data = JSON.parse(record.data);
+    } catch {
+      continue;
+    }
+    if (data?.role !== "assistant" || !isPlainObject(data.tokens)) continue;
+    const tokens = {
+      input: openCodeInt(data.tokens.input),
+      output: openCodeInt(data.tokens.output),
+      cacheRead: openCodeInt(data.tokens.cache?.read),
+      cacheWrite: openCodeInt(data.tokens.cache?.write),
+      reasoning: openCodeInt(data.tokens.reasoning),
+    };
+    if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite <= 0) continue;
+    const created = openCodeInt(data.time?.created) || openCodeInt(record.time_created);
+    if (created <= 0) continue;
+    const session = String(record.session_id ?? "unknown");
+    const result = addUsage(store, entry, {
+      day: localDay(created),
+      session,
+      harness: source.id,
+      provider: openCodeString(data.providerID),
+      model: openCodeString(data.modelID),
+      project: typeof data.path?.cwd === "string" ? data.path.cwd : "",
+    }, tokens, dedupKeyFor("opencode", "message", String(record.id)));
+    const completed = openCodeInt(data.time?.completed);
+    if (completed > created) {
+      addTask(
+        store,
+        result.fileId,
+        result.rowIdx,
+        taskKeyFor("opencode", "message", String(record.id)),
+        completed - created,
+        session,
+        true,
+      );
+    }
+  }
+
+  entry.dev = String(dbStat.dev);
+  entry.ino = String(dbStat.ino);
+  entry.size = dbStat.size;
+  entry.mtimeMs = dbStat.mtimeMs;
+  entry.state.opencodeFingerprint = fingerprint;
+  entry.state.opencodeParserVersion = 1;
+  stats.filesRead += 1;
+  stats.bytesRead += dbStat.size + (walStat?.size ?? 0);
+  return true;
+}
+
 async function scanOneFile(store, source, filePath, sink, stats) {
   const sourceSink = {
     warn(message) {
@@ -499,6 +641,9 @@ async function scanOneFile(store, source, filePath, sink, stats) {
       sink.note(`[${source.id}] ${message}`);
     },
   };
+  if (source.adapter === "opencode") {
+    return scanOpenCodeDb(store, source, filePath, sourceSink, stats);
+  }
   let fileStat;
   try {
     fileStat = await stat(filePath);

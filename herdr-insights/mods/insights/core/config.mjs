@@ -37,10 +37,17 @@ export const DEFAULT_CONFIG = Object.freeze({
       enabled: true,
       roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
     },
+    {
+      id: "opencode",
+      label: "OpenCode",
+      adapter: "opencode",
+      enabled: true,
+      roots: ["~/.local/share/opencode"],
+    },
   ],
 });
 
-export const BUILTIN_ADAPTERS = new Set(["pi", "claude", "codex"]);
+export const BUILTIN_ADAPTERS = new Set(["pi", "claude", "codex", "opencode"]);
 export const ADAPTERS = new Set([...BUILTIN_ADAPTERS, "custom"]);
 
 const TOP_KEYS = new Set([
