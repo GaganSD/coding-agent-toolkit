@@ -31,13 +31,6 @@ export const DEFAULT_CONFIG = Object.freeze({
       roots: ["~/.pi/agent/sessions"],
     },
     {
-      id: "claude",
-      label: "Claude Code",
-      adapter: "claude",
-      enabled: true,
-      roots: ["~/.claude/projects"],
-    },
-    {
       id: "codex",
       label: "Codex",
       adapter: "codex",

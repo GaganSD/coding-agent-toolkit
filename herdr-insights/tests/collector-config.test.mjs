@@ -15,6 +15,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import {
+  DEFAULT_CONFIG,
+  defaultConfig,
+  normalizeConfig,
+} from "../mods/insights/core/config.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const collector = path.join(here, "..", "mods", "insights", "collector.mjs");
@@ -383,6 +388,47 @@ test("sourceStats distinguishes disabled, missing, empty, ok, and error sources"
   assert.ok(result.warnings.every((warning) => warning.startsWith("[")));
   assert.ok(result.warnings.some((warning) => warning.startsWith("[gone]")));
   assert.ok(result.warnings.some((warning) => warning.startsWith("[bad]")));
+});
+
+test("default config and empty input include only Pi and Codex sources", () => {
+  const expectedSources = [
+    {
+      id: "pi",
+      label: "Pi",
+      adapter: "pi",
+      enabled: true,
+      roots: ["~/.pi/agent/sessions"],
+    },
+    {
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
+    },
+  ];
+  assert.deepEqual(DEFAULT_CONFIG.sources, expectedSources);
+  assert.deepEqual(defaultConfig().sources, expectedSources);
+  assert.deepEqual(normalizeConfig({}).sources, expectedSources);
+});
+
+test("explicit legacy Claude source config is preserved", async () => {
+  const context = await env();
+  const legacySources = [
+    {
+      id: "claude",
+      label: "Claude Code",
+      adapter: "claude",
+      enabled: true,
+      roots: ["~/.claude/projects"],
+    },
+  ];
+  assert.deepEqual(normalizeConfig({ sources: legacySources }).sources, legacySources);
+
+  const configured = await configure(context, { sources: legacySources });
+  assert.deepEqual(configured.config.sources, legacySources);
+  const persisted = await snapshot(context);
+  assert.deepEqual(persisted.config.sources, legacySources);
 });
 
 test("default config source order and shape round-trip through configure", async () => {
