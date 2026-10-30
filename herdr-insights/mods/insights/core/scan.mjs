@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import * as zlib from "node:zlib";
 import { parseAdapterRecord } from "./adapters.mjs";
 import {
@@ -16,6 +17,7 @@ import {
   dedupKeyFor,
   fileKey,
   newFileEntry,
+  prepareStore,
   removeLatestFallbackTaskForSession,
   resetFileEntry,
   taskKeyFor,
@@ -24,6 +26,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
+const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 1 };
 
 function warningSink(warnings, stats, sourceState) {
   let hidden = 0;
@@ -196,11 +199,13 @@ function createLineConsumer(onLine) {
             pending = [];
             pendingLength = 0;
             discarding = true;
+            skippedLargeLine = true;
           } else if (remainder.length > 0) {
             pending.push(Buffer.from(remainder));
             pendingLength += remainder.length;
           }
         }
+        if (discarding) offset = chunkStart + buffer.length;
         return;
       }
       const absoluteEnd = chunkStart + newline + 1;
@@ -208,7 +213,6 @@ function createLineConsumer(onLine) {
         lineNo += 1;
         offset = absoluteEnd;
         discarding = false;
-        skippedLargeLine = true;
         start = newline + 1;
         continue;
       }
@@ -266,6 +270,12 @@ function createLineConsumer(onLine) {
     },
     get skippedLargeLine() {
       return skippedLargeLine;
+    },
+    get discarding() {
+      return discarding;
+    },
+    set discarding(value) {
+      discarding = Boolean(value);
     },
     set offset(value) {
       offset = value;
@@ -360,11 +370,11 @@ async function parseBuffers(
   consumer.offset = startOffset;
   consumer.lineNo = entry.lineNo ?? 0;
   let chunkStart = startOffset;
-  for (const chunk of chunks) {
+  for await (const chunk of chunks) {
     consumer.feedAt(chunk, chunkStart);
     chunkStart += chunk.length;
   }
-  consumer.finish(endOffset);
+  consumer.finish(endOffset ?? chunkStart);
   if (consumer.skippedLargeLine) {
     sink.warn(
       `${source.adapter} ${entry.path}: a line larger than ${MAX_LINE_BYTES} bytes was skipped.`,
@@ -419,17 +429,23 @@ async function scanPlainFile(
     });
     consumer.offset = start;
     consumer.lineNo = entry.lineNo ?? 0;
-    const bytes = await streamRange(
-      filePath,
-      start,
-      fileStat.size,
-      async (chunk, chunkStart) => {
+    consumer.discarding = entry.state.discardingLargeLine;
+    let bytes = 0;
+    try {
+      await streamRange(filePath, start, fileStat.size, async (chunk, chunkStart) => {
+        bytes += chunk.length;
         consumer.feedAt(chunk, chunkStart);
-      },
-    );
+      });
+      consumer.finish(start + bytes);
+      delete entry.state.readFailed;
+    } catch (error) {
+      // Keep the accepted complete prefix and its parser state together. The
+      // unfinished suffix is retried even if the file metadata is unchanged.
+      entry.state.readFailed = true;
+      sink.warn(`${adapter} ${entry.path}: read failed; accepted prefix retained: ${error.message}`);
+    }
     stats.bytesRead += bytes;
     if (bytes > 0) stats.filesRead += 1;
-    consumer.finish(fileStat.size);
     if (consumer.skippedLargeLine) {
       sink.warn(
         `${adapter} ${entry.path}: a line larger than ${MAX_LINE_BYTES} bytes was skipped.`,
@@ -437,14 +453,12 @@ async function scanPlainFile(
     }
     entry.offset = consumer.offset;
     entry.lineNo = consumer.lineNo;
+    if (consumer.discarding) entry.state.discardingLargeLine = true;
+    else delete entry.state.discardingLargeLine;
     dirty = true;
     return dirty;
   }
 
-  // Size grew but the read returned no bytes; keep the cursor stable.
-  if (fileStat.size > start) {
-    stats.filesRead += 1;
-  }
   return dirty;
 }
 
@@ -456,6 +470,7 @@ async function scanCompressedFile(
   fileStat,
   sink,
   stats,
+  checkpoint,
 ) {
   if (!hasZstdSupport()) {
     entry.size = fileStat.size;
@@ -467,11 +482,19 @@ async function scanCompressedFile(
     );
     return { ok: true, dirty: true };
   }
-  const chunks = [];
+  // Roll back metadata if a stream fails after producing valid records. Raw
+  // transcript bytes are never retained: the line consumer is bounded.
+  let result;
   try {
-    const stream = createReadStream(filePath).pipe(zlib.createZstdDecompress());
-    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    if (entry.offset || entry.rows.length || Object.keys(entry.state).length) resetFileEntry(store, entry);
+    result = await pipeline(
+      createReadStream(filePath),
+      zlib.createZstdDecompress(),
+      async (chunks) => processStringChunks(store, entry, source, chunks, 0, undefined, sink),
+    );
   } catch (error) {
+    Object.assign(store, checkpoint);
+    prepareStore(store);
     sink.warn(
       `${source.adapter} ${entry.path}: zstd file could not be decompressed: ${error.message}`,
     );
@@ -479,16 +502,6 @@ async function scanCompressedFile(
   }
   stats.bytesRead += fileStat.size;
   if (fileStat.size > 0) stats.filesRead += 1;
-  resetFileEntry(store, entry);
-  const result = await processStringChunks(
-    store,
-    entry,
-    source,
-    chunks,
-    0,
-    chunks.reduce((sum, chunk) => sum + chunk.length, 0),
-    sink,
-  );
   entry.offset = fileStat.size;
   entry.lineNo = result.lineNo;
   return { ok: true, dirty: true };
@@ -543,7 +556,8 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
     });
     dirty = true;
   }
-  if (entry.state.opencodeParserVersion === 1 && entry.state.opencodeFingerprint === fingerprint) {
+  if (entry.state.opencodeParserVersion === 2 && entry.state.opencodeFingerprint === fingerprint) {
+    if (entry.state.opencodeMalformedRows) sink.warn(`opencode ${filePath}: ${entry.state.opencodeMalformedRows} malformed message rows were skipped.`);
     stats.unchangedFiles += 1;
     return dirty;
   }
@@ -562,63 +576,72 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
   }
 
   let db;
-  let records;
+  let checkpoint;
+  let malformedRows = 0;
   try {
-    try {
-      db = new sqlite.DatabaseSync(filePath, { readOnly: true });
-    } catch {
-      db = new sqlite.DatabaseSync(filePath);
-    }
-    records = db.prepare("SELECT session_id, id, time_created, data FROM message").all();
-  } catch (error) {
-    sink.warn(`opencode ${filePath}: scan failed: ${error.message}`);
-    try { db?.close(); } catch { /* already closed */ }
-    stats.unchangedFiles += 1;
-    return dirty;
-  }
-  try { db.close(); } catch { /* close is best-effort */ }
-
-  resetFileEntry(store, entry);
-  delete entry.state.unsupported;
-  for (const record of records) {
-    let data;
-    try {
-      data = JSON.parse(record.data);
-    } catch {
-      continue;
-    }
-    if (data?.role !== "assistant" || !isPlainObject(data.tokens)) continue;
-    const tokens = {
-      input: openCodeInt(data.tokens.input),
-      output: openCodeInt(data.tokens.output),
-      cacheRead: openCodeInt(data.tokens.cache?.read),
-      cacheWrite: openCodeInt(data.tokens.cache?.write),
-      reasoning: openCodeInt(data.tokens.reasoning),
-    };
-    if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite <= 0) continue;
-    const created = openCodeInt(data.time?.created) || openCodeInt(record.time_created);
-    if (created <= 0) continue;
-    const session = String(record.session_id ?? "unknown");
-    const result = addUsage(store, entry, {
-      day: localDay(created),
-      session,
-      harness: source.id,
-      provider: openCodeString(data.providerID),
-      model: openCodeString(data.modelID),
-      project: typeof data.path?.cwd === "string" ? data.path.cwd : "",
-    }, tokens, dedupKeyFor("opencode", "message", String(record.id)));
-    const completed = openCodeInt(data.time?.completed);
-    if (completed > created) {
-      addTask(
-        store,
-        result.fileId,
-        result.rowIdx,
-        taskKeyFor("opencode", "message", String(record.id)),
-        completed - created,
+    // Never open an external source writable, including on recovery errors.
+    db = new sqlite.DatabaseSync(filePath, { readOnly: true });
+    const records = db.prepare("SELECT session_id, id, time_created, data FROM message").iterate();
+    checkpoint = structuredClone(store);
+    resetFileEntry(store, entry);
+    delete entry.state.unsupported;
+    for (const record of records) {
+      let data;
+      try {
+        data = JSON.parse(record.data);
+      } catch {
+        malformedRows += 1;
+        continue;
+      }
+      if (!isPlainObject(data)) { malformedRows += 1; continue; }
+      if (data.role !== "assistant") continue;
+      if (!isPlainObject(data.tokens)) { malformedRows += 1; continue; }
+      const reported = [data.tokens.input, data.tokens.output, data.tokens.reasoning, data.tokens.cache?.read, data.tokens.cache?.write];
+      if (reported.some((value) => value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0))) {
+        malformedRows += 1;
+        continue;
+      }
+      const tokens = {
+        input: openCodeInt(data.tokens.input),
+        output: openCodeInt(data.tokens.output),
+        cacheRead: openCodeInt(data.tokens.cache?.read),
+        cacheWrite: openCodeInt(data.tokens.cache?.write),
+        reasoning: openCodeInt(data.tokens.reasoning),
+      };
+      if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite <= 0) continue;
+      const created = openCodeInt(data.time?.created) || openCodeInt(record.time_created);
+      if (created <= 0 || !Number.isFinite(new Date(created).getTime())) { malformedRows += 1; continue; }
+      const session = String(record.session_id ?? "unknown");
+      const result = addUsage(store, entry, {
+        day: localDay(created),
         session,
-        true,
-      );
+        harness: source.id,
+        provider: openCodeString(data.providerID),
+        model: openCodeString(data.modelID),
+        project: typeof data.path?.cwd === "string" ? data.path.cwd : "",
+      }, tokens, dedupKeyFor("opencode", "message", String(record.id)));
+      const completed = openCodeInt(data.time?.completed);
+      if (completed > created) {
+        addTask(
+          store,
+          result.fileId,
+          result.rowIdx,
+          taskKeyFor("opencode", "message", String(record.id)),
+          completed - created,
+          session,
+          true,
+        );
+      }
     }
+  } catch (error) {
+    if (checkpoint) {
+      Object.assign(store, checkpoint);
+      prepareStore(store);
+    }
+    sink.warn(`opencode ${filePath}: scan failed: ${error.message}`);
+    return dirty;
+  } finally {
+    try { db?.close(); } catch { /* close is best-effort */ }
   }
 
   entry.dev = String(dbStat.dev);
@@ -626,7 +649,9 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
   entry.size = dbStat.size;
   entry.mtimeMs = dbStat.mtimeMs;
   entry.state.opencodeFingerprint = fingerprint;
-  entry.state.opencodeParserVersion = 1;
+  entry.state.opencodeParserVersion = 2;
+  entry.state.opencodeMalformedRows = malformedRows;
+  if (malformedRows) sink.warn(`opencode ${filePath}: ${malformedRows} malformed message rows were skipped.`);
   stats.filesRead += 1;
   stats.bytesRead += dbStat.size + (walStat?.size ?? 0);
   return true;
@@ -657,6 +682,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
 
   const key = fileKey(source.id, filePath);
   let entry = store.files[key];
+  const isNew = !entry;
   let dirty = false;
   if (!entry) {
     entry = newFileEntry(store, {
@@ -674,18 +700,22 @@ async function scanOneFile(store, source, filePath, sink, stats) {
 
   const dev = String(fileStat.dev);
   const ino = String(fileStat.ino);
-  let forceRead = false;
-  if (entry.adapter === "pi" && entry.state.piParserVersion !== 2) {
-    // Older collectors ignored Pi usage carriers and keyed tasks by the fork
-    // session. Rescan Pi files once with carrier and stable task accounting.
-    resetFileEntry(store, entry);
-    forceRead = true;
-    dirty = true;
+  const parserVersion = PARSER_VERSIONS[entry.adapter];
+  const parserKey = `${entry.adapter}ParserVersion`;
+  const parserCurrent = (!parserVersion || entry.state[parserKey] === parserVersion)
+    && !(entry.state.unsupported === "zstd" && hasZstdSupport());
+  if (parserCurrent && !entry.state.readFailed && entry.dev === dev && entry.ino === ino
+    && entry.size === fileStat.size && entry.mtimeMs === fileStat.mtimeMs) {
+    stats.unchangedFiles += 1;
+    return dirty;
   }
-  if (entry.adapter === "codex" && entry.state.codexParserVersion !== 4) {
-    // Older collectors accumulated only globally-new Codex deltas into the
-    // local pending counter, so copied files could double count their legacy
-    // suffix. Rescan Codex files once with local request accounting.
+  // Capture before migrations/truncation reset anything, including ownership
+  // transferred to copied files. Unchanged archives never allocate a checkpoint.
+  const checkpoint = entry.compressed && hasZstdSupport() ? structuredClone(store) : null;
+  let forceRead = false;
+  if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
+    // Migrate existing history once for accounting fixes. New files own no
+    // metadata and must never trigger a global ownership cleanup scan.
     resetFileEntry(store, entry);
     forceRead = true;
     dirty = true;
@@ -702,6 +732,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   if (
     entry.dev !== dev ||
     entry.ino !== ino ||
+    fileStat.size < entry.size ||
     fileStat.size < entry.offset
   ) {
     resetFileEntry(store, entry);
@@ -713,6 +744,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
 
   if (
     !forceRead &&
+    !entry.state.readFailed &&
     entry.size === fileStat.size &&
     entry.mtimeMs === fileStat.mtimeMs
   ) {
@@ -729,6 +761,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
       fileStat,
       sourceSink,
       stats,
+      checkpoint,
     );
     if (!compressed.ok) return dirty;
     dirty = compressed.dirty || dirty;
@@ -748,8 +781,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   entry.size = fileStat.size;
   entry.mtimeMs = fileStat.mtimeMs;
   entry.path = filePath;
-  if (entry.adapter === "pi") entry.state.piParserVersion = 2;
-  if (entry.adapter === "codex") entry.state.codexParserVersion = 4;
+  if (parserVersion) entry.state[parserKey] = parserVersion;
   return dirty;
 }
 

@@ -68,7 +68,7 @@ export function heatmapMetrics(width, weekCount) {
 
 /** Categorical chart palette that reads on both dark and light themes. */
 const MODEL_CHART_COLORS = ["#5b8def", "#3fb27f", "#e0a23c", "#d96c92", "#8f6fe0", "#41b3ba", "#e2704f"];
-const OTHER_CHART_COLOR = "#8a8f98";
+const OTHER_CHART_COLOR = "#6f8fd1";
 const CHART_HEIGHT = 168;
 
 function modelChartColor(name, index) {
@@ -358,7 +358,7 @@ function buildFacetOptions(field, facet, config) {
   }
   options.sort((left, right) => right.tokens - left.tokens || left.label.localeCompare(right.label));
   const total = facet?.total ?? 0;
-  const truncated = options.length > MAX_FACET_OPTIONS;
+  const truncated = Boolean(facet?.truncated) || options.length > MAX_FACET_OPTIONS;
   const visible = options.slice(0, MAX_FACET_OPTIONS);
   return {
     truncated,
@@ -386,6 +386,7 @@ function preferenceRow(label, control, c) {
 
 export default class Insights extends View {
   init(_props, cx) {
+    this.closed = false;
     this.snapshot = null;
     this.loading = false;
     this.error = null;
@@ -430,6 +431,10 @@ export default class Insights extends View {
     this.dashboardTask = null;
     this.progressTimer = null;
     this.scanProgress = null;
+    this.progressTask = null;
+    this.progressGeneration = 0;
+    this.activityTask = null;
+    this.activityGeneration = 0;
     this.dashboardQueued = false;
     this.dashboardGeneration = 0;
     this.dashboardWatchdog = null;
@@ -437,23 +442,7 @@ export default class Insights extends View {
     this.saveWatchdog = null;
     this.years = [Number(todayKey().slice(0, 4))];
 
-    this.runtimeTask = cx.spawn(async (runtimeCx) => {
-      try {
-        const raw = await readTextFile(this.runtimePath());
-        this.nodeBinary = parseRuntimeNode(raw);
-      } catch (error) {
-        this.runtimeError = `Insights runtime configuration failed at ${this.runtimePath()}: ${sanitizeError(error)}`;
-        this.error = this.runtimeError;
-      } finally {
-        this.runtimeReady = true;
-        this.loading = false;
-      }
-      if (this.nodeBinary) {
-        this.refresh(runtimeCx);
-        this.schedule(runtimeCx);
-      }
-      runtimeCx.notify();
-    });
+    this.resolveRuntime(cx);
     this.commandTask = cx.spawn(async (commandCx) => {
       for (;;) {
         let command;
@@ -491,6 +480,12 @@ export default class Insights extends View {
   }
 
   close() {
+    this.closed = true;
+    this.cancelDashboardWork();
+    this.activityGeneration = (this.activityGeneration ?? 0) + 1;
+    try { this.activityTask?.cancel(); } catch { /* already gone */ }
+    this.activityTask = null;
+    this.cancelProgress();
     try { this.timer?.cancel(); } catch { /* already gone */ }
     try { this.dashboardTimer?.cancel(); } catch { /* already gone */ }
     try { this.dashboardTask?.cancel(); } catch { /* already gone */ }
@@ -613,6 +608,38 @@ export default class Insights extends View {
     return this.loading || this.saving;
   }
 
+  resolveRuntime(cx) {
+    if (this.closed || (this.runtimeTask && !this.runtimeReady)) return;
+    this.runtimeReady = false;
+    this.runtimeError = null;
+    this.loading = true;
+    this.runtimeTask = cx.spawn(async (runtimeCx) => {
+      try {
+        const raw = await readTextFile(this.runtimePath());
+        if (this.closed) return;
+        this.nodeBinary = parseRuntimeNode(raw);
+      } catch (error) {
+        if (this.closed) return;
+        this.nodeBinary = null;
+        this.runtimeError = `Insights runtime configuration failed at ${this.runtimePath()}: ${sanitizeError(error)}`;
+        this.error = this.runtimeError;
+      } finally {
+        if (!this.closed) {
+          this.runtimeReady = true;
+          this.runtimeTask = null;
+          this.loading = false;
+        }
+      }
+      if (this.closed) return;
+      if (this.nodeBinary) {
+        this.refresh(runtimeCx);
+        this.schedule(runtimeCx);
+      }
+      runtimeCx.notify();
+    });
+    cx.notify();
+  }
+
   runtimePath() {
     return `${appHome()}/${RUNTIME_FILE}`;
   }
@@ -657,37 +684,52 @@ export default class Insights extends View {
     // Self-terminating: if a refresh continuation is interrupted before its
     // finally runs, the poll must not leak into a permanent notify loop.
     let ticks = 0;
+    const generation = this.progressGeneration;
     this.progressTimer = cx.timer.every(500, (timerCx) => {
       ticks += 1;
       if (!this.loading || ticks > 240) {
         this.cancelProgress();
         return;
       }
-      let next = null;
-      try {
-        const parsed = JSON.parse(readTextFile(this.progressPath()));
-        if (parsed && Number.isFinite(Number(parsed.processed)) && Number.isFinite(Number(parsed.total))) next = parsed;
-      } catch { /* the progress file is best-effort */ }
-      const changed = (next?.processed ?? null) !== (this.scanProgress?.processed ?? null)
-        || (next?.file ?? null) !== (this.scanProgress?.file ?? null);
-      this.scanProgress = next;
-      if (changed) timerCx.notify();
+      if (this.progressTask) return;
+      this.progressTask = timerCx.spawn(async (progressCx) => {
+        let next = null;
+        try {
+          const parsed = JSON.parse(await readTextFile(this.progressPath()));
+          if (parsed && Number.isFinite(Number(parsed.processed)) && Number.isFinite(Number(parsed.total))) next = parsed;
+        } catch { /* the progress file is best-effort */ }
+        if (generation !== this.progressGeneration || !this.loading) return;
+        this.progressTask = null;
+        const changed = (next?.processed ?? null) !== (this.scanProgress?.processed ?? null)
+          || (next?.file ?? null) !== (this.scanProgress?.file ?? null);
+        this.scanProgress = next;
+        if (changed) progressCx.notify();
+      });
     });
   }
 
   cancelProgress() {
+    this.progressGeneration = (this.progressGeneration ?? 0) + 1;
     try { this.progressTimer?.cancel(); } catch { /* already gone */ }
+    try { this.progressTask?.cancel(); } catch { /* already gone */ }
     this.progressTimer = null;
+    this.progressTask = null;
     this.scanProgress = null;
   }
 
   armWatchdog(kind, cx) {
     const field = kind === "refresh" ? "refreshWatchdog" : "saveWatchdog";
     try { this[field]?.cancel(); } catch { /* already gone */ }
+    const generation = this.activityGeneration;
     this[field] = cx.timer.after(ACTIVITY_TIMEOUT_MS, (timerCx) => {
+      if (generation !== this.activityGeneration) return;
       this[field] = null;
+      this.activityGeneration = (this.activityGeneration ?? 0) + 1;
+      try { this.activityTask?.cancel(); } catch { /* already gone */ }
+      this.activityTask = null;
       if (kind === "refresh" && this.loading) {
         this.loading = false;
+        this.cancelProgress();
         this.error = "Refresh timed out after 35 seconds. Retry to try again.";
         timerCx.notify();
       }
@@ -804,14 +846,14 @@ export default class Insights extends View {
   }
 
   refresh(cx) {
-    if (!this.runtimeReady) return;
+    if (this.closed || !this.runtimeReady) return;
     if (this.runtimeError) {
-      this.loading = false;
-      this.error = this.runtimeError;
-      cx.notify();
+      this.resolveRuntime(cx);
       return;
     }
     if (this.busy()) return;
+    const generation = (this.activityGeneration ?? 0) + 1;
+    this.activityGeneration = generation;
     this.loading = true;
     this.error = null;
     cx.notify();
@@ -820,7 +862,7 @@ export default class Insights extends View {
     const presenter = this.presenterPath();
     const store = this.storePath();
     const options = this.dashboardOptions();
-    cx.spawn(async (refreshCx) => {
+    this.activityTask = cx.spawn(async (refreshCx) => {
       let payload = null;
       let failure = null;
       try {
@@ -839,15 +881,18 @@ export default class Insights extends View {
       } catch (error) {
         failure = error;
       } finally {
-        this.loading = false;
-        this.cancelWatchdog("refresh");
-        this.cancelProgress();
-        if (failure) {
-          this.error = sanitizeError(failure);
-          refreshCx.notify();
+        if (generation === this.activityGeneration) {
+          this.activityTask = null;
+          this.loading = false;
+          this.cancelWatchdog("refresh");
+          this.cancelProgress();
+          if (failure) {
+            this.error = sanitizeError(failure);
+            refreshCx.notify();
+          }
         }
       }
-      if (!payload) return;
+      if (!payload || generation !== this.activityGeneration) return;
       this.error = null;
       try {
         this.applySnapshot(payload, refreshCx);
@@ -1049,8 +1094,17 @@ export default class Insights extends View {
     return config;
   }
 
+  draftSignature() {
+    return JSON.stringify({
+      draft: this.configDraft,
+      editor: this.configEditor?.value() ?? this.configText,
+      roots: Array.from(this.sourceInputs ?? [], ([key, input]) => [key, input.value()]),
+      refresh: this.refreshInput?.value(),
+    });
+  }
+
   saveConfig(cx) {
-    if (!this.runtimeReady) return;
+    if (this.closed || !this.runtimeReady) return;
     if (this.runtimeError) {
       this.saveError = this.runtimeError;
       cx.notify();
@@ -1066,6 +1120,9 @@ export default class Insights extends View {
       cx.notify();
       return;
     }
+    const generation = (this.activityGeneration ?? 0) + 1;
+    this.activityGeneration = generation;
+    const draftSignature = this.draftSignature();
     this.saving = true;
     this.saveError = null;
     this.saveMessage = null;
@@ -1074,7 +1131,7 @@ export default class Insights extends View {
     const presenter = this.presenterPath();
     const store = this.storePath();
     const options = this.dashboardOptions();
-    cx.spawn(async (saveCx) => {
+    this.activityTask = cx.spawn(async (saveCx) => {
       let payload = null;
       let failure = null;
       try {
@@ -1095,21 +1152,29 @@ export default class Insights extends View {
       } catch (error) {
         failure = error;
       } finally {
-        this.saving = false;
-        this.cancelWatchdog("save");
-        if (failure) this.saveError = sanitizeError(failure);
-        saveCx.notify();
+        if (generation === this.activityGeneration) {
+          this.activityTask = null;
+          this.saving = false;
+          this.cancelWatchdog("save");
+          if (failure) this.saveError = sanitizeError(failure);
+          saveCx.notify();
+        }
       }
-      if (!payload) return;
-      this.configDirty = false;
-      this.editorDirty = false;
-      this.rootsDirty = false;
-      this.refreshDirty = false;
+      if (!payload || generation !== this.activityGeneration) return;
+      const draftUnchanged = this.draftSignature() === draftSignature;
+      if (draftUnchanged) {
+        this.configDirty = false;
+        this.editorDirty = false;
+        this.rootsDirty = false;
+        this.refreshDirty = false;
+      } else {
+        this.configDirty = true;
+      }
       this.error = null;
       this.saveError = null;
       try {
         this.applySnapshot(payload, saveCx);
-        this.saveMessage = "Configuration saved.";
+        this.saveMessage = draftUnchanged ? "Configuration saved." : "Saved. Newer edits are still unsaved.";
       } catch (error) {
         this.saveError = sanitizeError(error);
       }
@@ -1253,18 +1318,19 @@ export default class Insights extends View {
   }
 
   initialState(c) {
+    const loading = this.loading || !this.runtimeReady;
     const progress = this.scanProgress;
     const total = Number(progress?.total) || 0;
     const processed = Number(progress?.processed) || 0;
     const file = typeof progress?.file === "string" ? progress.file : "";
     return stateCard(c, {
-      tone: this.loading ? c.accent : c.destructive,
-      title: this.loading ? "Loading local insights" : "Insights needs its collector",
-      body: this.loading
+      tone: loading ? c.accent : c.destructive,
+      title: loading ? "Loading local insights" : "Insights needs its collector",
+      body: loading
         ? (total > 0 ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files` : null)
         : (this.error || "The collector did not return a snapshot yet."),
-      detail: this.loading && file ? file : null,
-      action: this.busy() ? null : button("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), c, {
+      detail: loading && file ? file : null,
+      action: loading || this.busy() ? null : button("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), c, {
         variant: "primary",
       }),
     });
@@ -1525,11 +1591,7 @@ export default class Insights extends View {
 
     return card(c).gap(G.md)
       .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_between()
-        .child(cardHeader(
-          "Tokens History",
-          `53 weeks · ends ${dayLabel(heatmap.range.dataEnd)} · ${config.includeCache ? "cache included" : "cache excluded"}`,
-          c,
-        ))
+        .child(cardHeader("Tokens History", null, c))
         .child(segmented("ins-heat-mode", [
           { key: "daily", label: "Daily" },
           { key: "weekly", label: "Weekly" },

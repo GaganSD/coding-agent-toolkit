@@ -688,7 +688,7 @@ export function leaderboard(rows, previousRows, options = {}) {
   entries.sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
   entries.forEach((entry, index) => { entry.rank = index + 1; });
 
-  const limit = options.limit === undefined ? 12 : Math.max(0, Math.floor(Number(options.limit) || 0));
+  const limit = options.limit === undefined ? 10 : Math.max(0, Math.floor(Number(options.limit) || 0));
   return {
     groupBy,
     entries: limit > 0 ? entries.slice(0, limit) : entries,
@@ -964,7 +964,7 @@ export function deriveDashboard(snapshot, options = {}) {
   const leaders = leaderboard(periodRows, previousRows, {
     groupBy: leaderboardGroup,
     includeCache,
-    limit: 12,
+    limit: 10,
   });
   const modelSeries = buildModelSeries(dimensionRows, {
     endDay: range.end,
@@ -1077,6 +1077,21 @@ function dashboardKey(snapshot, options = {}) {
  * full analytics input on every refresh or filter change.
  */
 export function compactDashboard(derived) {
+  // The native menus display only 250 values. Do not ship thousands of hidden
+  // facet records into QuickJS; retain the selected value and full totals.
+  const facets = Object.fromEntries(Object.entries(derived?.facets ?? {}).map(([field, facet]) => {
+    const all = facet.stats ?? [];
+    const stats = all.slice(0, 250);
+    const selected = derived?.filters?.[field];
+    if (selected && selected !== "all" && !stats.some((stat) => stat.value === selected)) {
+      const retained = all.find((stat) => stat.value === selected);
+      if (retained) {
+        if (stats.length === 250) stats.pop();
+        stats.push(retained);
+      }
+    }
+    return [field, { ...facet, stats, truncated: all.length > stats.length, totalCount: all.length }];
+  }));
   const heatmap = derived?.heatmap ?? {};
   const leaders = derived?.leaders ?? {};
   return {
@@ -1100,7 +1115,7 @@ export function compactDashboard(derived) {
     lifetimeTop: derived?.lifetimeTop ?? null,
     selectedRowCount: Array.isArray(derived?.selectedRows) ? derived.selectedRows.length : 0,
     rowCount: Array.isArray(derived?.rows) ? derived.rows.length : 0,
-    facets: derived?.facets ?? {},
+    facets,
     modelSeries: derived?.modelSeries ?? null,
     heatmap: {
       mode: heatmap.mode,
@@ -1124,7 +1139,30 @@ export function compactDashboard(derived) {
   };
 }
 
-/** Validates the compact payload produced by presenter.mjs. */
+function isDashboard(value) {
+  const object = (item) => item !== null && typeof item === "object" && !Array.isArray(item);
+  const arrayOf = (items, predicate) => Array.isArray(items) && items.every(predicate);
+  if (!object(value) || !object(value.config) || !Array.isArray(value.config.sources)
+    || !arrayOf(value.years, Number.isInteger) || !object(value.range)
+    || !object(value.lifetime) || !object(value.peak) || !object(value.streaks)
+    || !object(value.selectedTotals) || !object(value.facets)
+    || !Number.isInteger(value.rowCount) || value.rowCount < 0) return false;
+  for (const field of ["provider", "model"]) {
+    if (!object(value.facets[field]) || !arrayOf(value.facets[field].stats, object)) return false;
+  }
+  const heatmap = value.heatmap;
+  if (!object(heatmap) || !object(heatmap.range) || !isDay(heatmap.range.dataEnd)
+    || !arrayOf(heatmap.months, object)
+    || !arrayOf(heatmap.weeks, (week) => object(week) && isDay(week.start)
+      && arrayOf(week.days, (day) => object(day) && isDay(day.date)))) return false;
+  if (!object(value.leaders) || !arrayOf(value.leaders.entries,
+    (entry) => object(entry) && typeof entry.name === "string" && object(entry.change))) return false;
+  const series = value.modelSeries;
+  return series === null || (object(series) && arrayOf(series.models, (model) => typeof model === "string")
+    && arrayOf(series.weeks, (week) => object(week) && isDay(week.start) && arrayOf(week.segments, object)));
+}
+
+/** Validates the compact payload produced by presenter.mjs before native rendering. */
 export function isPresentation(value) {
   return Boolean(
     value
@@ -1136,8 +1174,8 @@ export function isPresentation(value) {
       && value.snapshot.config
       && typeof value.snapshot.config === "object"
       && !Array.isArray(value.snapshot.config)
-      && Number.isFinite(Number(value.snapshot.rowCount))
-      && (value.dashboard === null || (value.dashboard && typeof value.dashboard === "object")),
+      && Number.isInteger(value.snapshot.rowCount) && value.snapshot.rowCount >= 0
+      && (value.dashboard === null || isDashboard(value.dashboard)),
   );
 }
 

@@ -203,7 +203,7 @@ async function install(options) {
 
   await ensureDirectory(appHome, path.join(appHome, "mods"), "Herdr mods directory");
   await ensureDirectory(appHome, targetDirectory, "Insights mod directory");
-  await ensureDirectory(appHome, targetDataDirectory, "Insights data directory");
+  await ensureDirectory(appHome, targetDataDirectory, "Insights data directory", 0o700);
 
   const written = [];
   const unchanged = [];
@@ -232,6 +232,7 @@ async function install(options) {
 
   const removed = [];
   const keptStale = [];
+  const retainedHashes = Object.create(null);
   if (manifest) {
     for (const [relative, oldHash] of Object.entries(manifest.files)) {
       if (sourcePaths.has(relative)) continue;
@@ -240,16 +241,19 @@ async function install(options) {
         await assertNoSymlinkComponents(appHome, target);
       } catch (error) {
         keptStale.push(`${target} (${error.message})`);
+        retainedHashes[relative] = oldHash;
         continue;
       }
       const stat = await lstatOrNull(target);
       if (!stat) continue;
       if (stat.isSymbolicLink() || !stat.isFile()) {
         keptStale.push(`${target} (not a regular file)`);
+        retainedHashes[relative] = oldHash;
         continue;
       }
       if (sha256(await fs.readFile(target)) !== oldHash) {
         keptStale.push(`${target} (edited locally)`);
+        retainedHashes[relative] = oldHash;
         continue;
       }
       await fs.unlink(target);
@@ -257,9 +261,11 @@ async function install(options) {
     }
   }
 
-  const installedHashes = Object.fromEntries(
-    source.files.map((file) => [file.relative, file.hash]),
-  );
+  // Keep ownership proof for stale files we deliberately left in place.
+  const installedHashes = {
+    ...retainedHashes,
+    ...Object.fromEntries(source.files.map((file) => [file.relative, file.hash])),
+  };
   await writeManifest(appHome, installedHashes);
 
   console.log(

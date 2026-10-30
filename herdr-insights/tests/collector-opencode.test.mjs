@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -116,6 +116,23 @@ test("OpenCode adapter reads assistant usage from the SQLite store", async () =>
   const sesOneTotals = sesOne.reduce((sum, row) => sum + row.tokens.input + row.tokens.output, 0);
   assert.equal(sesOneTotals, 100 + 40 + 50 + 10);
   assert.equal(third.stats.filesRead, 1);
+});
+
+test("OpenCode malformed message rows report bounded warnings, including on unchanged scans", async (t) => {
+  const context = await env();
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const insert = context.db.prepare("INSERT INTO message VALUES (?, ?, ?, ?)");
+  insert.run("valid", "ses", 1790400000000, assistantMessage("valid"));
+  for (let index = 0; index < 100; index += 1) insert.run(`bad-${index}`, "ses", 1790400000000, "{SECRET_CORRUPT_ROW");
+  context.db.close();
+  const first = await snapshot(context);
+  assert.equal(first.sourceStats.opencode.status, "error");
+  assert.equal(first.sourceStats.opencode.errors, 1, "aggregate corrupt rows into one bounded warning");
+  assert.match(first.warnings.join("\n"), /100 malformed message rows/);
+  assert.equal(JSON.stringify(first).includes("SECRET_CORRUPT_ROW"), false);
+  const warm = await snapshot(context);
+  assert.equal(warm.stats.filesRead, 0);
+  assert.equal(warm.sourceStats.opencode.status, "error", "cached malformed state must not become falsely healthy");
 });
 
 test("OpenCode adapter skips a missing database without errors", async () => {

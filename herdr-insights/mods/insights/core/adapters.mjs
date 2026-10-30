@@ -187,6 +187,17 @@ function parsePi(record, ctx) {
       if (timestamp !== null) piTiming({ role }, ctx, session, timestamp, false, "");
       return;
     }
+    if (role === "toolResult") {
+      // Tool extensions may report nested-model usage directly. Count the
+      // reported event without opening/closing the surrounding assistant turn.
+      piUsageCarrier({
+        type: "toolResult", usage: message.usage,
+        id: record.id ?? message.toolCallId ?? message.responseId,
+        timestamp: record.timestamp ?? message.timestamp,
+        provider: message.provider, model: message.model,
+      }, ctx);
+      return;
+    }
     if (role !== "assistant") return;
     if (timestamp === null) {
       ctx.warn("Pi assistant record has no usable timestamp; skipped");
@@ -366,7 +377,6 @@ function parseClaude(record, ctx) {
       taskKeyFor(
         "claude",
         "turn-duration",
-        session,
         record.parentUuid ?? record.uuid ?? record.timestamp,
       ),
       duration,
@@ -420,7 +430,7 @@ function parseClaude(record, ctx) {
       ctx,
       history,
       session,
-      taskKeyFor("claude", "span", session, identity),
+      taskKeyFor("claude", "span", identity),
       spanMs(start, timestamp),
       false,
     );
@@ -795,15 +805,12 @@ function parseCodex(record, ctx) {
       const previous = isPlainObject(state.legacyTotals)
         ? state.legacyTotals
         : null;
+      // A reset belongs to the whole counter vector, not just the fields that
+      // decreased. Other fields may already exceed their old values on restart.
+      reset = Boolean(previous && Object.keys(current).some((key) => current[key] < toNonNegInt(previous[key])));
       raw = {};
       for (const key of Object.keys(current)) {
-        const prior = toNonNegInt(previous?.[key]);
-        if (previous && current[key] < prior) reset = true;
-        raw[key] = previous
-          ? current[key] < prior
-            ? current[key]
-            : current[key] - prior
-          : current[key];
+        raw[key] = !previous || reset ? current[key] : current[key] - toNonNegInt(previous[key]);
       }
       state.legacyTotals = current;
       identityTail = [

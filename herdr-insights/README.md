@@ -86,10 +86,10 @@ version gate, so an older Node can still remove a clean install.
 
 ## What it shows
 
-- A top usage filter bar: period (week, month, year, all), a year selector for
-  year periods, and source, provider, model, and project filters. The project
-  filter lists the top 250 projects by tokens; an already selected project
-  remains selected even if it falls outside that list.
+- A Model Usage filter bar: period (week, month, year, all), a year selector for
+  year periods, and provider/model filters. These scope the model chart and
+  leaderboard, not the all-time metrics or token history. Menus show the top
+  250 values; prepared facets retain selected values and full token totals.
 - A five-metric strip: lifetime tokens, peak-day tokens, longest observed task,
   longest streak, and current streak. A missing or zero task duration displays
   as a dash rather than an invented value. Current streak gives yesterday
@@ -98,11 +98,11 @@ version gate, so an older Node can still remove a clean install.
   daily / weekly / cumulative modes. Weekly mode repeats the full week's total
   on each day of that week. Cumulative mode is the all-time running total
   through each day. Future cells are dimmed and are not clickable.
-- A ranked model/provider leaderboard with total tokens, share, and change
-  versus the previous calendar period. Grouping switches between models and
-  providers. Rows are summary-only; they do not expand.
-- A token breakdown and scan status for the selected period, with per-source
-  status and warnings. Loading, empty, and error states are explicit.
+- A ranked top-10 Model Usage leaderboard with provider attribution, total
+  tokens, and change versus the previous calendar period. Rows are summary-only;
+  they do not expand. A stacked weekly model chart sits above it.
+- Side-by-side all-time/today token details and scan status in Settings, with
+  per-source status and warnings. Loading, empty, and error states are explicit.
 - Settings with source toggles and root editors, palette, week start, cache
   inclusion, refresh interval, and a full JSON config editor. There are no name,
   handle, or avatar controls; a legacy `profile` object is accepted and
@@ -115,8 +115,7 @@ dashboard before a notification. Native settings controls are created or synced
 lazily when Settings opens, never during the first dashboard refresh. Mod
 commands share the UI handlers for automation: `insights.refresh`,
 `insights.settings`, `insights.dashboard`, `insights.period.week|month|year|all`,
-`insights.year.prev|next`, `insights.heatmap.daily|weekly|cumulative`,
-`insights.group.model|provider`, `insights.source.<id|all>`, and
+`insights.year.prev|next`, `insights.heatmap.daily|weekly|cumulative`, and
 `insights.filters.clear`. Every filter command coalesces to the latest pending
 presentation instead of leaving a stale dashboard or a stuck busy state.
 
@@ -239,7 +238,7 @@ node <appHome>/mods/insights/presenter.mjs prepare \
 
 `snapshot` and `configure` call the existing collector once, then print one
 compact presentation payload. `prepare` reads only the existing JSON store and
-re-derives the compact dashboard for a filter, period, year, heatmap, grouping,
+re-derives the compact dashboard for a filter, period, year, heatmap,
 day, or settings change; it never scans transcripts and never writes the store.
 This keeps QuickJS parsing a bounded payload instead of raw snapshot rows.
 
@@ -268,7 +267,7 @@ palette, cache, week-start, or refresh-only change keeps the rows. The accepted
 config is persisted before scanning, so a scan failure can still leave the new
 sources visible in the UI with an error.
 
-Operations on one store are serialized by a lock file. An unchanged scan does
+Operations on one store are serialized by an ownership-marked lock directory. An unchanged scan does
 not rewrite the store, so the store's size and mtime stay unchanged. No stdin is
 required, and JSON is passed as one argv value, never interpolated through a
 shell.
@@ -346,20 +345,23 @@ until a rebuild.
 
 Source-specific behavior:
 
-- **Pi:** usage comes from assistant `message.usage` records plus top-level
+- **Pi:** usage comes from assistant and tool-result `message.usage` records plus top-level
   `type: "usage"` events (cache warming), `compaction.usage`, and
   `branch_summary.usage`. Each reported usage entry counts once by stable entry
   identity, including entries copied into forked sessions; copied forks also do
   not duplicate task durations. The session header supplies `session.cwd` and
   `session.id`; sub-agent transcript artifacts use their own stable session.
-  Failed assistant records do not close a task.
+  Failed assistant records do not close a task. Tool-result usage does not
+  start or close an assistant task.
 - **Claude Code (legacy configs):** duplicate streamed entries with the same `message.id` are
   max-upserted, so revised usage fields count once at their largest values.
   Cache fields are counted once. Tool-result and meta user records do not start
   a new task; failed assistant records do not close one.
 - **Codex:** modern `token_usage_record` counters and `event_msg.token_count`
   are reconciled at the record level, so mixed files are counted once. Legacy
-  cumulative counters are converted to deltas, including across restarts.
+  cumulative counters are converted to deltas, including across restarts. If
+  any cumulative field decreases, the entire counter vector is treated as reset;
+  an unmarked reset whose every field grows is inherently ambiguous.
   Forked sessions keep their own thread identity when reconciling usage.
   `task_complete` supplies exact task durations when present.
 - **OpenCode:** assistant `message` rows in `opencode.db` carry canonical
@@ -531,11 +533,21 @@ the manifest, and the installer never writes the collector's store.
 - The incremental metadata cache assumes append-only growth; a same-size
   in-place rewrite may require a rebuild to be noticed.
 - Concurrent collector operations wait up to 20 seconds for the store lock, then
-  fail as busy. A lock older than 10 minutes or owned by a dead same-host process
-  is reclaimed. A corrupt store is preserved with a `.corrupt-<timestamp>` name,
-  a fresh store is started, and a warning plus error count is reported.
-- The project filter shows at most the top 250 projects by tokens. The currently
-  selected project is retained even when it is outside that list.
+  fail as busy. A dead same-host owner's lock is reclaimed; a live owner's lock
+  is never evicted just because a cold scan is slow. Legacy dead-owner file locks
+  remain recoverable. Foreign-host locks and ownerless lock directories fail
+  closed: after confirming no collector is running, remove the abandoned
+  `<store>.lock` directory manually and retry. A corrupt store is preserved with
+  a `.corrupt-<timestamp>` name during a locked refresh, a fresh store is started,
+  and a warning plus error count is reported. Read-only filter preparation never
+  creates backups or repairs the store.
+- Facet presentation is capped at 250 values per field while retaining the
+  selected value and full totals. Hidden legacy source/project filter options
+  remain available to the analytics API, not as dashboard controls.
+- Changed OpenCode databases are streamed but still reread in full to reconcile
+  mutable messages. Changed compressed archives and SQLite scans checkpoint
+  collected metadata for rollback; that temporary memory scales with store size.
+  Warm presentation also reads/validates the metadata store in full.
 - Custom mappings are declarative only: no arbitrary code, shell commands, or
   network fetches.
 - Manual installs that omit `runtime.json` fall back to `node` from PATH. That
@@ -553,6 +565,12 @@ npm test --prefix herdr-insights
 npm run check --prefix herdr-insights
 npm run install:local --prefix herdr-insights -- --help
 ```
+
+`tests/ship-readiness.test.mjs` exercises read failures, partial-tail truncation,
+corrupt zstd rollback, oversized unfinished lines, SQLite read-only failures,
+lock recovery/contention, private sidecars, bounded facets, indexed rows, and the
+top-10 Model Usage limit. UI lifecycle tests also cover late refresh/save results
+after timeout and cancelled asynchronous progress reads.
 
 `tests/native-loaded-check.mjs` checks the loaded dashboard render budget through
 `applySnapshot`. `tests/native-async-check.mjs` is the true lifecycle check: it

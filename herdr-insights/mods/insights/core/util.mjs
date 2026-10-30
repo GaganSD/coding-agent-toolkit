@@ -6,7 +6,9 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   rename,
+  rmdir,
   stat,
   unlink,
 } from "node:fs/promises";
@@ -177,18 +179,21 @@ export async function backupCorruptStore(file) {
 }
 
 async function readLockInfo(lockPath) {
-  let text;
+  let ownerPath = lockPath;
+  let directory = false;
   try {
-    text = await readFile(lockPath, "utf8");
+    if ((await stat(lockPath)).isDirectory()) {
+      directory = true;
+      const owners = (await readdir(lockPath)).filter((name) => /^owner-.+\.json$/.test(name));
+      // An empty acquisition directory has no provable dead owner. Fail closed.
+      if (owners.length !== 1) return { invalid: true, directory };
+      ownerPath = path.join(lockPath, owners[0]);
+    }
+    const value = JSON.parse(await readFile(ownerPath, "utf8"));
+    return isPlainObject(value) ? { ...value, ownerPath, directory } : { invalid: true, directory };
   } catch (error) {
     if (error?.code === "ENOENT") return null;
-    return { unreadable: true };
-  }
-  try {
-    const value = JSON.parse(text);
-    return isPlainObject(value) ? value : { invalid: true };
-  } catch {
-    return { invalid: true };
+    return { invalid: true, directory };
   }
 }
 
@@ -206,8 +211,25 @@ async function tryUnlinkStaleLock(lockPath, observed) {
   if (!current) return true;
   if (observed?.token && current.token !== observed.token) return false;
   if (!observed?.token && current.token) return false;
+  if (observed?.directory) {
+    if (!observed.ownerPath || current.ownerPath !== observed.ownerPath) return false;
+    try {
+      // Only the reclaimer that removed this unique owner file may remove the
+      // directory. A delayed second reclaimer cannot delete a new owner's lock.
+      await unlink(observed.ownerPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+    await rmdir(lockPath).catch((error) => {
+      if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error?.code)) throw error;
+    });
+    return true;
+  }
+  // Compatibility with older file locks. unlink cannot remove a new directory
+  // lock if another reclaimer has already replaced the legacy lock.
   await unlink(lockPath).catch((error) => {
-    if (error?.code !== "ENOENT") throw error;
+    if (!["ENOENT", "EISDIR", "EPERM"].includes(error?.code)) throw error;
   });
   return true;
 }
@@ -223,11 +245,15 @@ export async function withStoreLock(
   const host = os.hostname();
   const startedAt = Date.now();
   const deadline = startedAt + timeoutMs;
+  const ownerPath = path.join(lockPath, `owner-${token}.json`);
 
   for (;;) {
     let handle;
+    let created = false;
     try {
-      handle = await open(lockPath, "wx", 0o600);
+      await mkdir(lockPath, { mode: 0o700 });
+      created = true;
+      handle = await open(ownerPath, "wx", 0o600);
       await handle.writeFile(
         `${JSON.stringify({ pid: process.pid, host, startedAt, token })}\n`,
         "utf8",
@@ -238,6 +264,10 @@ export async function withStoreLock(
       break;
     } catch (error) {
       if (handle) await handle.close().catch(() => {});
+      if (created) {
+        await unlink(ownerPath).catch(() => {});
+        await rmdir(lockPath).catch(() => {});
+      }
       if (error?.code !== "EEXIST") throw error;
 
       const observed = await readLockInfo(lockPath);
@@ -245,10 +275,11 @@ export async function withStoreLock(
       const sameHost = observed?.host === host;
       const pid = Number(observed?.pid);
       const dead = sameHost && Number.isInteger(pid) && !isProcessAlive(pid);
-      const tooOld = age > staleMs;
-      const malformedOld = (observed?.invalid || observed?.unreadable) && age > 60_000;
+      // Only provably dead local owners can be evicted. Foreign/empty locks
+      // fail closed rather than allowing two writers based on elapsed time.
+      const malformedOld = !observed?.directory && observed?.invalid && age > Math.max(staleMs, 60_000);
 
-      if (dead || tooOld || malformedOld) {
+      if (dead || malformedOld) {
         const removed = await tryUnlinkStaleLock(lockPath, observed);
         if (removed) continue;
       }
@@ -266,7 +297,8 @@ export async function withStoreLock(
   } finally {
     const current = await readLockInfo(lockPath);
     if (current?.token === token) {
-      await unlink(lockPath).catch(() => {});
+      await unlink(ownerPath).catch(() => {});
+      await rmdir(lockPath).catch(() => {});
     }
   }
 }

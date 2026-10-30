@@ -118,7 +118,7 @@ async function uninstall(options) {
 
   const removed = [];
   const kept = [];
-  const remaining = {};
+  const remaining = Object.create(null);
 
   for (const [relative, oldHash] of Object.entries(manifest.files)) {
     if (!targetStat) break;

@@ -45,6 +45,56 @@ const APP_FILES = {
   "settings.json": '{"zoom":1}\n',
 };
 
+test("manifest keys round-trip safely, including __proto__", async (t) => {
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root, { ...DEFAULT_MOD_FILES, ["__proto__"]: "owned\n" });
+  const appHome = path.join(root, "app");
+  const fake = await createFakeRunner(root);
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+  const manifest = await readJson(path.join(appHome, "data/insights/install-manifest.json"));
+  assert.equal(manifest.files.__proto__, hash("owned\n"));
+  assertSuccess(runUninstall({ appHome }));
+  assert.equal(await exists(path.join(appHome, "mods/insights/__proto__")), false);
+});
+
+test("corrupt manifests fail closed with recovery guidance and preserve data", async (t) => {
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root);
+  const appHome = path.join(root, "app");
+  const fake = await createFakeRunner(root);
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+  const manifest = path.join(appHome, "data/insights/install-manifest.json");
+  await fs.writeFile(manifest, "{broken");
+  const snapshot = async () => Promise.all((await listFiles(appHome)).map(async (relative) =>
+    [relative, await fs.readFile(path.join(appHome, relative), "utf8")]));
+  const before = await snapshot();
+  for (const result of [runInstall({ appHome, fake, sourceRoot }), runUninstall({ appHome })]) {
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /preserve or move aside both/);
+    assert.match(result.stderr, /insights.json.*in place/);
+  }
+  assert.deepEqual(await snapshot(), before);
+});
+
+test("reinstall retains ownership proof for edited stale files", async (t) => {
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root, { ...DEFAULT_MOD_FILES, "stale.js": "original\n" });
+  const appHome = path.join(root, "app");
+  const fake = await createFakeRunner(root);
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+  const target = path.join(appHome, "mods/insights/stale.js");
+  await fs.writeFile(target, "local edit\n");
+  await fs.unlink(path.join(sourceRoot, "mods/insights/stale.js"));
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+  const manifest = await readJson(path.join(appHome, "data/insights/install-manifest.json"));
+  assert.equal(manifest.files["stale.js"], hash("original\n"));
+  assert.equal(await fs.readFile(target, "utf8"), "local edit\n");
+  await fs.writeFile(target, "original\n");
+  assertSuccess(runUninstall({ appHome }));
+  assert.equal(await exists(target), false);
+});
+
 test("fresh install copies only owned mod files and preserves local app state", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root);
@@ -54,6 +104,7 @@ test("fresh install copies only owned mod files and preserves local app state", 
 
   const result = runInstall({ appHome, fake, pathLookup: true, sourceRoot });
   assertSuccess(result);
+  assert.equal((await fs.stat(path.join(appHome, "data/insights"))).mode & 0o777, 0o700);
 
   assert.deepEqual(
     await listFiles(path.join(appHome, "mods", "insights")),
@@ -564,7 +615,8 @@ test("stale removal never follows a symlinked target directory", async (t) => {
   assert.equal((await fs.lstat(targetCore)).isSymbolicLink(), true);
 
   const manifest = await readJson(path.join(appHome, "data", "insights", "install-manifest.json"));
-  assert.equal(manifest.files["core/usage.mjs"], undefined);
+  assert.equal(manifest.files["core/usage.mjs"], hash(DEFAULT_MOD_FILES["core/usage.mjs"]),
+    "retain proof without ever following the replacement link");
 });
 
 test("manifest path traversal is refused before any target write", async (t) => {

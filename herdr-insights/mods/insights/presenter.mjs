@@ -13,7 +13,7 @@ import {
   compactDashboard,
   deriveDashboard,
 } from "./analytics.js";
-import { run as runCollector } from "./collector.mjs";
+import { collectSnapshot } from "./collector.mjs";
 import { loadStore, snapshotRows } from "./core/store.mjs";
 
 function usage() {
@@ -125,24 +125,6 @@ function derive(snapshot, options) {
   }
 }
 
-function collectorSnapshot(result) {
-  if (!result || result.exitCode !== 0) {
-    const error = new Error(
-      String(result?.stderr ?? "").trim() || `collector exited with code ${result?.exitCode ?? "?"}`,
-    );
-    error.exitCode = result?.exitCode ?? 1;
-    error.stderr = result?.stderr ?? "";
-    throw error;
-  }
-  const text = String(result.stdout ?? "").trim();
-  if (!text) throw new Error("the collector returned no snapshot");
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("the collector returned invalid JSON");
-  }
-}
-
 export async function run(argv, environment = {}) {
   const { command, options } = parseArgs(argv);
   if (options.help || !command) {
@@ -163,7 +145,7 @@ export async function run(argv, environment = {}) {
   const dashboardOptions = parseOptions(options.options);
 
   if (command === "prepare") {
-    const loaded = await loadStore(storePath);
+    const loaded = await loadStore(storePath, { readOnly: true });
     const snapshot = storeSnapshot(loaded.store, loaded);
     const derived = derive(snapshot, dashboardOptions);
     return {
@@ -173,11 +155,9 @@ export async function run(argv, environment = {}) {
     };
   }
 
-  const collectorArgs = command === "snapshot"
-    ? ["snapshot", "--store", storePath, "--home", home]
-    : ["configure", "--store", storePath, "--home", home, "--config", options.config];
-  const result = await runCollector(collectorArgs);
-  const snapshot = collectorSnapshot(result);
+  const snapshot = await collectSnapshot(command, {
+    store: storePath, home, config: options.config,
+  });
   const derived = derive(snapshot, dashboardOptions);
   return {
     exitCode: 0,

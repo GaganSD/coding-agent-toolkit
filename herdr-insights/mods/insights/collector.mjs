@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -70,8 +71,9 @@ async function buildSnapshot(store, scan, nowIso, loadWarnings = [], loadErrors 
  * Best-effort scan progress sidecar next to the store. The native view polls
  * it only while a refresh is running; it is removed when the scan settles.
  */
-function progressWriter(storePath) {
+export function progressWriter(storePath) {
   const progressPath = `${storePath}.progress.json`;
+  const tempPath = `${progressPath}.${process.pid}-${randomUUID()}.tmp`;
   let lastWrite = 0;
   return {
     update(state) {
@@ -79,8 +81,13 @@ function progressWriter(storePath) {
       if (now - lastWrite < 250 && state.processed < state.total) return;
       lastWrite = now;
       try {
-        writeFileSync(progressPath, `${JSON.stringify(state)}\n`);
+        // Atomic replacement also avoids following an existing sidecar link.
+        writeFileSync(tempPath, `${JSON.stringify(state)}\n`, { mode: 0o600, flag: "wx" });
+        renameSync(tempPath, progressPath);
       } catch { /* progress is best-effort */ }
+      finally {
+        try { unlinkSync(tempPath); } catch { /* renamed or not created */ }
+      }
     },
     clear() {
       try {
@@ -173,24 +180,24 @@ export async function run(argv) {
   if (command === "configure" && options.config === undefined) {
     return { exitCode: 2, stdout: "", stderr: "--config is required\n" };
   }
-  const storePath = path.resolve(options.store);
-  const home = path.resolve(options.home ?? os.homedir());
-
-  let snapshot;
-  if (command === "snapshot") {
-    snapshot = await snapshotWithStore(storePath, home, {
-      rebuild: options.rebuild,
-    });
-  } else {
-    snapshot = await configureStore(storePath, home, options.config, {
-      rebuild: options.rebuild,
-    });
-  }
+  const snapshot = await collectSnapshot(command, options);
   return {
     exitCode: 0,
     stdout: `${JSON.stringify(snapshot)}\n`,
     stderr: "",
   };
+}
+
+/** In-process API: the presenter never serializes and reparses raw rows. */
+export async function collectSnapshot(command, options) {
+  if (!["snapshot", "configure"].includes(command)) throw new Error("unknown collector command");
+  if (!options?.store) throw new Error("--store is required");
+  if (command === "configure" && options.config === undefined) throw new Error("--config is required");
+  const storePath = path.resolve(options.store);
+  const home = path.resolve(options.home ?? os.homedir());
+  return command === "snapshot"
+    ? snapshotWithStore(storePath, home, { rebuild: options.rebuild })
+    : configureStore(storePath, home, options.config, { rebuild: options.rebuild });
 }
 
 async function main() {

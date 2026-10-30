@@ -170,16 +170,17 @@ export async function assertNoSymlinkComponents(root, target) {
   }
 }
 
-export async function ensureDirectory(root, target, label = "directory") {
+export async function ensureDirectory(root, target, label = "directory", mode) {
   await assertNoSymlinkComponents(root, target);
   const existing = await lstatOrNull(target);
   if (existing) {
     if (!existing.isDirectory()) {
       throw new Error(`${label} is not a directory: ${target}`);
     }
+    if (mode !== undefined) await fs.chmod(target, mode);
     return;
   }
-  await fs.mkdir(target, { recursive: true });
+  await fs.mkdir(target, { recursive: true, mode });
   await assertNoSymlinkComponents(root, target);
   const created = await fs.lstat(target);
   if (!created.isDirectory()) {
@@ -188,6 +189,19 @@ export async function ensureDirectory(root, target, label = "directory") {
 }
 
 export async function readManifest(appHome) {
+  try {
+    return await readManifestData(appHome);
+  } catch (error) {
+    throw new Error(
+      `${error.message}\nNo target files were changed. To recover, preserve or move aside both ` +
+      `${modDir(appHome)} and ${manifestPath(appHome)}, then reinstall. ` +
+      `Leave ${path.join(dataDir(appHome), "insights.json")} in place.`,
+      { cause: error },
+    );
+  }
+}
+
+async function readManifestData(appHome) {
   const file = manifestPath(appHome);
   await assertNoSymlinkComponents(appHome, file);
   const stat = await lstatOrNull(file);
@@ -224,7 +238,7 @@ export async function readManifest(appHome) {
     throw new Error(`Install manifest has no file map: ${file}`);
   }
 
-  const files = {};
+  const files = Object.create(null);
   for (const [relative, hash] of Object.entries(parsed.files)) {
     validateRelativeKey(relative);
     if (typeof hash !== "string" || !HASH_RE.test(hash)) {

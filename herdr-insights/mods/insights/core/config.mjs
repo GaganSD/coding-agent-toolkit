@@ -242,7 +242,7 @@ function normalizeSource(value, index) {
   }
   if (!nonEmptyString(value.label)) fail(`source ${value.id}.label must be non-empty`);
   if (!ADAPTERS.has(value.adapter)) {
-    fail(`source ${value.id}.adapter must be pi, claude, codex, or custom`);
+    fail(`source ${value.id}.adapter must be one of: ${[...ADAPTERS].join(", ")}`);
   }
   if (!Array.isArray(value.roots)) fail(`source ${value.id}.roots must be an array`);
   const roots = value.roots.map((root, rootIndex) => {

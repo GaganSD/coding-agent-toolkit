@@ -13,25 +13,23 @@ theme colors with a shadcn-inspired visual system: paired surface/foreground
 tokens, one monochrome primary action, 1px borders, 6px control / 8px card
 radii, no decorative shadows, and a 4/8/12/16/24 spacing rhythm. The root is
 vertically scrollable, centers content at a maximum width of 1180px, and uses
-12px / 16px / 24px page padding below 620px / below 900px / above that. At the top is the usage filter bar: a segmented Week / Month
-/ Year / All period control, a year stepper when Year is active, and Source /
-Provider / Model / Project menus plus Clear filters when a dimension is active.
-The dashboard has no profile, avatar, name, or handle hero. The project menu
-lists at most the top 250 projects by tokens, but the selected project remains
-selected even outside that list.
+12px / 16px / 24px page padding below 620px / below 900px / above that. The Model Usage section has a segmented Week / Month / Year / All period
+control, a year stepper when Year is active, and Provider / Model menus plus
+Clear filters when a dimension is active. Menus show at most 250 values; compact
+presentation retains selected values and full totals. The dashboard has no
+profile, avatar, name, or handle hero.
 
 Below the filters are five metric cards in a responsive strip (five across at
 860px+, then 3+2, then 2+2+1): lifetime tokens, peak day, longest task, longest
 streak, and current streak. Values use 22px type; labels are 9.5px uppercase.
-The five metrics are all-time within the active dimension filters. A zero or
+The five metrics are all-time, independent of the model usage filters. A zero or
 missing task duration displays as a dash, not an invented duration. Current
 streak gives yesterday grace: a streak whose last active day was yesterday still
 counts today. The main column then holds a GitHub-style 53-week, seven-row
 heatmap: each cell is 12px square with a 2px gap (14px week width), the weekday
 label column is 30px, month labels sit above the grid, and the legend uses 10px
 swatches. Local calendar days are used, future cells are dimmed, and clicking a
-day updates the selected-day detail. The heatmap window ends at the selected
-period's end date.
+day updates the selected-day detail. The heatmap window ends today, independent of the model usage period.
 
 The heatmap switches between Daily, Weekly, and Cumulative. Weekly mode repeats
 the full week's total on every day of that week. Cumulative mode is the all-time
@@ -42,12 +40,12 @@ total, input, output (with reasoning inside output), cache read/write, sessions,
 usage events, longest task, and the top model when present. Exact values stay in
 tooltips, and an unreported task duration stays a dash.
 
-Below the heatmap is a ranked leaderboard limited to 12 groups, split into two
+Below the heatmap is a ranked leaderboard limited to 10 groups, split into two
 columns at 960px+ and one column below that. Each row shows rank, a neutral
 initial tile, model/provider name and sublabel, compact tokens, share bar, and
 change versus the previous calendar portion with New / zero-safe states. Rows are
-summary-only; they do not expand. The grouping control switches between Models
-and Providers. A token breakdown and scan-status card follow; status shows
+summary-only; they do not expand. The leaderboard is model-only with provider
+attribution. A token breakdown and scan-status card follow; status shows
 sourceStats (`disabled`, `missing`, `empty`, `ok`, `error`), file/read/unchanged/
 byte counts, and up to six source-tagged warnings. Loading, empty, and error
 states are explicit and never show fake rows.
@@ -69,7 +67,8 @@ overlapping runs; while the tab is alive it polls at the configured interval
 so the store's mtime and size stay unchanged. A palette/cache/week-start/refresh
 change, or a legacy profile-only JSON change, keeps collected rows; changing a
 source id, adapter, enabled flag, root, or mapping clears collected rows and
-rescans. `--rebuild` is the explicit manual reset. Filters narrow all views.
+rescans. `--rebuild` is the explicit manual reset. Filters scope only the model
+chart and leaderboard, not token history or all-time metrics.
 Periods are calendar-to-date: the current week runs from its configured start
 through today, the current month from the first through today, and the current
 year from January 1 through today (a past year is complete). Leaderboard
@@ -144,7 +143,7 @@ The project filter caps options at 250 while retaining the selected project. The
 collector is the source of truth for config validation, deduplication, token
 arithmetic, and the custom mapping schema; the UI must not guess provider
 creators or add reasoning twice. New defaults are Pi and Codex only; Claude
-Code is legacy compatibility. Pi usage includes assistant `message.usage`,
+Code is legacy compatibility. Pi usage includes assistant and tool-result `message.usage`,
 top-level `type: "usage"` events (cache warming), `compaction.usage`, and
 `branch_summary.usage`; count each reported entry once, including copied fork
 entries, and treat `row.messages` as usage-event count (UI: Usage events), not
@@ -160,8 +159,8 @@ refresh is incremental, not a forced rebuild; cold scans are O(data), warm scans
 O(metadata) plus appends, and `--rebuild` is only a manual repair. Removed files
 or roots retain historical rows until rebuild; a missing root is a warning and
 `missing` status. The incremental cache assumes append-only growth, so a same-size
-in-place rewrite may need a rebuild. Concurrent collector operations use a lock
-(20s wait, 10-minute stale reclaim); a corrupt store is preserved with a
+in-place rewrite may need a rebuild. Concurrent collector operations use an ownership-marked lock directory
+(20s wait, dead same-host owner reclaim; live owners are never age-evicted); a corrupt store is preserved with a
 `.corrupt-<timestamp>` backup and replaced with a fresh store plus a warning/error.
 Task duration must use exact boundaries when present, otherwise a conservative
 capped turn span — never the idle session lifetime. Use local calendar days, not

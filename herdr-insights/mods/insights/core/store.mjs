@@ -101,6 +101,7 @@ export function resetFileEntry(store, entry) {
   entry.offset = 0;
   entry.lineNo = 0;
   entry.rows = [];
+  delete entry._rowIndex;
   entry.tasks = [];
   entry.state = {};
   return entry;
@@ -114,21 +115,22 @@ export function clearCollectedData(store) {
   prepareStore(store);
 }
 
-function rowMatches(row, meta) {
-  return (
-    row.day === meta.day &&
-    row.session === meta.session &&
-    row.harness === meta.harness &&
-    row.provider === meta.provider &&
-    row.model === meta.model &&
-    row.project === meta.project
-  );
-}
-
 export function getOrCreateRow(file, meta) {
-  for (let index = 0; index < file.rows.length; index += 1) {
-    if (rowMatches(file.rows[index], meta)) return index;
+  // OpenCode puts the entire history in one file. A linear search here makes
+  // a cold scan quadratic in the number of session/model buckets.
+  if (!file._rowIndex || file._rowIndex.length !== file.rows.length) {
+    const map = new Map();
+    file.rows.forEach((row, index) => {
+      const key = rowKey(row);
+      if (!map.has(key)) map.set(key, index);
+    });
+    Object.defineProperty(file, "_rowIndex", {
+      value: { map, length: file.rows.length }, configurable: true,
+    });
   }
+  const key = rowKey(meta);
+  const existing = file._rowIndex.map.get(key);
+  if (existing !== undefined) return existing;
   file.rows.push({
     day: meta.day,
     session: meta.session,
@@ -143,7 +145,10 @@ export function getOrCreateRow(file, meta) {
     reasoning: 0,
     messages: 0,
   });
-  return file.rows.length - 1;
+  const index = file.rows.length - 1;
+  file._rowIndex.map.set(key, index);
+  file._rowIndex.length = file.rows.length;
+  return index;
 }
 
 function addRowTokens(row, tokens) {
@@ -593,10 +598,10 @@ function validateLoadedStore(store) {
   return true;
 }
 
-export async function loadStore(storePath) {
+export async function loadStore(storePath, { readOnly = false } = {}) {
   const warnings = [];
   let errors = 0;
-  await ensureParent(storePath);
+  if (!readOnly) await ensureParent(storePath);
   let text;
   try {
     text = await readFile(storePath, "utf8");
@@ -614,6 +619,11 @@ export async function loadStore(storePath) {
     prepareStore(parsed);
     return { store: parsed, warnings, errors, exists: true, dirty: false };
   } catch (error) {
+    // Filter changes are reads, not recovery operations. Leave preservation
+    // and repair to the next lock-protected snapshot/configure operation.
+    if (readOnly) {
+      throw new Error("Insights store is corrupt; refresh to preserve and rebuild it.", { cause: error });
+    }
     let backup;
     try {
       backup = await backupCorruptStore(storePath);

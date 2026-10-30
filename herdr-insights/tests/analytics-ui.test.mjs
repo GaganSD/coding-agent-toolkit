@@ -496,7 +496,8 @@ test("heatmap cells grow and center on wide views", () => {
 test("dashboard is divided into token and model usage sections", () => {
   assert.match(mainSource, /sectionHeader\("Token usage"/);
   assert.match(mainSource, /sectionHeader\("Model usage"/);
-  assert.match(mainSource, /"Tokens History"/);
+  assert.match(mainSource, /cardHeader\("Tokens History", null, c\)/);
+  assert.doesNotMatch(mainSource, /53 weeks · ends/);
   assert.match(mainSource, /"Model Usage"/);
   assert.doesNotMatch(mainSource, /Contribution history|Usage leaders/);
   // Period and facet filters belong to the model usage section only.
@@ -987,4 +988,150 @@ test("a hung prepare times out into a retryable dashboard error", async () => {
   assert.equal(instance.dashboardError, null);
   assert.equal(instance.dashboard?.period, "week");
   instance.close();
+});
+
+for (const kind of ["refresh", "save"]) {
+  test(`late ${kind} completion cannot overwrite a retry or clear its busy state`, async () => {
+    const pending = [];
+    useHerdr({ execResult: (_command, args) => new Promise((resolve) => {
+      pending.push({ resolve, options: optionArgument(args) });
+    }) });
+    const { cx, calls } = liveCx();
+    const instance = blankInstance();
+    instance.buildConfigForSave = () => savedSnapshot().config;
+    const start = () => kind === "refresh" ? instance.refresh(cx) : instance.saveConfig(cx);
+    start();
+    await flush();
+    assert.equal(pending.length, 1);
+    const watchdog = calls.after.find((timer) => timer.ms === 35_000 && !timer.cancelled);
+    watchdog.fn();
+    assert.equal(instance.busy(), false);
+    start();
+    await flush();
+    assert.equal(pending.length, 2);
+    const first = pending[0];
+    first.resolve({ code: 0, stdout: JSON.stringify(presentationFor(savedSnapshot(), first.options)), stderr: "" });
+    await flush();
+    assert.equal(instance.busy(), true, "stale finally must not clear retry flags");
+    assert.equal(instance.snapshot, null, "stale data must not publish");
+    const second = pending[1];
+    second.resolve({ code: 0, stdout: JSON.stringify(presentationFor(savedSnapshot(), second.options)), stderr: "" });
+    await flush();
+    assert.equal(instance.busy(), false);
+    assert.ok(instance.snapshot);
+  });
+}
+
+for (const editKind of ["toggle", "editor", "invalid editor", "roots", "refresh interval"]) {
+  test(`newer ${editKind} edits survive an in-flight configuration save`, async () => {
+    let finish;
+    let options;
+    useHerdr({ execResult: (_command, args) => {
+      options = optionArgument(args);
+      return new Promise((resolve) => { finish = resolve; });
+    } });
+    const { cx } = liveCx();
+    const instance = blankInstance();
+    instance.sourceInputs = new Map();
+    instance.configDraft = structuredClone(savedSnapshot().config);
+    instance.configText = JSON.stringify(instance.configDraft);
+    instance.configEditor = globalThis.__insightsTestEditorState.new({ value: instance.configText });
+    instance.ensureSourceInputs(instance.configDraft);
+    instance.configDirty = true;
+    instance.saveConfig(cx);
+    await flush();
+    if (editKind === "toggle") instance.updateDraft((draft) => { draft.palette = "green"; });
+    else if (editKind.includes("editor")) {
+      instance.configEditor.set_value(editKind === "invalid editor" ? "{unfinished" : JSON.stringify({ ...instance.configDraft, palette: "purple" }));
+      instance.editorDirty = true;
+      instance.configDirty = true;
+    } else if (editKind === "roots") {
+      instance.sourceInputs.values().next().value.set_value("/new/root");
+      instance.rootsDirty = true;
+    } else {
+      instance.refreshInput = globalThis.__insightsTestInputState.new({ value: "300" });
+      instance.refreshDirty = true;
+    }
+    const newer = instance.draftSignature();
+    finish({ code: 0, stdout: JSON.stringify(presentationFor(savedSnapshot(), options, "configure")), stderr: "" });
+    await flush();
+    assert.equal(instance.configDirty, true);
+    assert.equal(instance.draftSignature(), newer);
+    assert.match(instance.saveMessage, /Newer edits are still unsaved/);
+    instance.close();
+  });
+}
+
+test("Retry resolves a repaired runtime configuration without reopening the view", async () => {
+  let reads = 0;
+  const state = useHerdr({ readTextFile: () => ++reads === 1 ? "{invalid" : JSON.stringify({ node: "/test/node" }) });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await flush();
+  assert.ok(instance.runtimeError);
+  assert.equal(state.execCalls.length, 0);
+  instance.refresh(cx);
+  await flush();
+  await flush();
+  assert.equal(reads, 2);
+  assert.equal(instance.runtimeError, null);
+  assert.ok(instance.snapshot);
+  instance.close();
+});
+
+test("closing a view invalidates a refresh even if its host exec resolves late", async () => {
+  let finish;
+  let options;
+  useHerdr({ execResult: (_command, args) => {
+    options = optionArgument(args);
+    return new Promise((resolve) => { finish = resolve; });
+  } });
+  const { cx, calls } = liveCx();
+  const instance = blankInstance();
+  instance.sourceInputs = new Map();
+  instance.refresh(cx);
+  await flush();
+  instance.close();
+  const notified = calls.notify;
+  finish({ code: 0, stdout: JSON.stringify(presentationFor(savedSnapshot(), options)), stderr: "" });
+  await flush();
+  assert.equal(instance.snapshot, null);
+  assert.equal(calls.notify, notified);
+});
+
+test("malformed compact dashboards become a retryable error, never render state", async () => {
+  useHerdr({ execResult: (_command, args) => {
+    const payload = presentationFor(savedSnapshot(), optionArgument(args));
+    payload.dashboard = {};
+    return { code: 0, stdout: JSON.stringify(payload), stderr: "" };
+  } });
+  const { cx } = liveCx();
+  const instance = blankInstance();
+  instance.refresh(cx);
+  await flush();
+  assert.equal(instance.snapshot, null);
+  assert.equal(instance.busy(), false);
+  assert.match(instance.error, /unexpected|invalid/i);
+});
+
+test("scan progress awaits the host read and ignores results after cancellation", async () => {
+  let resolveRead;
+  useHerdr({ readTextFile: () => new Promise((resolve) => { resolveRead = resolve; }) });
+  const instance = blankInstance();
+  instance.loading = true;
+  const { cx, calls } = liveCx();
+  instance.armProgress(cx);
+  calls.timers[0].fn(cx);
+  await flush();
+  resolveRead(JSON.stringify({ processed: 3, total: 10, file: "/session.jsonl" }));
+  await flush();
+  assert.equal(instance.scanProgress.processed, 3);
+  calls.timers[0].fn(cx);
+  await flush();
+  instance.cancelProgress();
+  resolveRead(JSON.stringify({ processed: 4, total: 10, file: "/old.jsonl" }));
+  await flush();
+  assert.equal(instance.scanProgress, null);
+  assert.equal(instance.progressTask, null);
 });
