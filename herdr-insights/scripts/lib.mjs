@@ -12,12 +12,24 @@ export const PACKAGE_ROOT = path.resolve(
 export const MOD_REL = "mods/insights";
 export const DATA_REL = "data/insights";
 export const MANIFEST_NAME = "install-manifest.json";
+export const RUNTIME_NAME = "runtime.json";
 export const MANIFEST_VERSION = 1;
 export const MANIFEST_OWNER = "herdr-insights";
 export const HASH_RE = /^[0-9a-f]{64}$/;
 
 export function sha256(data) {
   return createHash("sha256").update(data).digest("hex");
+}
+
+export function createRuntimeFile(nodePath = process.execPath) {
+  const data = Buffer.from(`${JSON.stringify({ node: nodePath })}\n`);
+  return {
+    absolute: null,
+    data,
+    hash: sha256(data),
+    mode: 0o644,
+    relative: RUNTIME_NAME,
+  };
 }
 
 export function modDir(appHome) {

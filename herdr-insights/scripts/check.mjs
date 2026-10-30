@@ -81,8 +81,8 @@ async function checkPackage() {
 
   if (packageJson.private !== true) fail("package.json must stay private: true");
   if (packageJson.type !== "module") fail('package.json must use "type": "module"');
-  if (packageJson.engines?.node !== ">=22") {
-    fail('package.json must declare "engines": { "node": ">=22" }');
+  if (packageJson.engines?.node !== ">=22.15") {
+    fail('package.json must declare "engines": { "node": ">=22.15" }');
   }
 
   for (const field of [
@@ -224,9 +224,9 @@ async function checkSourceIfPresent() {
 }
 
 function checkNodeVersion() {
-  const major = Number.parseInt(process.versions.node.split(".")[0], 10);
-  if (!Number.isInteger(major) || major < 22) {
-    fail(`Node >=22 is required; running ${process.versions.node}`);
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (!Number.isInteger(major) || major < 22 || (major === 22 && minor < 15)) {
+    fail(`Node >=22.15 is required; running ${process.versions.node}`);
   }
 }
 

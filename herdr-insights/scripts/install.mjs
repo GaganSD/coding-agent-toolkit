@@ -3,8 +3,10 @@ import path from "node:path";
 
 import {
   PACKAGE_ROOT,
+  RUNTIME_NAME,
   assertNoSymlinkComponents,
   collectSourceFiles,
+  createRuntimeFile,
   dataDir,
   ensureDirectory,
   expandHome,
@@ -39,7 +41,9 @@ Options:
   -h, --help            Show this help
 
 The installer copies only mods/insights, creates data/insights, and never writes
-layouts, keys, shipped mods, or insights.json. It does not publish or use the network.
+layouts, keys, shipped mods, or insights.json. It generates mods/insights/runtime.json
+with the absolute Node executable used for installation. It does not publish or use
+the network.
 `;
 }
 
@@ -125,6 +129,11 @@ async function install(options) {
     ? path.resolve(expandHome(options.source))
     : PACKAGE_ROOT;
   const source = await collectSourceFiles(sourceRoot);
+  // The installer owns runtime.json: never install a source copy, even if one
+  // exists, and always point the UI at the Node executable that ran install.
+  source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
+  source.files.push(createRuntimeFile());
+  source.files.sort((left, right) => left.relative.localeCompare(right.relative));
 
   const targetDirectory = modDir(appHome);
   const targetDataDirectory = dataDir(appHome);
@@ -257,6 +266,7 @@ async function install(options) {
         removed.length ? `, ${removed.length} stale removed` : ""
       }).`,
   );
+  console.log(`Generated ${RUNTIME_NAME} for Node ${process.execPath}.`);
   console.log(`Insights data stays at ${targetDataDirectory}; insights.json is untouched.`);
   for (const kept of keptStale) {
     console.warn(`Kept an owned file no longer in the source: ${kept}`);

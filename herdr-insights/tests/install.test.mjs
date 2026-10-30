@@ -15,6 +15,7 @@ const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install.mjs");
 const UNINSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "uninstall.mjs");
 const CHECK_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "check.mjs");
 const OPEN_JSON = '{"name":"Insights","mod":"insights"}';
+const RUNTIME_REL = "runtime.json";
 
 const DEFAULT_MOD_FILES = {
   "analytics.js": "export const version = 1;\n",
@@ -24,6 +25,14 @@ const DEFAULT_MOD_FILES = {
   "main.js": "export default class Insights {}\n",
   "mod.json": '{\n  "place": "none"\n}\n',
 };
+
+function runtimeContent(nodePath = process.execPath) {
+  return `${JSON.stringify({ node: nodePath })}\n`;
+}
+
+function ownedFiles() {
+  return [...Object.keys(DEFAULT_MOD_FILES), RUNTIME_REL].sort();
+}
 
 const APP_FILES = {
   "data/insights/insights.json": '{"version":1,"keep":"local"}\n',
@@ -46,7 +55,7 @@ test("fresh install copies only owned mod files and preserves local app state", 
 
   assert.deepEqual(
     await listFiles(path.join(appHome, "mods", "insights")),
-    Object.keys(DEFAULT_MOD_FILES).sort(),
+    ownedFiles(),
   );
   for (const [relative, content] of Object.entries(DEFAULT_MOD_FILES)) {
     assert.equal(
@@ -55,6 +64,10 @@ test("fresh install copies only owned mod files and preserves local app state", 
       relative,
     );
   }
+  assert.equal(
+    await fs.readFile(path.join(appHome, "mods", "insights", RUNTIME_REL), "utf8"),
+    runtimeContent(),
+  );
 
   for (const [relative, content] of Object.entries(APP_FILES)) {
     assert.equal(
@@ -72,10 +85,11 @@ test("fresh install copies only owned mod files and preserves local app state", 
   assert.equal(manifest.version, 1);
   assert.equal(manifest.owner, "herdr-insights");
   assert.equal(manifest.target, "mods/insights");
-  assert.deepEqual(Object.keys(manifest.files).sort(), Object.keys(DEFAULT_MOD_FILES).sort());
+  assert.deepEqual(Object.keys(manifest.files).sort(), ownedFiles());
   for (const [relative, content] of Object.entries(DEFAULT_MOD_FILES)) {
     assert.equal(manifest.files[relative], hash(content), relative);
   }
+  assert.equal(manifest.files[RUNTIME_REL], hash(runtimeContent()));
 
   const log = await readLog(fake);
   assert.equal(log.length, 1);
@@ -108,15 +122,15 @@ test("Herdr-generated declarations and jsconfig.json are ignored by source insta
 
   const result = runInstall({ appHome, fake, sourceRoot });
   assertSuccess(result);
-  assert.match(result.stdout, /Installed 6 owned file/);
+  assert.match(result.stdout, /Installed 7 owned file/);
 
   const installed = await listFiles(path.join(appHome, "mods", "insights"));
-  assert.deepEqual(installed, Object.keys(DEFAULT_MOD_FILES).sort());
+  assert.deepEqual(installed, ownedFiles());
 
   const manifest = await readJson(
     path.join(appHome, "data", "insights", "install-manifest.json"),
   );
-  assert.deepEqual(Object.keys(manifest.files).sort(), Object.keys(DEFAULT_MOD_FILES).sort());
+  assert.deepEqual(Object.keys(manifest.files).sort(), ownedFiles());
   for (const relative of Object.keys(generatedFiles)) {
     assert.equal(
       await exists(path.join(sourceRoot, "mods", "insights", relative)),
@@ -130,6 +144,45 @@ test("Herdr-generated declarations and jsconfig.json are ignored by source insta
     );
     assert.equal(manifest.files[relative], undefined, `not hashed ${relative}`);
   }
+});
+
+test("runtime.json is generated from the installer Node, replaces a source copy, and rejects a source symlink", async (t) => {
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root, {
+    ...DEFAULT_MOD_FILES,
+    [RUNTIME_REL]: '{"node":"/definitely/not/the/installer/node"}\n',
+  });
+  const appHome = path.join(root, "runtime app home");
+  const fake = await createFakeRunner(root);
+
+  const result = runInstall({ appHome, fake, sourceRoot });
+  assertSuccess(result);
+  assert.match(result.stdout, /Generated runtime\.json for Node /);
+
+  const runtimePath = path.join(appHome, "mods", "insights", RUNTIME_REL);
+  assert.equal(await fs.readFile(runtimePath, "utf8"), runtimeContent());
+  assert.deepEqual(JSON.parse(await fs.readFile(runtimePath, "utf8")), {
+    node: process.execPath,
+  });
+  const manifest = await readJson(
+    path.join(appHome, "data", "insights", "install-manifest.json"),
+  );
+  assert.equal(manifest.files[RUNTIME_REL], hash(runtimeContent()));
+
+  const symlinkSource = await createSource(
+    root,
+    DEFAULT_MOD_FILES,
+    "runtime symlink source",
+  );
+  const outside = path.join(root, "outside-runtime.json");
+  await fs.writeFile(outside, '{"node":"outside"}\n');
+  await fs.symlink(outside, path.join(symlinkSource, "mods", "insights", RUNTIME_REL));
+  const symlinkApp = path.join(root, "runtime symlink app");
+  const refused = runInstall({ appHome: symlinkApp, fake, sourceRoot: symlinkSource });
+  assertFailure(refused);
+  assert.match(refused.stderr, /symbolic link/i);
+  assert.equal(await fs.readFile(outside, "utf8"), '{"node":"outside"}\n');
+  assert.equal(await exists(path.join(symlinkApp, "mods", "insights")), false);
 });
 
 test("--open uses argv-safe executable arguments and runs only after a passing check", async (t) => {
@@ -227,6 +280,67 @@ test("locally edited owned files are refused unless --force is explicit", async 
   assert.equal(await fs.readFile(targetMain, "utf8"), "reviewed edit\n");
   const manifest = await readJson(path.join(appHome, "data", "insights", "install-manifest.json"));
   assert.equal(manifest.files["main.js"], hash("reviewed edit\n"));
+});
+
+test("runtime.json is idempotent, protected from local edits, and never overwrites unowned copies", async (t) => {
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root);
+  const appHome = path.join(root, "runtime idempotence app");
+  await writeTree(appHome, APP_FILES);
+  const fake = await createFakeRunner(root);
+
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+  const runtimePath = path.join(appHome, "mods", "insights", RUNTIME_REL);
+  const dataPath = path.join(appHome, "data", "insights", "insights.json");
+  assert.equal(await fs.readFile(runtimePath, "utf8"), runtimeContent());
+  assert.equal(await fs.readFile(dataPath, "utf8"), APP_FILES["data/insights/insights.json"]);
+
+  const second = runInstall({ appHome, fake, sourceRoot });
+  assertSuccess(second);
+  assert.match(second.stdout, /0 written/);
+  assert.equal(await fs.readFile(runtimePath, "utf8"), runtimeContent());
+  assert.equal(await fs.readFile(dataPath, "utf8"), APP_FILES["data/insights/insights.json"]);
+
+  await fs.writeFile(runtimePath, '{"node":"/local/edit"}\n');
+  const refused = runInstall({ appHome, fake, sourceRoot });
+  assertFailure(refused);
+  assert.match(refused.stderr, /edited locally/i);
+  assert.equal(await fs.readFile(runtimePath, "utf8"), '{"node":"/local/edit"}\n');
+  assert.equal(await fs.readFile(dataPath, "utf8"), APP_FILES["data/insights/insights.json"]);
+
+  const forced = runInstall({ appHome, fake, sourceRoot, extra: ["--force"] });
+  assertSuccess(forced);
+  assert.equal(await fs.readFile(runtimePath, "utf8"), runtimeContent());
+  const manifest = await readJson(
+    path.join(appHome, "data", "insights", "install-manifest.json"),
+  );
+  assert.equal(manifest.files[RUNTIME_REL], hash(runtimeContent()));
+  assert.equal(await fs.readFile(dataPath, "utf8"), APP_FILES["data/insights/insights.json"]);
+
+  const collisionApp = path.join(root, "runtime collision app");
+  await writeTree(collisionApp, {
+    "mods/insights/runtime.json": '{"node":"someone else"}\n',
+    "data/insights/install-manifest.json": JSON.stringify({
+      version: 1,
+      owner: "herdr-insights",
+      target: "mods/insights",
+      files: {},
+    }),
+  });
+  const collisionFake = await createFakeRunner(path.join(root, "collision runner"));
+  const collision = runInstall({
+    appHome: collisionApp,
+    fake: collisionFake,
+    sourceRoot,
+    extra: ["--force"],
+  });
+  assertFailure(collision);
+  assert.match(collision.stderr, /Unowned target file would be replaced: .*runtime\.json/);
+  assert.equal(
+    await fs.readFile(path.join(collisionApp, "mods", "insights", RUNTIME_REL), "utf8"),
+    '{"node":"someone else"}\n',
+  );
+  assert.deepEqual(await readLog(collisionFake), []);
 });
 
 test("unowned collisions are refused even with --force and are never overwritten", async (t) => {
@@ -342,7 +456,7 @@ test("uninstall removes only unchanged owned files and preserves data and local 
 
   const result = runUninstall({ appHome });
   assertSuccess(result);
-  assert.match(result.stdout, /Removed 5 unchanged owned file/);
+  assert.match(result.stdout, /Removed 6 unchanged owned file/);
   assert.match(result.stderr, /Kept .*main\.js.*edited locally/);
   assert.equal(await fs.readFile(targetMain, "utf8"), "local edit\n");
   assert.equal(
@@ -351,6 +465,7 @@ test("uninstall removes only unchanged owned files and preserves data and local 
   );
   assert.equal(await exists(path.join(appHome, "mods", "insights", "collector.mjs")), false);
   assert.equal(await exists(path.join(appHome, "mods", "insights", "icons", "insights.svg")), false);
+  assert.equal(await exists(path.join(appHome, "mods", "insights", RUNTIME_REL)), false);
 
   for (const [relative, content] of Object.entries(APP_FILES)) {
     assert.equal(await fs.readFile(path.join(appHome, relative), "utf8"), content, relative);
@@ -477,7 +592,7 @@ test("the package stays private, dependency-free, and the check script passes", 
   const packageJson = await readJson(path.join(PACKAGE_ROOT, "package.json"));
   assert.equal(packageJson.private, true);
   assert.equal(packageJson.type, "module");
-  assert.deepEqual(packageJson.engines, { node: ">=22" });
+  assert.deepEqual(packageJson.engines, { node: ">=22.15" });
   for (const field of [
     "dependencies",
     "devDependencies",
