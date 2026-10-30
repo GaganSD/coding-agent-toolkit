@@ -3,6 +3,23 @@
 
 export const PERIODS = ["week", "month", "year", "all"];
 export const HEATMAP_MODES = ["daily", "weekly", "cumulative"];
+export const PRESENTATION_VERSION = 1;
+export const DEFAULT_SOURCES = [
+  {
+    id: "pi",
+    label: "Pi",
+    adapter: "pi",
+    enabled: true,
+    roots: ["~/.pi/agent/sessions"],
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    adapter: "codex",
+    enabled: true,
+    roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
+  },
+];
 export const PALETTES = ["blue", "green", "purple"];
 export const DEFAULT_REFRESH_SECONDS = 60;
 export const MIN_REFRESH_SECONDS = 30;
@@ -242,7 +259,9 @@ export function normalizeConfig(config) {
     includeCache: source.includeCache !== false,
     weekStartsOn: source.weekStartsOn === 1 ? 1 : 0,
     refreshSeconds: clampRefreshSeconds(source.refreshSeconds),
-    sources: Array.isArray(source.sources) ? source.sources : [],
+    sources: Array.isArray(source.sources)
+      ? source.sources
+      : DEFAULT_SOURCES.map((item) => ({ ...item, roots: [...item.roots] })),
   };
 }
 
@@ -950,6 +969,74 @@ function dashboardKey(snapshot, options = {}) {
     selectedDay: resolved.selectedDay,
     today: resolved.today,
   };
+}
+
+/**
+ * The small dashboard payload the native view may hold. Raw snapshot rows are
+ * intentionally omitted so QuickJS parses bounded presentation data, never the
+ * full analytics input on every refresh or filter change.
+ */
+export function compactDashboard(derived) {
+  const heatmap = derived?.heatmap ?? {};
+  const leaders = derived?.leaders ?? {};
+  return {
+    config: derived?.config ?? {},
+    years: derived?.years ?? [],
+    filters: derived?.filters ?? {},
+    period: derived?.period,
+    year: derived?.year,
+    heatmapMode: derived?.heatmapMode,
+    leaderboardGroup: derived?.leaderboardGroup,
+    includeCache: derived?.includeCache,
+    today: derived?.today,
+    range: derived?.range,
+    lifetime: derived?.lifetime,
+    peak: derived?.peak,
+    streaks: derived?.streaks,
+    totals: derived?.totals,
+    selectedDay: derived?.selectedDay,
+    selectedTotals: derived?.selectedTotals,
+    selectedTop: derived?.selectedTop ?? null,
+    selectedRowCount: Array.isArray(derived?.selectedRows) ? derived.selectedRows.length : 0,
+    rowCount: Array.isArray(derived?.rows) ? derived.rows.length : 0,
+    facets: derived?.facets ?? {},
+    heatmap: {
+      mode: heatmap.mode,
+      weekStartsOn: heatmap.weekStartsOn,
+      includeCache: heatmap.includeCache,
+      weeks: heatmap.weeks ?? [],
+      maxValue: heatmap.maxValue ?? 0,
+      windowTotal: heatmap.windowTotal ?? 0,
+      months: heatmap.months ?? [],
+      range: heatmap.range,
+    },
+    leaders: {
+      groupBy: leaders.groupBy,
+      entries: leaders.entries ?? [],
+      totalGroups: leaders.totalGroups ?? 0,
+      totalTokens: leaders.totalTokens ?? 0,
+      totalSessions: leaders.totalSessions ?? 0,
+      hasPrevious: Boolean(leaders.hasPrevious),
+      limit: leaders.limit ?? 0,
+    },
+  };
+}
+
+/** Validates the compact payload produced by presenter.mjs. */
+export function isPresentation(value) {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && value.kind === "insights-presentation"
+      && value.version === PRESENTATION_VERSION
+      && value.snapshot
+      && typeof value.snapshot === "object"
+      && value.snapshot.config
+      && typeof value.snapshot.config === "object"
+      && !Array.isArray(value.snapshot.config)
+      && Number.isFinite(Number(value.snapshot.rowCount))
+      && (value.dashboard === null || (value.dashboard && typeof value.dashboard === "object")),
+  );
 }
 
 /**

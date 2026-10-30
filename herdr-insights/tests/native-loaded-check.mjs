@@ -2,9 +2,10 @@
 // Loaded-render regression check for the Insights native mod.
 //
 // `herdr-app check` normally renders the empty initial state, so it cannot see
-// analytics or a populated dashboard crossing the 50 ms render budget. This
-// harness injects a snapshot through the real applySnapshot path in init, then
-// checks the first render with the dashboard already loaded.
+// a populated dashboard crossing the 50 ms render budget. This harness injects
+// an already-presented dashboard through applySnapshot in init, then checks the
+// first render. The true exec -> Task -> timer lifecycle is covered separately
+// by tests/native-async-check.mjs.
 //
 // Usage:
 //   node tests/native-loaded-check.mjs
@@ -19,6 +20,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compactDashboard, deriveDashboard, todayKey } from "../mods/insights/analytics.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const modSource = resolve(here, "../mods/insights");
@@ -90,13 +92,33 @@ try {
   const constant = "const CELL = 12;";
   const init = "    this.commandTask = cx.spawn(async (commandCx) => {";
   if (!main.includes(constant) || !main.includes(init)) throw new Error("cannot find main.js injection points");
-  main = main.replace(constant, `const INJECTED_SNAPSHOT = ${JSON.stringify(snapshot)};\n${constant}`);
-  let injected = "    this.applySnapshot(INJECTED_SNAPSHOT, cx);\n";
+  const today = todayKey();
+  const options = {
+    filters: { source: "all", provider: "all", model: "all", project: "all" },
+    period: "all",
+    year: Number(today.slice(0, 4)),
+    heatmapMode: "daily",
+    leaderboardGroup: "model",
+    selectedDay: today,
+    today,
+  };
+  const { rows: _rows, ...metadata } = snapshot;
+  const presentation = {
+    version: 1,
+    kind: "insights-presentation",
+    command: "snapshot",
+    options,
+    snapshot: { ...metadata, rowCount: snapshot.rows.length },
+    dashboard: compactDashboard(deriveDashboard(snapshot, options)),
+    error: null,
+  };
+  main = main.replace(constant, `const INJECTED_PRESENTATION = ${JSON.stringify(presentation)};\n${constant}`);
+  let injected = "    this.applySnapshot(INJECTED_PRESENTATION, cx);\n";
   if (mode === "settings") injected += "    this.showSettings = true;\n";
   if (mode === "menu") {
     injected += [
       "    this.openFilter = \"ins-project-filter\";",
-      "    this.openOptions = buildFacetOptions(\"project\", this.dashboardCache.peek(this.snapshot, this.dashboardOptions()).facets.project, normalizeConfig(this.snapshot.config));",
+      "    this.openOptions = buildFacetOptions(\"project\", this.dashboard.facets.project, normalizeConfig(this.snapshot.config));",
       "",
     ].join("\n");
   }

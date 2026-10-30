@@ -2,8 +2,9 @@
 
 Insights is a local-first Herdr mod for reading coding-agent token usage from the
 transcripts already on your machine, then showing the result as a calm native
-dashboard. It reads Pi, Claude Code, and Codex session files; it does not call a
-service, upload a transcript, or estimate token counts from prompt text.
+dashboard. Its default setup reads Pi and Codex session files; legacy Claude Code
+configs remain readable. It does not call a service, upload a transcript, or
+estimate token counts from prompt text.
 
 The package is private, has ZERO dependencies, and runs on Node >=22.15. The
 Herdr UI is native gpui-kit, not HTML or a web view.
@@ -109,7 +110,12 @@ version gate, so an older Node can still remove a clean install.
   only their own fields and preserve custom source mappings.
 
 The dashboard has no profile or avatar header; usage filters and data start the
-view.
+view. Mod commands share the UI handlers for automation: `insights.refresh`,
+`insights.settings`, `insights.dashboard`, `insights.period.week|month|year|all`,
+`insights.year.prev|next`, `insights.heatmap.daily|weekly|cumulative`,
+`insights.group.model|provider`, `insights.source.<id|all>`, and
+`insights.filters.clear`. Every filter command coalesces to the latest pending
+presentation instead of leaving a stale dashboard or a stuck busy state.
 
 Periods are calendar-to-date windows: the current week runs from its configured
 start through today, the current month from the first through today, and the
@@ -147,13 +153,6 @@ The default normalized shape is:
       "roots": ["~/.pi/agent/sessions"]
     },
     {
-      "id": "claude",
-      "label": "Claude Code",
-      "adapter": "claude",
-      "enabled": true,
-      "roots": ["~/.claude/projects"]
-    },
-    {
       "id": "codex",
       "label": "Codex",
       "adapter": "codex",
@@ -178,8 +177,9 @@ settings no longer display it.
 - `weekStartsOn`: `0` for Sunday or `1` for Monday.
 - `refreshSeconds`: integer 30 through 3600; the UI defaults to 60.
 - `sources[].id` must match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` and be unique.
-- `sources[].label` is non-empty; `adapter` is `pi`, `claude`, `codex`, or
-  `custom`; `roots` is an array of non-empty paths; `enabled` is boolean.
+- `sources[].label` is non-empty; `adapter` is `pi`, `codex`, or the legacy
+  `claude`/`custom` values; `roots` is an array of non-empty paths; `enabled` is
+  boolean. New installs default to Pi and Codex only.
 - `sources[].roots`: transcript directories. A leading `~` is expanded against
   the user's home directory. The collector reads these external directories; it
   does not copy raw transcripts into the store and never writes to them.
@@ -192,7 +192,37 @@ separate file at `<HERDR_APP_HOME>/data/insights/install-manifest.json`.
 
 ## CLI
 
-The mod invokes the collector as an `exec` child process, off the UI thread:
+The native mod invokes the presentation helper as an `exec` child process, off
+the UI thread. The helper wraps the collector and keeps analytics in Node:
+
+```sh
+node <appHome>/mods/insights/presenter.mjs snapshot \
+  --store <appHome>/data/insights/insights.json \
+  --home <home> \
+  --options '{"period":"all","year":2026}'
+
+node <appHome>/mods/insights/presenter.mjs configure \
+  --store <appHome>/data/insights/insights.json \
+  --home <home> \
+  --config '{"palette":"green"}' \
+  --options '{"period":"all","year":2026}'
+
+node <appHome>/mods/insights/presenter.mjs prepare \
+  --store <appHome>/data/insights/insights.json \
+  --options '{"period":"week","year":2026}'
+```
+
+`snapshot` and `configure` call the existing collector once, then print one
+compact presentation payload. `prepare` reads only the existing JSON store and
+re-derives the compact dashboard for a filter, period, year, heatmap, grouping,
+day, or settings change; it never scans transcripts and never writes the store.
+This keeps QuickJS parsing a bounded payload instead of raw snapshot rows.
+
+Diagnostics go to stderr. Invalid config exits with code 2 and writes nothing;
+other failures exit nonzero. The UI displays nonzero errors instead of pretending
+the data is zero.
+
+The collector CLI remains available for repair and inspection:
 
 ```sh
 node <appHome>/mods/insights/collector.mjs snapshot \
@@ -204,11 +234,6 @@ node <appHome>/mods/insights/collector.mjs configure \
   --home <home> \
   --config '{"palette":"green"}'
 ```
-
-Both commands print exactly one compact JSON snapshot to stdout. Diagnostics go
-to stderr. Invalid config exits with code 2 and writes nothing; other failures
-exit nonzero. The UI displays nonzero errors instead of pretending the data is
-zero.
 
 A normal refresh is incremental. `--rebuild` is available for a deliberate
 manual repair, not for every refresh. The collector validates a config before
@@ -225,9 +250,15 @@ shell.
 
 ## Snapshot
 
-The snapshot contains `version` (1), `generatedAt`, `lastScanAt`, `config`,
-`rows`, `stats`, `sourceStats`, and `warnings`. Rows are aggregated by local day,
-session, harness, provider, model, and project. Each row has
+The collector snapshot contains `version` (1), `generatedAt`, `lastScanAt`,
+`config`, `rows`, `stats`, `sourceStats`, and `warnings`. The UI never receives
+`rows`: the presentation payload carries snapshot metadata with `rowCount` plus
+one `dashboard` object (heatmap, totals, leaders, selected day, facets). The
+payload is validated before use so a truncated or raw-row response becomes a
+finite, retryable error instead of a stuck loading state.
+
+Rows are aggregated by local day, session, harness, provider, model, and
+project. Each row has
 `tokens.input`, `tokens.output`, `tokens.cacheRead`, `tokens.cacheWrite`,
 `tokens.reasoning`, `tokens.total`, `messages`, `activeMs`, and `longestTaskMs`.
 `messages` counts reported usage events (shown as "Usage events" in the UI), not
@@ -296,7 +327,7 @@ Source-specific behavior:
   not duplicate task durations. The session header supplies `session.cwd` and
   `session.id`; sub-agent transcript artifacts use their own stable session.
   Failed assistant records do not close a task.
-- **Claude Code:** duplicate streamed entries with the same `message.id` are
+- **Claude Code (legacy configs):** duplicate streamed entries with the same `message.id` are
   max-upserted, so revised usage fields count once at their largest values.
   Cache fields are counted once. Tool-result and meta user records do not start
   a new task; failed assistant records do not close one.
@@ -314,6 +345,10 @@ as a dash. Treat duration as an observed lower bound, not wall-clock time spent
 by a person, and do not compare harnesses as if their boundaries were identical.
 
 ## Custom source mappings
+
+Pi and Codex are the default sources. Legacy Claude Code and custom mappings
+remain readable for existing configs, but they are not part of the new-install
+default setup.
 
 Custom sources use JSONL and declarative field mappings, not arbitrary executable
 JavaScript. A custom source has this shape:
@@ -398,12 +433,13 @@ duration is 2500ms.
 - **Local only:** Insights makes no network requests. It has no telemetry and no
   remote service.
 - **Reads transcripts:** the collector reads the transcript directories listed in
-  config (for example `~/.pi/agent/sessions`, `~/.claude/projects`, and
-  `~/.codex/sessions`). Those paths are outside the Herdr app home and are never
+  config (for example `~/.pi/agent/sessions` and `~/.codex/sessions`). Those
+  paths are outside the Herdr app home and are never
   modified.
-- **Node disclosure:** Herdr runs `node .../collector.mjs` as an `exec` child
-  process. That process reads local files and writes the single store atomically.
-  It is not a sandbox.
+- **Node disclosure:** Herdr runs `node .../presenter.mjs` as an `exec` child
+  process. It imports the collector for a refresh, or reads the single JSON store
+  for a filter change, and derives the compact dashboard there. The collector
+  reads local files and writes the single store atomically. It is not a sandbox.
 - **Metadata-only store:** the store contains the normalized config, file paths
   and scan metadata, aggregated rows (day, session identity, harness, provider,
   model, project, numeric usage, usage-event counts, and task durations), and
@@ -484,6 +520,18 @@ do not call the network.
 npm test --prefix herdr-insights
 npm run check --prefix herdr-insights
 npm run install:local --prefix herdr-insights -- --help
+```
+
+`tests/native-loaded-check.mjs` checks the loaded dashboard render budget through
+`applySnapshot`. `tests/native-async-check.mjs` is the true lifecycle check: it
+launches a throwaway Herdr app home with a minimal layout, runs the real
+`exec -> Task -> timer -> presenter` path with 10k rows, fails on interrupted
+promise continuations or mod errors, and stops only the process it started.
+
+```sh
+node herdr-insights/tests/native-loaded-check.mjs --snapshot <snapshot.json>
+node herdr-insights/tests/native-async-check.mjs --rows 10000 --snapshot <snapshot.json>
+node herdr-insights/tests/native-async-check.mjs --store ~/.config/herdr-app/data/insights/insights.json --wait 25000
 ```
 
 The package check validates the private/dependency-free package shape, script

@@ -4,9 +4,7 @@ import { v_flex, h_flex, Input, InputState, Editor, EditorState, Popover } from 
 import { exec, appHome, home, theme, settings, nextCommand, readTextFile } from "herdr";
 import {
   PALETTES,
-  availableYears,
   clampRefreshSeconds,
-  createDashboardCache,
   dayLabel,
   formatBytes,
   formatCompact,
@@ -15,7 +13,7 @@ import {
   formatTimestamp,
   initials,
   isDay,
-  isSnapshot,
+  isPresentation,
   normalizeConfig,
   periodRange,
   projectName,
@@ -30,6 +28,8 @@ const DAY_LABEL_WIDTH = 30;
 const MAX_FACET_OPTIONS = 250;
 const DEFAULT_NODE = "node";
 const RUNTIME_FILE = "mods/insights/runtime.json";
+const PRESENTER_FILE = "mods/insights/presenter.mjs";
+const ACTIVITY_TIMEOUT_MS = 35_000;
 
 const HEAT_COLORS = {
   blue: {
@@ -116,12 +116,36 @@ function parseRuntimeNode(raw) {
 
 function parseSnapshot(stdout) {
   const text = String(stdout ?? "").trim();
-  if (!text) throw new Error("The collector returned no snapshot.");
+  if (!text) throw new Error("The presentation helper returned no dashboard.");
+  let parsed;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
-    throw new Error("The collector returned invalid JSON.");
+    throw new Error("The presentation helper returned invalid JSON.");
   }
+  if (!isPresentation(parsed)) {
+    throw new Error("The presentation helper returned an unexpected dashboard payload.");
+  }
+  return parsed;
+}
+
+function presentationKey(snapshot, options = {}) {
+  return JSON.stringify({
+    generatedAt: snapshot?.generatedAt ?? null,
+    lastScanAt: snapshot?.lastScanAt ?? null,
+    config: snapshot?.config ?? null,
+    filters: options.filters ?? {},
+    period: options.period ?? "all",
+    year: options.year ?? null,
+    heatmapMode: options.heatmapMode ?? "daily",
+    leaderboardGroup: options.leaderboardGroup ?? "model",
+    selectedDay: options.selectedDay ?? null,
+    today: options.today ?? null,
+  });
+}
+
+function sameOptions(left, right) {
+  return JSON.stringify(left ?? {}) === JSON.stringify(right ?? {});
 }
 
 function sourceKey(source, index) {
@@ -323,7 +347,7 @@ function segmented(id, items, value, onChange, t) {
     .children(items.map((item) => h_flex().id(`${id}-${item.key}`).h(25).px(8).items_center().justify_center().rounded(7)
       .cursor_pointer().hover((s) => s.bg(t.hover))
       .when(value === item.key, (el) => el.bg(t.surface).border_1().border_color(t.border))
-      .on_click((_event, cx) => { if (value !== item.key) { onChange(item.key); cx.notify(); } })
+      .on_click((_event, cx) => { if (value !== item.key) { onChange(item.key, cx); cx.notify(); } })
       .child(div().text_size(11).font_medium().text_color(value === item.key ? t.foreground : t.muted).child(item.label))));
 }
 
@@ -393,8 +417,18 @@ export default class Insights extends View {
     this.runtimeReady = false;
     this.runtimeError = null;
     this.nodeBinary = null;
-    this.dashboardCache = createDashboardCache();
-    this.deriving = false;
+    this.dashboard = null;
+    this.dashboardKey = null;
+    this.dashboardPending = null;
+    this.dashboardError = null;
+    this.dashboardTimer = null;
+    this.dashboardTask = null;
+    this.dashboardQueued = false;
+    this.dashboardGeneration = 0;
+    this.dashboardWatchdog = null;
+    this.refreshWatchdog = null;
+    this.saveWatchdog = null;
+    this.years = [Number(todayKey().slice(0, 4))];
 
     const t = theme();
     const editorOptions = {
@@ -472,6 +506,35 @@ export default class Insights extends View {
         else if (name === "dashboard") {
           this.showSettings = false;
           commandCx.notify();
+        } else if (name.startsWith("period.")) {
+          this.setPeriod(name.slice("period.".length), commandCx);
+          commandCx.notify();
+        } else if (name === "year.prev" || name === "year.next") {
+          this.setYear(name === "year.prev" ? 1 : -1, commandCx);
+          commandCx.notify();
+        } else if (name.startsWith("heatmap.")) {
+          const mode = name.slice("heatmap.".length);
+          if (["daily", "weekly", "cumulative"].includes(mode)) {
+            this.heatmapMode = mode;
+            this.scheduleDashboard(commandCx, { force: true });
+            commandCx.notify();
+          }
+        } else if (name.startsWith("group.")) {
+          const group = name.slice("group.".length);
+          if (group === "model" || group === "provider") {
+            this.leaderboardGroup = group;
+            this.scheduleDashboard(commandCx, { force: true });
+            commandCx.notify();
+          }
+        } else if (name.startsWith("source.")) {
+          const value = name.slice("source.".length);
+          this.filters = { ...this.filters, source: value === "all" ? "all" : value };
+          this.scheduleDashboard(commandCx, { force: true });
+          commandCx.notify();
+        } else if (name === "filters.clear") {
+          this.filters = { source: "all", provider: "all", model: "all", project: "all" };
+          this.scheduleDashboard(commandCx, { force: true });
+          commandCx.notify();
         }
       }
     });
@@ -479,6 +542,11 @@ export default class Insights extends View {
 
   close() {
     try { this.timer?.cancel(); } catch { /* already gone */ }
+    try { this.dashboardTimer?.cancel(); } catch { /* already gone */ }
+    try { this.dashboardTask?.cancel(); } catch { /* already gone */ }
+    try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
+    try { this.refreshWatchdog?.cancel(); } catch { /* already gone */ }
+    try { this.saveWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
     try { this.runtimeTask?.cancel(); } catch { /* already gone */ }
     try { this.refreshInput?.release(); } catch { /* already released */ }
@@ -492,12 +560,12 @@ export default class Insights extends View {
     return this.loading || this.saving;
   }
 
-  collectorPath() {
-    return `${appHome()}/mods/insights/collector.mjs`;
-  }
-
   runtimePath() {
     return `${appHome()}/${RUNTIME_FILE}`;
+  }
+
+  presenterPath() {
+    return `${appHome()}/${PRESENTER_FILE}`;
   }
 
   storePath() {
@@ -524,10 +592,128 @@ export default class Insights extends View {
     };
   }
 
-  // Analytics run in init, tasks and events (500 ms), never in render (50 ms).
-  updateDashboard() {
-    if (!this.snapshot) return null;
-    return this.dashboardCache.read(this.snapshot, this.dashboardOptions());
+  // Analytics run in the Node presentation helper. QuickJS only stores the
+  // compact result and renders it; no derivation runs in a render frame.
+  armWatchdog(kind, cx) {
+    const field = kind === "refresh" ? "refreshWatchdog" : "saveWatchdog";
+    try { this[field]?.cancel(); } catch { /* already gone */ }
+    this[field] = cx.timer.after(ACTIVITY_TIMEOUT_MS, (timerCx) => {
+      this[field] = null;
+      if (kind === "refresh" && this.loading) {
+        this.loading = false;
+        this.error = "Refresh timed out after 35 seconds. Retry to try again.";
+        timerCx.notify();
+      }
+      if (kind === "save" && this.saving) {
+        this.saving = false;
+        this.saveError = "Saving timed out after 35 seconds. Retry to try again.";
+        timerCx.notify();
+      }
+    });
+  }
+
+  cancelWatchdog(kind) {
+    const field = kind === "refresh" ? "refreshWatchdog" : "saveWatchdog";
+    try { this[field]?.cancel(); } catch { /* already gone */ }
+    this[field] = null;
+  }
+
+  cancelDashboardWork() {
+    this.dashboardGeneration = (this.dashboardGeneration ?? 0) + 1;
+    this.dashboardQueued = false;
+    this.dashboardPending = null;
+    try { this.dashboardTimer?.cancel(); } catch { /* already gone */ }
+    this.dashboardTimer = null;
+    try { this.dashboardTask?.cancel(); } catch { /* already gone */ }
+    try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
+    this.dashboardTask = null;
+    this.dashboardWatchdog = null;
+  }
+
+  scheduleDashboard(cx, { force = false } = {}) {
+    if (!this.snapshot || !this.nodeBinary || this.runtimeError) return;
+    const options = this.dashboardOptions();
+    const key = presentationKey(this.snapshot, options);
+    if (!force && this.dashboard && this.dashboardKey === key) return;
+    if (!force && this.dashboardPending === key) return;
+    if (this.dashboardTask) {
+      // Coalesce every filter/settings change made while a prepare is running.
+      this.dashboardQueued = true;
+      this.dashboardError = null;
+      return;
+    }
+    try { this.dashboardTimer?.cancel(); } catch { /* already gone */ }
+    this.dashboardPending = key;
+    this.dashboardError = null;
+    this.dashboardTimer = cx.timer.after(0, (timerCx) => {
+      this.dashboardTimer = null;
+      this.prepareDashboard(timerCx, key);
+    });
+  }
+
+  prepareDashboard(cx, key) {
+    if (!this.snapshot || !this.nodeBinary || this.runtimeError) return;
+    const options = this.dashboardOptions();
+    if (presentationKey(this.snapshot, options) !== key) {
+      // A newer snapshot or filter replaced the request before the timer ran.
+      this.scheduleDashboard(cx, { force: true });
+      return;
+    }
+    const generation = (this.dashboardGeneration ?? 0) + 1;
+    this.dashboardGeneration = generation;
+    try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
+    this.dashboardWatchdog = cx.timer.after(ACTIVITY_TIMEOUT_MS, (timerCx) => {
+      this.dashboardWatchdog = null;
+      if (generation !== this.dashboardGeneration) return;
+      this.dashboardGeneration += 1;
+      this.dashboardPending = null;
+      this.dashboardQueued = false;
+      try { this.dashboardTask?.cancel(); } catch { /* already gone */ }
+      this.dashboardTask = null;
+      this.dashboardError = "Preparing the dashboard timed out. Retry to try again.";
+      timerCx.notify();
+    });
+    let task = null;
+    task = cx.spawn(async (prepareCx) => {
+      try {
+        const result = await exec(this.nodeBinary, [
+          this.presenterPath(),
+          "prepare",
+          "--store",
+          this.storePath(),
+          "--options",
+          JSON.stringify(options),
+        ]);
+        if (result.code !== 0) throw new Error(resultError(result));
+        const payload = parseSnapshot(result.stdout);
+        if (generation !== this.dashboardGeneration) return;
+        if (payload.error && !payload.dashboard) throw new Error(payload.error);
+        if (!payload.dashboard) throw new Error("The presentation helper returned no dashboard.");
+        if (!this.snapshot || presentationKey(this.snapshot, this.dashboardOptions()) !== key) return;
+        this.dashboard = payload.dashboard;
+        this.dashboardKey = key;
+        if (Array.isArray(payload.dashboard.years) && payload.dashboard.years.length) this.years = payload.dashboard.years;
+        this.dashboardError = null;
+      } catch (error) {
+        if (generation === this.dashboardGeneration && this.snapshot
+          && presentationKey(this.snapshot, this.dashboardOptions()) === key) {
+          this.dashboardError = sanitizeError(error);
+        }
+      } finally {
+        if (generation === this.dashboardGeneration) {
+          try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
+          this.dashboardWatchdog = null;
+          if (this.dashboardPending === key) this.dashboardPending = null;
+          if (this.dashboardTask === task) this.dashboardTask = null;
+          prepareCx.notify();
+          if (this.dashboardQueued) {
+            this.dashboardQueued = false;
+            this.scheduleDashboard(prepareCx);
+          }
+        }
+      }
+    });
+    this.dashboardTask = task;
   }
 
   refresh(cx) {
@@ -542,43 +728,85 @@ export default class Insights extends View {
     this.loading = true;
     this.error = null;
     cx.notify();
-    const collector = this.collectorPath();
+    this.armWatchdog("refresh", cx);
+    const presenter = this.presenterPath();
     const store = this.storePath();
+    const options = this.dashboardOptions();
     cx.spawn(async (refreshCx) => {
+      let payload = null;
+      let failure = null;
       try {
-        const result = await exec(this.nodeBinary, [collector, "snapshot", "--store", store, "--home", home()]);
+        const result = await exec(this.nodeBinary, [
+          presenter,
+          "snapshot",
+          "--store",
+          store,
+          "--home",
+          home(),
+          "--options",
+          JSON.stringify(options),
+        ]);
         if (result.code !== 0) throw new Error(resultError(result));
-        const snapshot = parseSnapshot(result.stdout);
-        if (!isSnapshot(snapshot)) throw new Error("The collector returned an unexpected snapshot.");
-        this.applySnapshot(snapshot, refreshCx);
+        payload = parseSnapshot(result.stdout);
       } catch (error) {
-        this.error = sanitizeError(error);
+        failure = error;
       } finally {
         this.loading = false;
+        this.cancelWatchdog("refresh");
+        if (failure) this.error = sanitizeError(failure);
+        refreshCx.notify();
+      }
+      if (!payload) return;
+      this.error = null;
+      try {
+        this.applySnapshot(payload, refreshCx);
+      } catch (error) {
+        this.error = sanitizeError(error);
         refreshCx.notify();
       }
     });
   }
 
-  applySnapshot(snapshot, cx) {
+  applySnapshot(payload, cx) {
+    if (!isPresentation(payload)) throw new Error("The presentation helper returned an unexpected dashboard payload.");
+    const snapshot = payload.snapshot;
+    this.cancelDashboardWork();
     this.snapshot = snapshot;
     const savedConfig = normalizeConfig(snapshot.config);
     const config = this.configDirty || this.editorDirty ? this.draftConfig(savedConfig) : savedConfig;
     const today = todayKey();
-    const years = availableYears(snapshot.rows, today);
+    const years = Array.isArray(payload.dashboard?.years) && payload.dashboard.years.length
+      ? payload.dashboard.years
+      : [Number(today.slice(0, 4))];
+    this.years = years;
     if (!Number.isInteger(this.year) || !years.includes(this.year)) this.year = years[0] ?? Number(today.slice(0, 4));
     if (!isDay(this.selectedDay)) this.selectedDay = today;
+
+    // Publish the compact dashboard before editor and input host work so an
+    // interruption there can never bring back a permanent Preparing screen.
+    const optionsNow = this.dashboardOptions();
+    const key = presentationKey(snapshot, optionsNow);
+    if (payload.dashboard && sameOptions(payload.options, optionsNow)) {
+      this.dashboard = payload.dashboard;
+      this.dashboardKey = key;
+      this.dashboardError = payload.error ? sanitizeError(payload.error) : null;
+    } else {
+      this.dashboard = null;
+      this.dashboardKey = null;
+      this.dashboardError = payload.error ? sanitizeError(payload.error) : null;
+    }
+    this.schedule(cx);
+    if (!this.dashboard) this.scheduleDashboard(cx, { force: true });
 
     if (!this.configDirty && !this.editorDirty) {
       this.configDraft = deepClone(savedConfig);
       this.setEditorText(prettyJson(this.configDraft));
     }
+
     // A poll must never release source inputs that only exist in an unsaved draft.
     this.ensureSourceInputs(config);
     if (!this.rootsDirty) this.syncSourceInputs(config);
     if (!this.refreshDirty) this.syncRefreshInput(config);
-    this.updateDashboard();
-    this.schedule(cx);
   }
 
   draftConfig(fallback) {
@@ -751,12 +979,16 @@ export default class Insights extends View {
     this.saveError = null;
     this.saveMessage = null;
     cx.notify();
-    const collector = this.collectorPath();
+    this.armWatchdog("save", cx);
+    const presenter = this.presenterPath();
     const store = this.storePath();
+    const options = this.dashboardOptions();
     cx.spawn(async (saveCx) => {
+      let payload = null;
+      let failure = null;
       try {
         const result = await exec(this.nodeBinary, [
-          collector,
+          presenter,
           "configure",
           "--store",
           store,
@@ -764,23 +996,33 @@ export default class Insights extends View {
           home(),
           "--config",
           JSON.stringify(config),
+          "--options",
+          JSON.stringify(options),
         ]);
         if (result.code !== 0) throw new Error(resultError(result));
-        const snapshot = parseSnapshot(result.stdout);
-        if (!isSnapshot(snapshot)) throw new Error("The collector returned an unexpected snapshot.");
-        this.configDirty = false;
-        this.editorDirty = false;
-        this.rootsDirty = false;
-        this.refreshDirty = false;
-        this.error = null;
-        this.applySnapshot(snapshot, saveCx);
+        payload = parseSnapshot(result.stdout);
+      } catch (error) {
+        failure = error;
+      } finally {
+        this.saving = false;
+        this.cancelWatchdog("save");
+        if (failure) this.saveError = sanitizeError(failure);
+        saveCx.notify();
+      }
+      if (!payload) return;
+      this.configDirty = false;
+      this.editorDirty = false;
+      this.rootsDirty = false;
+      this.refreshDirty = false;
+      this.error = null;
+      this.saveError = null;
+      try {
+        this.applySnapshot(payload, saveCx);
         this.saveMessage = "Configuration saved.";
       } catch (error) {
         this.saveError = sanitizeError(error);
-      } finally {
-        this.saving = false;
-        saveCx.notify();
       }
+      saveCx.notify();
     });
   }
 
@@ -827,38 +1069,39 @@ export default class Insights extends View {
     cx.notify();
   }
 
-  setPeriod(period) {
+  setPeriod(period, cx) {
     this.period = period;
     const today = todayKey();
     const config = normalizeConfig(this.snapshot?.config ?? {});
     if (period === "year") {
-      const years = availableYears(this.snapshot?.rows ?? [], today);
+      const years = this.years?.length ? this.years : [Number(today.slice(0, 4))];
       if (!years.includes(this.year)) this.year = years[0] ?? Number(today.slice(0, 4));
     }
     this.selectedDay = periodRange(period, { today, weekStartsOn: config.weekStartsOn, year: this.year }).end;
-    this.updateDashboard();
+    this.scheduleDashboard(cx, { force: true });
   }
 
-  setYear(delta) {
+  setYear(delta, cx) {
     const today = todayKey();
-    const years = availableYears(this.snapshot?.rows ?? [], today);
+    const years = this.years?.length ? this.years : [Number(today.slice(0, 4))];
     const current = Math.max(0, years.indexOf(this.year));
     const next = Math.min(years.length - 1, Math.max(0, current + delta));
     this.year = years[next] ?? Number(today.slice(0, 4));
     const config = normalizeConfig(this.snapshot?.config ?? {});
     this.selectedDay = periodRange("year", { today, weekStartsOn: config.weekStartsOn, year: this.year }).end;
-    this.updateDashboard();
+    this.scheduleDashboard(cx, { force: true });
   }
 
-  render(cx) {
+  render(_cx) {
     const t = theme();
     const width = this.width || 960;
     const padding = width < 620 ? 12 : width < 900 ? 18 : 24;
     const content = [this.header(t)];
     if (this.error && this.snapshot) content.push(this.errorBanner(t));
+    if (this.dashboardError && this.snapshot) content.push(this.dashboardErrorBanner(t));
     if (!this.snapshot) content.push(this.initialState(t));
     else if (this.showSettings) content.push(this.settingsView(t));
-    else content.push(this.dashboardView(t, cx));
+    else content.push(this.dashboardView(t));
 
     return v_flex().id("insights-root").size_full().min_h(0).bg(t.canvas ?? t.background).text_color(t.foreground)
       .overflow_y_scrollbar()
@@ -874,13 +1117,20 @@ export default class Insights extends View {
 
   header(t) {
     const updated = this.snapshot ? formatTimestamp(this.snapshot.lastScanAt || this.snapshot.generatedAt) : "";
-    const status = this.loading ? "Refreshing…" : this.saving ? "Saving…" : this.error ? (this.snapshot ? "Showing last snapshot" : "Unavailable") : updated ? `Updated ${updated}` : "";
+    const preparing = !this.dashboard && (this.dashboardPending || this.dashboardQueued);
+    const status = this.loading ? "Refreshing…"
+      : this.saving ? "Saving…"
+        : preparing ? "Preparing…"
+          : this.error ? (this.snapshot ? "Showing last snapshot" : "Unavailable")
+            : this.dashboardError ? "Could not prepare dashboard"
+              : updated ? `Updated ${updated}` : "";
+    const statusError = Boolean(this.error || this.dashboardError);
     return h_flex().w_full().flex_wrap().gap(10).items_center().justify_between()
       .child(v_flex().gap(2)
         .child(div().text_size(21).font_semibold().child("Insights"))
         .child(div().text_size(11.5).text_color(t.dim).child("Local AI usage · private by design")))
       .child(h_flex().flex_wrap().gap(8).items_center()
-        .when(Boolean(status), (el) => el.child(div().text_size(10.5).text_color(this.error ? t.blocked : t.dim).child(status)))
+        .when(Boolean(status), (el) => el.child(div().text_size(10.5).text_color(statusError ? t.blocked : t.dim).child(status)))
         .child(smallButton("insights-refresh", "↻ Refresh", (_event, clickCx) => this.refresh(clickCx), t, { disabled: this.busy() }))
         .when(Boolean(this.snapshot), (el) => el.child(smallButton(
           "insights-settings",
@@ -917,34 +1167,52 @@ export default class Insights extends View {
         .child(div().size(8).rounded_full().bg(this.loading ? t.accent : t.blocked))
         .child(div().text_size(14).font_semibold().child(title)))
       .child(div().text_size(12).text_color(t.muted).child(body))
-      .child(div().text_size(10.5).text_color(t.dim).child("The collector runs as a local Node process and prints one JSON snapshot. No network, no transcripts, no prompts."))
+      .child(div().text_size(10.5).text_color(t.dim).child("The collector and presentation helper run as local Node processes. No network, no transcripts, no prompts."))
       .when(!this.busy(), (el) => el.child(h_flex().pt(4)
         .child(smallButton("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), t, { primary: true }))));
   }
 
-  dashboardView(t, cx) {
+  dashboardErrorBanner(t) {
+    return h_flex().w_full().gap(10).items_start().p(12).rounded(10).bg(t.surface)
+      .border_1().border_color(t.blocked)
+      .child(div().text_size(13).font_semibold().text_color(t.blocked).child("!"))
+      .child(v_flex().flex_1().min_w(0).gap(3)
+        .child(div().text_size(12).font_medium().child("Could not prepare the dashboard"))
+        .child(div().text_size(11).text_color(t.muted).child(this.dashboardError)))
+      .child(smallButton("insights-dashboard-retry", "Retry", (_event, clickCx) => {
+        this.scheduleDashboard(clickCx, { force: true });
+        clickCx.notify();
+      }, t, { disabled: Boolean(this.dashboardPending) }));
+  }
+
+  dashboardView(t) {
     const snapshot = this.snapshot;
-    const derived = this.dashboardCache.peek(snapshot, this.dashboardOptions());
+    const derived = this.dashboard;
     if (!derived) {
-      // State changes derive in their event handler; this only catches a miss.
-      if (!this.deriving && cx) {
-        this.deriving = true;
-        cx.spawn(async (deriveCx) => {
-          try { this.updateDashboard(); } finally { this.deriving = false; }
-          deriveCx.notify();
-        });
+      if (this.dashboardError) {
+        return card(t, 20).gap(8)
+          .child(div().text_size(14).font_semibold().child("Could not prepare insights"))
+          .child(div().text_size(11.5).text_color(t.muted).child(this.dashboardError))
+          .child(h_flex().pt(4).child(smallButton("insights-prepare-retry", "Retry", (_event, clickCx) => {
+            this.scheduleDashboard(clickCx, { force: true });
+            clickCx.notify();
+          }, t, { primary: true, disabled: Boolean(this.dashboardPending) })));
       }
       return card(t, 20).gap(8)
         .child(div().text_size(14).font_semibold().child("Preparing insights"))
-        .child(div().text_size(11.5).text_color(t.muted).child("Crunching the local snapshot outside the render frame."));
+        .child(div().text_size(11.5).text_color(t.muted).child("Preparing the compact dashboard in the local Node helper."))
+        .child(h_flex().pt(4).child(smallButton("insights-prepare-retry", "Retry", (_event, clickCx) => {
+          this.scheduleDashboard(clickCx, { force: true });
+          clickCx.notify();
+        }, t, { disabled: Boolean(this.dashboardPending) })));
     }
-    const { config, rows, range, lifetime, peak, streaks, heatmap, totals, leaders, selectedDay, selectedRows, selectedTotals, selectedTop, years } = derived;
+    const { config, rowCount, range, lifetime, peak, streaks, heatmap, totals, leaders, selectedDay, selectedRowCount, selectedTotals, selectedTop, years } = derived;
 
     return v_flex().w_full().gap(14)
       .child(this.metricStrip(t, lifetime, peak, streaks))
       .child(this.filtersBar(t, config, range, derived.facets, years))
-      .when(rows.length === 0, (el) => el.child(this.emptyNotice(t, config)))
-      .child(this.heatmapCard(t, config, heatmap, selectedDay, selectedRows, selectedTotals, selectedTop))
+      .when(rowCount === 0, (el) => el.child(this.emptyNotice(t, config)))
+      .child(this.heatmapCard(t, config, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop))
       .child(this.leaderboardCard(t, leaders, range))
       .child(this.bottomGrid(t, totals, range, config, snapshot));
   }
@@ -959,19 +1227,19 @@ export default class Insights extends View {
           { key: "month", label: "Month" },
           { key: "year", label: "Year" },
           { key: "all", label: "All" },
-        ], this.period, (key) => this.setPeriod(key), t))
+        ], this.period, (key, changeCx) => this.setPeriod(key, changeCx), t))
         .when(this.period === "year", (el) => el.child(h_flex().gap(4).items_center()
-          .child(iconButton("ins-year-older", "‹", "Older year", (_event, clickCx) => { this.setYear(1); clickCx.notify(); }, t))
+          .child(iconButton("ins-year-older", "‹", "Older year", (_event, clickCx) => { this.setYear(1, clickCx); clickCx.notify(); }, t))
           .child(div().min_w(38).text_center().text_size(12).font_medium().child(String(this.year)))
-          .child(iconButton("ins-year-newer", "›", "Newer year", (_event, clickCx) => { this.setYear(-1); clickCx.notify(); }, t, { color: this.year >= years[0] ? t.dim : t.muted })))))
+          .child(iconButton("ins-year-newer", "›", "Newer year", (_event, clickCx) => { this.setYear(-1, clickCx); clickCx.notify(); }, t, { color: this.year >= years[0] ? t.dim : t.muted })))))
       .child(h_flex().w_full().flex_wrap().gap(8).items_center()
-        .child(this.filterMenu("source", "Source", this.filters.source, facets.source, config, t, (value) => { this.filters.source = value; this.updateDashboard(); }))
-        .child(this.filterMenu("provider", "Provider", this.filters.provider, facets.provider, config, t, (value) => { this.filters.provider = value; this.updateDashboard(); }))
-        .child(this.filterMenu("model", "Model", this.filters.model, facets.model, config, t, (value) => { this.filters.model = value; this.updateDashboard(); }))
-        .child(this.filterMenu("project", "Project", this.filters.project, facets.project, config, t, (value) => { this.filters.project = value; this.updateDashboard(); }))
+        .child(this.filterMenu("source", "Source", this.filters.source, facets.source, config, t, (value, pickCx) => { this.filters.source = value; this.scheduleDashboard(pickCx, { force: true }); }))
+        .child(this.filterMenu("provider", "Provider", this.filters.provider, facets.provider, config, t, (value, pickCx) => { this.filters.provider = value; this.scheduleDashboard(pickCx, { force: true }); }))
+        .child(this.filterMenu("model", "Model", this.filters.model, facets.model, config, t, (value, pickCx) => { this.filters.model = value; this.scheduleDashboard(pickCx, { force: true }); }))
+        .child(this.filterMenu("project", "Project", this.filters.project, facets.project, config, t, (value, pickCx) => { this.filters.project = value; this.scheduleDashboard(pickCx, { force: true }); }))
         .when(active, (el) => el.child(smallButton("ins-clear-filters", "Clear filters", (_event, clickCx) => {
           this.filters = { source: "all", provider: "all", model: "all", project: "all" };
-          this.updateDashboard();
+          this.scheduleDashboard(clickCx, { force: true });
           clickCx.notify();
         }, t))))
       .child(div().text_size(10.5).text_color(t.dim).child(this.period === "all" ? range.label : `${range.label} · calendar period`));
@@ -1012,7 +1280,7 @@ export default class Insights extends View {
         .on_click((_event, clickCx) => {
           this.openFilter = null;
           this.openOptions = null;
-          onPick(option.value);
+          onPick(option.value, clickCx);
           clickCx.notify();
         })
         .child(div().w(12).text_size(10).text_color(t.accent).child(option.value === value ? "✓" : ""))
@@ -1073,7 +1341,7 @@ export default class Insights extends View {
       .child(metricRow(cards.slice(4)));
   }
 
-  heatmapCard(t, config, heatmap, selectedDay, selectedRows, selectedTotals, selectedTop) {
+  heatmapCard(t, config, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop) {
     const dark = isDarkTheme(t);
     const palette = PALETTES.includes(config.palette) ? config.palette : "blue";
     const contentWidth = DAY_LABEL_WIDTH + (heatmap.weeks.length * WEEK_WIDTH);
@@ -1092,7 +1360,7 @@ export default class Insights extends View {
           .hover((style) => style.opacity(0.8))
           .on_click((_event, clickCx) => {
             this.selectedDay = cell.date;
-            this.updateDashboard();
+            this.scheduleDashboard(clickCx, { force: true });
             clickCx.notify();
           })
           .tooltip(cell.tooltip ?? ""))
@@ -1125,14 +1393,17 @@ export default class Insights extends View {
           { key: "daily", label: "Daily" },
           { key: "weekly", label: "Weekly" },
           { key: "cumulative", label: "Cumulative" },
-        ], this.heatmapMode, (key) => { this.heatmapMode = key; this.updateDashboard(); }, t)))
+        ], this.heatmapMode, (key, changeCx) => {
+          this.heatmapMode = key;
+          this.scheduleDashboard(changeCx, { force: true });
+        }, t)))
       .child(v_flex().w_full().overflow_x_scrollbar().child(grid))
       .child(legend)
-      .child(this.selectedDetail(t, heatmap, selectedDay, selectedRows, selectedTotals, selectedTop));
+      .child(this.selectedDetail(t, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop));
   }
 
-  selectedDetail(t, heatmap, selectedDay, selectedRows, selectedTotals, selectedTop) {
-    const cell = heatmap.cells.find((item) => item.date === selectedDay);
+  selectedDetail(t, heatmap, selectedDay, selectedRowCount, selectedTotals, selectedTop) {
+    const cell = heatmap.weeks.flatMap((week) => week.days).find((item) => item.date === selectedDay);
     const modeLabel = heatmap.mode === "weekly" ? "Week total" : heatmap.mode === "cumulative" ? "Cumulative through day" : "Daily tokens";
     const value = cell ? formatCompact(cell.value) : "0";
     const exact = cell ? formatInt(cell.value) : "0";
@@ -1147,7 +1418,7 @@ export default class Insights extends View {
         .child(v_flex().items_end().gap(1)
           .child(div().text_size(18).font_semibold().tooltip(`${exact} tokens`).child(value))
           .child(div().text_size(9.5).text_color(t.dim).child(`${dayExact} tokens on this day`))))
-      .when(selectedRows.length === 0, (el) => el.child(div().text_size(11).text_color(t.muted)
+      .when(selectedRowCount === 0, (el) => el.child(div().text_size(11).text_color(t.muted)
         .child("No usage recorded on this day.")))
       .child(h_flex().w_full().flex_wrap().gap(14)
         .child(detailStat("Input", formatCompact(selectedTotals.input), t, { tooltip: `${formatInt(selectedTotals.input)} input tokens` }))
@@ -1203,7 +1474,7 @@ export default class Insights extends View {
       .child(div().text_size(12).font_medium().child("No usage in this period"))
       .child(div().text_size(10.5).text_color(t.dim).child("Try All time, another year, or clear the filters."))
       .child(smallButton("ins-leaders-all", "Show all time", (_event, clickCx) => {
-        this.setPeriod("all");
+        this.setPeriod("all", clickCx);
         clickCx.notify();
       }, t));
 
@@ -1216,7 +1487,10 @@ export default class Insights extends View {
         .child(segmented("ins-leaders-group", [
           { key: "model", label: "Models" },
           { key: "provider", label: "Providers" },
-        ], this.leaderboardGroup, (key) => { this.leaderboardGroup = key; this.updateDashboard(); }, t)))
+        ], this.leaderboardGroup, (key, changeCx) => {
+          this.leaderboardGroup = key;
+          this.scheduleDashboard(changeCx, { force: true });
+        }, t)))
       .when(entries.length === 0, (el) => el.child(empty))
       .when(entries.length > 0 && twoColumns, (el) => el.child(h_flex().w_full().gap(10).items_start()
         .child(v_flex().flex_1().min_w(0).gap(7).children(left.map(row)))

@@ -96,16 +96,22 @@ Source roots are read only and never changed.
 
 **Built from:** A distributable Herdr mod folder, `mods/insights/`, with
 `mod.json` that has `"place": "none"`, `main.js` exporting the native gpui-kit
-`View`, and pure `analytics.js` helpers that can run under Node without native
-imports. The collector lives at `mods/insights/collector.mjs` with declarative
-adapters under `core/*.mjs`; it discovers Pi, Claude Code, and Codex transcript
-roots from the saved config and writes the single store at
-`<HERDR_APP_HOME>/data/insights/insights.json`. Herdr runs
-`node .../collector.mjs snapshot --store <store> --home <home>` (and `configure`
-with one JSON argv value) through `exec`, off the UI thread. Both print one
-compact JSON Snapshot to stdout; diagnostics go to stderr and nonzero results
-surface in the UI. The UI assumes `version`, `rows`, `stats`, `sourceStats`,
-`warnings`, `config`, `generatedAt`, and `lastScanAt` from the contract. It uses
+`View`, pure `analytics.js` helpers that can run under Node without native
+imports, and a Node `presenter.mjs` helper. The collector lives at
+`mods/insights/collector.mjs` with declarative adapters under `core/*.mjs`; it
+discovers Pi and Codex transcript roots from the saved config by default and
+writes the single store at `<HERDR_APP_HOME>/data/insights/insights.json`.
+Legacy Claude Code and custom configs remain readable. Herdr
+runs `node .../presenter.mjs snapshot --store <store> --home <home> --options
+<json>` (and `configure` with one JSON argv value) through `exec`, off the UI
+thread. The presenter calls the collector once and prints one compact
+presentation payload; `prepare` reads only the existing store and re-derives the
+dashboard for filter/period/year/heatmap/group/day changes without scanning or
+writing the store. Raw rows stay in Node. Diagnostics go to stderr and nonzero
+results surface in the UI. The UI assumes the compact
+`kind`/`version`/`command`/`options`/`snapshot`/`dashboard` payload, with
+snapshot metadata `version`, `rowCount`, `stats`, `sourceStats`, `warnings`,
+`config`, `generatedAt`, and `lastScanAt`. It uses
 `theme()` colors, `on_size_change` for responsive layout, and a guarded
 `cx.timer` poll rather than `setTimeout` or a spinner timer. The installer installs
 only `mods/insights/`, generates `runtime.json` as `{"node": process.execPath}`
@@ -132,7 +138,8 @@ and displays as a dash. Legacy `config.profile` is tolerated but not displayed.
 The project filter caps options at 250 while retaining the selected project. The
 collector is the source of truth for config validation, deduplication, token
 arithmetic, and the custom mapping schema; the UI must not guess provider
-creators or add reasoning twice. Pi usage includes assistant `message.usage`,
+creators or add reasoning twice. New defaults are Pi and Codex only; Claude
+Code is legacy compatibility. Pi usage includes assistant `message.usage`,
 top-level `type: "usage"` events (cache warming), `compaction.usage`, and
 `branch_summary.usage`; count each reported entry once, including copied fork
 entries, and treat `row.messages` as usage-event count (UI: Usage events), not

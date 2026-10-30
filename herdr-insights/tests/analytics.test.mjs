@@ -340,6 +340,13 @@ test("config and year helpers are defensive", () => {
   assert.deepEqual(config.sources[0].mapping, mapping);
   assert.deepEqual(config.extra, { preserved: true });
   assert.deepEqual(availableYears([row({ day: "2023-01-01" }), row({ day: "2024-01-01" })], "2025-01-01"), [2025, 2024, 2023]);
+
+  const defaults = normalizeConfig({});
+  assert.deepEqual(defaults.sources.map((source) => source.adapter), ["pi", "codex"]);
+  assert.equal(defaults.sources.some((source) => source.adapter === "claude"), false);
+  assert.deepEqual(normalizeConfig({ sources: [] }).sources, [], "an explicit empty source list is preserved");
+  const legacy = normalizeConfig({ sources: [{ id: "claude", label: "Claude Code", adapter: "claude", enabled: true, roots: ["~/.claude/projects"] }] });
+  assert.equal(legacy.sources[0].adapter, "claude", "legacy configs remain readable");
 });
 
 function snapshot(overrides = {}) {
