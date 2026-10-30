@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeConfig, sourcesSignature } from "./core/config.mjs";
 import { scanSources } from "./core/scan.mjs";
 import {
@@ -168,6 +169,16 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function isInvokedDirectly() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return pathToFileURL(entry).href === import.meta.url;
+  }
+}
+
+if (isInvokedDirectly()) {
   await main();
 }
