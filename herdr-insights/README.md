@@ -15,20 +15,21 @@ The uninstaller also runs on older Node versions.
 
 Ask your agent:
 
-> Read https://github.com/GaganSD/coding-agent-toolkit/tree/main/herdr-insights and install the Insights mod following its RECIPE.md and my Herdr AGENTS.md.
+> Read https://github.com/GaganSD/coding-agent-toolkit/blob/main/herdr-insights/INSTALL.md and install Insights following it and my Herdr AGENTS.md. Reuse an existing local checkout if available. Do not run developer smoke tests or open tabs/windows unless I ask.
 
 Or install from a checkout:
 
 ```sh
 git clone https://github.com/GaganSD/coding-agent-toolkit.git
 cd coding-agent-toolkit
-npm run install:local --prefix herdr-insights -- --open
+npm run install:local --prefix herdr-insights
 ```
 
-The installer runs `herdr-app check`; with `--open` it then opens an **Insights**
-tab. It installs owned files only under `mods/insights/` and writes its install
-manifest to `data/insights/` in `~/.config/herdr-app`; your layouts, keys, and
-terminals are unchanged. Set `HERDR_APP_HOME` to use a different app home.
+The installer runs `herdr-app check` without opening a tab or test window.
+Follow [INSTALL.md](INSTALL.md) for the installation steps. Add `-- --open` only
+if you want it to open one **Insights** tab. It installs owned files only under
+`mods/insights/` and writes its install manifest to `data/insights/` in
+`~/.config/herdr-app`; your layouts, keys, and terminals are unchanged. Set `HERDR_APP_HOME` to use a different app home.
 
 ## Use
 
@@ -46,14 +47,13 @@ response text or modify source transcripts.
 
 ## Development
 
-[RECIPE.md](RECIPE.md) describes the mod's behavior, architecture, and rebuild
-requirements. The distribution folder is `herdr-insights`; its native mod ID is
-`insights` and its display name is **Insights**. No layouts or key bindings ship.
+[RECIPE.md](RECIPE.md) is the self-contained rebuild brief required by Herdr.
+The distribution folder is `herdr-insights`; its native mod ID is `insights`
+and its display name is **Insights**. No layouts or key bindings ship.
 
-```sh
-npm test --prefix herdr-insights
-npm run check --prefix herdr-insights
-```
+Developer tests, fixtures, and release validation live outside this distribution;
+see the repo's [development guide](../docs/herdr-insights-development.md). They are
+not installation steps.
 
 Uninstall while keeping usage data:
 

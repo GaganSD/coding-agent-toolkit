@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { PACKAGE_ROOT, collectSourceFiles } from "../scripts/lib.mjs";
+import { PACKAGE_ROOT, collectSourceFiles } from "../../herdr-insights/scripts/lib.mjs";
 
-const uiSource = await readFile(new URL("../mods/insights/ui.js", import.meta.url), "utf8");
-const mainSource = await readFile(new URL("../mods/insights/main.js", import.meta.url), "utf8");
+const uiSource = await readFile(new URL("../../herdr-insights/mods/insights/ui.js", import.meta.url), "utf8");
+const mainSource = await readFile(new URL("../../herdr-insights/mods/insights/main.js", import.meta.url), "utf8");
 
 function createElement(type) {
   const node = { type, calls: [], childNodes: [], style: {} };

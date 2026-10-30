@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const modsDir = path.join(here, "..", "mods", "insights");
+const modsDir = path.join(here, "../../herdr-insights", "mods", "insights");
 
 function run(script, args, { cwd, environment = {} } = {}) {
   return new Promise((resolve, reject) => {

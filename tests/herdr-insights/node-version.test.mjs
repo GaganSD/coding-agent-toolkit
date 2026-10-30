@@ -5,7 +5,7 @@ import {
   MIN_NODE_VERSION,
   assertSupportedNodeVersion,
   isNodeVersionSupported,
-} from "../scripts/lib.mjs";
+} from "../../herdr-insights/scripts/lib.mjs";
 
 test("Node version gate accepts 22.15+ and rejects older runtimes", () => {
   assert.equal(MIN_NODE_VERSION, "22.15");

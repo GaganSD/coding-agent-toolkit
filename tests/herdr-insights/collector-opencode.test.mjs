@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const collector = path.join(here, "..", "mods", "insights", "collector.mjs");
+const collector = path.join(here, "../../herdr-insights", "mods", "insights", "collector.mjs");
 
 function run(args) {
   return new Promise((resolve, reject) => {

@@ -8,8 +8,8 @@ import * as zlib from "node:zlib";
 import test from "node:test";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const collector = path.join(here, "..", "mods", "insights", "collector.mjs");
-const scanModule = path.join(here, "..", "mods", "insights", "core", "scan.mjs");
+const collector = path.join(here, "../../herdr-insights", "mods", "insights", "collector.mjs");
+const scanModule = path.join(here, "../../herdr-insights", "mods", "insights", "core", "scan.mjs");
 const fixtures = path.join(here, "fixtures");
 
 function probeWithoutZstd(nodePath) {

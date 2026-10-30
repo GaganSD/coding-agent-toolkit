@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const mainSource = await readFile(new URL("../mods/insights/main.js", import.meta.url), "utf8");
-const analyticsSource = await readFile(new URL("../mods/insights/analytics.js", import.meta.url), "utf8");
-const uiSource = await readFile(new URL("../mods/insights/ui.js", import.meta.url), "utf8");
+const mainSource = await readFile(new URL("../../herdr-insights/mods/insights/main.js", import.meta.url), "utf8");
+const analyticsSource = await readFile(new URL("../../herdr-insights/mods/insights/analytics.js", import.meta.url), "utf8");
+const uiSource = await readFile(new URL("../../herdr-insights/mods/insights/ui.js", import.meta.url), "utf8");
 const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 const analyticsUrl = dataUrl(analyticsSource);
 const analytics = await import(analyticsUrl);
@@ -551,7 +551,7 @@ test("usage logos prefer model marks, then provider marks, then initials", async
     "openai.svg",
     "opencode.svg",
     "xai.svg",
-  ].map((file) => readFile(new URL(`../mods/insights/logos/${file}`, import.meta.url))));
+  ].map((file) => readFile(new URL(`../../herdr-insights/mods/insights/logos/${file}`, import.meta.url))));
 });
 
 test("model usage leaderboard is models-only with ranked change rows", () => {

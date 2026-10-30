@@ -25,11 +25,13 @@ Packages and mods live at the repository root, not under `packages/`. Pi extensi
 
 ## Herdr mods
 
+- [Insights installation](herdr-insights/INSTALL.md): agent installation steps and completion criteria
 - [Insights README](herdr-insights/README.md): installation, settings, privacy, development, uninstallation
 - [Insights recipe](herdr-insights/RECIPE.md): native mod specification, architecture, rebuild requirements
-- [Insights manifest](herdr-insights/package.json): local install, uninstall, test, and check scripts; not published on npm
+- [Insights manifest](herdr-insights/package.json): local install and uninstall scripts; not published on npm
+- [Insights development](docs/herdr-insights-development.md): tests and opt-in native release validation
 
-Insights requires Herdr and Node.js 22.15+. From a checkout, run `npm run install:local --prefix herdr-insights -- --open`. The installer validates and opens the mod without changing layouts, keys, or terminals. Session data stays local; no account or API key is required. Run Insights tests separately with `npm test --prefix herdr-insights` and native checks with `npm run check --prefix herdr-insights`.
+For installation, follow herdr-insights/INSTALL.md and the user's Herdr AGENTS.md. Insights requires Herdr and Node.js 22.15+. From a checkout, run `npm run install:local --prefix herdr-insights`; it runs `herdr-app check` without opening tabs or test windows. Add `-- --open` only when requested. Layouts, keys, and terminals are unchanged. Session data stays local; no account or API key is required. RECIPE.md is the rebuild brief, not an installation test plan. Developer checks (`npm run test:insights`, `npm run check:insights`) and opt-in native smoke tests live outside the distribution; see docs/herdr-insights-development.md.
 
 ## Agent indexes
 
