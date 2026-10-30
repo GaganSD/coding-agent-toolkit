@@ -16,10 +16,10 @@
     "sidebar",
     "theme"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-slate",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-slate",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-slate"
   },
   "files": [
@@ -73,7 +73,7 @@
     "themes": [
       "./themes/*.json"
     ],
-    "image": "https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png"
+    "image": "https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png"
   },
   "dependencies": {
     "diff": "^9.0.0",

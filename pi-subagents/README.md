@@ -6,7 +6,7 @@ Tiny yet powerful, benchmarked sub-agents for Pi
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@gagansd/pi-subagents"><img src="https://img.shields.io/npm/v/@gagansd/pi-subagents.svg" alt="npm" /></a>
-  <a href="https://github.com/GaganSD/pi-extensions/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
 </p>
 
 ## Benchmark
@@ -21,7 +21,7 @@ Tiny yet powerful, benchmarked sub-agents for Pi
 These frozen figures are from a prior measured campaign, not measurements or a
 rebenchmark of this new release's changed artifact. Both models ran through the
 same five dynamic workflow tasks using different subagents packages. See the
-[benchmark methodology](https://github.com/GaganSD/pi-extensions/blob/main/benchmarks/README.md).
+[benchmark methodology](https://github.com/GaganSD/coding-agent-toolkit/blob/main/benchmarks/README.md).
 
 ## Installation
 

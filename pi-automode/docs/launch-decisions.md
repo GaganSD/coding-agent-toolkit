@@ -92,7 +92,7 @@ remains unverified, not assumed.
 
 **Decision:** Publish name **`@gagansd/pi-automode`** (matching the
 `@gagansd/pi-ask`, `@gagansd/pi-subagents`, `@gagansd/pi-web-search`
-convention). The package is published from `pi-extensions` under **MIT** as
+convention). The package is published from `coding-agent-toolkit` under **MIT** as
 `0.1.0`. Publication covers the keyless/deterministic beta only:
 **semantic enforcement stays off** and Jev remains shadow-only until the
 risk-budget evidence in decision 3 exists. Publishing does not authorize a

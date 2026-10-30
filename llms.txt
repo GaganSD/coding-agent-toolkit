@@ -1,12 +1,12 @@
-# Pi extensions
+# Coding Agent Toolkit
 
-> Extensions for the Pi coding agent: Slate (terminal UI), Ask (structured interviews), Automode (permission gate), Subagents (delegation), and Web Search (cited public retrieval).
+> Extensions for the Pi coding agent and native mods for Herdr. Pi extensions include Slate (terminal UI), Ask (structured interviews), Automode (permission gate), Subagents (delegation), and Web Search (cited public retrieval). The Insights mod provides a local-first Herdr token-usage dashboard for Pi, Codex, Claude Code, and OpenCode sessions.
 
-Packages live at the repository root, not under `packages/`. Install each package separately. All five are published on npm.
+Packages and mods live at the repository root, not under `packages/`. Pi extensions and Herdr mods are installed separately. All five Pi extensions are published on npm; install them individually with `pi install npm:<package>` or together with `pi install .` from a checkout. Neither method installs Herdr mods.
 
 ## Documentation
 
-- [Root README](README.md): package index, install, development
+- [Root README](README.md): separate Pi extension and Herdr mod indexes, installation, development
 - [Slate README](pi-slate/README.md): TUI setup, commands, themes, composer keys
 - [Ask README](pi-ask/README.md): `ask_user` contract, commands, TUI-only behavior
 - [Automode README](pi-automode/README.md): permission gate, commands, rules, verified launcher, classifier review
@@ -14,7 +14,7 @@ Packages live at the repository root, not under `packages/`. Install each packag
 - [Web Search README](pi-web-search/README.md): tools, native Parallel MCP, optional Pi-hosted Jev classifier, config, credentials, limits
 - [Web Search research](pi-web-search/docs/research.md): opt-in multi_search and Jev
 
-## Packages
+## Pi extensions
 
 - [Root manifest](package.json): collection extensions, skills, and themes
 - [Slate package](pi-slate/package.json): `npm:pi-slate`
@@ -22,6 +22,14 @@ Packages live at the repository root, not under `packages/`. Install each packag
 - [Automode package](pi-automode/package.json): `npm:@gagansd/pi-automode`
 - [Subagents package](pi-subagents/package.json): `npm:@gagansd/pi-subagents`
 - [Web Search package](pi-web-search/package.json): `npm:@gagansd/pi-web-search`
+
+## Herdr mods
+
+- [Insights README](herdr-insights/README.md): installation, settings, privacy, development, uninstallation
+- [Insights recipe](herdr-insights/RECIPE.md): native mod specification, architecture, rebuild requirements
+- [Insights manifest](herdr-insights/package.json): local install, uninstall, test, and check scripts; not published on npm
+
+Insights requires Herdr and Node.js 22.15+. From a checkout, run `npm run install:local --prefix herdr-insights -- --open`. The installer validates and opens the mod without changing layouts, keys, or terminals. Session data stays local; no account or API key is required. Run Insights tests separately with `npm test --prefix herdr-insights` and native checks with `npm run check --prefix herdr-insights`.
 
 ## Agent indexes
 

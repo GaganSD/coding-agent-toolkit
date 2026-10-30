@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { packages, packageConfig } from "./packages.mjs";
 import { git, isMain, npm, root, run } from "./lib.mjs";
 
-export const repository = "GaganSD/pi-extensions";
+export const repository = "GaganSD/coding-agent-toolkit";
 export const planPath = ".release/plan.json";
 const registry = "https://registry.npmjs.org";
 const shaPattern = /^[a-f0-9]{40}$/;

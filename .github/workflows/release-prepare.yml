@@ -35,7 +35,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           [[ "$SOURCE" =~ ^[a-f0-9]{40}$ ]]
-          [[ "$SOURCE" == "$(gh api repos/GaganSD/pi-extensions/commits/main --jq .sha)" ]]
+          [[ "$SOURCE" == "$(gh api repos/GaganSD/coding-agent-toolkit/commits/main --jq .sha)" ]]
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}

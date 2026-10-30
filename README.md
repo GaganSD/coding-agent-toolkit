@@ -21,10 +21,10 @@
 <p align="center"><strong>Extensions for <a href="https://pi.dev">Pi</a> · Mods for <a href="https://herdr.dev">Herdr</a></strong></p>
 
 <p align="center">
-  <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/publish.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
-  <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/quickstart.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/quickstart.yml?branch=main&style=flat-square&label=Quickstart&color=10b981&labelColor=18181b" alt="Quickstart CI Status" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/coding-agent-toolkit/publish.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/actions/workflows/quickstart.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/coding-agent-toolkit/quickstart.yml?branch=main&style=flat-square&label=Quickstart&color=10b981&labelColor=18181b" alt="Quickstart CI Status" /></a>
   <a href="https://snyk.io"><img src="https://img.shields.io/badge/security-snyk%20monitored-10b981?style=flat-square&labelColor=18181b&logo=snyk&logoColor=white" alt="Security: Snyk" /></a>
-  <a href="https://github.com/GaganSD/pi-extensions/actions"><img src="https://img.shields.io/badge/vulnerabilities-0%20reported-10b981?style=flat-square&labelColor=18181b" alt="Vulnerabilities: 0" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/actions"><img src="https://img.shields.io/badge/vulnerabilities-0%20reported-10b981?style=flat-square&labelColor=18181b" alt="Vulnerabilities: 0" /></a>
   <br />
   <a href="https://pi.dev"><img src="https://img.shields.io/badge/pi-%3E%3D1.0.0-27272a?style=flat-square&labelColor=18181b" alt="Pi >= 1.0.0" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-27272a?style=flat-square&labelColor=18181b" alt="License: MIT" /></a>
@@ -62,8 +62,8 @@ A monorepo of **Pi coding-agent extensions** and **Herdr mods**. Each integrates
 Requires Node.js `>=22.19.0` and Pi `>=1.0.0`. Point Pi to a clone of this repository to register all five Pi extensions, skills, and Slate themes. This does **not** install Herdr mods:
 
 ```bash
-git clone https://github.com/GaganSD/pi-extensions.git
-cd pi-extensions
+git clone https://github.com/GaganSD/coding-agent-toolkit.git
+cd coding-agent-toolkit
 pi install .
 ```
 
@@ -170,7 +170,7 @@ See [`benchmarks/README.md`](./benchmarks/README.md) for full benchmark methodol
 ## Repository Structure
 
 ```text
-pi-extensions/
+coding-agent-toolkit/
 ├── pi-slate/           # Minimal TUI, custom surfaces, diff viewers & themes
 ├── pi-subagents/       # High-efficiency subagent delegation harness
 ├── pi-web-search/      # Multi-provider web & code search with classifier

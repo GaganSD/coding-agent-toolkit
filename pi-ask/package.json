@@ -14,10 +14,10 @@
     "terminal-ui",
     "tui"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-ask",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-ask",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-ask"
   },
   "files": [

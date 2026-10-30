@@ -117,7 +117,7 @@ function downloadOne(spec, directory) {
 }
 
 export function quickstartSmoke() {
-  const work = mkdtempSync(join(tmpdir(), "pi-extensions-quickstart-"));
+  const work = mkdtempSync(join(tmpdir(), "coding-agent-toolkit-quickstart-"));
   try {
     const agentDir = join(work, "agent");
     const downloads = join(work, "downloads");

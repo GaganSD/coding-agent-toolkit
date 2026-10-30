@@ -4,7 +4,7 @@
   A minimal-TUI with rich-graphics support that adds zero-context bloat
 </p>
 
-![Slate workspace](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png)
+![Slate workspace](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png)
 
 ## Setup
 
@@ -24,27 +24,27 @@ Slate renders cleanly into your terminal and stays customizable without adding n
 
 The header keeps the stock Pi data and builds on it. Fresh settings start focused (sidebar hidden); restore it with `/slate focused off`, or get the full workbench with `/slate surfaces full` then `/reload`. Below 100 columns or 30 rows, the rail hides and its facts move onto the prompt frame.
 
-![Slate focused mode with the sidebar hidden](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-focused.png)
+![Slate focused mode with the sidebar hidden](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-focused.png)
 
 ### Working Indicator
 
 While the model runs, the composer edge shows a progress animation — `/slate progress` picks `waves` (default), `dna-helix`, `snake`, or `cylon-scanner`.
 
-![Slate working indicator animation](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-working.gif)
+![Slate working indicator animation](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-working.gif)
 
 ### Diff
 
 With `tool-cards` selected, `edit` and `write` results are syntax-highlighted in the transcript.
 
-![Split YAML edit with word-level emphasis](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-diff-yaml.png)
+![Split YAML edit with word-level emphasis](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-diff-yaml.png)
 
-![Split Rust edit with syntax highlighting](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-diff-rust.png)
+![Split Rust edit with syntax highlighting](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-diff-rust.png)
 
 ### Claude Code Tool Style
 
 Slate's default tool style renders compact `✓ Name (args)` calls grouped into `Done (…)` trees, with durations and edit counts. Set `"toolStyle": "default"` in `~/.pi/agent/pi-slate.json` and `/reload` to restore Pi's native cards.
 
-![Slate Claude Code-style tool transcript with grouped calls, edit counts, and an intentional demo failure](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-claudecode-tools.png)
+![Slate Claude Code-style tool transcript with grouped calls, edit counts, and an intentional demo failure](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-claudecode-tools.png)
 
 ### Rich Media Rendering
 
@@ -52,13 +52,13 @@ Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 
 > Usage: Caret-peek over image tokens to display. `[image-N]` is a single object — the caret cannot enter it, and the whole token highlights. Open or copy from the image shelf, or double-click the image to open it. The peek leaves when the caret does. Task inspection never replaces the image. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
 
-![Chat with image tokens and the sidebar image preview](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-media.png)
+![Chat with image tokens and the sidebar image preview](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-media.png)
 
 ### Session Dashboard
 
 The sidebar keeps session facts visible without sending them to a model: a live session title at the top in bold theme accent color (click to copy its full text), session id and PID on the next row (click to copy the full id), model, context meter with cost and rate, foldable MCP/Skills/Prompts lists, plus background tasks and an image shelf when nonempty. Long titles use a width-aware ellipsis; unnamed sessions leave that row blank. Set a name with Pi's `/name <title>` or a naming extension; Slate displays it and follows renames without generating titles. `/slate session` shows the full title and accounting; focused and compact modes move the facts onto the prompt frame.
 
-![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
+![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
 
 ### Background Tasks & Subagents
 
@@ -93,7 +93,7 @@ With `editor` selected, `/prompts` opens a searchable picker of Pi's prompt temp
 
 `false` or `"none"` also mean none.
 
-![Slate prompt template picker](https://raw.githubusercontent.com/GaganSD/pi-extensions/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-prompts.png)
+![Slate prompt template picker](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-prompts.png)
 
 ## Composer Keys
 

@@ -16,13 +16,13 @@ Requires Herdr and **Node.js 22.15+**. No dependencies or account needed.
 
 Ask your agent:
 
-> Read https://github.com/GaganSD/pi-extensions/tree/main/herdr-insights and install the Insights mod following its RECIPE.md and my Herdr AGENTS.md.
+> Read https://github.com/GaganSD/coding-agent-toolkit/tree/main/herdr-insights and install the Insights mod following its RECIPE.md and my Herdr AGENTS.md.
 
 Or install from a checkout:
 
 ```sh
-git clone https://github.com/GaganSD/pi-extensions.git
-cd pi-extensions
+git clone https://github.com/GaganSD/coding-agent-toolkit.git
+cd coding-agent-toolkit
 npm run install:local --prefix herdr-insights -- --open
 ```
 
