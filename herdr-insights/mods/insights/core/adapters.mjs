@@ -76,6 +76,41 @@ function piSubagentSession(record, ctx) {
   return `pi-file:${ctx.file.path}`;
 }
 
+function piUsageCarrier(record, ctx) {
+  const usage = isPlainObject(record.usage) ? record.usage : null;
+  if (!usage) return;
+  const state = ctx.state;
+  const session = piMainSession(state, ctx);
+  const timestamp = parseTimestamp(
+    record.timestamp ?? state.header?.timestamp,
+  );
+  if (timestamp === null) {
+    ctx.warn(`Pi ${record.type} record has no usable timestamp; skipped`);
+    return;
+  }
+  const tokens = normalizeTokens({
+    input: usage.input,
+    output: usage.output,
+    cacheRead: usage.cacheRead,
+    cacheWrite: usage.cacheWrite,
+    reasoning: usage.reasoning,
+  });
+  if (!tokens.nonzero) return;
+  const identity = record.id ?? `line:${ctx.lineHash}`;
+  ctx.addUsage(
+    metaFor(
+      "pi",
+      session,
+      timestamp,
+      asString(state.header?.cwd, "unknown"),
+      record.provider,
+      record.model,
+    ),
+    tokens,
+    makeDedupKey("pi", record.type, identity, timestamp),
+  );
+}
+
 function piTiming(record, ctx, session, timestamp, isFinal, finalIdentity) {
   const history = historyFor(ctx.state, session);
   if (record.role === "user") {
@@ -92,7 +127,7 @@ function piTiming(record, ctx, session, timestamp, isFinal, finalIdentity) {
     ctx,
     history,
     session,
-    taskKeyFor("pi", "span", session, finalIdentity),
+    taskKeyFor("pi", "span", finalIdentity),
     spanMs(start, timestamp),
     false,
   );
@@ -112,6 +147,17 @@ function parsePi(record, ctx) {
       parentSession: asString(record.parentSession, ""),
     };
     state.headerTimestamp = parseTimestamp(record.timestamp);
+    return;
+  }
+
+  // Pi usage carriers outside assistant messages: cache warming, compaction,
+  // and branch-summary usage all contribute to Pi's session totals.
+  if (
+    record.type === "usage" ||
+    record.type === "compaction" ||
+    record.type === "branch_summary"
+  ) {
+    piUsageCarrier(record, ctx);
     return;
   }
 
@@ -389,6 +435,18 @@ function codexSession(state, ctx) {
   return `codex-file:${ctx.file.path}`;
 }
 
+function codexRecordSession(state, ctx, payload) {
+  const threadId = asString(
+    payload.thread_id ??
+      payload.session_id ??
+      payload.threadId ??
+      payload.sessionId,
+    "",
+  );
+  if (threadId) return `codex:${threadId}`;
+  return codexSession(state, ctx);
+}
+
 function codexContext(state, turnId) {
   if (!isPlainObject(state.turns)) state.turns = {};
   if (turnId && isPlainObject(state.turns[turnId])) return state.turns[turnId];
@@ -491,10 +549,24 @@ function parseCodex(record, ctx) {
     parseTimestamp(record.timestamp) ?? state.timestamp ?? null;
 
   if (record.type === "session_meta") {
-    state.session = asString(payload.id ?? payload.session_id ?? payload.thread_id, "");
-    state.project = asString(payload.cwd, "unknown");
-    state.provider = asString(payload.model_provider, "unknown");
-    state.timestamp = parseTimestamp(payload.timestamp ?? record.timestamp);
+    const threadId = asString(
+      payload.id ?? payload.session_id ?? payload.thread_id,
+      "",
+    );
+    const firstHeader = !state.session;
+    if (threadId && firstHeader) state.session = threadId;
+    if (firstHeader || !state.project) {
+      state.project = asString(payload.cwd, state.project ?? "unknown");
+    }
+    if (firstHeader || !state.provider) {
+      state.provider = asString(
+        payload.model_provider,
+        state.provider ?? "unknown",
+      );
+    }
+    if (firstHeader || state.timestamp === undefined) {
+      state.timestamp = parseTimestamp(payload.timestamp ?? record.timestamp);
+    }
     if (!state.model) state.model = "unknown";
     return;
   }
@@ -526,7 +598,7 @@ function parseCodex(record, ctx) {
     }
     const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
     const context = codexContext(state, turnId);
-    const session = codexSession(state, ctx);
+    const session = codexRecordSession(state, ctx, payload);
     const usage = isPlainObject(payload.usage) ? payload.usage : null;
     if (!usage) return;
     const tokens = codexNormalized(usage);
@@ -608,7 +680,7 @@ function parseCodex(record, ctx) {
     const totals = isPlainObject(info.total_token_usage)
       ? info.total_token_usage
       : null;
-    const session = codexSession(state, ctx);
+    const session = codexRecordSession(state, ctx, payload);
     const context = codexContext(state, asString(payload.turn_id, ""));
     let raw;
     let identityTail;
@@ -726,7 +798,7 @@ function parseCodex(record, ctx) {
     if (duration <= 0) return;
     const target = context.lastRow ?? state.lastRow;
     if (!target) return;
-    const session = codexSession(state, ctx);
+    const session = codexRecordSession(state, ctx, payload);
     ctx.addTask(
       target.fileId,
       target.rowIdx,

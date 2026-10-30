@@ -593,6 +593,36 @@ test("old file-level Codex modern state is rescanned once to recover the prefix"
   assert.deepEqual(stable.rows, migrated.rows);
 });
 
+test("old Pi file state is rescanned once for non-message usage carriers", async () => {
+  const context = await env();
+  await placeFixture(
+    context,
+    ".pi/agent/sessions/usage/session.jsonl",
+    "pi-usage-carriers.jsonl",
+  );
+  await configure(context, piSource);
+
+  const store = JSON.parse(await readFile(context.store, "utf8"));
+  const entry = Object.values(store.files)[0];
+  entry.rows = [];
+  entry.tasks = [];
+  entry.state = {};
+  store.dedup = {};
+  store.tasks = {};
+  await writeFile(context.store, JSON.stringify(store));
+
+  const migrated = await snapshot(context);
+  assert.equal(migrated.stats.errors, 0);
+  assert.equal(migrated.rows.length, 2);
+  const rows = new Map(migrated.rows.map((row) => [row.model, row]));
+  assert.equal(rows.get("m1").tokens.total, 50020);
+  assert.equal(rows.get("unknown").tokens.total, 135);
+
+  const stable = await snapshot(context);
+  assert.equal(stable.stats.bytesRead, 0);
+  assert.deepEqual(stable.rows, migrated.rows);
+});
+
 test("removed transcript history is retained until an explicit rebuild", async () => {
   const context = await env();
   const file = await placeFixture(

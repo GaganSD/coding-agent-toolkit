@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -158,6 +158,126 @@ test("Pi sub-agent transcript artifacts are counted with their own stable sessio
   assert.equal(row.messages, 1);
   assert.equal(row.activeMs, 2000);
   assert.equal(row.longestTaskMs, 2000);
+});
+
+test("Pi fork with a new header deduplicates copied usage and task durations", async () => {
+  const context = await env();
+  await placeFixture(
+    context,
+    ".pi/agent/sessions/a/session.jsonl",
+    "pi-main.jsonl",
+  );
+  await placeFixture(
+    context,
+    ".pi/agent/sessions/b/session.jsonl",
+    "pi-fork.jsonl",
+  );
+  const snapshot = await configure(context, [
+    {
+      id: "pi",
+      label: "Pi",
+      adapter: "pi",
+      enabled: true,
+      roots: ["~/.pi/agent/sessions"],
+    },
+  ]);
+  assert.equal(snapshot.stats.files, 2);
+  assert.equal(snapshot.rows.length, 2);
+  const rows = rowsByModel(snapshot);
+  assert.equal(rows.get("m1").messages, 3);
+  assert.equal(rows.get("m1").activeMs, 2000);
+  assert.equal(rows.get("m1").longestTaskMs, 2000);
+  assert.equal(rows.get("m2").messages, 1);
+  assert.equal(rows.get("m2").activeMs, 4000);
+  assert.equal(rows.get("m2").longestTaskMs, 4000);
+});
+
+test("Pi usage carriers count once across compaction, branch summaries, and forks", async () => {
+  const context = await env();
+  const parentPath = await placeFixture(
+    context,
+    ".pi/agent/sessions/a/session.jsonl",
+    "pi-usage-carriers.jsonl",
+  );
+  const first = await configure(context, [
+    {
+      id: "pi",
+      label: "Pi",
+      adapter: "pi",
+      enabled: true,
+      roots: ["~/.pi/agent/sessions"],
+    },
+  ]);
+  assert.equal(first.rows.length, 2);
+  const rows = rowsByModel(first);
+  const m1 = rows.get("m1");
+  assert.deepEqual(m1.tokens, {
+    input: 10,
+    output: 5,
+    cacheRead: 50003,
+    cacheWrite: 2,
+    reasoning: 1,
+    total: 50020,
+  });
+  assert.equal(m1.messages, 2);
+  assert.equal(m1.activeMs, 1000);
+  assert.equal(m1.provider, "p1");
+  assert.equal(m1.session, "pi:pi-usage-fixture");
+  assert.equal(m1.project, "/repo/usage");
+
+  const unknown = rows.get("unknown");
+  assert.deepEqual(unknown.tokens, {
+    input: 107,
+    output: 22,
+    cacheRead: 6,
+    cacheWrite: 0,
+    reasoning: 4,
+    total: 135,
+  });
+  assert.equal(unknown.messages, 2);
+  assert.equal(unknown.provider, "unknown");
+  assert.equal(unknown.model, "unknown");
+
+  const lines = (await readFile(parentPath, "utf8")).trimEnd().split("\n");
+  const header = JSON.parse(lines[0]);
+  header.id = "pi-usage-fork-fixture";
+  header.parentSession = parentPath;
+  header.timestamp = "2026-03-06T07:00:00Z";
+  const forkPath = path.join(
+    context.home,
+    ".pi",
+    "agent",
+    "sessions",
+    "b",
+    "session.jsonl",
+  );
+  await mkdir(path.dirname(forkPath), { recursive: true });
+  await writeFile(
+    forkPath,
+    [JSON.stringify(header), ...lines.slice(1)].join("\n") + "\n",
+  );
+
+  const copied = await configure(context, [
+    {
+      id: "pi",
+      label: "Pi",
+      adapter: "pi",
+      enabled: true,
+      roots: ["~/.pi/agent/sessions"],
+    },
+  ]);
+  assert.equal(copied.stats.files, 2);
+  assert.deepEqual(copied.rows, first.rows);
+  const serialized = JSON.stringify(copied) + (await readFile(context.store, "utf8"));
+  for (const secret of [
+    "SECRET_COMPACTION_SUMMARY",
+    "SECRET_BRANCH_SUMMARY",
+    "SECRET_SYSTEM_PROMPT",
+    "SECRET_DETAILS",
+    "SECRET_BRANCH_DETAILS",
+  ]) {
+    assert.equal(serialized.includes(secret), false);
+  }
 });
 
 test("Claude adapter: revised duplicate ids use max fields, not double counts", async () => {
@@ -369,6 +489,45 @@ test("Codex mixed adapter: legacy prefix, twin, model changes, suffix, and reset
     total: 22,
   });
   assert.equal(reset.messages, 1);
+  assert.equal(snapshot.stats.errors, 0);
+});
+
+test("Codex fork records keep their own thread identity", async () => {
+  const context = await env();
+  await placeFixture(
+    context,
+    ".codex/sessions/fork/rollout-fork.jsonl",
+    "codex-fork.jsonl",
+  );
+  const snapshot = await configure(context, [
+    {
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions"],
+    },
+  ]);
+  assert.equal(snapshot.rows.length, 1);
+  const row = snapshot.rows[0];
+  assert.equal(
+    row.session,
+    "codex:6f2c9d7e-4a1b-4c8d-9e3f-2a5b7c8d9e01",
+  );
+  assert.equal(row.model, "fork-model");
+  assert.equal(row.provider, "openai");
+  assert.equal(row.project, "/repo/codex-fork");
+  assert.deepEqual(row.tokens, {
+    input: 35,
+    output: 10,
+    cacheRead: 10,
+    cacheWrite: 5,
+    reasoning: 2,
+    total: 60,
+  });
+  assert.equal(row.messages, 1);
+  assert.equal(row.activeMs, 2000);
+  assert.equal(row.longestTaskMs, 2000);
   assert.equal(snapshot.stats.errors, 0);
 });
 

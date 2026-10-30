@@ -530,14 +530,17 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   const dev = String(fileStat.dev);
   const ino = String(fileStat.ino);
   let forceRead = false;
-  if (
-    entry.adapter === "codex" &&
-    entry.state.modern === true &&
-    entry.state.codexParserVersion !== 2
-  ) {
-    // Older collectors detected modern Codex files at the file level and
-    // skipped the legacy prefix before the first token_usage_record. Rescan
-    // those Codex files once with the record-level parser.
+  if (entry.adapter === "pi" && entry.state.piParserVersion !== 2) {
+    // Older collectors ignored Pi usage carriers and keyed tasks by the fork
+    // session. Rescan Pi files once with carrier and stable task accounting.
+    resetFileEntry(store, entry);
+    forceRead = true;
+    dirty = true;
+  }
+  if (entry.adapter === "codex" && entry.state.codexParserVersion !== 3) {
+    // Older collectors detected modern Codex files at the file level, dropped
+    // the legacy prefix, and could rewrite fork thread identity from parent
+    // session_meta records. Rescan Codex files once with the current parser.
     resetFileEntry(store, entry);
     forceRead = true;
     dirty = true;
@@ -600,7 +603,8 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   entry.size = fileStat.size;
   entry.mtimeMs = fileStat.mtimeMs;
   entry.path = filePath;
-  if (entry.adapter === "codex") entry.state.codexParserVersion = 2;
+  if (entry.adapter === "pi") entry.state.piParserVersion = 2;
+  if (entry.adapter === "codex") entry.state.codexParserVersion = 3;
   return dirty;
 }
 
