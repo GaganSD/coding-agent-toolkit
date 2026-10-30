@@ -10,12 +10,10 @@ Reads local sessions from **Pi, Codex, Claude Code, and OpenCode**.
 
 ## Install
 
-Installing requires Herdr and **Node.js 22.15+**. No dependencies or account needed.
-The uninstaller also runs on older Node versions.
-
 Ask your agent:
-
-> Read https://github.com/GaganSD/coding-agent-toolkit/blob/main/herdr-insights/INSTALL.md and install Insights following it and my Herdr AGENTS.md. Reuse an existing local checkout if available. Do not run developer smoke tests or open tabs/windows unless I ask.
+```
+Read https://github.com/GaganSD/coding-agent-toolkit/blob/main/herdr-insights/INSTALL.md and install Insights following it.
+```
 
 Or install from a checkout:
 
