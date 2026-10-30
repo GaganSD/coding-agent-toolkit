@@ -65,8 +65,9 @@ are **Insights**; the native mod ID is `insights`.
 semantic colors, `on_size_change`, and fresh callback contexts. Do not retain `cx`.
 Cancel tasks/timers and release native editor/input state on close. Use native
 animations, never redraw timers. No DOM, web view, shell interpolation, or network.
-`ui.js` centralizes surfaces, typography, spacing, and controls; bundle monochrome
-provider/model SVGs in `logos/`. Pure `analytics.js` runs in Node and prepares totals,
+`ui.js` centralizes surfaces, typography, spacing, and controls; bundle provider/model
+SVGs in `logos/`. Some logos carry brand colors, so do not assume they are
+monochrome or theme-tintable. Pure `analytics.js` runs in Node and prepares totals,
 facets, chart buckets, heatmap, and leaderboard comparisons.
 
 The UI invokes a local Node `presenter.mjs` through Herdr `exec` with separate
@@ -93,8 +94,10 @@ cacheWrite, and reasoning field specs. `roles` filters the mapped role; `include
 is a list of `{path, equals}` or `{path, exists}` conditions. Reject unknown keys
 and executable mappings. `core/config.mjs` defines and validates the full schema.
 
-Provide dependency-free Node install/uninstall scripts. Require Node >=22.15 before
-writing anything. Install only the mod tree and generate `runtime.json` with the
+Provide dependency-free Node install/uninstall scripts. The installer requires
+Node >=22.15 and validates it before writing anything; the uninstaller intentionally
+has no Node gate so it remains usable on older runtimes. Install only the mod tree
+(plus its manifest under `data/insights/`) and generate `runtime.json` with the
 absolute installer Node path; the UI uses that path, falling back to `node` on PATH
 only for manual copies. Track ownership/hashes in a separate install manifest.
 Refuse symlinks and unowned collisions; refuse edited owned files unless explicitly

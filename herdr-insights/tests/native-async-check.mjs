@@ -107,6 +107,15 @@ function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms));
 }
 
+async function waitForPath(target, timeout) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (existsSync(target)) return true;
+    await sleep(100);
+  }
+  return existsSync(target);
+}
+
 function cliEnv(home) {
   return { ...process.env, HERDR_APP_HOME: home };
 }
@@ -145,6 +154,8 @@ if (requestedRows !== null && (!Number.isInteger(requestedRows) || requestedRows
 const keep = process.argv.includes("--keep");
 const settingsMode = process.argv.includes("--settings");
 const menuMode = process.argv.includes("--menu");
+if (settingsMode && menuMode) throw new Error("--settings and --menu are mutually exclusive");
+const requestedMode = settingsMode ? "settings" : menuMode ? "menu" : "dashboard";
 const zoomOut = Number(argument("--zoom-out", "0"));
 if (!Number.isInteger(zoomOut) || zoomOut < 0 || zoomOut > 6) {
   throw new Error("--zoom-out must be an integer from 0 to 6");
@@ -158,6 +169,8 @@ const logPath = "/tmp/insights-native-async.log";
 const shotPath = argument("--shot", "/tmp/insights-native-async.png");
 const mod = join(home, "mods", "insights");
 const storePath = join(home, "data", "insights", "insights.json");
+const markerPath = join(home, "rendered-requested-state.json");
+const markerScript = join(home, "write-render-marker.mjs");
 const appBinary = process.env.HERDR_APP_BINARY ?? "/Applications/Herdr.app/Contents/MacOS/Herdr";
 let app = null;
 let output = "";
@@ -193,17 +206,34 @@ try {
 
   cpSync(modSource, mod, { recursive: true });
   writeFileSync(join(mod, "runtime.json"), `${JSON.stringify({ node: process.execPath })}\n`);
-  if (settingsMode || menuMode) {
+  writeFileSync(
+    markerScript,
+    'import { writeFileSync } from "node:fs";\nwriteFileSync(process.argv[2], "rendered\\n");\n',
+  );
+  {
     const mainPath = join(mod, "main.js");
     const main = readFileSync(mainPath, "utf8");
     const marker = "    this.commandTask = cx.spawn(async (commandCx) => {";
-    if (!main.includes(marker)) throw new Error("cannot find main.js settings injection point");
+    const timeout = "const ACTIVITY_TIMEOUT_MS = 35_000;";
+    const returnStart = '    return v_flex().id("insights-root").size_full()';
+    const returnEnd = [
+      "      .child(h_flex().w_full().justify_center().p(padding)",
+      "        .child(v_flex().w_full().max_w(1180).gap(G.lg).children(content)));",
+    ].join("\n");
+    if (!main.includes(marker) || !main.includes(timeout) || !main.includes(returnStart)
+      || !main.includes(returnEnd)) {
+      throw new Error("cannot find main.js marker or settings injection point");
+    }
     let injected = "";
     if (settingsMode) injected += "    this.showSettings = true;\n";
     if (menuMode) {
       injected += [
         "    cx.timer.after(4000, (menuCx) => {",
-        "      if (!this.dashboard) return;",
+        "      if (!this.dashboard) {",
+        "        this.error = 'Menu check: dashboard was not ready';",
+        "        menuCx.notify();",
+        "        return;",
+        "      }",
         "      this.openFilter = \"ins-model-filter\";",
         "      this.openOptions = buildFacetOptions(\"model\", this.dashboard.facets.model, normalizeConfig(this.snapshot.config));",
         "      menuCx.notify();",
@@ -211,7 +241,34 @@ try {
         "",
       ].join("\n");
     }
-    writeFileSync(mainPath, main.replace(marker, `${injected}${marker}`));
+    const instrumentation = [
+      `const __INSIGHTS_RENDER_CHECK = ${JSON.stringify({ mode: requestedMode, path: markerPath, script: markerScript })};`,
+      "function __insightsRequestedStateRendered(view) {",
+      "  if (__INSIGHTS_RENDER_CHECK.mode === 'settings') {",
+      "    return view.showSettings && Boolean(view.configEditor) && Boolean(view.refreshInput);",
+      "  }",
+      "  if (__INSIGHTS_RENDER_CHECK.mode === 'menu') {",
+      "    return !view.showSettings && Boolean(view.dashboard) && view.openFilter === 'ins-model-filter' && Boolean(view.openOptions);",
+      "  }",
+      "  return !view.showSettings && Boolean(view.dashboard) && !view.dashboardError;",
+      "}",
+      "",
+      timeout,
+    ].join("\n");
+    const renderTail = [
+      returnEnd,
+      "    if (!this.__renderMarkerSent && __insightsRequestedStateRendered(this)) {",
+      "      this.__renderMarkerSent = true;",
+      "      exec(this.nodeBinary, [__INSIGHTS_RENDER_CHECK.script, __INSIGHTS_RENDER_CHECK.path]).then(() => {}, () => {});",
+      "    }",
+      "    return __view;",
+    ].join("\n");
+    const patched = main
+      .replace(timeout, instrumentation)
+      .replace(returnStart, '    const __view = v_flex().id("insights-root").size_full()')
+      .replace(returnEnd, renderTail)
+      .replace(marker, `${injected}${marker}`);
+    writeFileSync(mainPath, patched);
   }
   mkdirSync(join(home, "layouts"), { recursive: true });
   writeFileSync(
@@ -314,6 +371,10 @@ try {
   if (finalStatus.code !== 0) throw new Error(finalStatus.stderr || "herdr-app status failed");
   status = JSON.parse(finalStatus.stdout);
 
+  if (!(await waitForPath(markerPath, 5000))) {
+    throw new Error(`native async check never rendered requested ${requestedMode} state`);
+  }
+
   if (status.layout !== "insights-async") throw new Error(`unexpected layout ${JSON.stringify(status.layout)}`);
   const errors = Array.isArray(status.errors) ? status.errors : [];
   if (errors.length) throw new Error(`Herdr reported mod errors: ${JSON.stringify(errors)}`);
@@ -321,7 +382,7 @@ try {
     throw new Error("the app log contains the old interrupted promise continuation");
   }
   writeFileSync(logPath, output);
-  console.log(`native async check passed: ${preparedRows} rows, no mod errors${appearance ? `, ${appearance}` : ""}${settingsMode ? ", settings" : ""}${menuMode ? ", menu" : ""}${zoomOut ? `, zoom out ${zoomOut}` : ""}`);
+  console.log(`native async check passed: ${preparedRows} rows, no mod errors, ${requestedMode} rendered${appearance ? `, ${appearance}` : ""}${settingsMode ? ", settings" : ""}${menuMode ? ", menu" : ""}${zoomOut ? `, zoom out ${zoomOut}` : ""}`);
   console.log(`status: layout=${status.layout} overlays=${status.overlays?.length ?? 0}`);
   console.log(`screenshot: ${shotPath}`);
   console.log(`log: ${logPath}`);

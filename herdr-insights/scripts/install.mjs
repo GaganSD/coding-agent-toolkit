@@ -126,7 +126,6 @@ async function addParentIssues(targetDirectory, target, issues) {
 
 async function install(options) {
   assertSupportedNodeVersion();
-  const appHome = await resolveAppHome(options.appHome);
   const sourceRoot = options.source
     ? path.resolve(expandHome(options.source))
     : PACKAGE_ROOT;
@@ -137,6 +136,9 @@ async function install(options) {
   source.files.push(createRuntimeFile());
   source.files.sort((left, right) => left.relative.localeCompare(right.relative));
 
+  // Validate the source before creating the app home. A bad --source must not
+  // leave a new target directory behind.
+  const appHome = await resolveAppHome(options.appHome);
   const targetDirectory = modDir(appHome);
   const targetDataDirectory = dataDir(appHome);
   const targetManifest = manifestPath(appHome);

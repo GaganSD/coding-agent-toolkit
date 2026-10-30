@@ -4,7 +4,9 @@
 // `herdr-app check` normally renders the empty initial state, so it cannot see
 // a populated dashboard crossing the 50 ms render budget. This harness injects
 // an already-presented dashboard through applySnapshot in init, then checks the
-// first render. The true exec -> Task -> timer lifecycle is covered separately
+// first render. It deliberately replaces runtime resolution and refresh timers
+// in the temporary mod copy, so no collector runs and no user transcript roots
+// are scanned. The true exec -> Task -> timer lifecycle is covered separately
 // by tests/native-async-check.mjs.
 //
 // Usage:
@@ -83,15 +85,23 @@ const snapshot = { ...baseSnapshot, rows };
 
 const home = mkdtempSync(join(tmpdir(), "insights-native-loaded-"));
 try {
+  const fixtureRoot = join(home, "fixture-sessions");
+  snapshot.config = {
+    ...(snapshot.config && typeof snapshot.config === "object" ? snapshot.config : {}),
+    sources: [{ id: "fixture", label: "Fixture", adapter: "pi", enabled: true, roots: [fixtureRoot] }],
+  };
+
   const mod = join(home, "mods/insights");
   cpSync(modSource, mod, { recursive: true });
-  writeFileSync(join(mod, "runtime.json"), `${JSON.stringify({ node: process.execPath })}\n`);
 
   const mainPath = join(mod, "main.js");
   let main = readFileSync(mainPath, "utf8");
   const constant = "const MIN_CELL = 12;";
+  const runtimeCall = "    this.resolveRuntime(cx);";
   const init = "    this.commandTask = cx.spawn(async (commandCx) => {";
-  if (!main.includes(constant) || !main.includes(init)) throw new Error("cannot find main.js injection points");
+  if (!main.includes(constant) || !main.includes(runtimeCall) || !main.includes(init)) {
+    throw new Error("cannot find main.js injection points");
+  }
   const today = todayKey();
   const options = {
     filters: { provider: "all", model: "all" },
@@ -112,6 +122,14 @@ try {
     error: null,
   };
   main = main.replace(constant, `const INJECTED_PRESENTATION = ${JSON.stringify(presentation)};\n${constant}`);
+  main = main.replace(
+    runtimeCall,
+    "    // Static render check: no runtime resolution, collector exec, or refresh timer.\n"
+      + "    this.resolveRuntime = () => {};\n"
+      + "    this.refresh = () => {};\n"
+      + "    this.schedule = () => {};\n"
+      + "    this.runtimeReady = true;\n",
+  );
   let injected = "    this.applySnapshot(INJECTED_PRESENTATION, cx);\n"
     + "    if (!this.dashboard) throw new Error('Loaded check did not apply the populated dashboard');\n";
   if (mode === "settings") injected += "    this.openSettings(cx);\n";
@@ -127,7 +145,7 @@ try {
 
   const result = spawnSync("herdr-app", ["check", mod], {
     cwd: resolve(here, ".."),
-    env: { ...process.env, HERDR_APP_HOME: home },
+    env: { ...process.env, HERDR_APP_HOME: home, HOME: home },
     encoding: "utf8",
     timeout: 120_000,
   });

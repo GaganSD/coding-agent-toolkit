@@ -12,7 +12,8 @@ Reads local sessions from **Pi, Codex, Claude Code, and OpenCode**.
 
 ## Install
 
-Requires Herdr and **Node.js 22.15+**. No dependencies or account needed.
+Installing requires Herdr and **Node.js 22.15+**. No dependencies or account needed.
+The uninstaller also runs on older Node versions.
 
 Ask your agent:
 
@@ -26,9 +27,10 @@ cd pi-extensions
 npm run install:local --prefix herdr-insights -- --open
 ```
 
-The installer runs `herdr-app check`, then opens an **Insights** tab. It installs
-only `mods/insights/` under `~/.config/herdr-app`; your layouts, keys, and terminals
-are unchanged. Set `HERDR_APP_HOME` to use a different app home.
+The installer runs `herdr-app check`; with `--open` it then opens an **Insights**
+tab. It installs owned files only under `mods/insights/` and writes its install
+manifest to `data/insights/` in `~/.config/herdr-app`; your layouts, keys, and
+terminals are unchanged. Set `HERDR_APP_HOME` to use a different app home.
 
 ## Use
 

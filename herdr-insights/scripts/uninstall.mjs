@@ -3,6 +3,7 @@ import path from "node:path";
 
 import {
   assertNoSymlinkComponents,
+  isInside,
   lstatOrNull,
   localPath,
   manifestPath,
@@ -57,42 +58,39 @@ function parseArgs(argv) {
   return options;
 }
 
-async function pruneEmptyDirectories(directory) {
-  let entries;
-  try {
-    entries = await fs.readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    if (error.code === "ENOENT") return true;
-    throw error;
+function ownedParentDirectories(targetDirectory, target) {
+  const parents = [];
+  let current = path.dirname(target);
+  while (isInside(targetDirectory, current)) {
+    parents.push(current);
+    if (path.resolve(current) === path.resolve(targetDirectory)) break;
+    current = path.dirname(current);
   }
+  return parents;
+}
 
-  let empty = true;
-  for (const entry of entries) {
-    if (entry.isSymbolicLink()) {
-      empty = false;
-      continue;
+async function pruneOwnedDirectories(directories) {
+  const ordered = [...new Set(directories)].sort(
+    (left, right) => right.split(path.sep).length - left.split(path.sep).length,
+  );
+  for (const directory of ordered) {
+    try {
+      await fs.rmdir(directory);
+    } catch (error) {
+      if (error.code === "ENOENT" || error.code === "ENOTEMPTY" || error.code === "EEXIST") {
+        continue;
+      }
+      throw error;
     }
-    if (entry.isDirectory()) {
-      const childEmpty = await pruneEmptyDirectories(path.join(directory, entry.name));
-      if (!childEmpty) empty = false;
-      continue;
-    }
-    empty = false;
-  }
-
-  if (!empty) return false;
-  try {
-    await fs.rmdir(directory);
-    return true;
-  } catch (error) {
-    if (error.code === "ENOTEMPTY" || error.code === "EEXIST") return false;
-    if (error.code === "ENOENT") return true;
-    throw error;
   }
 }
 
 async function uninstall(options) {
-  const appHome = await resolveAppHome(options.appHome);
+  const appHome = await resolveAppHome(options.appHome, { create: false });
+  if (!appHome) {
+    console.log("Insights is not installed by this package; nothing to remove.");
+    return;
+  }
   const targetDirectory = modDir(appHome);
   const targetManifest = manifestPath(appHome);
   const manifest = await readManifest(appHome);
@@ -118,6 +116,7 @@ async function uninstall(options) {
 
   const removed = [];
   const kept = [];
+  const ownedParents = [];
   const remaining = Object.create(null);
 
   for (const [relative, oldHash] of Object.entries(manifest.files)) {
@@ -149,10 +148,11 @@ async function uninstall(options) {
 
     await fs.unlink(target);
     removed.push(relative);
+    ownedParents.push(...ownedParentDirectories(targetDirectory, target));
   }
 
-  if (targetStat) {
-    await pruneEmptyDirectories(targetDirectory);
+  if (targetStat && removed.length > 0) {
+    await pruneOwnedDirectories(ownedParents);
   }
 
   const remainingEntries = Object.entries(remaining);
