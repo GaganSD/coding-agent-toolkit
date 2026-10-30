@@ -19,6 +19,20 @@ export const DEFAULT_SOURCES = [
     enabled: true,
     roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
   },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    adapter: "opencode",
+    enabled: true,
+    roots: ["~/.local/share/opencode"],
+  },
+  {
+    id: "claude",
+    label: "Claude Code",
+    adapter: "claude",
+    enabled: true,
+    roots: ["~/.claude/projects"],
+  },
 ];
 export const PALETTES = ["blue", "green", "purple"];
 export const DEFAULT_REFRESH_SECONDS = 60;

@@ -2,8 +2,8 @@
 
 Insights is a local-first Herdr mod for reading coding-agent token usage from the
 transcripts already on your machine, then showing the result as a calm native
-dashboard. Its default setup reads Pi and Codex session files and the OpenCode
-SQLite store; legacy Claude Code configs remain readable. It does not call a
+dashboard. Its default setup reads Pi, Codex, and Claude Code session files and
+the OpenCode SQLite store. It does not call a
 service, upload a transcript, or estimate token counts from prompt text.
 
 The package is private, has ZERO dependencies, and runs on Node >=22.15. The
@@ -182,6 +182,13 @@ The default normalized shape is:
       "adapter": "opencode",
       "enabled": true,
       "roots": ["~/.local/share/opencode"]
+    },
+    {
+      "id": "claude",
+      "label": "Claude Code",
+      "adapter": "claude",
+      "enabled": true,
+      "roots": ["~/.claude/projects"]
     }
   ]
 }
@@ -201,9 +208,12 @@ settings no longer display it.
 - `weekStartsOn`: `0` for Sunday or `1` for Monday.
 - `refreshSeconds`: integer 30 through 3600; the UI defaults to 60.
 - `sources[].id` must match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}` and be unique.
-- `sources[].label` is non-empty; `adapter` is `pi`, `codex`, `opencode`, or
-  the legacy `claude`/`custom` values; `roots` is an array of non-empty paths;
-  `enabled` is boolean. New installs default to Pi, Codex, and OpenCode.
+- `sources[].label` is non-empty; `adapter` is `pi`, `codex`, `opencode`,
+  `claude`, or `custom`; `roots` is an array of non-empty paths; `enabled` is
+  boolean. New installs default to Pi, Codex, OpenCode, and Claude Code.
+  Existing stores that still contain the untouched pre-Claude defaults gain the
+  Claude Code source on the next collector run; customized source lists are left
+  alone.
 - `sources[].roots`: transcript directories. A leading `~` is expanded against
   the user's home directory. The collector reads these external directories; it
   does not copy raw transcripts into the store and never writes to them.
@@ -353,7 +363,10 @@ Source-specific behavior:
   `session.id`; sub-agent transcript artifacts use their own stable session.
   Failed assistant records do not close a task. Tool-result usage does not
   start or close an assistant task.
-- **Claude Code (legacy configs):** duplicate streamed entries with the same `message.id` are
+- **Claude Code:** local JSONL sessions under `~/.claude/projects` use the
+  record's stable `sessionId`/`session_id`, `cwd`, timestamp, model, and usage.
+  An absent provider is reported as `anthropic`; an explicit provider is
+  preserved. Duplicate streamed entries with the same `message.id` are
   max-upserted, so revised usage fields count once at their largest values.
   Cache fields are counted once. Tool-result and meta user records do not start
   a new task; failed assistant records do not close one.
@@ -380,9 +393,8 @@ by a person, and do not compare harnesses as if their boundaries were identical.
 
 ## Custom source mappings
 
-Pi and Codex are the default sources. Legacy Claude Code and custom mappings
-remain readable for existing configs, but they are not part of the new-install
-default setup.
+Pi, Codex, OpenCode, and Claude Code are the default sources. Custom mappings
+remain available for additional JSONL sources.
 
 Custom sources use JSONL and declarative field mappings, not arbitrary executable
 JavaScript. A custom source has this shape:

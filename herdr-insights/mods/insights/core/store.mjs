@@ -1,5 +1,5 @@
 import { readFile, stat, unlink } from "node:fs/promises";
-import { defaultConfig, normalizeConfig } from "./config.mjs";
+import { defaultConfig, migrateLoadedConfig, normalizeConfig } from "./config.mjs";
 import {
   STORE_VERSION,
   atomicWriteJson,
@@ -510,7 +510,8 @@ function validateLoadedStore(store) {
   if (!isPlainObject(store) || store.version !== STORE_VERSION) {
     throw new Error("unsupported store version");
   }
-  store.config = normalizeConfig(store.config);
+  const configMigration = migrateLoadedConfig(normalizeConfig(store.config));
+  store.config = configMigration.config;
   if (!isPlainObject(store.files) || !isPlainObject(store.dedup) || !isPlainObject(store.tasks)) {
     throw new Error("store collections are malformed");
   }
@@ -595,7 +596,7 @@ function validateLoadedStore(store) {
       throw new Error(`task entry ${key} is malformed`);
     }
   }
-  return true;
+  return configMigration.migrated;
 }
 
 export async function loadStore(storePath, { readOnly = false } = {}) {
@@ -615,9 +616,9 @@ export async function loadStore(storePath, { readOnly = false } = {}) {
   let parsed;
   try {
     parsed = JSON.parse(text);
-    validateLoadedStore(parsed);
+    const migrated = validateLoadedStore(parsed);
     prepareStore(parsed);
-    return { store: parsed, warnings, errors, exists: true, dirty: false };
+    return { store: parsed, warnings, errors, exists: true, dirty: migrated };
   } catch (error) {
     // Filter changes are reads, not recovery operations. Leave preservation
     // and repair to the next lock-protected snapshot/configure operation.

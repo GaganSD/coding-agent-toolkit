@@ -20,6 +20,7 @@ import {
   defaultConfig,
   normalizeConfig,
 } from "../mods/insights/core/config.mjs";
+import { emptyStore, saveStore } from "../mods/insights/core/store.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const collector = path.join(here, "..", "mods", "insights", "collector.mjs");
@@ -390,7 +391,7 @@ test("sourceStats distinguishes disabled, missing, empty, ok, and error sources"
   assert.ok(result.warnings.some((warning) => warning.startsWith("[bad]")));
 });
 
-test("default config and empty input include Pi, Codex and OpenCode sources", () => {
+test("default config and empty input include Pi, Codex, OpenCode and Claude Code sources", () => {
   const expectedSources = [
     {
       id: "pi",
@@ -413,13 +414,90 @@ test("default config and empty input include Pi, Codex and OpenCode sources", ()
       enabled: true,
       roots: ["~/.local/share/opencode"],
     },
+    {
+      id: "claude",
+      label: "Claude Code",
+      adapter: "claude",
+      enabled: true,
+      roots: ["~/.claude/projects"],
+    },
   ];
   assert.deepEqual(DEFAULT_CONFIG.sources, expectedSources);
   assert.deepEqual(defaultConfig().sources, expectedSources);
   assert.deepEqual(normalizeConfig({}).sources, expectedSources);
 });
 
-test("explicit legacy Claude source config is preserved", async () => {
+test("untouched pre-Claude default stores gain Claude Code and scan local sessions", async () => {
+  const context = await env();
+  await placeFixture(
+    context,
+    ".claude/projects/repo/session.jsonl",
+    "claude-session.jsonl",
+  );
+  const legacyDefaults = normalizeConfig({
+    sources: [
+      {
+        id: "pi",
+        label: "Pi",
+        adapter: "pi",
+        enabled: true,
+        roots: ["~/.pi/agent/sessions"],
+      },
+      {
+        id: "codex",
+        label: "Codex",
+        adapter: "codex",
+        enabled: true,
+        roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
+      },
+      {
+        id: "opencode",
+        label: "OpenCode",
+        adapter: "opencode",
+        enabled: true,
+        roots: ["~/.local/share/opencode"],
+      },
+    ],
+  });
+  await saveStore(context.store, emptyStore(legacyDefaults));
+
+  const result = await snapshot(context);
+  assert.deepEqual(
+    result.config.sources.map((source) => source.id),
+    ["pi", "codex", "opencode", "claude"],
+  );
+  assert.equal(result.sourceStats.claude.status, "ok");
+  assert.equal(result.rows.some((row) => row.harness === "claude"), true);
+
+  const persisted = JSON.parse(await readFile(context.store, "utf8"));
+  assert.equal(
+    persisted.config.sources.some((source) => source.id === "claude"),
+    true,
+  );
+});
+
+test("customized pre-Claude stores are not rewritten by the default-source migration", async () => {
+  const context = await env();
+  const customDefaults = normalizeConfig({
+    sources: [
+      {
+        id: "pi",
+        label: "Pi",
+        adapter: "pi",
+        enabled: true,
+        roots: ["~/.pi/agent/sessions"],
+      },
+    ],
+  });
+  await saveStore(context.store, emptyStore(customDefaults));
+  const result = await snapshot(context);
+  assert.deepEqual(
+    result.config.sources.map((source) => source.id),
+    ["pi"],
+  );
+});
+
+test("explicit Claude source config is preserved", async () => {
   const context = await env();
   const legacySources = [
     {

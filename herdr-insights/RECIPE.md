@@ -103,9 +103,10 @@ Source roots are read only and never changed.
 `View`, pure `analytics.js` helpers that can run under Node without native
 imports, and a Node `presenter.mjs` helper. The collector lives at
 `mods/insights/collector.mjs` with declarative adapters under `core/*.mjs`; it
-discovers Pi and Codex transcript roots from the saved config by default and
-writes the single store at `<HERDR_APP_HOME>/data/insights/insights.json`.
-Legacy Claude Code and custom configs remain readable. Herdr
+discovers Pi, Codex, OpenCode, and Claude Code transcript roots from the saved
+config by default and writes the single store at
+`<HERDR_APP_HOME>/data/insights/insights.json`. Custom configs remain readable.
+Herdr
 runs `node .../presenter.mjs snapshot --store <store> --home <home> --options
 <json>` (and `configure` with one JSON argv value) through `exec`, off the UI
 thread. The presenter calls the collector once and prints one compact
@@ -142,16 +143,19 @@ and displays as a dash. Legacy `config.profile` is tolerated but not displayed.
 The project filter caps options at 250 while retaining the selected project. The
 collector is the source of truth for config validation, deduplication, token
 arithmetic, and the custom mapping schema; the UI must not guess provider
-creators or add reasoning twice. New defaults are Pi and Codex only; Claude
-Code is legacy compatibility. Pi usage includes assistant and tool-result `message.usage`,
+creators or add reasoning twice. Defaults are Pi, Codex, OpenCode, and Claude
+Code; untouched pre-Claude default stores gain Claude Code on the next collector
+run, while customized source lists are left alone. Pi usage includes assistant and tool-result `message.usage`,
 top-level `type: "usage"` events (cache warming), `compaction.usage`, and
 `branch_summary.usage`; count each reported entry once, including copied fork
 entries, and treat `row.messages` as usage-event count (UI: Usage events), not
 assistant-message count. Codex files can expose both `token_usage_record` and
 `event_msg.token_count`; reconcile them at the record level, count a turn once,
 and turn cumulative counters into deltas. Forked Codex sessions keep their own
-thread identity when reconciling usage. Claude streamed duplicates share
-`message.id`; max-upsert the revised fields. Tokens are reported/counted usage,
+thread identity when reconciling usage. Claude Code reads local JSONL sessions
+from `~/.claude/projects`, uses stable session IDs and `cwd`, treats an absent
+provider as `anthropic`, and max-upserts streamed duplicates that share
+`message.id`. Tokens are reported/counted usage,
 not tokenizer estimates: `input` is uncached,
 `output` includes `reasoning`, `reasoning` is a subset, cache fields are
 counted once, and `total = input + output + cacheRead + cacheWrite`. A normal

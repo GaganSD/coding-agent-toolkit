@@ -26,7 +26,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 1 };
+const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2 };
 
 function warningSink(warnings, stats, sourceState) {
   let hidden = 0;

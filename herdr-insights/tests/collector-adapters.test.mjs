@@ -310,7 +310,7 @@ test("Claude adapter: revised duplicate ids use max fields, not double counts", 
   assert.equal(cm1.messages, 1);
   assert.equal(cm1.activeMs, 5000);
   assert.equal(cm1.longestTaskMs, 5000);
-  assert.equal(cm1.provider, "unknown");
+  assert.equal(cm1.provider, "anthropic");
   assert.equal(cm1.session, "claude:claude-fixture");
   assert.equal(cm1.project, "/repo/claude");
   assert.equal(cm1.day, "2026-03-02");

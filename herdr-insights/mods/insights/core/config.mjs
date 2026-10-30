@@ -16,35 +16,50 @@ import {
 // fields are already canonical: input is uncached, output includes reasoning,
 // reasoning is a subset, and total is computed by the collector.
 
+const PI_SOURCE = Object.freeze({
+  id: "pi",
+  label: "Pi",
+  adapter: "pi",
+  enabled: true,
+  roots: Object.freeze(["~/.pi/agent/sessions"]),
+});
+const CODEX_SOURCE = Object.freeze({
+  id: "codex",
+  label: "Codex",
+  adapter: "codex",
+  enabled: true,
+  roots: Object.freeze(["~/.codex/sessions", "~/.codex/archived_sessions"]),
+});
+const OPENCODE_SOURCE = Object.freeze({
+  id: "opencode",
+  label: "OpenCode",
+  adapter: "opencode",
+  enabled: true,
+  roots: Object.freeze(["~/.local/share/opencode"]),
+});
+const CLAUDE_SOURCE = Object.freeze({
+  id: "claude",
+  label: "Claude Code",
+  adapter: "claude",
+  enabled: true,
+  roots: Object.freeze(["~/.claude/projects"]),
+});
+
+// Stores written before Claude Code became a default source get the same
+// upgrade, but only when they still contain the untouched previous defaults.
+const LEGACY_DEFAULT_SOURCES = Object.freeze([
+  PI_SOURCE,
+  CODEX_SOURCE,
+  OPENCODE_SOURCE,
+]);
+
 export const DEFAULT_CONFIG = Object.freeze({
   profile: { name: "Developer", handle: "", avatar: "" },
   palette: "blue",
   includeCache: true,
   weekStartsOn: 0,
   refreshSeconds: 60,
-  sources: [
-    {
-      id: "pi",
-      label: "Pi",
-      adapter: "pi",
-      enabled: true,
-      roots: ["~/.pi/agent/sessions"],
-    },
-    {
-      id: "codex",
-      label: "Codex",
-      adapter: "codex",
-      enabled: true,
-      roots: ["~/.codex/sessions", "~/.codex/archived_sessions"],
-    },
-    {
-      id: "opencode",
-      label: "OpenCode",
-      adapter: "opencode",
-      enabled: true,
-      roots: ["~/.local/share/opencode"],
-    },
-  ],
+  sources: Object.freeze([PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE, CLAUDE_SOURCE]),
 });
 
 export const BUILTIN_ADAPTERS = new Set(["pi", "claude", "codex", "opencode"]);
@@ -338,6 +353,33 @@ export function normalizeConfig(input) {
     weekStartsOn,
     refreshSeconds,
     sources,
+  };
+}
+
+function sameSource(left, right) {
+  return (
+    left.id === right.id &&
+    left.label === right.label &&
+    left.adapter === right.adapter &&
+    left.enabled === right.enabled &&
+    left.roots.length === right.roots.length &&
+    left.roots.every((root, index) => root === right.roots[index])
+  );
+}
+
+export function migrateLoadedConfig(config) {
+  if (
+    config.sources.length !== LEGACY_DEFAULT_SOURCES.length ||
+    !config.sources.every((source, index) => sameSource(source, LEGACY_DEFAULT_SOURCES[index]))
+  ) {
+    return { config, migrated: false };
+  }
+  return {
+    config: {
+      ...config,
+      sources: [...config.sources, { ...CLAUDE_SOURCE, roots: [...CLAUDE_SOURCE.roots] }],
+    },
+    migrated: true,
   };
 }
 

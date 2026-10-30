@@ -393,7 +393,7 @@ function parseClaude(record, ctx) {
   const message = record.message;
   const usage = isPlainObject(message.usage) ? message.usage : null;
   const model = asString(message.model);
-  const provider = asString(message.provider);
+  const provider = asString(message.provider, "anthropic");
   const project = asString(record.cwd, "unknown");
   const identity = message.id ?? record.uuid ?? `line:${session}:${ctx.lineHash}`;
 
