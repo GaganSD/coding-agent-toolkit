@@ -38,6 +38,7 @@ function harness(initial = record()) {
     async reply(id, requestId, text) { replies.push({ id, requestId, text }); },
     async resume(id) { resumes.push(id); },
     async steer(_id, text) { steers.push(text); return "queued"; },
+    async followUp(_id, text) { steers.push(text); return "queued"; },
     async stop() { stops++; },
   };
   return { actions, replies, steers, resumes, get stops() { return stops; }, get listeners() { return listeners.size; },
@@ -300,6 +301,20 @@ test("Older pages and unsent drafts survive reopening; live status never silentl
   h.update({ ...run, elapsedMs: 200 });
   await until(() => reopened.render(80).join("\n").includes("message 171"));
   assert.equal(state.draft(run).text, "retain this draft"); assert(!reopened.render(80).join("\n").includes("message 299"));
+});
+
+test("conversation renders native markdown instead of raw markers; tool output stays clamped", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "subagent-markdown-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "thread.jsonl");
+  const entry = (role: string, text: string) => JSON.stringify({ type: "message", message: { role, content: [{ type: "text", text }] } });
+  await writeFile(file, entry("assistant", "# Plan\n\n**bold** step\n\n- one\n- two") + "\n");
+  const run = { ...record(), sessionPath: file }, h = harness(run);
+  const view = new InspectView(terminal(), theme, run.id, h.actions, () => {}, new HumanState()); t.after(() => view.dispose());
+  await until(() => view.render(80).join("\n").includes("bold step"));
+  const painted = view.render(80).join("\n");
+  assert(!painted.includes("**bold**") && !painted.includes("# Plan"), "markdown markers are rendered, not shown raw");
+  assert(painted.includes("Plan") && painted.includes("one"));
+  view.dispose();
 });
 
 test("a throwing workspace host does not hang attach and uses the overlay", async () => {

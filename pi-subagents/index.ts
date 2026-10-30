@@ -155,6 +155,7 @@ export default function subagents(pi: ExtensionAPI): void {
       status: id => manager.status(id),
       preview: id => manager.preview(id),
       steer: (id, message) => manager.steer(id, message),
+      followUp: (id, message) => manager.followUp(id, message),
       reply: (id, requestId, message) => manager.reply(id, requestId, message),
       resume: id => manager.resume(id),
       stop: id => manager.stop(id),
@@ -278,6 +279,7 @@ export default function subagents(pi: ExtensionAPI): void {
           break;
         }
         case "steer": await manager.steer(request.id, request.message); result = { ok: true }; break;
+        case "followUp": await manager.followUp(request.id, request.message); result = { ok: true }; break;
         case "stop":
         case "resume": {
           await (request.action === "stop" ? manager.stop(request.id) : manager.resume(request.id, signal));
@@ -331,7 +333,7 @@ export default function subagents(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("subagents", {
-    description: "Inspect or take control: /subagents [id | resume <id> | stop <id> | steer <id> <text> | reply <id> <text>]",
+    description: "Inspect or take control: /subagents [id | resume <id> | stop <id> | steer <id> <text> | followUp <id> <text> | reply <id> <text>]",
     async handler(args, ctx) {
       try {
         const state = await current(ctx);
@@ -357,6 +359,7 @@ export default function subagents(pi: ExtensionAPI): void {
         if (request.action === "resume") await manager.resume(id);
         else if (request.action === "stop") await manager.stop(id);
         else if (request.action === "steer") await manager.steer(id, request.message);
+        else if (request.action === "followUp") await manager.followUp(id, request.message);
         else if (request.action === "reply") {
           const question = manager.status(id).question;
           if (!question) throw new Error("No matching pending question belongs to this run");

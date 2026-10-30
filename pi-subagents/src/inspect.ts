@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, Editor, Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type MarkdownTheme, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
 import { formatContext, formatElapsed, plain, type NavigationHost } from "./ui.ts";
 import { HumanState, stateLabel } from "./presentation.ts";
@@ -7,7 +7,7 @@ import { conversationText, readConversation, type ConversationMessage } from "./
 
 export type HumanCommand = { action: "list" } | { action: "attach"; id: string } | { action: "stop"; id: string }
   | { action: "resume"; id: string }
-  | { action: "steer"; id: string; message: string } | { action: "reply"; id: string; message: string };
+  | { action: "steer"; id: string; message: string } | { action: "followUp"; id: string; message: string } | { action: "reply"; id: string; message: string };
 export function parseCommand(args: string): HumanCommand {
   const trimmed = args.trim();
   if (!trimmed) return { action: "list" };
@@ -20,13 +20,13 @@ export function parseCommand(args: string): HumanCommand {
     if (words.length !== 2) throw new Error("Usage: /subagents resume <id>");
     return { action: "resume", id: words[1]! };
   }
-  if (head === "steer" || head === "reply") {
+  if (head === "steer" || head === "reply" || head === "followUp") {
     const rest = trimmed.slice(head.length).trimStart(), split = rest.search(/\s/);
     if (split < 1 || !rest.slice(split).trim()) throw new Error(`Usage: /subagents ${head} <id> <text>`);
     return { action: head, id: rest.slice(0, split), message: rest.slice(split).trim() };
   }
   if (words.length === 1 && /^[a-f0-9-]{8,36}$/i.test(head)) return { action: "attach", id: head };
-  throw new Error("Usage: /subagents [id | resume <id> | stop <id> | steer <id> <text> | reply <id> <text>]");
+  throw new Error("Usage: /subagents [id | resume <id> | stop <id> | steer <id> <text> | followUp <id> <text> | reply <id> <text>]");
 }
 export function resolveRun(runs: RunRecord[], ref: string): RunRecord {
   const exact = runs.find(run => run.id === ref);
@@ -40,6 +40,7 @@ export interface InspectActions {
   status(id: string): RunRecord;
   preview(id: string): string[];
   steer(id: string, message: string): Promise<string>;
+  followUp(id: string, message: string): Promise<string>;
   reply(id: string, requestId: string, message: string): Promise<void>;
   resume(id: string): Promise<void>;
   stop(id: string): Promise<void>;
@@ -151,11 +152,22 @@ export class InspectView implements Component, Focusable {
   private readonly actions: InspectActions;
   private readonly done: (value?: void) => void;
   private readonly state: HumanState;
+  private readonly markdownTheme: MarkdownTheme;
+  private readonly markdownCache = new Map<string, string[]>();
   constructor(tui: TUI, theme: Theme, id: string,
     actions: InspectActions, done: (value?: void) => void, state = new HumanState(), notice?: string) {
     this.tui = tui; this.theme = theme; this.id = id;
     this.actions = actions; this.done = done; this.state = state;
     if (notice) this.note = notice;
+    // Host md* theme tokens and style methods; fakes degrade to unstyled text.
+    const styled = (name: "bold" | "italic" | "strikethrough" | "underline") => (text: string): string => typeof theme[name] === "function" ? theme[name](text) : text;
+    this.markdownTheme = {
+      heading: text => theme.fg("mdHeading", text), link: text => theme.fg("mdLink", text), linkUrl: text => theme.fg("mdLinkUrl", text),
+      code: text => theme.fg("mdCode", text), codeBlock: text => theme.fg("mdCodeBlock", text), codeBlockBorder: text => theme.fg("mdCodeBlockBorder", text),
+      quote: text => theme.fg("mdQuote", text), quoteBorder: text => theme.fg("mdQuoteBorder", text), hr: text => theme.fg("mdHr", text),
+      listBullet: text => theme.fg("mdListBullet", text),
+      bold: styled("bold"), italic: styled("italic"), strikethrough: styled("strikethrough"), underline: styled("underline"),
+    };
     const record = actions.status(id);
     this.state.open = id;
     this.draft = state.draft(record);
@@ -235,7 +247,7 @@ export class InspectView implements Component, Focusable {
     if (!this.closed && this.focused && record && this.isPresented()) this.state.markRead(record);
     const activity = record?.currentTool ? ` · ${plain(record.currentTool)}` : "";
     const header = [this.theme.fg("accent", truncateToWidth(`Agent › ${record ? this.state.title(record) : "Unavailable worker"}`, inner)),
-      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
+      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatContext(record)} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
     this.input.focused = this.focused && this.zone === "message" && !this.details;
     const editor = this.fitEditor(inner, Math.max(1, Math.min(5, height - 5)));
     const footer = [this.theme.fg("dim", truncateToWidth(this.note, inner)),
@@ -297,8 +309,10 @@ export class InspectView implements Component, Focusable {
     if (this.omitted) lines.push(this.theme.fg("dim", "Earlier/oversized/incomplete content omitted · Older loads a bounded page · Details has the original"));
     if (this.messages.length) for (const message of this.messages) {
       lines.push(this.theme.fg("accent", message.label));
-      const text = wrapTextWithAnsi(message.text, width);
-      lines.push(...(message.tool && !this.draft.expanded ? [...text.slice(0, 3), ...(text.length > 3 ? [this.theme.fg("dim", "… Tools expands output")] : [])] : text), "");
+      if (message.tool) {
+        const text = wrapTextWithAnsi(message.text, width);
+        lines.push(...(!this.draft.expanded ? [...text.slice(0, 3), ...(text.length > 3 ? [this.theme.fg("dim", "… Tools expands output")] : [])] : text), "");
+      } else lines.push(...this.markdownLines(message, width), "");
     }
     else if (this.history) lines.push("No finalized messages in this page · Details has the original");
     else lines.push(...this.preview.flatMap(line => wrapTextWithAnsi(conversationText(line), width)));
@@ -307,6 +321,18 @@ export class InspectView implements Component, Focusable {
     const body = lines.length ? lines : ["Waiting for finalized conversation messages…"];
     this.bodyCache = { key, width, lines: body };
     return body;
+  }
+  /** Native Pi markdown for finalized conversation text; plain fallback never breaks the thread. */
+  private markdownLines(message: ConversationMessage, width: number): string[] {
+    const key = `${message.offset}:${width}`;
+    const cached = this.markdownCache.get(key);
+    if (cached) return cached;
+    let lines: string[];
+    try { lines = new Markdown(message.text, 0, 0, this.markdownTheme).render(width); }
+    catch { lines = wrapTextWithAnsi(message.text, width); }
+    this.markdownCache.set(key, lines);
+    if (this.markdownCache.size > 256) this.markdownCache.delete(this.markdownCache.keys().next().value!);
+    return lines;
   }
   private fitEditor(width: number, limit: number): string[] {
     const lines = this.input.render(width);

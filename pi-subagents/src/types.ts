@@ -62,6 +62,7 @@ export interface SubAgentResult { report: string; usage?: Usage; toolErrors: num
 export interface SubAgent {
   prompt(message?: string): Promise<SubAgentResult>;
   steer(message: string): Promise<string>;
+  followUp(message: string): Promise<string>;
   abort(): Promise<void>;
   failure?(): FailureKind | undefined;
   evidence?(): Pick<SubAgentResult, "usage" | "toolErrors">;

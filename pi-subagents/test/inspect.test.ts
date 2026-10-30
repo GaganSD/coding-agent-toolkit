@@ -67,7 +67,7 @@ test("inspector renders cached content at narrow widths and keeps input visible 
   const actions: InspectActions = {
     status: () => record,
     preview: () => { reads++; return preview.slice(); },
-    steer: async () => "queued", reply: async () => {}, resume: async () => {}, stop: async () => {},
+    steer: async () => "queued", followUp: async () => "queued", reply: async () => {}, resume: async () => {}, stop: async () => {},
     live: () => [record],
     subscribe: fn => { listener = fn; return () => { disposed++; }; },
   };

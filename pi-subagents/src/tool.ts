@@ -18,6 +18,7 @@ export const Parameters = Type.Union([
   Type.Object({ action: Type.Literal("stop"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("resume"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("steer"), id: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
+  Type.Object({ action: Type.Literal("followUp"), id: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("reply"), id: Type.String({ minLength: 1, maxLength: 64 }), requestId: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
 ], { type: "object" });
 
@@ -28,6 +29,7 @@ export type Request =
   | { action: "stop"; id: string }
   | { action: "resume"; id: string }
   | { action: "steer"; id: string; message: string }
+  | { action: "followUp"; id: string; message: string }
   | { action: "reply"; id: string; requestId: string; message: string };
 
 /** Validate discriminated field combinations even if the caller bypassed the JSON schema. */
@@ -64,10 +66,13 @@ export function parseRequest(input: unknown): Request {
     case "steer":
       keys(value, ["action", "id", "message"], "steer");
       return { action: "steer", id: text(value.id, "id", 64), message: text(value.message, "message", 8192) };
+    case "followUp":
+      keys(value, ["action", "id", "message"], "followUp");
+      return { action: "followUp", id: text(value.id, "id", 64), message: text(value.message, "message", 8192) };
     case "reply":
       keys(value, ["action", "id", "requestId", "message"], "reply");
       return { action: "reply", id: text(value.id, "id", 64), requestId: text(value.requestId, "requestId", 64), message: text(value.message, "message", 8192) };
-    default: throw new Error("Unsupported action. Use run/list/status/resume/steer/stop/reply.");
+    default: throw new Error("Unsupported action. Use run/list/status/stop/resume/steer/followUp/reply.");
   }
 }
 
@@ -78,6 +83,8 @@ export function presentRun(record: RunRecord) {
   return {
     id: record.id, state: record.state, metadataPath: record.metadataPath,
     model: record.model, thinking: record.thinking,
+    ...(record.currentTool ? { currentTool: clip(record.currentTool, 80) } : {}),
+    ...(record.contextUsage ? { contextUsage: record.contextUsage } : {}),
     ...(record.question ? { question: { id: record.question.id, message: clip(record.question.message, 2048) } } : {}),
     ...(record.reportPath ? { reportPath: record.reportPath } : {}),
     ...(record.error ? { error: clip(record.error, 512) } : {}),
@@ -169,6 +176,12 @@ const RunSchema = Type.Object({
   id: Type.String(), state: StateSchema,
   agent: Type.Optional(Type.String()), taskPreview: Type.Optional(Type.String()),
   model: Type.Optional(Type.String()), thinking: Type.Optional(ThinkingSchema),
+  currentTool: Type.Optional(Type.String()),
+  contextUsage: Type.Optional(Type.Object({
+    tokens: Type.Union([Type.Number(), Type.Null()]),
+    contextWindow: Type.Union([Type.Number(), Type.Null()]),
+    percent: Type.Union([Type.Number(), Type.Null()]),
+  }, closed)),
   question: Type.Optional(Type.Object({ id: Type.String(), message: Type.String() }, closed)),
   reportPath: Type.Optional(Type.String()), metadataPath: Type.Optional(Type.String()),
   error: Type.Optional(Type.String()), notificationError: Type.Optional(Type.String()),
@@ -199,8 +212,9 @@ run launches 1–4 fresh, session-bound native Pi sub-agents; ordered receipts a
 Sub-agents have fixed tools and applicable instruction files, but no agent history, extensions, hooks, MCP or skills.
 Do not launch tasks needing unavailable capabilities or policies. Modes are inspect (read-only) and edit (shell/write), not OS sandboxes.
 Use list with cwd to inspect profiles. Reserve workspaces until settled; writers need disjoint roots (whole Git worktrees).
-Questions/results wake this agent: yield, do not poll. Use exact run IDs; reply also needs the current question ID.
-status lists live/recent runs; status(id) gives control state, resolved model/thinking, and evidence paths. /subagents provides human control.
+Questions/results wake this agent: yield, do not poll. Use exact run/question IDs.
+status lists live/recent runs; status(id) gives state, model/thinking, context, current tool, evidence paths. /subagents gives human control.
+steer enters after the current turn; followUp queues after pending work.
 Control receipts mean accepted, not compliance. Completed means settled and saved, not verified; read the report and validate.
 resume <id> restarts a resumable failed run from its saved transcript.
 Committed-range review needs a supplied diff. No automatic retry, model fallback, recursive delegation, or workflow runner.`;

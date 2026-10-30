@@ -232,6 +232,7 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
       }
     },
     steer: message => session.steer(message),
+    followUp: message => session.followUp(message),
     abort: () => session.abort(),
     dispose() {
       disposed = true;
