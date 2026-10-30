@@ -1,7 +1,7 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, Input, InputState, Editor, EditorState, Popover, Avatar, AvatarImage, AvatarFallback } from "gpui-base";
-import { exec, appHome, home, theme, settings, nextCommand } from "herdr";
+import { exec, appHome, home, theme, settings, nextCommand, readTextFile } from "herdr";
 import {
   PALETTES,
   availableYears,
@@ -30,6 +30,8 @@ const CELL_GAP = 2;
 const WEEK_WIDTH = CELL + CELL_GAP;
 const DAY_LABEL_WIDTH = 30;
 const MAX_FACET_OPTIONS = 250;
+const DEFAULT_NODE = "node";
+const RUNTIME_FILE = "mods/insights/runtime.json";
 
 const HEAT_COLORS = {
   blue: {
@@ -71,7 +73,7 @@ function sanitizeError(error) {
 function resultError(result) {
   const stderr = String(result?.stderr ?? "").trim();
   const stdout = String(result?.stdout ?? "").trim();
-  let text = stderr || stdout;
+  const text = stderr || stdout;
   if (!text) return `Collector exited with code ${result?.code ?? "?"}.`;
   try {
     const parsed = JSON.parse(text);
@@ -83,7 +85,35 @@ function resultError(result) {
   } catch {
     // Diagnostics are plain text.
   }
-  return text.split(/\r?\n/)[0];
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  // Node startup failures put an internal frame first; prefer the real exception line.
+  const errorLine = lines.find((line) => /^(?:[A-Za-z][\w.]*Error|Error|error):/.test(line));
+  return sanitizeError(errorLine || lines.find((line) => !/^at\s/.test(line)) || text);
+}
+
+function parseRuntimeNode(raw) {
+  if (raw === null || raw === undefined) return DEFAULT_NODE;
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`runtime.json is not valid JSON: ${sanitizeError(error)}`, { cause: error });
+  }
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("runtime.json must contain one JSON object with a node string.");
+  }
+  if (typeof config.node !== "string") {
+    throw new Error("runtime.json must contain a node string.");
+  }
+  const node = config.node.trim();
+  if (!node) throw new Error("runtime.json node must not be empty.");
+  if (/[\u0000-\u001f\u007f]/.test(config.node)) {
+    throw new Error("runtime.json node must not contain NUL or control characters.");
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(node) && !/^[a-z]:[\\/]/i.test(node)) {
+    throw new Error("runtime.json node must be a Node executable path, not a URL.");
+  }
+  return node;
 }
 
 function parseSnapshot(stdout) {
@@ -369,6 +399,10 @@ export default class Insights extends View {
     this.timer = null;
     this.timerSeconds = null;
     this.commandTask = null;
+    this.runtimeTask = null;
+    this.runtimeReady = false;
+    this.runtimeError = null;
+    this.nodeBinary = null;
     this.dashboardCache = createDashboardCache();
 
     const t = theme();
@@ -430,8 +464,23 @@ export default class Insights extends View {
       notifyCx.notify();
     });
 
-    this.refresh(cx);
-    this.schedule(cx);
+    this.runtimeTask = cx.spawn(async (runtimeCx) => {
+      try {
+        const raw = await readTextFile(this.runtimePath());
+        this.nodeBinary = parseRuntimeNode(raw);
+      } catch (error) {
+        this.runtimeError = `Insights runtime configuration failed at ${this.runtimePath()}: ${sanitizeError(error)}`;
+        this.error = this.runtimeError;
+      } finally {
+        this.runtimeReady = true;
+        this.loading = false;
+      }
+      if (this.nodeBinary) {
+        this.refresh(runtimeCx);
+        this.schedule(runtimeCx);
+      }
+      runtimeCx.notify();
+    });
     this.commandTask = cx.spawn(async (commandCx) => {
       for (;;) {
         let command;
@@ -454,6 +503,7 @@ export default class Insights extends View {
   close() {
     try { this.timer?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
+    try { this.runtimeTask?.cancel(); } catch { /* already gone */ }
     for (const state of [this.nameInput, this.handleInput, this.avatarInput, this.refreshInput]) {
       try { state?.release(); } catch { /* already released */ }
     }
@@ -471,6 +521,10 @@ export default class Insights extends View {
     return `${appHome()}/mods/insights/collector.mjs`;
   }
 
+  runtimePath() {
+    return `${appHome()}/${RUNTIME_FILE}`;
+  }
+
   storePath() {
     return `${appHome()}/data/insights/insights.json`;
   }
@@ -484,6 +538,13 @@ export default class Insights extends View {
   }
 
   refresh(cx) {
+    if (!this.runtimeReady) return;
+    if (this.runtimeError) {
+      this.loading = false;
+      this.error = this.runtimeError;
+      cx.notify();
+      return;
+    }
     if (this.busy()) return;
     this.loading = true;
     this.error = null;
@@ -492,7 +553,7 @@ export default class Insights extends View {
     const store = this.storePath();
     cx.spawn(async (refreshCx) => {
       try {
-        const result = await exec("node", [collector, "snapshot", "--store", store, "--home", home()]);
+        const result = await exec(this.nodeBinary, [collector, "snapshot", "--store", store, "--home", home()]);
         if (result.code !== 0) throw new Error(resultError(result));
         const snapshot = parseSnapshot(result.stdout);
         if (!isSnapshot(snapshot)) throw new Error("The collector returned an unexpected snapshot.");
@@ -699,6 +760,12 @@ export default class Insights extends View {
   }
 
   saveConfig(cx) {
+    if (!this.runtimeReady) return;
+    if (this.runtimeError) {
+      this.saveError = this.runtimeError;
+      cx.notify();
+      return;
+    }
     if (this.busy()) return;
     let config;
     try {
@@ -717,7 +784,7 @@ export default class Insights extends View {
     const store = this.storePath();
     cx.spawn(async (saveCx) => {
       try {
-        const result = await exec("node", [
+        const result = await exec(this.nodeBinary, [
           collector,
           "configure",
           "--store",
