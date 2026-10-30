@@ -10,8 +10,11 @@ const analytics = await import(analyticsUrl);
 const analyticsNames = Object.keys(analytics).join(", ");
 const { compactDashboard, deriveDashboard } = analytics;
 
+globalThis.__insightsTestHostCalls = { inputStates: 0, editorStates: 0 };
+
 globalThis.__insightsTestInputState = {
   new(options = {}) {
+    globalThis.__insightsTestHostCalls.inputStates += 1;
     const state = {
       text: String(options.value ?? ""),
       released: false,
@@ -27,6 +30,7 @@ globalThis.__insightsTestInputState = {
 
 globalThis.__insightsTestEditorState = {
   new(options = {}) {
+    globalThis.__insightsTestHostCalls.editorStates += 1;
     const state = {
       text: String(options.value ?? "{}"),
       released: false,
@@ -394,6 +398,47 @@ test("dashboard render uses the precomputed presentation and builds closed filte
   assert.match(mainSource, /scheduleDashboard\(clickCx, \{ force: true \}\)/);
 });
 
+test("initial async snapshot publishes the dashboard before settings host controls exist", async () => {
+  globalThis.__insightsTestHostCalls = { inputStates: 0, editorStates: 0 };
+  const state = useHerdr({ readTextFile: () => JSON.stringify({ node: "/test/node" }) });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  const notifications = [];
+  const notify = cx.notify.bind(cx);
+  cx.notify = () => {
+    notifications.push({ dashboard: instance.dashboard?.period ?? null, loading: instance.loading });
+    notify();
+  };
+  instance.init({}, cx);
+
+  assert.equal(instance.refreshInput, null);
+  assert.equal(instance.configEditor, null);
+  assert.equal(instance.sourceInputs.size, 0);
+
+  await flush();
+  await flush();
+  await flush();
+
+  assert.equal(state.execCalls.length, 1);
+  assert.equal(instance.snapshot?.rowCount, 0);
+  assert.equal(instance.dashboard?.period, "all");
+  assert.equal(instance.dashboardKey !== null, true);
+  assert.equal(instance.refreshInput, null, "dashboard refresh must not create the refresh input");
+  assert.equal(instance.configEditor, null, "dashboard refresh must not create the JSON editor");
+  assert.equal(instance.sourceInputs.size, 0, "dashboard refresh must not create source inputs");
+  assert.deepEqual(globalThis.__insightsTestHostCalls, { inputStates: 0, editorStates: 0 });
+  assert.equal(calls.notify > 0, true);
+  assert.deepEqual(notifications.at(-1), { dashboard: "all", loading: false });
+
+  instance.openSettings(cx);
+  assert.equal(instance.refreshInput !== null, true);
+  assert.equal(instance.configEditor !== null, true);
+  assert.equal(instance.sourceInputs.size, 1);
+  assert.deepEqual(globalThis.__insightsTestHostCalls, { inputStates: 2, editorStates: 1 });
+  assert.match(instance.configEditor.value(), /"refreshSeconds": 60/);
+  instance.close();
+});
+
 test("form saves preserve the legacy profile and multi-root source mappings", () => {
   const instance = blankInstance();
   const saved = savedSnapshot();
@@ -430,24 +475,26 @@ test("form saves preserve the legacy profile and multi-root source mappings", ()
   assert.equal(config.refreshSeconds, 120);
 });
 
-test("background snapshots preserve dirty draft sources and custom fields", () => {
+test("background snapshots leave closed settings drafts and host inputs untouched", async () => {
   const draft = configDraft();
   const customState = {
     value: "~/custom",
     released: false,
-    set_value(value) { this.value = String(value); },
+    writes: 0,
+    set_value(value) { this.writes += 1; this.value = String(value); },
     on() {},
   };
   const instance = blankInstance();
   Object.assign(instance, {
+    showSettings: false,
     configDirty: true,
     editorDirty: false,
     rootsDirty: false,
     refreshDirty: false,
     configDraft: draft,
     sourceInputs: new Map([["custom", customState]]),
-    refreshInput: { set_value() {}, value: () => "120" },
-    configEditor: { value: () => JSON.stringify(draft), set_value() {}, on() {} },
+    refreshInput: { writes: 0, set_value() { this.writes += 1; }, value: () => "120" },
+    configEditor: { writes: 0, value: () => JSON.stringify(draft), set_value() { this.writes += 1; }, on() {} },
     setEditorText() { this.editorTextWrites = (this.editorTextWrites ?? 0) + 1; },
     schedule() { this.scheduleCalls = (this.scheduleCalls ?? 0) + 1; },
     scheduleDashboard() { this.dashboardUpdates = (this.dashboardUpdates ?? 0) + 1; },
@@ -458,40 +505,57 @@ test("background snapshots preserve dirty draft sources and custom fields", () =
   assert.equal(instance.sourceInputs.has("saved"), false);
   assert.equal(instance.sourceInputs.get("custom"), customState);
   assert.equal(customState.released, false);
+  assert.equal(customState.writes, 0);
   assert.deepEqual(instance.configDraft.sources[0].mapping, { input: "usage.input" });
   assert.deepEqual(instance.configDraft.sources[0].extra, { keep: true });
   assert.deepEqual(instance.configDraft.customTopLevel, { keep: true });
   assert.equal(instance.editorTextWrites ?? 0, 0);
+  assert.equal(instance.refreshInput.writes, 0);
+  assert.equal(instance.configEditor.writes, 0);
   assert.equal(instance.scheduleCalls, 1);
 
+  const editorInstance = blankInstance();
   const savedState = {
     value: "~/saved",
     released: false,
-    set_value(value) { this.value = String(value); },
+    writes: 0,
+    set_value(value) { this.writes += 1; this.value = String(value); },
     release() { this.released = true; },
     on() {},
   };
-  const editorInstance = blankInstance();
   Object.assign(editorInstance, {
+    showSettings: false,
     configDirty: false,
     editorDirty: true,
     rootsDirty: false,
     refreshDirty: false,
     configDraft: JSON.parse(JSON.stringify(savedSnapshot().config)),
     sourceInputs: new Map([["saved", savedState]]),
-    refreshInput: { set_value() {}, value: () => "60" },
-    configEditor: { value: () => JSON.stringify(draft), set_value() {}, on() {} },
+    refreshInput: { writes: 0, set_value() { this.writes += 1; }, value: () => "60" },
+    configEditor: { writes: 0, value: () => JSON.stringify(draft), set_value() { this.writes += 1; }, on() {} },
     setEditorText() { this.editorTextWrites = (this.editorTextWrites ?? 0) + 1; },
     schedule() { this.scheduleCalls = (this.scheduleCalls ?? 0) + 1; },
     scheduleDashboard() { this.dashboardUpdates = (this.dashboardUpdates ?? 0) + 1; },
   });
 
   editorInstance.applySnapshot(presentationFor(savedSnapshot(), editorInstance.dashboardOptions()), fakeCx());
-  assert.equal(editorInstance.sourceInputs.has("custom"), true);
-  assert.equal(editorInstance.sourceInputs.has("saved"), false);
-  assert.equal(savedState.released, true);
+  assert.equal(editorInstance.sourceInputs.has("saved"), true);
+  assert.equal(savedState.released, false);
+  assert.equal(savedState.writes, 0);
   assert.equal(editorInstance.configEditor.value(), JSON.stringify(draft));
   assert.equal(editorInstance.editorTextWrites ?? 0, 0);
+
+  // Reopening Settings after a closed background refresh must reuse the dirty draft.
+  instance.showSettings = true;
+  const { cx } = liveCx();
+  instance.applySnapshot(presentationFor(savedSnapshot(), instance.dashboardOptions()), cx);
+  await flush();
+  await flush();
+  assert.equal(instance.sourceInputs.get("custom"), customState);
+  assert.equal(customState.released, false);
+  assert.deepEqual(instance.configDraft.sources[0].mapping, { input: "usage.input" });
+  assert.equal(instance.editorTextWrites ?? 0, 0);
+  assert.equal(instance.configEditor.writes, 0);
 });
 
 test("async presentation refresh clears busy state and exposes a finite error", async () => {

@@ -410,6 +410,10 @@ export default class Insights extends View {
     this.syncingInputs = false;
     this.syncingEditor = false;
     this.sourceInputs = new Map();
+    this.refreshInput = null;
+    this.configEditor = null;
+    this.settingsTask = null;
+    this.settingsQueued = false;
     this.timer = null;
     this.timerSeconds = null;
     this.commandTask = null;
@@ -429,51 +433,6 @@ export default class Insights extends View {
     this.refreshWatchdog = null;
     this.saveWatchdog = null;
     this.years = [Number(todayKey().slice(0, 4))];
-
-    const t = theme();
-    const editorOptions = {
-      language: "json",
-      value: "{}",
-      font_size: 12,
-      line_numbers: true,
-      folding: false,
-      soft_wrap: false,
-      syntax: {
-        keyword: t.ansi5,
-        string: t.ansi2,
-        comment: t.dim,
-        function: t.ansi4,
-        type: t.ansi3,
-        number: t.ansi1,
-        constant: t.ansi6,
-      },
-    };
-    if (settings()?.font_family) editorOptions.font_family = settings().font_family;
-
-    this.refreshInput = InputState.new({ value: "60" });
-    this.configEditor = EditorState.new(editorOptions);
-
-    this.refreshInput.on("change", () => {
-      if (this.syncingInputs) return;
-      this.refreshDirty = true;
-      this.configDirty = true;
-      this.saveMessage = null;
-    });
-    this.refreshInput.on("blur", (_event, notifyCx) => notifyCx.notify());
-    this.refreshInput.on("submit", (_event, submitCx) => this.saveConfig(submitCx));
-
-    this.configEditor.on("change", () => {
-      if (this.syncingEditor) return;
-      const value = this.configEditor.value();
-      if (!this.editorDirty && value === this.configText) return;
-      this.editorDirty = true;
-      this.configDirty = true;
-      this.saveMessage = null;
-    });
-    this.configEditor.on("blur", (_event, notifyCx) => {
-      this.applyEditorDraft();
-      notifyCx.notify();
-    });
 
     this.runtimeTask = cx.spawn(async (runtimeCx) => {
       try {
@@ -547,6 +506,7 @@ export default class Insights extends View {
     try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.refreshWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.saveWatchdog?.cancel(); } catch { /* already gone */ }
+    try { this.settingsTask?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
     try { this.runtimeTask?.cancel(); } catch { /* already gone */ }
     try { this.refreshInput?.release(); } catch { /* already released */ }
@@ -554,6 +514,107 @@ export default class Insights extends View {
       try { state.release(); } catch { /* already released */ }
     }
     try { this.configEditor?.release(); } catch { /* already released */ }
+    this.refreshInput = null;
+    this.configEditor = null;
+    this.settingsTask = null;
+    this.settingsQueued = false;
+    this.sourceInputs = new Map();
+  }
+
+  editorOptions() {
+    const t = theme();
+    const options = {
+      language: "json",
+      value: this.configText || "{}",
+      font_size: 12,
+      line_numbers: true,
+      folding: false,
+      soft_wrap: false,
+      syntax: {
+        keyword: t.ansi5,
+        string: t.ansi2,
+        comment: t.dim,
+        function: t.ansi4,
+        type: t.ansi3,
+        number: t.ansi1,
+        constant: t.ansi6,
+      },
+    };
+    if (settings()?.font_family) options.font_family = settings().font_family;
+    return options;
+  }
+
+  // Native editor and source inputs are only needed while Settings is open.
+  // The dashboard never constructs or syncs them during a background snapshot.
+  ensureSettingsControls() {
+    if (!this.snapshot && !this.configDraft) return null;
+    const savedConfig = normalizeConfig(this.snapshot?.config ?? {});
+    const config = this.configDirty || this.editorDirty ? this.draftConfig(savedConfig) : savedConfig;
+    if (!this.configDraft) this.configDraft = deepClone(config);
+    if (!this.configText) this.configText = prettyJson(this.configDraft);
+
+    if (!this.configEditor) {
+      this.configEditor = EditorState.new(this.editorOptions());
+      this.configEditor.on("change", () => {
+        if (this.syncingEditor || !this.configEditor) return;
+        const value = this.configEditor.value();
+        if (!this.editorDirty && value === this.configText) return;
+        this.editorDirty = true;
+        this.configDirty = true;
+        this.saveMessage = null;
+      });
+      this.configEditor.on("blur", (_event, notifyCx) => {
+        this.applyEditorDraft();
+        notifyCx.notify();
+      });
+    }
+
+    if (!this.refreshInput) {
+      this.refreshInput = InputState.new({ value: String(config.refreshSeconds) });
+      this.refreshInput.on("change", () => {
+        if (this.syncingInputs) return;
+        this.refreshDirty = true;
+        this.configDirty = true;
+        this.saveMessage = null;
+      });
+      this.refreshInput.on("blur", (_event, notifyCx) => notifyCx.notify());
+      this.refreshInput.on("submit", (_event, submitCx) => this.saveConfig(submitCx));
+    }
+    return config;
+  }
+
+  syncSettingsControls() {
+    if (!this.showSettings) return;
+    const config = this.ensureSettingsControls();
+    if (!config) return;
+    if (!this.configDirty && !this.editorDirty) this.setEditorText(this.configText || prettyJson(config));
+    this.ensureSourceInputs(config);
+    if (!this.rootsDirty) this.syncSourceInputs(config);
+    if (!this.refreshDirty) this.syncRefreshInput(config);
+  }
+
+  scheduleSettingsSync(cx) {
+    if (!this.showSettings) return;
+    if (this.settingsTask) {
+      this.settingsQueued = true;
+      return;
+    }
+    let task = null;
+    task = cx.spawn(async (syncCx) => {
+      try {
+        if (this.showSettings) this.syncSettingsControls();
+      } catch (error) {
+        this.saveError = sanitizeError(error);
+      } finally {
+        if (this.settingsTask === task) this.settingsTask = null;
+        if (this.showSettings && this.settingsQueued) {
+          this.settingsQueued = false;
+          this.scheduleSettingsSync(syncCx);
+        }
+        syncCx.notify();
+      }
+    });
+    this.settingsTask = task;
   }
 
   busy() {
@@ -753,8 +814,10 @@ export default class Insights extends View {
       } finally {
         this.loading = false;
         this.cancelWatchdog("refresh");
-        if (failure) this.error = sanitizeError(failure);
-        refreshCx.notify();
+        if (failure) {
+          this.error = sanitizeError(failure);
+          refreshCx.notify();
+        }
       }
       if (!payload) return;
       this.error = null;
@@ -773,7 +836,6 @@ export default class Insights extends View {
     this.cancelDashboardWork();
     this.snapshot = snapshot;
     const savedConfig = normalizeConfig(snapshot.config);
-    const config = this.configDirty || this.editorDirty ? this.draftConfig(savedConfig) : savedConfig;
     const today = todayKey();
     const years = Array.isArray(payload.dashboard?.years) && payload.dashboard.years.length
       ? payload.dashboard.years
@@ -800,18 +862,19 @@ export default class Insights extends View {
 
     if (!this.configDirty && !this.editorDirty) {
       this.configDraft = deepClone(savedConfig);
-      this.setEditorText(prettyJson(this.configDraft));
+      this.configText = prettyJson(this.configDraft);
     }
 
-    // A poll must never release source inputs that only exist in an unsaved draft.
-    this.ensureSourceInputs(config);
-    if (!this.rootsDirty) this.syncSourceInputs(config);
-    if (!this.refreshDirty) this.syncRefreshInput(config);
+    // Only compact metadata and the prepared dashboard are applied here. The
+    // native settings controls are created or synced by a separate Task after
+    // this notification, so they can never interrupt the first dashboard frame.
+    cx.notify();
+    if (this.showSettings) this.scheduleSettingsSync(cx);
   }
 
   draftConfig(fallback) {
     const base = this.configDraft ?? fallback ?? this.snapshot?.config ?? {};
-    if (this.editorDirty) {
+    if (this.editorDirty && this.configEditor) {
       try {
         const parsed = JSON.parse(this.configEditor.value());
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return normalizeConfig(parsed);
@@ -834,7 +897,7 @@ export default class Insights extends View {
   }
 
   syncRefreshInput(config) {
-    if (this.refreshDirty) return;
+    if (this.refreshDirty || !this.refreshInput) return;
     this.syncingInputs = true;
     try {
       this.refreshInput.set_value(String(config.refreshSeconds));
@@ -950,8 +1013,8 @@ export default class Insights extends View {
     }
 
     if (this.refreshDirty || !this.editorDirty) {
-      const seconds = Number(this.refreshInput.value());
-      if (Number.isFinite(seconds)) config.refreshSeconds = clampRefreshSeconds(seconds);
+      const current = this.refreshInput ? Number(this.refreshInput.value()) : Number(config.refreshSeconds);
+      if (Number.isFinite(current)) config.refreshSeconds = clampRefreshSeconds(current);
     }
     config.refreshSeconds = clampRefreshSeconds(config.refreshSeconds);
     if (config.includeCache === undefined) config.includeCache = true;
@@ -1065,7 +1128,7 @@ export default class Insights extends View {
 
   openSettings(cx) {
     this.showSettings = true;
-    if (this.snapshot) this.ensureSourceInputs(this.draftConfig(normalizeConfig(this.snapshot.config)));
+    this.syncSettingsControls();
     cx.notify();
   }
 
@@ -1582,6 +1645,11 @@ export default class Insights extends View {
   }
 
   settingsView(t) {
+    if (!this.configEditor || !this.refreshInput) {
+      return card(t, 20).gap(8)
+        .child(div().text_size(14).font_semibold().child("Preparing settings"))
+        .child(div().text_size(11.5).text_color(t.muted).child("Initializing the native source and configuration controls."));
+    }
     const config = normalizeConfig(this.configDraft ?? this.snapshot?.config ?? {});
     const textInput = (state) => Input.new(state).w_full().h(34).px(10).rounded(8).border_1().border_color(t.input)
       .bg(t.background).text_size(12.5).text_color(t.foreground).focus((style) => style.border_color(t.accent));

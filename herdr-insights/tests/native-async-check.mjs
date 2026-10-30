@@ -4,8 +4,11 @@
 // The older loaded-render check injected applySnapshot in init, which never
 // exercised the exec -> Task continuation -> timer -> presentation helper path.
 // This harness launches a throwaway Herdr window with a minimal layout, a
-// fixture store (10k rows by default), and the real presenter helper. It fails
-// on the old "error in a promise continuation: interrupted" signature.
+// fixture store (10k rows by default), and the real presenter helper. Startup
+// overlays are closed before the layout switch, and the first settled frame is
+// captured before another status command so a later notify cannot mask a failed
+// cold dashboard render. It fails on the old "error in a promise continuation:
+// interrupted" signature.
 //
 // Usage:
 //   node tests/native-async-check.mjs
@@ -238,17 +241,21 @@ try {
     await sleep(500);
   }
   if (!status) throw new Error("Herdr did not become ready");
+  // Close startup overlays before the layout switch. Closing them afterwards
+  // forces a second redraw and can hide a failed first dashboard frame.
+  const closed = await runCli(["do", "overlay.close"], home);
+  if (closed.code !== 0) throw new Error(closed.stderr || "overlay.close failed");
+  await sleep(500);
   const switched = await runCli(["do", "layout.switch", "--name", "insights-async"], home);
   if (switched.code !== 0) throw new Error(switched.stderr || "layout.switch failed");
-  await sleep(1_000);
-  await runCli(["do", "overlay.close"], home);
   await sleep(Number(argument("--wait", sourceStorePath ? 20_000 : 8_000)));
 
+  // Capture the first settled frame before asking for status again.
+  const shot = await runCli(["shot", shotPath], home);
+  if (shot.code !== 0) throw new Error(shot.stderr || "herdr-app shot failed");
   const finalStatus = await runCli(["status"], home);
   if (finalStatus.code !== 0) throw new Error(finalStatus.stderr || "herdr-app status failed");
   status = JSON.parse(finalStatus.stdout);
-  const shot = await runCli(["shot", shotPath], home);
-  if (shot.code !== 0) throw new Error(shot.stderr || "herdr-app shot failed");
 
   if (status.layout !== "insights-async") throw new Error(`unexpected layout ${JSON.stringify(status.layout)}`);
   const errors = Array.isArray(status.errors) ? status.errors : [];

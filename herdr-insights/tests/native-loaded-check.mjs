@@ -114,7 +114,7 @@ try {
   };
   main = main.replace(constant, `const INJECTED_PRESENTATION = ${JSON.stringify(presentation)};\n${constant}`);
   let injected = "    this.applySnapshot(INJECTED_PRESENTATION, cx);\n";
-  if (mode === "settings") injected += "    this.showSettings = true;\n";
+  if (mode === "settings") injected += "    this.openSettings(cx);\n";
   if (mode === "menu") {
     injected += [
       "    this.openFilter = \"ins-project-filter\";",

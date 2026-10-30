@@ -110,7 +110,10 @@ version gate, so an older Node can still remove a clean install.
   only their own fields and preserve custom source mappings.
 
 The dashboard has no profile or avatar header; usage filters and data start the
-view. Mod commands share the UI handlers for automation: `insights.refresh`,
+view. A background snapshot publishes only the compact metadata and prepared
+dashboard before a notification. Native settings controls are created or synced
+lazily when Settings opens, never during the first dashboard refresh. Mod
+commands share the UI handlers for automation: `insights.refresh`,
 `insights.settings`, `insights.dashboard`, `insights.period.week|month|year|all`,
 `insights.year.prev|next`, `insights.heatmap.daily|weekly|cumulative`,
 `insights.group.model|provider`, `insights.source.<id|all>`, and
@@ -524,9 +527,12 @@ npm run install:local --prefix herdr-insights -- --help
 
 `tests/native-loaded-check.mjs` checks the loaded dashboard render budget through
 `applySnapshot`. `tests/native-async-check.mjs` is the true lifecycle check: it
-launches a throwaway Herdr app home with a minimal layout, runs the real
-`exec -> Task -> timer -> presenter` path with 10k rows, fails on interrupted
-promise continuations or mod errors, and stops only the process it started.
+closes startup overlays before switching to a minimal layout, runs the real
+`exec -> Task -> timer -> presenter` path with 10k rows, captures the first
+settled frame before another status command, fails on interrupted promise
+continuations or mod errors, and stops only the process it started. Inspect the
+screenshot to confirm the dashboard is visible without an interrupted banner; a
+notify from a later command would hide that first-load regression.
 
 ```sh
 node herdr-insights/tests/native-loaded-check.mjs --snapshot <snapshot.json>
