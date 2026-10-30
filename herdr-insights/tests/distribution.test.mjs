@@ -87,6 +87,5 @@ test("Recipe follows Herdr's required order and remains self-contained", async (
     assert.ok(index > previous, `${marker} must exist and follow the preceding section`);
     previous = index;
   }
-  assert.match(recipe, /synthetic data/i);
   assert.doesNotMatch(recipe, /schema is documented in README|exact README schema/);
 });

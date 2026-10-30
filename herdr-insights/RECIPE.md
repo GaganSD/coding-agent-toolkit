@@ -6,9 +6,6 @@ and opens in its own tab without changing terminals, layouts, or keys.
 
 ![Insights](preview.png)
 
-The screenshot uses synthetic data for illustration. Never include those rows or
-future model names as defaults: the installed mod shows only recorded usage.
-
 **What you see:** A vertically scrollable dashboard centered at a maximum width
 of 1180px. Use Herdr theme colors, 1px borders, 8px card corners, 6px control
 corners, no decorative shadows, and 4/8/12/16/24px spacing. Page padding is 12px
@@ -46,7 +43,7 @@ metrics or heatmap. Menus cap choices at 250 while retaining selected values.
 Week, month, and current-year periods are calendar-to-date; past years are full.
 Compare with the same calendar portion of the previous period, clamping month
 ends. All has no comparison. The chart always spans 26 weeks ending at the selected
-period's end, rather than switching to daily buckets as in the illustrative preview.
+period's end.
 
 Weekly heatmap mode repeats each week's total on every day in that week;
 cumulative mode includes all preceding history. A streak ending yesterday still
@@ -117,8 +114,6 @@ a backup before rebuilding; read-only prepare must not repair or create stores.
 
 Never write layouts, keys, source transcripts, or an existing user's usage data
 from the installer. Do not copy an absolute runtime path from another machine.
-The preview is a native UI screenshot with synthetic data; the production dashboard
-must not imitate its daily-bucket mock behavior or fabricated model list.
 
 **Done when:** Package tests and checks pass, including distribution naming,
 PNG preview, recipe structure, no layouts, token accounting, deduplication,

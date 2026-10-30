@@ -8,8 +8,6 @@ Reads local sessions from **Pi, Codex, Claude Code, and OpenCode**.
 
 ![Insights](preview.png)
 
-*Preview uses synthetic data. The installed dashboard only shows recorded usage.*
-
 ## Install
 
 Installing requires Herdr and **Node.js 22.15+**. No dependencies or account needed.
