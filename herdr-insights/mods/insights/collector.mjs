@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
+import { realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -66,6 +66,30 @@ async function buildSnapshot(store, scan, nowIso, loadWarnings = [], loadErrors 
   };
 }
 
+/**
+ * Best-effort scan progress sidecar next to the store. The native view polls
+ * it only while a refresh is running; it is removed when the scan settles.
+ */
+function progressWriter(storePath) {
+  const progressPath = `${storePath}.progress.json`;
+  let lastWrite = 0;
+  return {
+    update(state) {
+      const now = Date.now();
+      if (now - lastWrite < 250 && state.processed < state.total) return;
+      lastWrite = now;
+      try {
+        writeFileSync(progressPath, `${JSON.stringify(state)}\n`);
+      } catch { /* progress is best-effort */ }
+    },
+    clear() {
+      try {
+        unlinkSync(progressPath);
+      } catch { /* already gone */ }
+    },
+  };
+}
+
 async function snapshotWithStore(storePath, home, { rebuild = false } = {}) {
   return withStoreLock(storePath, async () => {
     const loaded = await loadStore(storePath);
@@ -75,7 +99,13 @@ async function snapshotWithStore(storePath, home, { rebuild = false } = {}) {
       clearCollectedData(store);
       dirty = true;
     }
-    const scan = await scanSources(store, { home });
+    const progress = progressWriter(storePath);
+    let scan;
+    try {
+      scan = await scanSources(store, { home, onProgress: (state) => progress.update(state) });
+    } finally {
+      progress.clear();
+    }
     if (dirty || scan.dirty) await saveStore(storePath, store);
     const now = new Date().toISOString();
     return buildSnapshot(store, scan, now, loaded.warnings, loaded.errors);
@@ -116,7 +146,13 @@ async function configureStore(storePath, home, rawConfig, { rebuild = false } = 
       dirty = false;
     }
 
-    const scan = await scanSources(store, { home });
+    const progress = progressWriter(storePath);
+    let scan;
+    try {
+      scan = await scanSources(store, { home, onProgress: (state) => progress.update(state) });
+    } finally {
+      progress.clear();
+    }
     if (dirty || scan.dirty) await saveStore(storePath, store);
     const now = new Date().toISOString();
     return buildSnapshot(store, scan, now, loaded.warnings, loaded.errors);

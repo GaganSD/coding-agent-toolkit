@@ -608,7 +608,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   return dirty;
 }
 
-export async function scanSources(store, { home }) {
+export async function scanSources(store, { home, onProgress } = {}) {
   const warnings = [];
   const stats = {
     files: 0,
@@ -634,8 +634,11 @@ export async function scanSources(store, { home }) {
   const seenInodes = new Set();
   const seenPaths = new Set();
   let dirty = false;
+  let processed = 0;
 
   for (const found of discovered) {
+    onProgress?.({ processed, total: discovered.length, file: found.file });
+    processed += 1;
     if (seenPaths.has(found.file)) continue;
     let fileStat;
     try {

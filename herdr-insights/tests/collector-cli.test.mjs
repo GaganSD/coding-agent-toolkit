@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   realpath,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -69,6 +70,17 @@ test("snapshot works through a relative symlinked path with spaces and unicode",
   const snapshot = JSON.parse(result.stdout);
   assert.equal(snapshot.version, 1);
   assert.deepEqual(snapshot.rows, []);
+});
+
+test("snapshot removes its scan progress sidecar when it settles", async () => {
+  const { root, collector } = await symlinkedCollector();
+  const home = path.join(root, "home");
+  const store = path.join(root, "data", "insights.json");
+  await mkdir(home, { recursive: true });
+
+  const result = await run(collector, ["snapshot", "--store", store, "--home", home]);
+  assert.equal(result.code, 0, result.stderr);
+  await assert.rejects(stat(`${store}.progress.json`), /ENOENT/);
 });
 
 test("importing the collector through a symlinked path stays quiet", async () => {
