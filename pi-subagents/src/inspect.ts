@@ -204,7 +204,7 @@ export class InspectView implements Component, Focusable {
       ? ["Back", "Details", "Tools", "Older", "Latest", "Stop", "Resume"]
       : ["Back", "Details", "Tools", "Older", "Latest", "Stop"];
   }
-  invalidate(): void { this.input.invalidate(); }
+  invalidate(): void { this.input.invalidate(); this.markdownCache.clear(); this.bodyCache = undefined; }
   handleInput(data: string): void {
     if (this.closed) return;
     if (this.confirmStop) {

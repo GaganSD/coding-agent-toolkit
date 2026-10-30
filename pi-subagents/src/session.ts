@@ -231,8 +231,14 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
         throw error;
       }
     },
-    steer: message => session.steer(message),
-    followUp: message => session.followUp(message),
+    steer: async message => {
+      if (settled) throw new Error("Sub-agent settled; its session is being disposed and cannot process more input");
+      return session.steer(message);
+    },
+    followUp: async message => {
+      if (settled) throw new Error("Sub-agent settled; its session is being disposed and cannot process more input");
+      return session.followUp(message);
+    },
     abort: () => session.abort(),
     dispose() {
       disposed = true;

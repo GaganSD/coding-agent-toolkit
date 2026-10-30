@@ -317,6 +317,22 @@ test("conversation renders native markdown instead of raw markers; tool output s
   view.dispose();
 });
 
+test("invalidate re-renders cached markdown with the new theme", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "subagent-theme-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "thread.jsonl");
+  await writeFile(file, JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "# Plan\n\nbody" }] } }) + "\n");
+  let generation = 0;
+  const themed = { fg: (_color: string, text: string) => generation === 0 ? text : `NEW:${text}` } as Theme;
+  const run = { ...record(), sessionPath: file }, h = harness(run);
+  const view = new InspectView(terminal(), themed, run.id, h.actions, () => {}, new HumanState()); t.after(() => view.dispose());
+  await until(() => view.render(80).join("\n").includes("Plan"));
+  generation = 1;
+  view.invalidate();
+  const painted = view.render(80).join("\n");
+  assert(painted.includes("NEW:Plan"), "cached markdown lines do not survive theme invalidation");
+  view.dispose();
+});
+
 test("a throwing workspace host does not hang attach and uses the overlay", async () => {
   const h = harness();
   let overlay = 0;
