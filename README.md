@@ -1,3 +1,4 @@
+**New**: [Insights](https://github.com/GaganSD/coding-agent-toolkit/tree/main/herdr-insights) — Token usage insights for coding agents
 <table align="center"><tr><td>
 
 ```text
