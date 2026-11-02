@@ -4,8 +4,6 @@ import path from "node:path";
 
 import {
   PACKAGE_ROOT,
-  MODS,
-  MOD_NAMES,
   RUNTIME_NAME,
   assertNoSymlinkComponents,
   assertSupportedNodeVersion,
@@ -29,7 +27,7 @@ import {
   withInstallerLock,
 } from "./lib.mjs";
 
-import { prepareToolbar, applyToolbar } from "./toolbar.mjs";
+import { applyToolbar, prepareToolbar } from "./toolbar.mjs";
 
 function usage() {
   return `Insights local installer
@@ -45,11 +43,11 @@ Options:
   --app-home <folder>   Herdr app home (default: $HERDR_APP_HOME or ~/.config/herdr-app)
   -h, --help            Show this help
 
-The installer copies mods/insights and mods/insights-launcher and creates a personal
-layout with an Insights button beside the original tabs mod. It never edits shipped
-layouts/mods, keys, terminals, or insights.json. It generates mods/insights/runtime.json
-with the absolute Node executable used for installation. It does not publish or use
-the network.
+The installer copies mods/insights and creates a personal layout with an Insights
+button beside the original tabs mod. It never edits shipped layouts/mods, keys,
+terminals, or insights.json. It generates mods/insights/runtime.json with the
+absolute Node executable used for installation. It does not publish or use the
+network.
 `;
 }
 
@@ -129,26 +127,18 @@ async function addParentIssues(targetDirectory, target, issues) {
   }
 }
 
-async function collectInstallSources(sourceRoot) {
-  const sources = new Map();
-  for (const modName of MOD_NAMES) {
-    if (MODS[modName].optional && !await lstatOrNull(path.join(sourceRoot, MODS[modName].rel))) continue;
-    const source = await collectSourceFiles(sourceRoot, modName);
-    // Only the dashboard needs Node; the launcher runs entirely inside Herdr.
-    if (MODS[modName].runtime) {
-      source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
-      source.files.push(createRuntimeFile());
-    }
-    source.files.sort((left, right) => left.relative.localeCompare(right.relative));
-    sources.set(modName, source);
-  }
-  return sources;
+async function collectInstallSource(sourceRoot) {
+  const source = await collectSourceFiles(sourceRoot, "insights");
+  source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
+  source.files.push(createRuntimeFile());
+  source.files.sort((left, right) => left.relative.localeCompare(right.relative));
+  return source;
 }
 
-async function prepareInstall(appHome, source, modName, force) {
-  const targetDirectory = modDir(appHome, modName);
+async function prepareInstall(appHome, source, force) {
+  const targetDirectory = modDir(appHome, "insights");
   const targetDataDirectory = dataDir(appHome);
-  const targetManifest = manifestPath(appHome, modName);
+  const targetManifest = manifestPath(appHome, "insights");
 
   if (path.resolve(source.modDir) === path.resolve(targetDirectory)) {
     throw new Error("Source and target are the same mod folder; refusing to install over itself.");
@@ -164,7 +154,7 @@ async function prepareInstall(appHome, source, modName, force) {
     }
   }
 
-  const manifest = await readManifest(appHome, modName);
+  const manifest = await readManifest(appHome, "insights");
   if (targetStat && !manifest) {
     throw new Error(
       `Refusing an unowned collision at ${targetDirectory}.\nNo ${targetManifest} proves this installer owns it. Move the folder aside or install with Herdr's own mod tools.`,
@@ -210,38 +200,34 @@ async function prepareInstall(appHome, source, modName, force) {
     );
   }
 
-  return { appHome, source, targetDirectory, targetDataDirectory, manifest, sourcePaths, modName };
+  return { appHome, source, targetDirectory, targetDataDirectory, manifest, sourcePaths };
 }
 
 // Validate the exact buffered source (including runtime.json) before replacing
-// either live mod. A broken launcher must not partially upgrade the dashboard.
-async function checkInstallSources(sources) {
+// the live mod.
+async function checkInstallSource(source) {
   const staging = await fs.mkdtemp(path.join(os.tmpdir(), "insights-install-check-"));
   try {
-    for (const [modName, source] of sources) {
-      for (const file of source.files) {
-        const target = localPath(modDir(staging, modName), file.relative);
-        await fs.mkdir(path.dirname(target), { recursive: true });
-        await fs.writeFile(target, file.data, { mode: file.mode });
-      }
+    for (const file of source.files) {
+      const target = localPath(modDir(staging, "insights"), file.relative);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, file.data, { mode: file.mode });
     }
-    for (const modName of sources.keys()) {
-      const check = await runHerdr(["check", modDir(staging, modName)], {
-        env: { HERDR_APP_HOME: staging, HOME: staging },
-      });
-      relayHerdrOutput(check);
-      if (check.error || check.code !== 0 || check.signal) {
-        throw new Error(`${herdrFailure(check, "herdr-app check")}\nNo installed mod files were changed.`);
-      }
-      console.log(`herdr-app check passed (${modName}, staged source).`);
+    const check = await runHerdr(["check", modDir(staging, "insights")], {
+      env: { HERDR_APP_HOME: staging, HOME: staging },
+    });
+    relayHerdrOutput(check);
+    if (check.error || check.code !== 0 || check.signal) {
+      throw new Error(`${herdrFailure(check, "herdr-app check")}\nNo installed mod files were changed.`);
     }
+    console.log("herdr-app check passed (insights, staged source).");
   } finally {
     await fs.rm(staging, { recursive: true, force: true });
   }
 }
 
 async function applyInstall(plan) {
-  const { appHome, source, targetDirectory, targetDataDirectory, manifest, sourcePaths, modName } = plan;
+  const { appHome, source, targetDirectory, targetDataDirectory, manifest, sourcePaths } = plan;
   await ensureDirectory(appHome, path.join(appHome, "mods"), "Herdr mods directory");
   await ensureDirectory(appHome, targetDirectory, "Insights mod directory");
   await ensureDirectory(appHome, targetDataDirectory, "Insights data directory", 0o700);
@@ -307,7 +293,7 @@ async function applyInstall(plan) {
     ...retainedHashes,
     ...Object.fromEntries(source.files.map((file) => [file.relative, file.hash])),
   };
-  await writeManifest(appHome, installedHashes, modName);
+  await writeManifest(appHome, installedHashes, "insights");
 
   console.log(
     `Installed ${source.files.length} owned file(s) to ${targetDirectory} ` +
@@ -315,10 +301,8 @@ async function applyInstall(plan) {
         removed.length ? `, ${removed.length} stale removed` : ""
       }).`,
   );
-  if (MODS[modName].runtime) {
-    console.log(`Generated ${RUNTIME_NAME} for Node ${process.execPath}.`);
-    console.log(`Insights data stays at ${targetDataDirectory}; insights.json is untouched.`);
-  }
+  console.log(`Generated ${RUNTIME_NAME} for Node ${process.execPath}.`);
+  console.log(`Insights data stays at ${targetDataDirectory}; insights.json is untouched.`);
   for (const kept of keptStale) {
     console.warn(`Kept an owned file no longer in the source: ${kept}`);
   }
@@ -342,25 +326,19 @@ async function main() {
   try {
     assertSupportedNodeVersion();
     const sourceRoot = options.source ? path.resolve(expandHome(options.source)) : PACKAGE_ROOT;
-    // Validate every source before creating the app home. A bad --source must
+    // Validate the source before creating the app home. A bad --source must
     // not leave a new target directory behind.
-    const sources = await collectInstallSources(sourceRoot);
+    const source = await collectInstallSource(sourceRoot);
     const appHome = await resolveAppHome(options.appHome);
     await withInstallerLock(appHome, async () => {
-      // Preflight every target before changing either mod.
-      const plans = [];
-      for (const [modName, source] of sources) {
-        plans.push(await prepareInstall(appHome, source, modName, options.force));
-      }
-      const toolbar = sources.has("insights-launcher") ? await prepareToolbar(appHome) : null;
-      await checkInstallSources(sources);
+      // Preflight every target before changing the live mod.
+      let plan = await prepareInstall(appHome, source, options.force);
+      const toolbar = await prepareToolbar(appHome);
+      await checkInstallSource(source);
       // Native checks yield to the running app. Refuse edits/collisions made
       // during validation before replacing any live files.
-      for (let index = 0; index < plans.length; index += 1) {
-        const plan = plans[index];
-        plans[index] = await prepareInstall(appHome, plan.source, plan.modName, options.force);
-      }
-      for (const plan of plans) await applyInstall(plan);
+      plan = await prepareInstall(appHome, plan.source, options.force);
+      await applyInstall(plan);
       if (toolbar) await applyToolbar(toolbar);
       // Keep the previously documented flag working for existing install scripts.
       // Default installation still never opens a tab.

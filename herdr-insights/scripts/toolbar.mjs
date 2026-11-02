@@ -55,7 +55,7 @@ async function command(appHome, args) {
   return result.stdout;
 }
 
-/** Preserve the original tabs mod and its updates; compose one button beside it. */
+/** Preserve the original tabs mod and its updates; compose one native button beside it. */
 export function withInsightsToolbar(layout) {
   const copy = structuredClone(layout);
   const nodes = [];
@@ -78,7 +78,7 @@ export function withInsightsToolbar(layout) {
   tabs.resizable = false;
   tabs.children = [
     { id: "insights-original-tabs", type: "block", size: { weight: 1 }, content },
-    { id: BUTTON_ID, type: "block", size: { px: 104 }, content: { mod: "insights-launcher" } },
+    { id: BUTTON_ID, type: "block", size: { px: 104 }, content: { mod: "insights", props: { mode: "toolbar" } } },
   ];
   return copy;
 }

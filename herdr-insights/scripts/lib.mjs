@@ -13,11 +13,6 @@ export const MIN_NODE_VERSION = "22.15";
 export const RUNTIME_NAME = "runtime.json";
 export const MODS = Object.freeze({
   insights: { manifest: "install-manifest.json", rel: "mods/insights", runtime: true },
-  "insights-launcher": {
-    manifest: "launcher-install-manifest.json",
-    optional: true,
-    rel: "mods/insights-launcher",
-  },
 });
 export const MOD_NAMES = Object.keys(MODS);
 export const MANIFEST_VERSION = 1;

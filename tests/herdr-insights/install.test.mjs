@@ -12,6 +12,7 @@ import {
   INSTALL_SCRIPT,
   PACKAGE_ROOT,
   RUNTIME_REL,
+  TOOLBAR_LAYOUT,
   UNINSTALL_SCRIPT,
   assertFailure,
   assertStagedChecks,
@@ -45,12 +46,13 @@ test("manifest keys round-trip safely, including __proto__", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root, { ...DEFAULT_MOD_FILES, ["__proto__"]: "owned\n" });
   const appHome = path.join(root, "app");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const manifest = await readJson(path.join(appHome, "data/insights/install-manifest.json"));
   assert.equal(manifest.files.__proto__, hash("owned\n"));
-  assertSuccess(runUninstall({ appHome }));
+  assertSuccess(runUninstall({ appHome, fake }));
   assert.equal(await exists(path.join(appHome, "mods/insights/__proto__")), false);
 });
 
@@ -58,12 +60,13 @@ test("corrupt manifests fail closed with recovery guidance and preserve data", a
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const manifest = path.join(appHome, "data/insights/install-manifest.json");
   await fs.writeFile(manifest, "{broken");
   const before = await snapshotTree(appHome);
-  for (const result of [runInstall({ appHome, fake, sourceRoot }), runUninstall({ appHome })]) {
+  for (const result of [runInstall({ appHome, fake, sourceRoot }), runUninstall({ appHome, fake })]) {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /preserve or move aside both/);
     assert.match(result.stderr, /insights.json.*in place/);
@@ -75,6 +78,7 @@ test("reinstall retains ownership proof for edited stale files", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root, { ...DEFAULT_MOD_FILES, "stale.js": "original\n" });
   const appHome = path.join(root, "app");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const target = path.join(appHome, "mods/insights/stale.js");
@@ -85,7 +89,7 @@ test("reinstall retains ownership proof for edited stale files", async (t) => {
   assert.equal(manifest.files["stale.js"], hash("original\n"));
   assert.equal(await fs.readFile(target, "utf8"), "local edit\n");
   await fs.writeFile(target, "original\n");
-  assertSuccess(runUninstall({ appHome }));
+  assertSuccess(runUninstall({ appHome, fake }));
   assert.equal(await exists(target), false);
 });
 
@@ -139,7 +143,7 @@ test("fresh install copies only owned mod files and preserves local app state", 
   assert.equal(manifest.files[RUNTIME_REL], hash(runtimeContent()));
 
   const log = await readLog(fake);
-  assert.equal(log.length, 1);
+  assert.equal(log.length, 3);
   await assertStagedChecks(log, ["insights"], appHome);
 
   const fakeHome = path.join(root, "fake home");
@@ -161,6 +165,7 @@ test("Herdr-generated declarations and jsconfig.json are ignored by source insta
     ...generatedFiles,
   });
   const appHome = path.join(root, "app home");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
 
   const result = runInstall({ appHome, fake, sourceRoot });
@@ -196,6 +201,7 @@ test("runtime.json is generated from the installer Node, replaces a source copy,
     [RUNTIME_REL]: '{"node":"/definitely/not/the/installer/node"}\n',
   });
   const appHome = path.join(root, "runtime app home");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
 
   const result = runInstall({ appHome, fake, sourceRoot });
@@ -232,6 +238,7 @@ test("install runs only herdr-app check and never opens a tab", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root, DEFAULT_MOD_FILES, "reviewed source's tree");
   const appHome = path.join(root, "herdr app's home (dev)");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
 
   const result = runInstall({
@@ -243,7 +250,7 @@ test("install runs only herdr-app check and never opens a tab", async (t) => {
   assertSuccess(result);
 
   const log = await readLog(fake);
-  assert.equal(log.length, 1);
+  assert.equal(log.length, 3);
   await assertStagedChecks(log, ["insights"], appHome);
   assert.doesNotMatch(result.stdout, /Opened the Insights tab/);
 });
@@ -310,7 +317,7 @@ test("locally edited owned files are refused unless --force is explicit", async 
   assertFailure(refused);
   assert.match(refused.stderr, /edited locally/i);
   assert.equal(await fs.readFile(targetMain, "utf8"), "local edit\n");
-  assert.equal((await readLog(fake)).length, 1);
+  assert.equal((await readLog(fake)).length, 3);
 
   const forced = runInstall({ appHome, fake, sourceRoot, extra: ["--force"] });
   assertSuccess(forced);
@@ -418,6 +425,7 @@ test("source and target symlinks are refused without following or overwriting th
 
   await fs.unlink(path.join(sourceRoot, "mods", "insights", "leak.mjs"));
   const targetApp = path.join(root, "target app home");
+  await writeTree(targetApp, { "layouts/main.json": TOOLBAR_LAYOUT });
   assertSuccess(runInstall({ appHome: targetApp, fake, sourceRoot }));
   const targetMain = path.join(targetApp, "mods", "insights", "main.js");
   await fs.unlink(targetMain);
@@ -464,15 +472,15 @@ test("a failed herdr-app check exits nonzero, does not open, and the install can
   assert.equal(await exists(path.join(appHome, "mods", "insights", "main.js")), false);
   assert.deepEqual(await snapshotTree(appHome), Object.entries(APP_FILES).sort(([a], [b]) => a.localeCompare(b)));
   let log = await readLog(fake);
-  assert.equal(log.length, 1);
-  assert.equal(log[0].args[0], "check");
+  assert.equal(log.length, 2);
+  assert.equal(log[1].args[0], "check");
 
   const rerun = runInstall({ appHome, fake, sourceRoot });
   assertSuccess(rerun);
   log = await readLog(fake);
-  assert.equal(log.length, 2);
-  assert.equal(log[1].args[0], "check");
-  assert.equal(log.filter((entry) => entry.args[0] === "do").length, 0);
+  assert.equal(log.length, 5);
+  assert.equal(log[3].args[0], "check");
+  assert.equal(log.filter((entry) => entry.args[1] === "layout.clone").length, 1);
   assert.equal(
     await fs.readFile(path.join(appHome, "data", "insights", "insights.json"), "utf8"),
     APP_FILES["data/insights/insights.json"],
@@ -491,7 +499,7 @@ test("uninstall removes only unchanged owned files and preserves data and local 
   await fs.writeFile(targetMain, "local edit\n");
   await fs.writeFile(path.join(appHome, "mods", "insights", "local-note.txt"), "local\n");
 
-  const result = runUninstall({ appHome });
+  const result = runUninstall({ appHome, fake });
   assertSuccess(result);
   assert.match(result.stdout, /Removed 6 unchanged owned file/);
   assert.match(result.stderr, /Kept .*main\.js.*edited locally/);
@@ -521,7 +529,7 @@ test("uninstall removes a clean install, keeps data, and is safe without a manif
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
 
-  assertSuccess(runUninstall({ appHome }));
+  assertSuccess(runUninstall({ appHome, fake }));
   assert.equal(await exists(path.join(appHome, "mods", "insights")), false);
   assert.equal(await exists(path.join(appHome, "data", "insights", "install-manifest.json")), false);
   assert.equal(
@@ -533,7 +541,7 @@ test("uninstall removes a clean install, keeps data, and is safe without a manif
     "local data\n",
   );
 
-  const again = runUninstall({ appHome });
+  const again = runUninstall({ appHome, fake });
   assertSuccess(again);
   assert.match(again.stdout, /nothing to remove/);
 
@@ -561,6 +569,7 @@ test("uninstall prunes only owned-file parents and preserves nested unowned empt
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app home");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
 
@@ -569,7 +578,7 @@ test("uninstall prunes only owned-file parents and preserves nested unowned empt
   await fs.mkdir(unownedNested, { recursive: true });
   await fs.mkdir(unownedWithinOwnedParent, { recursive: true });
 
-  assertSuccess(runUninstall({ appHome }));
+  assertSuccess(runUninstall({ appHome, fake }));
   assert.equal(await exists(unownedNested), true);
   assert.equal(await exists(unownedWithinOwnedParent), true);
   assert.equal(await exists(path.join(appHome, "mods", "insights", "unowned-empty")), true);
@@ -703,6 +712,7 @@ test("uninstaller remains usable on an older Node runtime", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root);
   const appHome = path.join(root, "old node uninstall app home");
+  await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
 
@@ -712,7 +722,7 @@ test("uninstaller remains usable on an older Node runtime", async (t) => {
     {
       cwd: PACKAGE_ROOT,
       encoding: "utf8",
-      env: { ...process.env, HERDR_APP_HOME: appHome },
+      env: makeEnvironment(root, appHome, fake),
       maxBuffer: 10 * 1024 * 1024,
       shell: false,
       timeout: 30_000,

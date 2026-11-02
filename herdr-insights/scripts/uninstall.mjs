@@ -2,7 +2,6 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
-  MOD_NAMES,
   assertNoSymlinkComponents,
   isInside,
   lstatOrNull,
@@ -29,10 +28,10 @@ Options:
   --app-home <folder>   Herdr app home (default: $HERDR_APP_HOME or ~/.config/herdr-app)
   -h, --help            Show this help
 
-Only files recorded in data/insights/*install-manifest.json are removed, and only
+Only files recorded in data/insights/install-manifest.json are removed, and only
 when their content still matches. The owned personal toolbar layout is removed
-only if unchanged; Herdr returns to the original layout first. Edited/unowned files,
-shipped layouts, keys and data/insights/insights.json are left alone.
+only if unchanged; Herdr returns to the original layout first. Edited/unowned
+files, shipped layouts, keys and data/insights/insights.json are left alone.
 `;
 }
 
@@ -90,10 +89,10 @@ async function pruneOwnedDirectories(directories) {
   }
 }
 
-async function prepareUninstall(appHome, modName) {
-  const targetDirectory = modDir(appHome, modName);
-  const targetManifest = manifestPath(appHome, modName);
-  const manifest = await readManifest(appHome, modName);
+async function prepareUninstall(appHome) {
+  const targetDirectory = modDir(appHome, "insights");
+  const targetManifest = manifestPath(appHome, "insights");
+  const manifest = await readManifest(appHome, "insights");
 
   if (!manifest) {
     const target = await lstatOrNull(targetDirectory);
@@ -113,11 +112,11 @@ async function prepareUninstall(appHome, modName) {
     throw new Error(`Target mod path is not a directory: ${targetDirectory}`);
   }
 
-  return { appHome, targetDirectory, targetManifest, manifest, targetStat, modName };
+  return { appHome, targetDirectory, targetManifest, manifest, targetStat };
 }
 
 async function applyUninstall(plan) {
-  const { appHome, targetDirectory, targetManifest, manifest, targetStat, modName } = plan;
+  const { appHome, targetDirectory, targetManifest, manifest, targetStat } = plan;
   const removed = [];
   const kept = [];
   const ownedParents = [];
@@ -161,7 +160,7 @@ async function applyUninstall(plan) {
 
   const remainingEntries = Object.entries(remaining);
   if (remainingEntries.length > 0) {
-    await writeManifest(appHome, Object.fromEntries(remainingEntries), modName);
+    await writeManifest(appHome, Object.fromEntries(remainingEntries), "insights");
   } else {
     const currentManifest = await lstatOrNull(targetManifest);
     if (currentManifest) {
@@ -197,18 +196,12 @@ async function main() {
   try {
     const appHome = await resolveAppHome(options.appHome, { create: false });
     await withInstallerLock(appHome, async () => {
-      // Validate ownership, manifests and target types before deleting either mod.
-      const plans = [];
-      if (appHome) {
-        for (const modName of MOD_NAMES) {
-          const plan = await prepareUninstall(appHome, modName);
-          if (plan) plans.push(plan);
-        }
-      }
+      // Validate ownership, manifests and target types before deleting anything.
+      const plan = appHome ? await prepareUninstall(appHome) : null;
       const toolbar = await prepareToolbarRemoval(appHome);
       await removeToolbar(toolbar);
-      for (const plan of plans) await applyUninstall(plan);
-      if (plans.length === 0 && !toolbar) {
+      if (plan) await applyUninstall(plan);
+      if (!plan && !toolbar) {
         console.log("Insights is not installed by this package; nothing to remove.");
       }
     });

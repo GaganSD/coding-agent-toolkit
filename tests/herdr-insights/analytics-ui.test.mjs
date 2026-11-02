@@ -12,13 +12,13 @@ const analyticsNames = Object.keys(analytics).join(", ");
 const { buildHeatmap, compactDashboard, deriveDashboard } = analytics;
 
 function fakeNativeElement() {
-  const node = { childNodes: [], style: {} };
+  const node = { calls: [], childNodes: [], style: {} };
   let element;
   const methods = {
-    child(value) { node.childNodes.push(value); return element; },
-    children(values) { node.childNodes.push(...values); return element; },
+    child(value) { node.calls.push(["child", [value]]); node.childNodes.push(value); return element; },
+    children(values) { node.calls.push(["children", [values]]); node.childNodes.push(...values); return element; },
     when(condition, branch) { if (condition) branch(element); return element; },
-    w(value) { node.style.width = value; return element; },
+    w(value) { node.style.width = value; node.calls.push(["w", [value]]); return element; },
     whitespace_nowrap() { node.style.whitespace = "nowrap"; return element; },
     items_start() { node.style.alignItems = "start"; return element; },
     flex_wrap() { node.style.flexWrap = "wrap"; return element; },
@@ -31,7 +31,10 @@ function fakeNativeElement() {
       if (property in methods) return methods[property];
       if (property in target) return target[property];
       if (typeof property === "symbol") return undefined;
-      return () => element;
+      return (...args) => {
+        node.calls.push([property, args]);
+        return element;
+      };
     },
   });
   return element;
@@ -105,7 +108,10 @@ const theme = () => ({});
 const settings = () => ({});
 const nextCommand = () => globalThis.__insightsTestHerdr.nextCommand();
 const exec = (...args) => globalThis.__insightsTestHerdr.exec(...args);
-const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(...args);`,
+const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(...args);
+const panes = () => globalThis.__insightsTestHerdr.panes();
+const run = (...args) => globalThis.__insightsTestHerdr.run(...args);
+const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
   )
   .replace(
     /^import \{[\s\S]*?\} from "\.\/analytics\.js";$/m,
@@ -140,13 +146,16 @@ function presentationFor(snapshot, options, command = "snapshot") {
 }
 
 function useHerdr({ readTextFile, execResult } = {}) {
-  const state = { runtimeReads: [], execCalls: [] };
+  const state = { commands: [], execCalls: [], panes: [], runtimeReads: [], spaces: [] };
   state.herdr = {
     appHome: () => "/app",
     home: () => "/home",
     theme: () => ({}),
     settings: () => ({}),
     nextCommand: () => new Promise(() => {}),
+    panes: () => state.panes,
+    run: (...args) => state.commands.push(args),
+    spaces: () => state.spaces,
     readTextFile: async (path) => {
       state.runtimeReads.push(path);
       return readTextFile ? readTextFile(path) : null;
@@ -324,6 +333,103 @@ test("analytics stays host-free and the UI keeps configuration JSON editable", (
   assert.match(mainSource, /Configuration JSON/);
   assert.match(mainSource, /Save configuration/);
   assert.doesNotMatch(mainSource, /(^|[^.\w])localStorage\b/);
+});
+
+test("toolbar init returns before runtime, collector, command, timer or editor setup", async () => {
+  const state = useHerdr();
+  globalThis.__insightsTestHostCalls.inputStates = 0;
+  globalThis.__insightsTestHostCalls.editorStates = 0;
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({ mode: "toolbar" }, cx);
+
+  assert.equal(instance.mode, "toolbar");
+  assert.deepEqual(state.runtimeReads, []);
+  assert.deepEqual(state.execCalls, []);
+  assert.deepEqual(calls.timers, []);
+  assert.equal(calls.spawn, 0);
+  assert.equal(globalThis.__insightsTestHostCalls.inputStates, 0);
+  assert.equal(globalThis.__insightsTestHostCalls.editorStates, 0);
+  assert.equal(instance.commandTask, undefined);
+  assert.equal(instance.runtimeTask, undefined);
+  assert.equal(instance.dashboard, undefined);
+  assert.doesNotThrow(() => instance.close());
+  assert.equal(instance.closed, true);
+});
+
+test("toolbar render is only the native Insights button and has no side effects", () => {
+  const state = useHerdr();
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }] }];
+  state.panes = [];
+  const instance = new Insights();
+  instance.init({ mode: "toolbar" }, fakeCx());
+  const root = instance.render();
+  const button = root.childNodes[0];
+
+  assert.equal(button.childNodes[1], "Insights");
+  assert.equal(button.calls.find(([name]) => name === "id")[1][0], "insights-open");
+  for (const [method, value] of [["h", 26], ["px", 8], ["gap", 5], ["rounded", 6], ["text_size", 12]]) {
+    assert.ok(button.calls.some(([name, args]) => name === method && args[0] === value),
+      `${method} matches Herdr's native toolbar control`);
+  }
+  assert.deepEqual(state.commands, [], "render must have no side effects");
+
+  let stopped = false;
+  button.calls.find(([name]) => name === "on_mouse_down")[1][1]({}, {
+    stop_propagation() { stopped = true; },
+  });
+  assert.equal(stopped, true);
+  assert.doesNotMatch(mainSource, /mods\/insights-launcher/);
+  assert.doesNotMatch(mainSource, /\blayout\(/);
+});
+
+test("toolbar reuses the active space's dashboard and reveals it behind another pane's zoom", () => {
+  const state = useHerdr();
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }, { id: "t2" }] }];
+  state.panes = [
+    { pane: "terminal", mod: "terminal", tab: "t2", zoomed: true },
+    { pane: "dashboard", mod: "insights", tab: "t2", focused: false, zoomed: false },
+  ];
+  const instance = new Insights();
+  instance.init({ mode: "toolbar" }, fakeCx());
+  const button = instance.render().childNodes[0];
+  const click = button.calls.find(([name]) => name === "on_click")[1][0];
+
+  click();
+  click();
+  assert.deepEqual(state.commands, [
+    ["pane.zoom", { pane: "terminal" }],
+    ["pane.focus", { pane: "dashboard" }],
+    ["pane.zoom", { pane: "terminal" }],
+    ["pane.focus", { pane: "dashboard" }],
+  ]);
+});
+
+test("toolbar keeps an already zoomed dashboard and opens a tab only when the space has none", () => {
+  const state = useHerdr();
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }] }];
+  state.panes = [{ pane: "dashboard", mod: "insights", tab: "t1", zoomed: true }];
+  const instance = new Insights();
+  instance.init({ mode: "toolbar" }, fakeCx());
+  const click = instance.render().childNodes[0].calls.find(([name]) => name === "on_click")[1][0];
+
+  click();
+  assert.deepEqual(state.commands, [["pane.focus", { pane: "dashboard" }]]);
+
+  state.panes = [];
+  state.commands.length = 0;
+  click();
+  assert.deepEqual(state.commands, [["tab.new", { name: "Insights", mod: "insights" }]]);
+
+  state.spaces = [
+    { id: "s1", active: true, tabs: [{ id: "t1" }] },
+    { id: "s2", active: false, tabs: [{ id: "t2" }] },
+  ];
+  state.panes = [{ mod: "insights", tab: "t2" }];
+  state.commands.length = 0;
+  click();
+  assert.deepEqual(state.commands, [["tab.new", { name: "Insights", mod: "insights" }]],
+    "an Insights tab in another space never satisfies the current space");
 });
 
 test("init reads the runtime config once and waits before the first snapshot", async () => {
