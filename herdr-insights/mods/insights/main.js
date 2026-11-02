@@ -49,9 +49,10 @@ const MIN_CELL = 12;
 const MAX_CELL = 20;
 const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
-// Two leaderboard columns need room for a name and a token value in each; below
-// this pane width one column reads better than two cramped ones.
-const LEADERBOARD_TWO_COLUMN_MIN = 740;
+// A leaderboard row needs its rank, avatar, a readable model name, and the token
+// value. Columns keep that minimum and wrap to one column when they cannot fit,
+// so no fixed pane width decides the layout.
+const LEADERBOARD_COLUMN_MIN = 300;
 
 /**
  * Heatmap cells stay small on narrow views and grow up to MAX_CELL on wide
@@ -1714,7 +1715,6 @@ export default class Insights extends View {
     const half = Math.ceil(entries.length / 2);
     const left = entries.slice(0, half);
     const right = entries.slice(half);
-    const twoColumns = (this.width || 960) >= LEADERBOARD_TWO_COLUMN_MIN && right.length > 0;
 
     const changeLabel = (entry) => {
       if (entry.change.kind === "none") return "—";
@@ -1723,10 +1723,10 @@ export default class Insights extends View {
       return entry.change.label;
     };
 
-    const row = (entry, last) => {
+    const row = (entry) => {
       const logo = usageLogo(entry.name, entry.provider);
       return h_flex().w_full().items_center().gap(G.sm).py(G.sm)
-        .when(!last, (el) => el.border_b(1).border_color(c.border))
+        .border_b(1).border_color(c.border)
         .child(div().w(20).text_size(T.body).text_color(c.dim).child(`${entry.rank}.`))
         .child(h_flex().size(26).flex_none().rounded(R.control).bg(c.secondary).border_1().border_color(c.border)
           .items_center().justify_center()
@@ -1752,6 +1752,9 @@ export default class Insights extends View {
         clickCx.notify();
       }, c, { variant: "outline" }));
 
+    const column = (items) => v_flex().flex_1().min_w(LEADERBOARD_COLUMN_MIN).gap(0)
+      .children(items.map((entry) => row(entry)));
+
     return card(c).gap(G.md)
       .child(cardHeader(
         "Model Usage",
@@ -1759,11 +1762,9 @@ export default class Insights extends View {
         c,
       ))
       .when(entries.length === 0, (el) => el.child(empty))
-      .when(entries.length > 0 && twoColumns, (el) => el.child(h_flex().w_full().gap(G.xl).items_start()
-        .child(v_flex().flex_1().min_w(0).gap(0).children(left.map((entry, index) => row(entry, index === left.length - 1))))
-        .child(v_flex().flex_1().min_w(0).gap(0).children(right.map((entry, index) => row(entry, index === right.length - 1))))))
-      .when(entries.length > 0 && !twoColumns, (el) => el.child(v_flex().w_full().gap(0)
-        .children(entries.map((entry, index) => row(entry, index === entries.length - 1)))))
+      .when(entries.length > 0, (el) => el.child(h_flex().w_full().flex_wrap().items_start().gap_x(G.xl)
+        .child(column(left))
+        .when(right.length > 0, (inner) => inner.child(column(right)))))
       .when(leaders.totalGroups > entries.length, (el) => el.child(mutedText(
         `Showing top ${entries.length} of ${leaders.totalGroups} by tokens.`, c)));
   }

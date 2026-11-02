@@ -21,6 +21,8 @@ function fakeNativeElement() {
     w(value) { node.style.width = value; return element; },
     whitespace_nowrap() { node.style.whitespace = "nowrap"; return element; },
     items_start() { node.style.alignItems = "start"; return element; },
+    flex_wrap() { node.style.flexWrap = "wrap"; return element; },
+    min_w(value) { node.style.minWidth = value; return element; },
   };
   element = new Proxy(node, {
     get(target, property) {
@@ -590,7 +592,7 @@ test("model usage leaderboard is models-only with ranked change rows", () => {
   assert.deepEqual(valueColumn.childNodes[1].childNodes, ["—"], "no previous period shows a dash");
 });
 
-test("model usage splits into two columns once each column has room", () => {
+test("model usage wraps into columns instead of switching on a pane width", () => {
   const instance = blankInstance();
   const c = ui.tokens({
     background: "#101010",
@@ -609,14 +611,16 @@ test("model usage splits into two columns once each column has room", () => {
   }));
   const leaders = analytics.leaderboard(rows, null, { groupBy: "model", includeCache: true });
 
-  instance.width = 739;
-  const narrow = instance.leaderboardCard(c, leaders, { label: "All time" }).childNodes[1];
-  assert.equal(narrow.childNodes.length, 10, "one column below the breakpoint");
+  const grid = instance.leaderboardCard(c, leaders, { label: "All time" }).childNodes[1];
+  assert.equal(grid.style.flexWrap, "wrap", "columns wrap instead of using a width breakpoint");
+  assert.deepEqual(grid.childNodes.map((column) => column.childNodes.length), [5, 5]);
+  for (const column of grid.childNodes) {
+    assert.equal(column.style.minWidth, 300, "each column keeps room for a rank, logo, name and value");
+  }
 
-  instance.width = 740;
-  const wide = instance.leaderboardCard(c, leaders, { label: "All time" }).childNodes[1];
-  assert.equal(wide.childNodes.length, 2, "two columns at the breakpoint");
-  assert.deepEqual(wide.childNodes.map((column) => column.childNodes.length), [5, 5]);
+  const single = analytics.leaderboard(rows.slice(0, 1), null, { groupBy: "model", includeCache: true });
+  const singleGrid = instance.leaderboardCard(c, single, { label: "All time" }).childNodes[1];
+  assert.equal(singleGrid.childNodes.length, 1, "an empty second column is not rendered");
 });
 
 test("loading state shows live scan progress and scan status lives in settings", () => {

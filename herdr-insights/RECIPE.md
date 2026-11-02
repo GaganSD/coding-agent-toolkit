@@ -46,10 +46,12 @@ Dashboard, top to bottom:
 - Top models: a 26-week stacked token chart with date labels, a token axis, and
   a categorical legend. Keep seven model series and fold the rest into Other.
 - Model Usage: the top ten models with provider attribution, compact token totals,
-  and change versus the previous calendar period. Use two columns at 740px+, one
-  below. Show a known model logo, else a provider logo, else an initial. Up/down
-  arrows and theme success/destructive colors distinguish trends; handle New and
-  no-comparison states. Rows do not expand.
+  and change versus the previous calendar period. Two columns of five that wrap to
+  one when the pane cannot hold both; each column keeps room for a rank, logo,
+  name and token value rather than keying off a fixed width. Show a known model
+  logo, else a provider logo, else an initial. Up/down arrows and theme
+  success/destructive colors distinguish trends; handle New and no-comparison
+  states. Rows do not expand.
 
 Settings replaces the dashboard content. It contains palette (blue/green/purple),
 week start, include-cache, refresh interval, per-source toggles and root editors,
