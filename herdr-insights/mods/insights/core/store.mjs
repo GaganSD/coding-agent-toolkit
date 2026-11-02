@@ -1,5 +1,5 @@
 import { readFile, stat, unlink } from "node:fs/promises";
-import { writePresentationCache } from "./cache.mjs";
+import { storeRevisionFingerprint, writePresentationCache } from "./cache.mjs";
 import { defaultConfig, migrateLoadedConfig, normalizeConfig } from "./config.mjs";
 import {
   STORE_VERSION,
@@ -976,10 +976,15 @@ export async function saveStore(
     store.lastCompletedScanAt = savedAt;
   }
   await atomicWriteJson(storePath, store);
-  // The presentation cache is derived from this exact committed store. A
+  // The presentation cache is derived from this exact committed store. Capture
+  // the post-rename identity while the caller still holds writer authority so
+  // an old cache can never be accepted for a newer atomic store revision. A
   // failure here must not fail the commit; prepare falls back to the store.
   try {
-    await writePresentationCache(storePath, { savedAt, store, rows: snapshotRows(store) });
+    const fingerprint = await storeRevisionFingerprint(storePath);
+    await writePresentationCache(storePath, {
+      savedAt, store, rows: snapshotRows(store), fingerprint,
+    });
   } catch { /* the cache is an optional read accelerator */ }
   return savedAt;
 }
