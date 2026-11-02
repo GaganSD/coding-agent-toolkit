@@ -483,14 +483,17 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
   });
 });
 
-test("heatmap cells grow and center on wide views", () => {
+test("heatmap grows on wide views and prefers the newest weeks when narrow", () => {
   const wide = heatmapMetrics(1600, 53);
   const narrow = heatmapMetrics(480, 53);
   assert.ok(wide.cell > narrow.cell, "wider views get larger cells");
   assert.ok(wide.cell <= 20, "cells stay capped");
   assert.equal(wide.centered, true);
+  assert.equal(narrow.centered, false);
   assert.equal(wide.weekWidth, wide.cell + 2);
-  assert.match(mainSource, /metrics\.centered, \(el\) => el\.justify_center\(\)/);
+  assert.match(mainSource, /\.when\(metrics\.centered, \(el\) => el\.justify_center\(\)\)/);
+  assert.match(mainSource, /\.when\(!metrics\.centered, \(el\) => el\.justify_end\(\)\)/,
+    "an overflowing grid is end-aligned so recent weeks stay visible");
 });
 
 test("dashboard is divided into token and model usage sections", () => {

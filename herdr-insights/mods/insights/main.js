@@ -52,7 +52,9 @@ const DAY_LABEL_WIDTH = 30;
 
 /**
  * Heatmap cells stay small on narrow views and grow up to MAX_CELL on wide
- * ones so the grid reads centered instead of pinned to the left edge.
+ * ones so the grid reads centered instead of pinned to the left edge. When even
+ * MIN_CELL cannot fit, the grid overflows; callers keep the newest weeks in
+ * view by aligning it to the end.
  */
 export function heatmapMetrics(width, weekCount) {
   const viewWidth = Number.isFinite(width) ? width : 960;
@@ -1628,7 +1630,12 @@ export default class Insights extends View {
           this.scheduleDashboard(changeCx, { force: true });
         }, c)))
       .child(v_flex().w_full().overflow_x_scrollbar()
-        .child(h_flex().w_full().when(metrics.centered, (el) => el.justify_center()).child(grid)))
+        // The latest data matters most: when the grid cannot fit, let it overflow
+        // to the left so the visible columns are the most recent weeks.
+        .child(h_flex().w_full()
+          .when(metrics.centered, (el) => el.justify_center())
+          .when(!metrics.centered, (el) => el.justify_end())
+          .child(grid)))
       .child(legend);
   }
 

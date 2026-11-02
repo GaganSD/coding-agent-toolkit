@@ -34,8 +34,9 @@ Dashboard, top to bottom:
   is a dash. The strip wraps from five columns to three or two on smaller views.
 - Token usage: a 53-week, seven-row local-calendar heatmap with month/weekday
   labels and Daily / Weekly / Cumulative controls. Cells are 12–20px squares
-  fitted to available width, with 2px gaps; narrow views scroll horizontally.
-  Future days are dimmed. Clicking a day updates the detail card.
+  fitted to available width, with 2px gaps; when even 12px cells cannot fit, the
+  grid overflows and stays aligned to the newest weeks. Future days are dimmed.
+  Clicking a day updates the detail card.
 - Side-by-side all-time and selected-day details: input, output, cache-hit rate,
   and top model. Default the selected day to today.
 - Model usage: Week / Month / Year / All controls, a year stepper for Year,
