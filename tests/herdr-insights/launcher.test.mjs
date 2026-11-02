@@ -18,34 +18,71 @@ function element() {
   } });
   return proxy;
 }
-const commands = [];
-globalThis.__insightsLauncherTest = { element, commands, theme: { chrome: "#111111", border: "#222222", muted: "#888888" } };
+const state = { commands: [], panes: [], spaces: [], theme: { chrome: "#111111", border: "#222222", muted: "#888888" } };
+globalThis.__insightsLauncherTest = state;
 const transformed = source
   .replace(/^import .* from "gpui-kit";$/m, "class View {}\nconst svg = () => globalThis.__insightsLauncherTest.element();")
   .replace(/^import .* from "gpui-base";$/m, "const h_flex = () => globalThis.__insightsLauncherTest.element();")
-  .replace(/^import .* from "herdr";$/m, "const theme = () => globalThis.__insightsLauncherTest.theme;\nconst run = (...args) => globalThis.__insightsLauncherTest.commands.push(args);");
+  .replace(/^import .* from "herdr";$/m, `const theme = () => globalThis.__insightsLauncherTest.theme;
+const run = (...args) => globalThis.__insightsLauncherTest.commands.push(args);
+const spaces = () => globalThis.__insightsLauncherTest.spaces;
+const panes = () => globalThis.__insightsLauncherTest.panes;`);
+state.element = element;
 const { default: Launcher } = await import(`data:text/javascript;base64,${Buffer.from(transformed).toString("base64")}`);
 
-test("toolbar button matches native panel controls and each click creates a new Insights tab", () => {
+function buttonOf(launcher) {
+  return launcher.render().children[0];
+}
+
+function click(launcher) {
+  buttonOf(launcher).calls.find(([name]) => name === "on_click")[1][0]();
+}
+
+test("toolbar button matches native panel controls and render has no side effects", () => {
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }] }];
+  state.panes = [];
+  state.commands.length = 0;
   const launcher = new Launcher();
-  const root = launcher.render();
-  const button = root.children[0];
+  const button = buttonOf(launcher);
   assert.equal(button.children[1], "Insights");
   for (const [method, value] of [["h", 26], ["px", 8], ["gap", 5], ["rounded", 6], ["text_size", 12]]) {
     assert.ok(button.calls.some(([name, args]) => name === method && args[0] === value), `${method} matches Herdr's panelButton`);
   }
-  assert.deepEqual(commands, [], "render must have no side effects");
-  const click = button.calls.find(([name]) => name === "on_click")[1][0];
-  click(); click();
-  assert.deepEqual(commands, [
-    ["tab.new", { name: "Insights", mod: "insights" }],
-    ["tab.new", { name: "Insights", mod: "insights" }],
-  ]);
+  assert.deepEqual(state.commands, [], "render must have no side effects");
   let stopped = false;
   button.calls.find(([name]) => name === "on_mouse_down")[1][1]({}, { stop_propagation() { stopped = true; } });
   assert.equal(stopped, true);
   assert.equal(launcher.init, undefined);
   assert.doesNotMatch(source, /layout\.|setShared|exec\(|fetch\(|timer|Overlay|readTextFile|writeTextFile/);
+});
+
+test("a click shows the space's Insights tab instead of opening another", () => {
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }, { id: "t2" }] }];
+  state.panes = [{ mod: "terminal", tab: "t1" }, { mod: "insights", tab: "t2" }];
+  state.commands.length = 0;
+  const launcher = new Launcher();
+  click(launcher);
+  click(launcher);
+  assert.deepEqual(state.commands, [["tab.select", { id: "t2" }], ["tab.select", { id: "t2" }]]);
+});
+
+test("a click opens the Insights tab only when the space has none", () => {
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }] }];
+  state.panes = [{ mod: "terminal", tab: "t1" }];
+  state.commands.length = 0;
+  click(new Launcher());
+  assert.deepEqual(state.commands, [["tab.new", { name: "Insights", mod: "insights" }]]);
+});
+
+test("an Insights tab in another space never satisfies the current space", () => {
+  state.spaces = [
+    { id: "s1", active: true, tabs: [{ id: "t1" }] },
+    { id: "s2", active: false, tabs: [{ id: "t2" }] },
+  ];
+  state.panes = [{ mod: "insights", tab: "t2" }];
+  state.commands.length = 0;
+  click(new Launcher());
+  assert.deepEqual(state.commands, [["tab.new", { name: "Insights", mod: "insights" }]]);
 });
 
 test("launcher is a normal layout mod, never a floating window", async () => {

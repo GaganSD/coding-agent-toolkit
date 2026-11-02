@@ -21,7 +21,8 @@ Only that folder is needed; no `npm install` is required. The installer:
   select `<current-layout>-insights` (normally `main-insights`, with a numeric
   suffix if that name or its click state is taken). It composes the
   **Insights** button beside Herdr's existing tab bar, after **Files / Changes**.
-  Clicking it opens a **new Insights tab** in the current space.
+  Clicking it shows the current space's Insights tab, opening one only when the
+  space has none.
 
 Herdr's shipped layouts and mods are never patched or copied into this package.
 The personal layout continues using Herdr's original `tabs` mod, so tab-bar code

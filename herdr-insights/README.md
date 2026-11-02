@@ -49,9 +49,10 @@ response text or modify source transcripts.
 [RECIPE.md](RECIPE.md) is the self-contained rebuild brief required by Herdr.
 The distribution folder is `herdr-insights`; its dashboard mod ID is `insights`
 and its display name is **Insights**. `insights-launcher` is a separate, native
-toolbar button using only `theme()` and `run("tab.new", ...)`; it has no polling,
-helper process, or overlays. No layouts or key bindings ship; the button lives in
-a personal layout clone composed by the installer (see [INSTALL.md](INSTALL.md)).
+toolbar button that shows the space's existing Insights tab, opening one only
+when absent; it has no polling, helper process, or overlays. No layouts or key
+bindings ship; the button lives in a personal layout clone composed by the
+installer (see [INSTALL.md](INSTALL.md)).
 
 Developer tests, fixtures, and release validation live outside this distribution;
 see the repo's [development guide](../docs/herdr-insights-development.md). They are

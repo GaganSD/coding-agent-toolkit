@@ -23,9 +23,11 @@ Files and Changes. Match Herdr's panel controls: 26px height, 8px horizontal
 padding, 5px icon/text gap, 6px corners, 12px type, 14px theme-tinted chart icon,
 chrome background, muted text, and native hover colors. Its root matches the tab
 bar's chrome background and 1px bottom border. Stop mouse-down propagation on
-the button so it does not drag the window. Every click calls `tab.new` with
-`{name: "Insights", mod: "insights"}` to create a new dashboard tab in the current
-space. No floating window, overlay, polling, file access, or helper process.
+the button so it does not drag the window. Every click shows the current space's
+existing Insights tab (the tab whose pane runs the `insights` mod) instead of
+stacking duplicates; it calls `tab.new` with `{name: "Insights", mod: "insights"}`
+only when that space has none. No floating window, overlay, polling, file access,
+or helper process.
 
 Dashboard, top to bottom:
 - An Insights header with last-update status, Refresh, and Settings.
