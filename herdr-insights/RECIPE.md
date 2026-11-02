@@ -2,29 +2,44 @@
 
 A native Herdr dashboard for token usage across Pi, Codex, Claude Code, and
 OpenCode. It reads existing local session data, shows model rankings and activity,
-and opens in its own tab without changing terminals, layouts, or keys.
+and opens in its own tab from an Insights button beside Files and Changes. No
+built-in Herdr code, terminals, or keys are changed.
 
 ![Insights](preview.png)
 
 Installing this existing build? Follow [INSTALL.md](INSTALL.md) and the user's
 Herdr `AGENTS.md`. This recipe is a rebuild brief; its **Done when** checks apply
 to building/releasing, not routine installation. Installation does not launch
-smoke-test windows or open a tab unless requested.
+smoke-test windows or open a dashboard tab unless requested. First installation
+selects a personal layout with the button in the existing toolbar row.
 
 **What you see:** A vertically scrollable dashboard centered at a maximum width
 of 1180px. Use Herdr theme colors, 1px borders, 8px card corners, 6px control
 corners, no decorative shadows, and 4/8/12/16/24px spacing. Page padding is 12px
 below 620px, 16px below 900px, and 24px otherwise. Support light and dark themes.
 
-Top to bottom:
+A separate `insights-launcher` mod draws the **Insights** toolbar button after
+Files and Changes. Match Herdr's panel controls: 26px height, 8px horizontal
+padding, 5px icon/text gap, 6px corners, 12px type, 14px theme-tinted chart icon,
+chrome background, muted text, and native hover colors. Its root matches the tab
+bar's chrome background and 1px bottom border. Stop mouse-down propagation on
+the button so it does not drag the window. Every click shows the current space's
+existing Insights tab (the tab whose pane runs the `insights` mod) instead of
+stacking duplicates. Focus its pane with `pane.focus`; if a different pane in
+that tab is zoomed, unzoom it first so the dashboard is visible. It calls `tab.new` with `{name: "Insights", mod: "insights"}`
+only when that space has none. No floating window, overlay, polling, file access,
+or helper process.
+
+Dashboard, top to bottom:
 - An Insights header with last-update status, Refresh, and Settings.
 - Five all-time metrics: tokens, peak-day tokens, longest task, longest streak,
   and current streak. Use 22px values and small uppercase labels; unknown duration
   is a dash. The strip wraps from five columns to three or two on smaller views.
 - Token usage: a 53-week, seven-row local-calendar heatmap with month/weekday
   labels and Daily / Weekly / Cumulative controls. Cells are 12–20px squares
-  fitted to available width, with 2px gaps; narrow views scroll horizontally.
-  Future days are dimmed. Clicking a day updates the detail card.
+  fitted to available width, with 2px gaps; when even 12px cells cannot fit, the
+  grid overflows and stays aligned to the newest weeks. Future days are dimmed.
+  Clicking a day updates the detail card.
 - Side-by-side all-time and selected-day details: input, output, cache-hit rate,
   and top model. Default the selected day to today.
 - Model usage: Week / Month / Year / All controls, a year stepper for Year,
@@ -32,10 +47,12 @@ Top to bottom:
 - Top models: a 26-week stacked token chart with date labels, a token axis, and
   a categorical legend. Keep seven model series and fold the rest into Other.
 - Model Usage: the top ten models with provider attribution, compact token totals,
-  and change versus the previous calendar period. Use two columns at 960px+, one
-  below. Show a known model logo, else a provider logo, else an initial. Up/down
-  arrows and theme success/destructive colors distinguish trends; handle New and
-  no-comparison states. Rows do not expand.
+  and change versus the previous calendar period. Two columns of five that wrap to
+  one when the pane cannot hold both; use a 300px flex basis, growth, and zero
+  minimum width so a column can shrink inside narrow splits. Show a known model
+  logo, else a provider logo, else an initial. Up/down arrows and theme
+  success/destructive colors distinguish trends; handle New and no-comparison
+  states. Rows do not expand.
 
 Settings replaces the dashboard content. It contains palette (blue/green/purple),
 week start, include-cache, refresh interval, per-source toggles and root editors,
@@ -58,12 +75,32 @@ controls preserve custom mappings. Changing source configuration invalidates the
 scan cache; palette/cache/week-start/refresh changes preserve collected history.
 
 **Built from:** Put this distribution in `herdr-insights/`, with `RECIPE.md`,
-`README.md`, `INSTALL.md`, `preview.png`, and `mods/insights/`. Keep developer
+`README.md`, `INSTALL.md`, `preview.png`, `mods/insights/`, and
+`mods/insights-launcher/`. Keep developer
 tests, fixtures, and release-check tooling outside this distribution folder.
 Do not include a `layouts/` folder or keys snippet: no bindings are needed.
 The recipe heading and `mod.json` title are **Insights**; the native mod ID is `insights`.
 
 `mods/insights/mod.json` contains `{"place":"none","title":"Insights"}`.
+`mods/insights-launcher/mod.json` also uses `place: "none"`, `title: "Insights"`.
+Its `main.js` default-exports a small native View using gpui-base flex builders,
+`theme()`, and `run()`; bundle its chart icon as `insights.svg`.
+
+`scripts/toolbar.mjs` integrates through layout composition, not source patching.
+Use `layout.clone {name: current, as: current + "-insights"}` to preserve Herdr's
+appearance/click state. Before cloning, reject symlinked source state or `.state`
+parents; choose a numeric suffix if either the destination layout or its state
+already exists. Never overwrite another layout's state, including leftover state
+from uninstall. Do not edit or remove Herdr-managed click state. In the personal clone only, turn the existing `tabs`
+block into a nonresizable row, keeping its ID, height, paint, and window-drag
+attributes. Its first child is a weight-1 block with the original `content`
+(including its props); its second is a 104px block with `insights-launcher`.
+Do not copy or modify the shipped `tabs` mod. Refuse unsupported/ambiguous layouts.
+Record the personal layout's name, source, and hash in `toolbar-install.json`.
+Reinstall must not rewrite this layout or switch the user's selected layout.
+Uninstall validates the original layout and confirms it actually became selected
+before deleting an active, unchanged owned clone. Locally edited clones, missing
+originals, or unsuccessful switching block removal before deleting any files.
 `main.js` default-exports a gpui-kit `View`; use gpui-base flex/controls, `theme()`
 semantic colors, `on_size_change`, and fresh callback contexts. Do not retain `cx`.
 Cancel tasks/timers and release native editor/input state on close. Use native
@@ -99,13 +136,21 @@ and executable mappings. `core/config.mjs` defines and validates the full schema
 
 Provide dependency-free Node install/uninstall scripts. The installer requires
 Node >=22.15 and validates it before writing anything; the uninstaller intentionally
-has no Node gate so it remains usable on older runtimes. Install only the mod tree
-(plus its manifest under `data/insights/`) and generate `runtime.json` with the
+has no Node gate so it remains usable on older runtimes. Install only these two
+mod trees (plus ownership manifests under `data/insights/`) and generate the dashboard's `runtime.json` with the
 absolute installer Node path; the UI uses that path, falling back to `node` on PATH
 only for manual copies. Track ownership/hashes in a separate install manifest.
-Refuse symlinks and unowned collisions; refuse edited owned files unless explicitly
-forced. Preserve usage data and unrelated files. Run `herdr-app check` and, only
-with `--open`, `herdr-app do tab.new '{"name":"Insights","mod":"insights"}'`.
+Keep the existing dashboard manifest compatible and use
+`launcher-install-manifest.json` for the launcher. Preflight both targets before
+writing either. Refuse symlinks and unowned collisions; refuse edited owned files
+unless explicitly forced. Preserve usage data and unrelated files. Check buffered
+copies of both mods with `herdr-app check` in a temporary app home before replacing
+either live mod; clean up on success or failure. Revalidate targets after checking
+to preserve edits made during validation. Serialize install/uninstall with an
+exclusive `.insights-install.lock` directory for the full operation, and never
+steal a lock automatically. Recheck clone destinations and source state just before
+cloning, and recheck the active layout and clone hash before deleting on uninstall.
+Keep Herdr running for toolbar installation/removal; never start a second instance.
 
 **Watch out:** Canonical total is input + output + cacheRead + cacheWrite;
 input is uncached, output already includes reasoning. Never add reasoning twice.
@@ -118,17 +163,23 @@ explicit rebuild after same-size rewrites. Use ownership-checked store locks;
 never steal live/unknown owners' locks based on age. Preserve corrupt stores with
 a backup before rebuilding; read-only prepare must not repair or create stores.
 
-Never write layouts, keys, source transcripts, or an existing user's usage data
-from the installer. Do not copy an absolute runtime path from another machine.
+Never modify shipped layouts/mods, keys, source transcripts, or existing usage
+data. Write only the owned personal layout clone. Preserve collisions and local
+edits. Do not copy an absolute runtime path from another machine.
 
 **Done when:** For a new build or release (not an installation), package tests
 and checks pass, including distribution naming, PNG preview, recipe structure,
 no layouts, token accounting, deduplication, configuration validation, incremental
 recovery, and safe installation/uninstallation.
-Run `herdr-app check` on the installed mod, plus populated-render and asynchronous
+Run `herdr-app check` on both installed mods. Inspect a real screenshot: Insights
+must be in the same row as Files/Changes with matching button styling, no extra
+strip or floating window. Clicks reuse the current space's dashboard, including
+when it is in a split behind another pane's zoom, without creating duplicates.
+Confirm built-in
+code/layouts are unchanged and reinstall does not duplicate the toolbar. Also run populated-render and asynchronous
 native smoke checks in temporary app homes. Inspect a native screenshot and status
 for render errors. Verify actual filters, heatmap modes, source settings, refresh,
-and empty/error states. Reinstall without changing source transcripts, layouts,
-keys, local edits, or `insights.json`. Keep the GitHub repo public and add topic
+and empty/error states. Reinstall without changing source transcripts, existing
+layouts, keys, local edits, or `insights.json`. Keep the GitHub repo public and add topic
 `herdr-mod` for Community discovery after merging to the default branch; allow
 up to an hour for indexing and at least 24 hours for picture screening.

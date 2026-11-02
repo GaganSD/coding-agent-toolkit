@@ -21,6 +21,10 @@ function fakeNativeElement() {
     w(value) { node.style.width = value; return element; },
     whitespace_nowrap() { node.style.whitespace = "nowrap"; return element; },
     items_start() { node.style.alignItems = "start"; return element; },
+    flex_wrap() { node.style.flexWrap = "wrap"; return element; },
+    min_w(value) { node.style.minWidth = value; return element; },
+    flex_basis(value) { node.style.flexBasis = value; return element; },
+    flex_grow(value) { node.style.flexGrow = value; return element; },
   };
   element = new Proxy(node, {
     get(target, property) {
@@ -299,7 +303,7 @@ test("native mod keeps timers and shell use inside the Herdr contract", () => {
   assert.match(mainSource, /configure/);
   assert.match(mainSource, /--config/);
   assert.match(mainSource, /on_size_change/);
-  assert.match(mainSource, /overflow_x_scrollbar/);
+  assert.match(mainSource, /overflow_hidden/);
   assert.match(mainSource, /nextCommand/);
   assert.match(mainSource, /name === "refresh"/);
   assert.match(mainSource, /name === "settings"/);
@@ -467,7 +471,7 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
     null,
   );
   const metrics = heatmapMetrics(undefined, heatmap.weeks.length);
-  const grid = card.childNodes[1].childNodes[0].childNodes[0];
+  const grid = card.childNodes[1].childNodes[0];
   const monthNodes = grid.childNodes[0].childNodes.slice(1);
   assert.equal(monthNodes.length, heatmap.months.length);
 
@@ -483,14 +487,19 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
   });
 });
 
-test("heatmap cells grow and center on wide views", () => {
+test("heatmap grows on wide views and prefers the newest weeks when narrow", () => {
   const wide = heatmapMetrics(1600, 53);
   const narrow = heatmapMetrics(480, 53);
   assert.ok(wide.cell > narrow.cell, "wider views get larger cells");
   assert.ok(wide.cell <= 20, "cells stay capped");
   assert.equal(wide.centered, true);
+  assert.equal(narrow.centered, false);
   assert.equal(wide.weekWidth, wide.cell + 2);
-  assert.match(mainSource, /metrics\.centered, \(el\) => el\.justify_center\(\)/);
+  assert.match(mainSource, /\.when\(metrics\.centered, \(el\) => el\.justify_center\(\)\)/);
+  assert.match(mainSource, /\.when\(!metrics\.centered, \(el\) => el\.justify_end\(\)\)/,
+    "an overflowing grid is end-aligned so recent weeks stay visible");
+  assert.match(mainSource, /h_flex\(\)\.w_full\(\)\.overflow_hidden\(\)[\s\S]{0,200}metrics\.centered/,
+    "the grid is clipped, not scrolled, so end alignment applies");
 });
 
 test("dashboard is divided into token and model usage sections", () => {
@@ -583,6 +592,39 @@ test("model usage leaderboard is models-only with ranked change rows", () => {
   const valueColumn = firstRow.childNodes[3];
   assert.deepEqual(valueColumn.childNodes[0].childNodes, ["150 tokens"]);
   assert.deepEqual(valueColumn.childNodes[1].childNodes, ["—"], "no previous period shows a dash");
+});
+
+test("model usage wraps into columns instead of switching on a pane width", () => {
+  const instance = blankInstance();
+  const c = ui.tokens({
+    background: "#101010",
+    surface: "#181818",
+    border: "#333333",
+    foreground: "#f5f5f5",
+    muted: "#9a9a9a",
+    dim: "#707070",
+    accent: "#5aa7ff",
+  });
+  const rows = Array.from({ length: 10 }, (_, index) => ({
+    day: "2024-01-10",
+    model: `model-${index}`,
+    provider: "p-one",
+    tokens: { input: 100 - index, output: 10 },
+  }));
+  const leaders = analytics.leaderboard(rows, null, { groupBy: "model", includeCache: true });
+
+  const grid = instance.leaderboardCard(c, leaders, { label: "All time" }).childNodes[1];
+  assert.equal(grid.style.flexWrap, "wrap", "columns wrap instead of using a width breakpoint");
+  assert.deepEqual(grid.childNodes.map((column) => column.childNodes.length), [5, 5]);
+  for (const column of grid.childNodes) {
+    assert.equal(column.style.flexBasis, 300, "preferred width controls wrapping");
+    assert.equal(column.style.flexGrow, 1, "columns share remaining space");
+    assert.equal(column.style.minWidth, 0, "a column can shrink below its basis in narrow split panes");
+  }
+
+  const single = analytics.leaderboard(rows.slice(0, 1), null, { groupBy: "model", includeCache: true });
+  const singleGrid = instance.leaderboardCard(c, single, { label: "All time" }).childNodes[1];
+  assert.equal(singleGrid.childNodes.length, 1, "an empty second column is not rendered");
 });
 
 test("loading state shows live scan progress and scan status lives in settings", () => {

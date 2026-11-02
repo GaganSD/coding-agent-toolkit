@@ -49,10 +49,16 @@ const MIN_CELL = 12;
 const MAX_CELL = 20;
 const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
+// A leaderboard row needs its rank, avatar, a readable model name, and the token
+// value. A preferred basis wraps columns without imposing a minimum wider than
+// a narrow split pane; each column can still shrink to its available width.
+const LEADERBOARD_COLUMN_BASIS = 300;
 
 /**
  * Heatmap cells stay small on narrow views and grow up to MAX_CELL on wide
- * ones so the grid reads centered instead of pinned to the left edge.
+ * ones so the grid reads centered instead of pinned to the left edge. When even
+ * MIN_CELL cannot fit, the grid overflows; callers keep the newest weeks in
+ * view by aligning it to the end.
  */
 export function heatmapMetrics(width, weekCount) {
   const viewWidth = Number.isFinite(width) ? width : 960;
@@ -1627,8 +1633,13 @@ export default class Insights extends View {
           this.heatmapMode = key;
           this.scheduleDashboard(changeCx, { force: true });
         }, c)))
-      .child(v_flex().w_full().overflow_x_scrollbar()
-        .child(h_flex().w_full().when(metrics.centered, (el) => el.justify_center()).child(grid)))
+      // The latest data matters most: when the grid cannot fit, it is clipped on
+      // the left so the visible columns are the most recent weeks. A scroll
+      // container would size to the grid and defeat the end alignment.
+      .child(h_flex().w_full().overflow_hidden()
+        .when(metrics.centered, (el) => el.justify_center())
+        .when(!metrics.centered, (el) => el.justify_end())
+        .child(grid))
       .child(legend);
   }
 
@@ -1704,7 +1715,6 @@ export default class Insights extends View {
     const half = Math.ceil(entries.length / 2);
     const left = entries.slice(0, half);
     const right = entries.slice(half);
-    const twoColumns = (this.width || 960) >= 960 && right.length > 0;
 
     const changeLabel = (entry) => {
       if (entry.change.kind === "none") return "—";
@@ -1713,10 +1723,10 @@ export default class Insights extends View {
       return entry.change.label;
     };
 
-    const row = (entry, last) => {
+    const row = (entry) => {
       const logo = usageLogo(entry.name, entry.provider);
       return h_flex().w_full().items_center().gap(G.sm).py(G.sm)
-        .when(!last, (el) => el.border_b(1).border_color(c.border))
+        .border_b(1).border_color(c.border)
         .child(div().w(20).text_size(T.body).text_color(c.dim).child(`${entry.rank}.`))
         .child(h_flex().size(26).flex_none().rounded(R.control).bg(c.secondary).border_1().border_color(c.border)
           .items_center().justify_center()
@@ -1742,6 +1752,9 @@ export default class Insights extends View {
         clickCx.notify();
       }, c, { variant: "outline" }));
 
+    const column = (items) => v_flex().flex_basis(LEADERBOARD_COLUMN_BASIS).flex_grow(1).min_w(0).gap(0)
+      .children(items.map((entry) => row(entry)));
+
     return card(c).gap(G.md)
       .child(cardHeader(
         "Model Usage",
@@ -1749,11 +1762,9 @@ export default class Insights extends View {
         c,
       ))
       .when(entries.length === 0, (el) => el.child(empty))
-      .when(entries.length > 0 && twoColumns, (el) => el.child(h_flex().w_full().gap(G.xl).items_start()
-        .child(v_flex().flex_1().min_w(0).gap(0).children(left.map((entry, index) => row(entry, index === left.length - 1))))
-        .child(v_flex().flex_1().min_w(0).gap(0).children(right.map((entry, index) => row(entry, index === right.length - 1))))))
-      .when(entries.length > 0 && !twoColumns, (el) => el.child(v_flex().w_full().gap(0)
-        .children(entries.map((entry, index) => row(entry, index === entries.length - 1)))))
+      .when(entries.length > 0, (el) => el.child(h_flex().w_full().flex_wrap().items_start().gap_x(G.xl)
+        .child(column(left))
+        .when(right.length > 0, (inner) => inner.child(column(right)))))
       .when(leaders.totalGroups > entries.length, (el) => el.child(mutedText(
         `Showing top ${entries.length} of ${leaders.totalGroups} by tokens.`, c)));
   }

@@ -1,32 +1,37 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { isNodeVersionSupported } from "../../herdr-insights/scripts/lib.mjs";
+import {
+  APP_FILES,
+  DEFAULT_MOD_FILES,
+  INSTALL_SCRIPT,
+  PACKAGE_ROOT,
+  RUNTIME_REL,
+  UNINSTALL_SCRIPT,
+  assertFailure,
+  assertStagedChecks,
+  assertSuccess,
+  createFakeRunner,
+  createSource,
+  exists,
+  hash,
+  listFiles,
+  makeEnvironment,
+  readJson,
+  readLog,
+  runInstall,
+  runUninstall,
+  snapshotTree,
+  temporaryRoot,
+  writeTree,
+} from "./install-fixtures.mjs";
 
-const PACKAGE_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../herdr-insights",
-);
-const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install.mjs");
-const UNINSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "uninstall.mjs");
 const CHECK_SCRIPT = fileURLToPath(new URL("../../scripts/herdr-insights/check.mjs", import.meta.url));
-const OPEN_JSON = '{"name":"Insights","mod":"insights"}';
-const RUNTIME_REL = "runtime.json";
-
-const DEFAULT_MOD_FILES = {
-  "analytics.js": "export const version = 1;\n",
-  "collector.mjs": "export const collector = true;\n",
-  "core/usage.mjs": "export const usage = true;\n",
-  "icons/insights.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>\n',
-  "main.js": "export default class Insights {}\n",
-  "mod.json": '{\n  "place": "none"\n}\n',
-};
 
 function runtimeContent(nodePath = process.execPath) {
   return `${JSON.stringify({ node: nodePath })}\n`;
@@ -35,15 +40,6 @@ function runtimeContent(nodePath = process.execPath) {
 function ownedFiles() {
   return [...Object.keys(DEFAULT_MOD_FILES), RUNTIME_REL].sort();
 }
-
-const APP_FILES = {
-  "data/insights/insights.json": '{"version":1,"keep":"local"}\n',
-  "data/insights/local-note.txt": "local data\n",
-  "keys.json": '{"global":{"ctrl-shift-t":"tab.new"}}\n',
-  "layouts/main.json": '{"id":"root","type":"row","children":[]}\n',
-  "mods/other/main.js": "export default class Other {}\n",
-  "settings.json": '{"zoom":1}\n',
-};
 
 test("manifest keys round-trip safely, including __proto__", async (t) => {
   const root = await temporaryRoot(t);
@@ -66,15 +62,13 @@ test("corrupt manifests fail closed with recovery guidance and preserve data", a
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const manifest = path.join(appHome, "data/insights/install-manifest.json");
   await fs.writeFile(manifest, "{broken");
-  const snapshot = async () => Promise.all((await listFiles(appHome)).map(async (relative) =>
-    [relative, await fs.readFile(path.join(appHome, relative), "utf8")]));
-  const before = await snapshot();
+  const before = await snapshotTree(appHome);
   for (const result of [runInstall({ appHome, fake, sourceRoot }), runUninstall({ appHome })]) {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /preserve or move aside both/);
     assert.match(result.stderr, /insights.json.*in place/);
   }
-  assert.deepEqual(await snapshot(), before);
+  assert.deepEqual(await snapshotTree(appHome), before);
 });
 
 test("reinstall retains ownership proof for edited stale files", async (t) => {
@@ -146,11 +140,7 @@ test("fresh install copies only owned mod files and preserves local app state", 
 
   const log = await readLog(fake);
   assert.equal(log.length, 1);
-  assert.deepEqual(log[0].args, [
-    "check",
-    path.join(await fs.realpath(appHome), "mods", "insights"),
-  ]);
-  assert.equal(log[0].appHome, await fs.realpath(appHome));
+  await assertStagedChecks(log, ["insights"], appHome);
 
   const fakeHome = path.join(root, "fake home");
   if (await exists(fakeHome)) {
@@ -238,7 +228,7 @@ test("runtime.json is generated from the installer Node, replaces a source copy,
   assert.equal(await exists(path.join(symlinkApp, "mods", "insights")), false);
 });
 
-test("--open uses argv-safe executable arguments and runs only after a passing check", async (t) => {
+test("install runs only herdr-app check and never opens a tab", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root, DEFAULT_MOD_FILES, "reviewed source's tree");
   const appHome = path.join(root, "herdr app's home (dev)");
@@ -249,19 +239,13 @@ test("--open uses argv-safe executable arguments and runs only after a passing c
     fake,
     pathLookup: true,
     sourceRoot,
-    extra: ["--open"],
   });
   assertSuccess(result);
 
   const log = await readLog(fake);
-  assert.equal(log.length, 2);
-  assert.deepEqual(log[0].args, [
-    "check",
-    path.join(await fs.realpath(appHome), "mods", "insights"),
-  ]);
-  assert.equal(log[0].appHome, await fs.realpath(appHome));
-  assert.deepEqual(log[1].args, ["do", "tab.new", OPEN_JSON]);
-  assert.match(result.stdout, /Opened the Insights tab/);
+  assert.equal(log.length, 1);
+  await assertStagedChecks(log, ["insights"], appHome);
+  assert.doesNotMatch(result.stdout, /Opened the Insights tab/);
 });
 
 test("reinstall is idempotent, updates reviewed files, removes stale ones, and keeps local extras", async (t) => {
@@ -472,23 +456,23 @@ test("a failed herdr-app check exits nonzero, does not open, and the install can
     appHome,
     fake,
     sourceRoot,
-    extra: ["--open"],
     fail: "check",
   });
   assertFailure(failed);
   assert.match(failed.stderr, /fake herdr-app: check failed/);
   assert.match(failed.stderr, /herdr-app check failed/);
-  assert.equal(await exists(path.join(appHome, "mods", "insights", "main.js")), true);
+  assert.equal(await exists(path.join(appHome, "mods", "insights", "main.js")), false);
+  assert.deepEqual(await snapshotTree(appHome), Object.entries(APP_FILES).sort(([a], [b]) => a.localeCompare(b)));
   let log = await readLog(fake);
   assert.equal(log.length, 1);
   assert.equal(log[0].args[0], "check");
 
-  const rerun = runInstall({ appHome, fake, sourceRoot, extra: ["--open"] });
+  const rerun = runInstall({ appHome, fake, sourceRoot });
   assertSuccess(rerun);
   log = await readLog(fake);
-  assert.equal(log.length, 3);
+  assert.equal(log.length, 2);
   assert.equal(log[1].args[0], "check");
-  assert.deepEqual(log[2].args, ["do", "tab.new", OPEN_JSON]);
+  assert.equal(log.filter((entry) => entry.args[0] === "do").length, 0);
   assert.equal(
     await fs.readFile(path.join(appHome, "data", "insights", "insights.json"), "utf8"),
     APP_FILES["data/insights/insights.json"],
@@ -743,28 +727,6 @@ test("uninstaller remains usable on an older Node runtime", async (t) => {
   );
 });
 
-test("standalone distribution installs with no repo tooling or window commands", async (t) => {
-  const root = await temporaryRoot(t);
-  const distribution = path.join(root, "herdr-insights");
-  await fs.cp(PACKAGE_ROOT, distribution, { recursive: true });
-  const appHome = path.join(root, "app");
-  const fake = await createFakeRunner(root);
-  const result = spawnSync(process.execPath, [path.join(distribution, "scripts/install.mjs")], {
-    cwd: distribution,
-    env: makeEnvironment(root, appHome, fake),
-    encoding: "utf8",
-    shell: false,
-    timeout: 30_000,
-  });
-  assertSuccess(result);
-  assert.match(result.stdout, /herdr-app check passed/);
-  assert.deepEqual((await readLog(fake)).map((entry) => entry.args),
-    [["check", path.join(await fs.realpath(appHome), "mods/insights")]]);
-  await assert.rejects(fs.lstat(path.join(appHome, "data/insights/insights.json")), { code: "ENOENT" });
-  assert.deepEqual((await fs.readdir(root)).sort(),
-    ["app", "fake bin", "fake herdr log.jsonl", "herdr-insights"]);
-});
-
 test("async smoke test refuses to open a window without explicit opt-in", async (t) => {
   const root = await temporaryRoot(t);
   const script = fileURLToPath(new URL("./native-async-check.mjs", import.meta.url));
@@ -831,170 +793,4 @@ function findUnsupportedNode() {
     return { binary, version: match[1] };
   }
   return null;
-}
-
-async function temporaryRoot(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "herdr-insights-test-"));
-  t.after(async () => {
-    await fs.rm(root, { force: true, recursive: true });
-  });
-  return root;
-}
-
-async function createSource(root, files = DEFAULT_MOD_FILES, name = "reviewed source") {
-  const sourceRoot = path.join(root, name);
-  await writeTree(path.join(sourceRoot, "mods", "insights"), files);
-  await writeTree(sourceRoot, {
-    "README.md": "not part of the mod\n",
-    "keys.json": '{"global":{}}\n',
-    "layouts/other.json": '{"id":"other"}\n',
-    "tests/source-only.txt": "not installed\n",
-  });
-  return sourceRoot;
-}
-
-async function createFakeRunner(root) {
-  const bin = path.join(root, "fake bin");
-  const runner = path.join(bin, "herdr-app");
-  const log = path.join(root, "fake herdr log.jsonl");
-  await fs.mkdir(bin, { recursive: true });
-  await fs.writeFile(
-    runner,
-    `#!/usr/bin/env node
-import fs from "node:fs";
-
-const args = process.argv.slice(2);
-const log = process.env.FAKE_HERDR_LOG;
-if (log) fs.appendFileSync(log, JSON.stringify({ appHome: process.env.HERDR_APP_HOME ?? null, args }) + "\\n");
-
-if (process.env.FAKE_HERDR_FAIL === "check" && args[0] === "check") {
-  console.error("fake herdr-app: check failed");
-  process.exit(7);
-}
-if (process.env.FAKE_HERDR_FAIL === "open" && args[0] === "do") {
-  console.error("fake herdr-app: open failed");
-  process.exit(8);
-}
-console.log("fake herdr-app: " + args.join(" "));
-`,
-    { mode: 0o755 },
-  );
-  await fs.chmod(runner, 0o755);
-  return { bin, log, runner };
-}
-
-function makeEnvironment(root, appHome, fake, options = {}) {
-  const env = {
-    ...process.env,
-    FAKE_HERDR_LOG: fake.log,
-    HERDR_APP_HOME: appHome,
-    HOME: path.join(root, "fake home"),
-  };
-  delete env.FAKE_HERDR_FAIL;
-  if (options.fail) env.FAKE_HERDR_FAIL = options.fail;
-
-  if (options.pathLookup) {
-    delete env.HERDR_APP_BIN;
-    env.PATH = `${path.dirname(fake.runner)}${path.delimiter}${process.env.PATH ?? ""}`;
-  } else {
-    env.HERDR_APP_BIN = fake.runner;
-  }
-  return env;
-}
-
-function runInstall({ appHome, fake, sourceRoot, extra = [], fail, pathLookup = false }) {
-  const root = path.dirname(appHome);
-  const environment = makeEnvironment(root, appHome, fake, { fail, pathLookup });
-  return runNode(INSTALL_SCRIPT, ["--source", sourceRoot, "--app-home", appHome, ...extra], environment);
-}
-
-function runUninstall({ appHome }) {
-  const environment = { ...process.env, HERDR_APP_HOME: appHome };
-  return runNode(UNINSTALL_SCRIPT, ["--app-home", appHome], environment);
-}
-
-function runNode(script, args, environment) {
-  return spawnSync(process.execPath, [script, ...args], {
-    cwd: PACKAGE_ROOT,
-    encoding: "utf8",
-    env: environment,
-    maxBuffer: 10 * 1024 * 1024,
-    shell: false,
-    timeout: 30_000,
-  });
-}
-
-function assertSuccess(result) {
-  assert.equal(
-    result.status,
-    0,
-    `expected success\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
-  );
-}
-
-function assertFailure(result) {
-  assert.notEqual(
-    result.status,
-    0,
-    `expected failure\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
-  );
-  assert.equal(result.error, undefined, String(result.error));
-}
-
-async function readLog(fake) {
-  let text;
-  try {
-    text = await fs.readFile(fake.log, "utf8");
-  } catch (error) {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  }
-  return text
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
-}
-
-async function readJson(file) {
-  return JSON.parse(await fs.readFile(file, "utf8"));
-}
-
-async function writeTree(base, files) {
-  for (const [relative, content] of Object.entries(files)) {
-    const target = path.join(base, ...relative.split("/"));
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, content);
-  }
-}
-
-async function listFiles(base) {
-  const files = [];
-  async function walk(directory, relative) {
-    const entries = await fs.readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await walk(absolute, childRelative);
-      } else if (entry.isFile()) {
-        files.push(childRelative);
-      }
-    }
-  }
-  await walk(base, "");
-  return files.sort();
-}
-
-async function exists(target) {
-  try {
-    await fs.lstat(target);
-    return true;
-  } catch (error) {
-    if (error.code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-function hash(content) {
-  return createHash("sha256").update(content).digest("hex");
 }

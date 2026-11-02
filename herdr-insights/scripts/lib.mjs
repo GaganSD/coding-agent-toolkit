@@ -10,10 +10,16 @@ export const PACKAGE_ROOT = path.resolve(
   "..",
 );
 export const MIN_NODE_VERSION = "22.15";
-export const MOD_REL = "mods/insights";
-export const DATA_REL = "data/insights";
-export const MANIFEST_NAME = "install-manifest.json";
 export const RUNTIME_NAME = "runtime.json";
+export const MODS = Object.freeze({
+  insights: { manifest: "install-manifest.json", rel: "mods/insights", runtime: true },
+  "insights-launcher": {
+    manifest: "launcher-install-manifest.json",
+    optional: true,
+    rel: "mods/insights-launcher",
+  },
+});
+export const MOD_NAMES = Object.keys(MODS);
 export const MANIFEST_VERSION = 1;
 export const MANIFEST_OWNER = "herdr-insights";
 export const HASH_RE = /^[0-9a-f]{64}$/;
@@ -48,16 +54,22 @@ export function createRuntimeFile(nodePath = process.execPath) {
   };
 }
 
-export function modDir(appHome) {
-  return path.join(appHome, "mods", "insights");
+export function modInfo(modName) {
+  const info = MODS[modName];
+  if (!info) throw new Error(`Unknown Insights mod: ${modName}`);
+  return info;
+}
+
+export function modDir(appHome, modName) {
+  return path.join(appHome, modInfo(modName).rel);
 }
 
 export function dataDir(appHome) {
   return path.join(appHome, "data", "insights");
 }
 
-export function manifestPath(appHome) {
-  return path.join(dataDir(appHome), MANIFEST_NAME);
+export function manifestPath(appHome, modName) {
+  return path.join(dataDir(appHome), modInfo(modName).manifest);
 }
 
 export async function lstatOrNull(target) {
@@ -180,6 +192,23 @@ export async function assertNoSymlinkComponents(root, target) {
   }
 }
 
+/** Serialize installers/uninstallers, including preflight and native commands. */
+export async function withInstallerLock(appHome, action) {
+  if (!appHome) return action();
+  const lock = path.join(appHome, ".insights-install.lock");
+  try {
+    await fs.mkdir(lock, { mode: 0o700 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    throw new Error(`Insights install/uninstall is locked at ${lock}. Wait for the other installer; if it was interrupted, remove this empty lock directory only after confirming it has stopped.`, { cause: error });
+  }
+  try {
+    return await action();
+  } finally {
+    await fs.rmdir(lock);
+  }
+}
+
 export async function ensureDirectory(root, target, label = "directory", mode) {
   await assertNoSymlinkComponents(root, target);
   const existing = await lstatOrNull(target);
@@ -198,21 +227,21 @@ export async function ensureDirectory(root, target, label = "directory", mode) {
   }
 }
 
-export async function readManifest(appHome) {
+export async function readManifest(appHome, modName) {
   try {
-    return await readManifestData(appHome);
+    return await readManifestData(appHome, modName);
   } catch (error) {
     throw new Error(
       `${error.message}\nNo target files were changed. To recover, preserve or move aside both ` +
-      `${modDir(appHome)} and ${manifestPath(appHome)}, then reinstall. ` +
+      `${modDir(appHome, modName)} and ${manifestPath(appHome, modName)}, then reinstall. ` +
       `Leave ${path.join(dataDir(appHome), "insights.json")} in place.`,
       { cause: error },
     );
   }
 }
 
-async function readManifestData(appHome) {
-  const file = manifestPath(appHome);
+async function readManifestData(appHome, modName) {
+  const file = manifestPath(appHome, modName);
   await assertNoSymlinkComponents(appHome, file);
   const stat = await lstatOrNull(file);
   if (!stat) return null;
@@ -241,7 +270,7 @@ async function readManifestData(appHome) {
   if (parsed.owner !== MANIFEST_OWNER) {
     throw new Error(`Install manifest belongs to another owner: ${String(parsed.owner)}`);
   }
-  if (parsed.target !== MOD_REL) {
+  if (parsed.target !== modInfo(modName).rel) {
     throw new Error(`Install manifest targets another folder: ${String(parsed.target)}`);
   }
   if (!parsed.files || typeof parsed.files !== "object" || Array.isArray(parsed.files)) {
@@ -260,7 +289,7 @@ async function readManifestData(appHome) {
   return { ...parsed, files, path: file };
 }
 
-export async function writeManifest(appHome, files) {
+export async function writeManifest(appHome, files, modName) {
   const directory = dataDir(appHome);
   await ensureDirectory(appHome, directory, "Insights data directory");
 
@@ -279,11 +308,11 @@ export async function writeManifest(appHome, files) {
   const manifest = {
     version: MANIFEST_VERSION,
     owner: MANIFEST_OWNER,
-    target: MOD_REL,
+    target: modInfo(modName).rel,
     installedAt: new Date().toISOString(),
     files: sortedFiles,
   };
-  const file = manifestPath(appHome);
+  const file = manifestPath(appHome, modName);
   await assertNoSymlinkComponents(appHome, file);
   await writeFileAtomic(file, `${JSON.stringify(manifest, null, 2)}\n`, 0o644);
   return manifest;
@@ -331,12 +360,13 @@ function isGeneratedSourceFile(name) {
   return name === "jsconfig.json" || name.endsWith(".d.ts");
 }
 
-export async function collectSourceFiles(sourceRoot) {
-  const declaredModDir = path.join(path.resolve(sourceRoot), MOD_REL);
+export async function collectSourceFiles(sourceRoot, modName) {
+  const relativeMod = modInfo(modName).rel;
+  const declaredModDir = path.join(path.resolve(sourceRoot), relativeMod);
   const declaredStat = await lstatOrNull(declaredModDir);
   if (!declaredStat) {
     throw new Error(
-      `Source folder not found: ${declaredModDir}\nExpected ${MOD_REL}/ with main.js, mod.json (place "none") and the collector.`,
+      `Source folder not found: ${declaredModDir}\nExpected ${relativeMod}/ with main.js and mod.json.`,
     );
   }
   if (declaredStat.isSymbolicLink()) {
@@ -419,9 +449,7 @@ export async function collectSourceFiles(sourceRoot) {
     throw new Error("Source mod.json must contain a JSON object.");
   }
   if (modJson.place !== "none") {
-    throw new Error(
-      'Source mod.json must use "place": "none"; Insights opens through the installed mod tab, not as a docked panel.',
-    );
+    throw new Error(`Source ${relativeMod}/mod.json must use "place": "none".`);
   }
 
   return { files, modDir: root, modJson };

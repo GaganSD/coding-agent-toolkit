@@ -1,8 +1,11 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import {
   PACKAGE_ROOT,
+  MODS,
+  MOD_NAMES,
   RUNTIME_NAME,
   assertNoSymlinkComponents,
   assertSupportedNodeVersion,
@@ -23,9 +26,10 @@ import {
   sha256,
   writeFileAtomic,
   writeManifest,
+  withInstallerLock,
 } from "./lib.mjs";
 
-const OPEN_ARGS = ["do", "tab.new", '{"name":"Insights","mod":"insights"}'];
+import { prepareToolbar, applyToolbar } from "./toolbar.mjs";
 
 function usage() {
   return `Insights local installer
@@ -35,14 +39,15 @@ Usage:
   node scripts/install.mjs [options]
 
 Options:
-  --open                Open the Insights tab after herdr-app check passes
+  --open                Open an Insights tab after installation (optional)
   --force               Replace owned files edited locally (never unowned files or links)
   --source <folder>     Source package folder containing mods/insights (development)
   --app-home <folder>   Herdr app home (default: $HERDR_APP_HOME or ~/.config/herdr-app)
   -h, --help            Show this help
 
-The installer copies only mods/insights, creates data/insights, and never writes
-layouts, keys, shipped mods, or insights.json. It generates mods/insights/runtime.json
+The installer copies mods/insights and mods/insights-launcher and creates a personal
+layout with an Insights button beside the original tabs mod. It never edits shipped
+layouts/mods, keys, terminals, or insights.json. It generates mods/insights/runtime.json
 with the absolute Node executable used for installation. It does not publish or use
 the network.
 `;
@@ -124,24 +129,26 @@ async function addParentIssues(targetDirectory, target, issues) {
   }
 }
 
-async function install(options) {
-  assertSupportedNodeVersion();
-  const sourceRoot = options.source
-    ? path.resolve(expandHome(options.source))
-    : PACKAGE_ROOT;
-  const source = await collectSourceFiles(sourceRoot);
-  // The installer owns runtime.json: never install a source copy, even if one
-  // exists, and always point the UI at the Node executable that ran install.
-  source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
-  source.files.push(createRuntimeFile());
-  source.files.sort((left, right) => left.relative.localeCompare(right.relative));
+async function collectInstallSources(sourceRoot) {
+  const sources = new Map();
+  for (const modName of MOD_NAMES) {
+    if (MODS[modName].optional && !await lstatOrNull(path.join(sourceRoot, MODS[modName].rel))) continue;
+    const source = await collectSourceFiles(sourceRoot, modName);
+    // Only the dashboard needs Node; the launcher runs entirely inside Herdr.
+    if (MODS[modName].runtime) {
+      source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
+      source.files.push(createRuntimeFile());
+    }
+    source.files.sort((left, right) => left.relative.localeCompare(right.relative));
+    sources.set(modName, source);
+  }
+  return sources;
+}
 
-  // Validate the source before creating the app home. A bad --source must not
-  // leave a new target directory behind.
-  const appHome = await resolveAppHome(options.appHome);
-  const targetDirectory = modDir(appHome);
+async function prepareInstall(appHome, source, modName, force) {
+  const targetDirectory = modDir(appHome, modName);
   const targetDataDirectory = dataDir(appHome);
-  const targetManifest = manifestPath(appHome);
+  const targetManifest = manifestPath(appHome, modName);
 
   if (path.resolve(source.modDir) === path.resolve(targetDirectory)) {
     throw new Error("Source and target are the same mod folder; refusing to install over itself.");
@@ -157,7 +164,7 @@ async function install(options) {
     }
   }
 
-  const manifest = await readManifest(appHome);
+  const manifest = await readManifest(appHome, modName);
   if (targetStat && !manifest) {
     throw new Error(
       `Refusing an unowned collision at ${targetDirectory}.\nNo ${targetManifest} proves this installer owns it. Move the folder aside or install with Herdr's own mod tools.`,
@@ -188,7 +195,7 @@ async function install(options) {
     }
 
     const currentHash = sha256(await fs.readFile(target));
-    if (currentHash !== oldHash && currentHash !== file.hash && !options.force) {
+    if (currentHash !== oldHash && currentHash !== file.hash && !force) {
       issues.push(
         `Owned file was edited locally: ${target} (use --force to replace it with reviewed source)`,
       );
@@ -203,6 +210,38 @@ async function install(options) {
     );
   }
 
+  return { appHome, source, targetDirectory, targetDataDirectory, manifest, sourcePaths, modName };
+}
+
+// Validate the exact buffered source (including runtime.json) before replacing
+// either live mod. A broken launcher must not partially upgrade the dashboard.
+async function checkInstallSources(sources) {
+  const staging = await fs.mkdtemp(path.join(os.tmpdir(), "insights-install-check-"));
+  try {
+    for (const [modName, source] of sources) {
+      for (const file of source.files) {
+        const target = localPath(modDir(staging, modName), file.relative);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, file.data, { mode: file.mode });
+      }
+    }
+    for (const modName of sources.keys()) {
+      const check = await runHerdr(["check", modDir(staging, modName)], {
+        env: { HERDR_APP_HOME: staging, HOME: staging },
+      });
+      relayHerdrOutput(check);
+      if (check.error || check.code !== 0 || check.signal) {
+        throw new Error(`${herdrFailure(check, "herdr-app check")}\nNo installed mod files were changed.`);
+      }
+      console.log(`herdr-app check passed (${modName}, staged source).`);
+    }
+  } finally {
+    await fs.rm(staging, { recursive: true, force: true });
+  }
+}
+
+async function applyInstall(plan) {
+  const { appHome, source, targetDirectory, targetDataDirectory, manifest, sourcePaths, modName } = plan;
   await ensureDirectory(appHome, path.join(appHome, "mods"), "Herdr mods directory");
   await ensureDirectory(appHome, targetDirectory, "Insights mod directory");
   await ensureDirectory(appHome, targetDataDirectory, "Insights data directory", 0o700);
@@ -268,7 +307,7 @@ async function install(options) {
     ...retainedHashes,
     ...Object.fromEntries(source.files.map((file) => [file.relative, file.hash])),
   };
-  await writeManifest(appHome, installedHashes);
+  await writeManifest(appHome, installedHashes, modName);
 
   console.log(
     `Installed ${source.files.length} owned file(s) to ${targetDirectory} ` +
@@ -276,29 +315,12 @@ async function install(options) {
         removed.length ? `, ${removed.length} stale removed` : ""
       }).`,
   );
-  console.log(`Generated ${RUNTIME_NAME} for Node ${process.execPath}.`);
-  console.log(`Insights data stays at ${targetDataDirectory}; insights.json is untouched.`);
+  if (MODS[modName].runtime) {
+    console.log(`Generated ${RUNTIME_NAME} for Node ${process.execPath}.`);
+    console.log(`Insights data stays at ${targetDataDirectory}; insights.json is untouched.`);
+  }
   for (const kept of keptStale) {
     console.warn(`Kept an owned file no longer in the source: ${kept}`);
-  }
-
-  const herdrEnv = { HERDR_APP_HOME: appHome };
-  const check = await runHerdr(["check", targetDirectory], { env: herdrEnv });
-  relayHerdrOutput(check);
-  if (check.error || check.code !== 0 || check.signal) {
-    throw new Error(
-      `${herdrFailure(check, "herdr-app check")}\nFiles are installed; fix the mod and rerun the installer.`,
-    );
-  }
-  console.log("herdr-app check passed.");
-
-  if (options.open) {
-    const opened = await runHerdr(OPEN_ARGS, { env: herdrEnv });
-    relayHerdrOutput(opened);
-    if (opened.error || opened.code !== 0 || opened.signal) {
-      throw new Error(herdrFailure(opened, "herdr-app do tab.new"));
-    }
-    console.log("Opened the Insights tab in the current Herdr space.");
   }
 }
 
@@ -318,7 +340,41 @@ async function main() {
   }
 
   try {
-    await install(options);
+    assertSupportedNodeVersion();
+    const sourceRoot = options.source ? path.resolve(expandHome(options.source)) : PACKAGE_ROOT;
+    // Validate every source before creating the app home. A bad --source must
+    // not leave a new target directory behind.
+    const sources = await collectInstallSources(sourceRoot);
+    const appHome = await resolveAppHome(options.appHome);
+    await withInstallerLock(appHome, async () => {
+      // Preflight every target before changing either mod.
+      const plans = [];
+      for (const [modName, source] of sources) {
+        plans.push(await prepareInstall(appHome, source, modName, options.force));
+      }
+      const toolbar = sources.has("insights-launcher") ? await prepareToolbar(appHome) : null;
+      await checkInstallSources(sources);
+      // Native checks yield to the running app. Refuse edits/collisions made
+      // during validation before replacing any live files.
+      for (let index = 0; index < plans.length; index += 1) {
+        const plan = plans[index];
+        plans[index] = await prepareInstall(appHome, plan.source, plan.modName, options.force);
+      }
+      for (const plan of plans) await applyInstall(plan);
+      if (toolbar) await applyToolbar(toolbar);
+      // Keep the previously documented flag working for existing install scripts.
+      // Default installation still never opens a tab.
+      if (options.open) {
+        const opened = await runHerdr(["do", "tab.new", '{"name":"Insights","mod":"insights"}'], {
+          env: { HERDR_APP_HOME: appHome },
+        });
+        relayHerdrOutput(opened);
+        if (opened.error || opened.code !== 0 || opened.signal) {
+          throw new Error(`${herdrFailure(opened, "Opening Insights")}\nFiles are installed; open the tab from the toolbar.`);
+        }
+        console.log("Opened the Insights tab.");
+      }
+    });
     return 0;
   } catch (error) {
     console.error(`Error: ${error.message}`);

@@ -62,9 +62,18 @@ and `insights.json`; the automated installer tests cover those boundaries.
 ## Sharing a build
 
 Keep `herdr-insights/` self-contained, with `RECIPE.md`, `INSTALL.md`, `README.md`,
-`preview.png`, and `mods/insights/`. Do not ship layouts, key snippets, developer
-tests/fixtures, or smoke-test tooling in that folder. The installer copies only
-the mod tree, generates the local Node path, and records ownership separately.
+`preview.png`, `mods/insights/`, and `mods/insights-launcher/`. Do not ship layouts,
+key snippets, developer tests/fixtures, or smoke-test tooling in that folder.
+The installer preflights both mod trees, checks temporary buffered copies before
+replacing either live mod, generates the dashboard's local Node path, and records
+ownership separately for each mod. Install/uninstall share an exclusive lock;
+interrupted operations require confirming the process stopped before removing it.
+The toolbar is a personal layout clone wrapping Herdr's original `tabs` block;
+no built-in mod source is cloned, patched, or vendored. See
+[INSTALL.md](../herdr-insights/INSTALL.md) for the clone, click-state, and
+ownership rules. A clone does not inherit future structural changes to its
+source layout. Validate both mods with `herdr-app check` and inspect the actual
+toolbar in the existing window; do not launch a second instance.
 
 For Herdr Community discovery, publish the folder in a public GitHub repo and
 add topic `herdr-mod` after merging to the default branch. Allow up to an hour for

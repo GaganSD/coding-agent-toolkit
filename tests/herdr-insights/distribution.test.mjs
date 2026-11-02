@@ -14,8 +14,10 @@ const read = (relative) => readFile(path.join(root, relative), "utf8");
 test("Herdr distribution has the requested folder and display name, with no layouts or bindings", async () => {
   assert.equal(path.basename(root), "herdr-insights");
   assert.deepEqual(JSON.parse(await read("mods/insights/mod.json")), { place: "none", title: "Insights" });
-  const modEntries = (await readdir(path.join(root, "mods"))).filter((name) => name !== ".DS_Store");
-  assert.deepEqual(modEntries, ["insights"]);
+  const modEntries = (await readdir(path.join(root, "mods"))).filter((name) => name !== ".DS_Store").sort();
+  assert.deepEqual(modEntries, ["insights", "insights-launcher"]);
+  assert.deepEqual(JSON.parse(await read("mods/insights-launcher/mod.json")),
+    { place: "none", title: "Insights" });
   await assert.rejects(lstat(path.join(root, "layouts")), { code: "ENOENT" });
   await assert.rejects(lstat(path.join(root, "keys.json")), { code: "ENOENT" });
   assert.match(await read("RECIPE.md"), /^# Insights\n/);
@@ -79,7 +81,7 @@ test("Distribution inspection rejects keys.json and layouts without ignoring the
 test("shared distribution excludes developer tests, fixtures, and smoke tooling", async () => {
   await assert.rejects(lstat(path.join(root, "tests")), { code: "ENOENT" });
   assert.deepEqual((await readdir(path.join(root, "scripts"))).sort(),
-    ["install.mjs", "lib.mjs", "uninstall.mjs"]);
+    ["install.mjs", "lib.mjs", "toolbar.mjs", "uninstall.mjs"]);
   assert.deepEqual((await inspectDistribution(root)).errors, []);
 });
 
@@ -104,7 +106,7 @@ test("agent installation entry point separates installation from rebuilding", as
   assert.match(install, /does not override its review requirements/);
   assert.match(install, /npm run install:local --prefix herdr-insights\n/);
   assert.match(install, /Do not run developer tests/);
-  assert.match(install, /Never\nlaunch a second Herdr instance/);
+  assert.match(install, /Never\s+launch a second Herdr instance/);
   assert.match(recipe, /Done when\*\* checks apply\nto building\/releasing, not routine installation/);
 });
 

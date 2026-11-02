@@ -1,36 +1,31 @@
 # Install Insights
 
-Requires Herdr and **Node.js 22.15+**. Reuse an existing checkout when available.
+Requires **Node.js 22.15+** and a running Herdr. Never launch a second Herdr instance.
 Follow Herdr's `AGENTS.md`; this guide does not override its review requirements.
-`RECIPE.md` describes rebuilding, not installation.
+Use the existing build, not `RECIPE.md` (rebuilding).
 
 ## Install
 
-From the parent of `herdr-insights/`:
+From the parent of `herdr-insights/`; no `npm install` needed:
 
 ```sh
 npm run install:local --prefix herdr-insights
 ```
 
-Only that folder is needed; no `npm install` is required. The installer copies
-the mod, records ownership, configures the local Node path, and runs
-`herdr-app check`. Existing usage data, layouts, keys, and terminals stay intact.
+App home defaults to `$HERDR_APP_HOME` or `~/.config/herdr-app`.
+The installer checks temporary copies of both mods before replacing live files.
+First install creates/selects `<current-layout>-insights` (suffixing collisions)
+and adds **Insights** beside Files/Changes. Reinstall updates owned mods without
+rewriting layouts or changing the selected layout. Shipped files, tabs, terminals,
+keys, click state, and usage data are preserved.
 
-Finish when the installer exits successfully with **`herdr-app check passed`**.
-Report failures and stop; do not force overwrites or rebuild to bypass errors.
-Do not run developer tests or change tabs/focus during installation. Never
-launch a second Herdr instance.
+Success requires two `herdr-app check passed` messages **and exit code 0**.
+Do not run developer tests or change tabs during installation. Open the dashboard
+only if requested: click **Insights**, or add `-- --open` to the install command.
 
-## Open only if requested
+## Errors
 
-```sh
-herdr-app do tab.new '{"name":"Insights","mod":"insights"}'
-```
-
-## Uninstall
-
-Usage data and locally edited/unowned files are preserved:
-
-```sh
-npm run uninstall:local --prefix herdr-insights
-```
+Stop and report; do not force overwrites or rebuild to bypass errors. The layout
+must contain the native `tabs` block. Preserve local edits and any failed layout
+clone. Remove the app home's `.insights-install.lock` directory only after
+confirming no installer/uninstaller is running.
