@@ -24,7 +24,7 @@ export async function inspectDistribution(packageRoot) {
   }
 
   try {
-    const allowed = new Set(["install.mjs", "lib.mjs", "uninstall.mjs"]);
+    const allowed = new Set(["install.mjs", "lib.mjs", "toolbar.mjs", "uninstall.mjs"]);
     for (const name of await fs.readdir(path.join(packageRoot, "scripts"))) {
       if (!allowed.has(name)) errors.push(`Developer tooling must stay outside herdr-insights/scripts/: ${name}`);
     }
