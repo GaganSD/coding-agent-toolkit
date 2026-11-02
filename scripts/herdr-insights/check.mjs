@@ -4,7 +4,6 @@ import path from "node:path";
 
 import {
   MIN_NODE_VERSION,
-  MOD_NAMES,
   PACKAGE_ROOT,
   assertSupportedNodeVersion,
   collectSourceFiles,
@@ -202,18 +201,12 @@ async function checkDistribution() {
   notes.push(...result.notes);
 }
 
-async function checkSourceIfPresent(modName) {
-  const sourceMod = path.join(PACKAGE_ROOT, "mods", modName);
-  const stat = await lstatOrNull(sourceMod);
-  if (!stat) {
-    fail(`mods/${modName} is required for the Herdr distribution`);
-    return;
-  }
+async function checkSource() {
   try {
-    const source = await collectSourceFiles(PACKAGE_ROOT, modName);
-    notes.push(`mods/${modName} source tree validates (${source.files.length} files)`);
+    const source = await collectSourceFiles(PACKAGE_ROOT);
+    notes.push(`mods/insights source tree validates (${source.files.length} files)`);
   } catch (error) {
-    fail(`mods/${modName} source tree is invalid: ${error.message}`);
+    fail(`mods/insights source tree is invalid: ${error.message}`);
   }
 }
 
@@ -232,8 +225,7 @@ await checkDistribution();
 await checkDocs();
 await checkScriptsAndTests();
 await checkTestInventory();
-for (const modName of MOD_NAMES) await checkSourceIfPresent(modName);
-
+await checkSource();
 for (const note of notes) console.log(`Note: ${note}`);
 if (errors.length > 0) {
   for (const error of errors) console.error(`Error: ${error}`);

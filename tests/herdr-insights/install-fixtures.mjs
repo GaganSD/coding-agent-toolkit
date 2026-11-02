@@ -28,6 +28,8 @@ export const TOOLBAR_LAYOUT = JSON.stringify({ id: "root", type: "column", child
   { id: "main", type: "block", content: { tab: "active" } },
 ] }) + "\n";
 
+export const SINGLE_TOOLBAR_CONTENT = { mod: "insights", props: { mode: "toolbar" } };
+
 export const APP_FILES = {
   "data/insights/insights.json": '{"version":1,"keep":"local"}\n',
   "data/insights/local-note.txt": "local data\n",
@@ -57,13 +59,6 @@ export async function createSource(root, files = DEFAULT_MOD_FILES, name = "revi
   return sourceRoot;
 }
 
-export async function createSourceWithLauncher(root) {
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"),
-    path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
-  return sourceRoot;
-}
-
 export async function createFakeRunner(root) {
   const bin = path.join(root, "fake bin");
   const runner = path.join(bin, "herdr-app");
@@ -82,8 +77,7 @@ if (log) fs.appendFileSync(log, JSON.stringify({ appHome: process.env.HERDR_APP_
 if (args[0] === "check" && process.env.FAKE_HERDR_EDIT_TARGET) {
   fs.appendFileSync(process.env.FAKE_HERDR_EDIT_TARGET, "edit during check\\n");
 }
-if (args[0] === "check" && (process.env.FAKE_HERDR_FAIL === "check" ||
-    (process.env.FAKE_HERDR_FAIL === "launcher-check" && args[1].endsWith("insights-launcher")))) {
+if (args[0] === "check" && process.env.FAKE_HERDR_FAIL === "check") {
   console.error("fake herdr-app: check failed");
   process.exit(7);
 }

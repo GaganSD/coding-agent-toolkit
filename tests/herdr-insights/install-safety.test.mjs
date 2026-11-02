@@ -8,7 +8,7 @@ import {
   applyToolbar, prepareToolbar, prepareToolbarRemoval, removeToolbar,
 } from "../../herdr-insights/scripts/toolbar.mjs";
 import {
-  APP_FILES, assertFailure, assertSuccess, createFakeRunner, createSourceWithLauncher,
+  APP_FILES, assertFailure, assertSuccess, createFakeRunner, createSource,
   exists, makeEnvironment, readLog, runInstall, runUninstall, snapshotTree,
   temporaryRoot, writeTree,
 } from "./install-fixtures.mjs";
@@ -32,7 +32,7 @@ function switchLayout(root, appHome, fake, name) {
 
 test("the previously documented --open flag opens exactly one tab only after successful installation", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSourceWithLauncher(root);
+  const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
@@ -40,7 +40,7 @@ test("the previously documented --open flag opens exactly one tab only after suc
   let log = await readLog(fake);
   assert.deepEqual(log.at(-1).args, ["do", "tab.new", '{"name":"Insights","mod":"insights"}']);
   assert.equal(log.filter((entry) => entry.args[1] === "tab.new").length, 1);
-  const result = runInstall({ appHome, fake, sourceRoot, extra: ["--open"], fail: "launcher-check" });
+  const result = runInstall({ appHome, fake, sourceRoot, extra: ["--open"], fail: "check" });
   assertFailure(result);
   log = await readLog(fake);
   assert.equal(log.filter((entry) => entry.args[1] === "tab.new").length, 1, "a failed check must never open a tab");
@@ -51,61 +51,55 @@ test("the previously documented --open flag opens exactly one tab only after suc
   assert.equal(await exists(path.join(appHome, ".insights-install.lock")), false);
 });
 
-test("a failed check of either mod preserves an existing installation byte-for-byte", async (t) => {
+test("a failed check preserves an existing installation byte-for-byte", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSourceWithLauncher(root);
+  const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const before = await snapshotTree(appHome);
   await fs.writeFile(path.join(sourceRoot, "mods/insights/main.js"), "new dashboard\n");
-  await fs.writeFile(path.join(sourceRoot, "mods/insights-launcher/main.js"), "new launcher\n");
-  for (const fail of ["check", "launcher-check"]) {
-    const result = runInstall({ appHome, fake, sourceRoot, fail });
-    assertFailure(result);
-    assert.match(result.stderr, /No installed mod files were changed/);
-    assert.deepEqual(await snapshotTree(appHome), before);
-    assert.equal(await exists(path.join(appHome, ".insights-install.lock")), false);
-    const checks = (await readLog(fake)).filter((entry) => entry.args[0] === "check");
-    for (const entry of checks) assert.equal(await exists(entry.appHome), false, "staging is cleaned on failure");
+  const result = runInstall({ appHome, fake, sourceRoot, fail: "check" });
+  assertFailure(result);
+  assert.match(result.stderr, /No installed mod files were changed/);
+  assert.deepEqual(await snapshotTree(appHome), before);
+  assert.equal(await exists(path.join(appHome, ".insights-install.lock")), false);
+  for (const entry of (await readLog(fake)).filter((item) => item.args[0] === "check")) {
+    assert.equal(await exists(entry.appHome), false, "staging is cleaned on failure");
   }
 });
 
-test("edits made during native checks are refused before either live mod is replaced", async (t) => {
+test("edits made during the native check are refused before the live mod is replaced", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSourceWithLauncher(root);
+  const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const dashboard = path.join(appHome, "mods/insights/main.js");
-  const launcher = path.join(appHome, "mods/insights-launcher/main.js");
-  const before = await fs.readFile(dashboard, "utf8");
   await fs.writeFile(path.join(sourceRoot, "mods/insights/main.js"), "reviewed dashboard update\n");
-  const result = runInstall({ appHome, fake, sourceRoot, env: { FAKE_HERDR_EDIT_TARGET: launcher } });
+  const result = runInstall({ appHome, fake, sourceRoot, env: { FAKE_HERDR_EDIT_TARGET: dashboard } });
   assertFailure(result);
   assert.match(result.stderr, /Owned file was edited locally/);
-  assert.equal(await fs.readFile(dashboard, "utf8"), before);
-  assert.match(await fs.readFile(launcher, "utf8"), /edit during check/);
+  assert.doesNotMatch(await fs.readFile(dashboard, "utf8"), /reviewed dashboard update/);
 });
 
-test("fresh launcher check failures leave neither live mod installed", async (t) => {
+test("a fresh check failure leaves no live mod installed", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSourceWithLauncher(root);
+  const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const before = await snapshotTree(appHome);
   const fake = await createFakeRunner(root);
-  assertFailure(runInstall({ appHome, fake, sourceRoot, fail: "launcher-check" }));
+  assertFailure(runInstall({ appHome, fake, sourceRoot, fail: "check" }));
   assert.deepEqual(await snapshotTree(appHome), before);
   assert.equal(await exists(path.join(appHome, "mods/insights")), false);
-  assert.equal(await exists(path.join(appHome, "mods/insights-launcher")), false);
 });
 
 test("concurrent install and uninstall fail closed while another operation holds the lock", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSourceWithLauncher(root);
+  const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
@@ -147,7 +141,7 @@ test("toolbar revalidates destination state and source links after preflight", a
 
 test("uninstall rechecks the active layout instead of deleting a newly selected toolbar", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSourceWithLauncher(root);
+  const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
@@ -165,7 +159,7 @@ test("uninstall rechecks the active layout instead of deleting a newly selected 
 
 test("uninstall preserves a toolbar edited while the layout-switch command is running", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSourceWithLauncher(root);
+  const sourceRoot = await createSource(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
@@ -174,7 +168,7 @@ test("uninstall preserves a toolbar edited while the layout-switch command is ru
   assertFailure(result);
   assert.match(result.stderr, /Toolbar layout changed during uninstall/);
   assert.match(await fs.readFile(path.join(appHome, "layouts/main-insights.json"), "utf8"), /local edit/);
-  for (const relative of ["mods/insights/main.js", "mods/insights-launcher/main.js", "data/insights/toolbar-install.json"]) {
+  for (const relative of ["mods/insights/main.js", "data/insights/toolbar-install.json"]) {
     assert.equal(await exists(path.join(appHome, relative)), true);
   }
 });

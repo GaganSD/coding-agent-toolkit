@@ -1,7 +1,7 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Button, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
-import { exec, appHome, home, theme, settings, nextCommand, readTextFile } from "herdr";
+import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, spaces } from "herdr";
 import {
   PALETTES,
   clampRefreshSeconds,
@@ -49,6 +49,23 @@ const MIN_CELL = 12;
 const MAX_CELL = 20;
 const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
+const TAB = { name: "Insights", mod: "insights" };
+
+/** One Insights tab per space: focus it if it exists, otherwise create it. */
+function showInsights() {
+  const active = spaces().find((space) => space.active);
+  const tabIds = new Set(active?.tabs.map((tab) => tab.id) ?? []);
+  const open = panes().find((pane) => pane.mod === "insights" && tabIds.has(pane.tab));
+  if (open) {
+    // A layout block is not a dashboard pane: only pane info can be focused.
+    // Selecting a tab keeps its previous zoom, so reveal the dashboard without
+    // changing split sizes when another pane in that tab is zoomed.
+    const zoomed = panes().find((pane) => pane.tab === open.tab && pane.zoomed);
+    if (zoomed && zoomed.pane !== open.pane) run("pane.zoom", { pane: zoomed.pane });
+    return run("pane.focus", { pane: open.pane });
+  }
+  return run("tab.new", TAB);
+}
 // A leaderboard row needs its rank, avatar, a readable model name, and the token
 // value. A preferred basis wraps columns without imposing a minimum wider than
 // a narrow split pane; each column can still shrink to its available width.
@@ -419,7 +436,12 @@ function preferenceRow(label, control, c) {
 
 export default class Insights extends View {
   init(_props, cx) {
+    this.toolbarMode = props()?.mode === "toolbar";
     this.closed = false;
+    // The toolbar is a button, not a dashboard copy: no runtime read, collector,
+    // command loop, timer or editor state belongs to it.
+    if (this.toolbarMode) return;
+
     this.snapshot = null;
     this.loading = false;
     this.error = null;
@@ -514,6 +536,7 @@ export default class Insights extends View {
 
   close() {
     this.closed = true;
+    if (this.toolbarMode) return;
     this.cancelDashboardWork();
     this.activityGeneration = (this.activityGeneration ?? 0) + 1;
     try { this.activityTask?.cancel(); } catch { /* already gone */ }
@@ -1282,6 +1305,7 @@ export default class Insights extends View {
   }
 
   render(_cx) {
+    if (this.toolbarMode) return this.toolbar();
     const c = tokens(theme());
     const width = this.width || 960;
     const padding = width < 620 ? G.md : width < 900 ? G.lg : G.xl;
@@ -1302,6 +1326,19 @@ export default class Insights extends View {
       })
       .child(h_flex().w_full().justify_center().p(padding)
         .child(v_flex().w_full().max_w(1180).gap(G.lg).children(content)));
+  }
+
+  toolbar() {
+    const t = theme();
+    return h_flex().size_full().pr(10).items_center()
+      .bg(t.chrome).border_b(1).border_color(t.border)
+      .child(h_flex().id("insights-open").h(26).px(8).gap(5).flex_none()
+        .items_center().rounded(6).text_size(12).bg(t.chrome).text_color(t.muted)
+        .hover((style) => style.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
+        .on_click(() => showInsights())
+        .child(svg("mods/insights/insights.svg").size(14))
+        .child("Insights"));
   }
 
   header(c) {

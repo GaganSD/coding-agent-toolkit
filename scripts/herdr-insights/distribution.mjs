@@ -24,6 +24,18 @@ export async function inspectDistribution(packageRoot) {
   }
 
   try {
+    const mods = await fs.readdir(path.join(packageRoot, "mods"));
+    if (!mods.includes("insights")) errors.push("Distribution must contain mods/insights");
+    for (const name of mods) {
+      if (name !== "insights" && name !== ".DS_Store") {
+        errors.push(`Distribution ships one native mod; remove mods/${name}`);
+      }
+    }
+  } catch (error) {
+    errors.push(`Cannot inspect mods/: ${error.message}`);
+  }
+
+  try {
     const allowed = new Set(["install.mjs", "lib.mjs", "toolbar.mjs", "uninstall.mjs"]);
     for (const name of await fs.readdir(path.join(packageRoot, "scripts"))) {
       if (!allowed.has(name)) errors.push(`Developer tooling must stay outside herdr-insights/scripts/: ${name}`);

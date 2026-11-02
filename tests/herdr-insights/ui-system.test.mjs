@@ -235,6 +235,6 @@ test("the shared visual module is theme-driven, shadow-free and part of the inst
   assert.doesNotMatch(mainSource, /shadow_md|shadow_sm|shadow_lg/);
   has(mainSource, /from "\.\/ui\.js"/);
 
-  const source = await collectSourceFiles(PACKAGE_ROOT, "insights");
+  const source = await collectSourceFiles(PACKAGE_ROOT);
   assert.equal(source.files.some((file) => file.relative === "ui.js"), true, "installer copies mods/insights recursively");
 });

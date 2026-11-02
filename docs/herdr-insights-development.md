@@ -62,17 +62,19 @@ and `insights.json`; the automated installer tests cover those boundaries.
 ## Sharing a build
 
 Keep `herdr-insights/` self-contained, with `RECIPE.md`, `INSTALL.md`, `README.md`,
-`preview.png`, `mods/insights/`, and `mods/insights-launcher/`. Do not ship layouts,
-key snippets, developer tests/fixtures, or smoke-test tooling in that folder.
-The installer preflights both mod trees, checks temporary buffered copies before
-replacing either live mod, generates the dashboard's local Node path, and records
-ownership separately for each mod. Install/uninstall share an exclusive lock;
+`preview.png`, and `mods/insights/`. Do not ship layouts, key snippets, developer
+tests/fixtures, or smoke-test tooling in that folder. One native mod serves both
+views: `props.mode: "toolbar"` renders the button, and ordinary panes render the
+dashboard. The installer preflights the mod tree, checks a temporary buffered copy
+before replacing live files, generates the dashboard's local Node path, and records
+ownership in `install-manifest.json`. Install/uninstall share an exclusive lock;
 interrupted operations require confirming the process stopped before removing it.
 The toolbar is a personal layout clone wrapping Herdr's original `tabs` block;
 no built-in mod source is cloned, patched, or vendored. See
 [INSTALL.md](../herdr-insights/INSTALL.md) for the clone, click-state, and
 ownership rules. A clone does not inherit future structural changes to its
-source layout. Validate both mods with `herdr-app check` and inspect the actual
+source layout. A normal install has one `install-manifest.json` and the dashboard
+`runtime.json`. Validate the mod with `herdr-app check` and inspect the actual
 toolbar in the existing window; do not launch a second instance.
 
 For Herdr Community discovery, publish the folder in a public GitHub repo and
