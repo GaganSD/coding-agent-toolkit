@@ -95,7 +95,6 @@ test("a fresh check failure leaves no live mod installed", async (t) => {
   assertFailure(runInstall({ appHome, fake, sourceRoot, fail: "check" }));
   assert.deepEqual(await snapshotTree(appHome), before);
   assert.equal(await exists(path.join(appHome, "mods/insights")), false);
-  assert.equal(await exists(path.join(appHome, "mods/insights-launcher")), false);
 });
 
 test("concurrent install and uninstall fail closed while another operation holds the lock", async (t) => {

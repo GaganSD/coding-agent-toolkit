@@ -61,7 +61,6 @@ test("standalone distribution installs one mod and a single-mod toolbar without 
     ["do", "layout.clone", '{"name":"main","as":"main-insights"}'],
   ]);
   assert.deepEqual((await fs.readdir(path.join(appHome, "mods"))).sort(), ["insights"]);
-  await assert.rejects(fs.lstat(path.join(appHome, "mods/insights-launcher")), { code: "ENOENT" });
   await assert.rejects(fs.lstat(path.join(appHome, "data/insights/launcher-install-manifest.json")), { code: "ENOENT" });
   const layout = await readJson(path.join(appHome, "layouts/main-insights.json"));
   assert.deepEqual(toolbarButton(layout).content, SINGLE_TOOLBAR_CONTENT);
@@ -82,7 +81,6 @@ test("one mod reinstalls idempotently and uninstall preserves data and local edi
   await assertStagedChecks(log, ["insights"], appHome);
   const manifest = await readJson(path.join(appHome, "data/insights/install-manifest.json"));
   assert.equal(manifest.target, "mods/insights");
-  assert.equal(await exists(path.join(appHome, "data/insights/launcher-install-manifest.json")), false);
   assert.deepEqual(toolbarButton(await readJson(path.join(appHome, "layouts/main-insights.json"))).content,
     SINGLE_TOOLBAR_CONTENT);
 

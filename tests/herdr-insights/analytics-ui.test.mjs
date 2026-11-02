@@ -15,10 +15,10 @@ function fakeNativeElement() {
   const node = { calls: [], childNodes: [], style: {} };
   let element;
   const methods = {
-    child(value) { node.calls.push(["child", [value]]); node.childNodes.push(value); return element; },
-    children(values) { node.calls.push(["children", [values]]); node.childNodes.push(...values); return element; },
+    child(value) { node.childNodes.push(value); return element; },
+    children(values) { node.childNodes.push(...values); return element; },
     when(condition, branch) { if (condition) branch(element); return element; },
-    w(value) { node.style.width = value; node.calls.push(["w", [value]]); return element; },
+    w(value) { node.style.width = value; return element; },
     whitespace_nowrap() { node.style.whitespace = "nowrap"; return element; },
     items_start() { node.style.alignItems = "start"; return element; },
     flex_wrap() { node.style.flexWrap = "wrap"; return element; },
@@ -346,7 +346,7 @@ test("toolbar init returns before runtime, collector, command, timer or editor s
   state.props = { mode: "toolbar" };
   instance.init(undefined, cx);
 
-  assert.equal(instance.mode, "toolbar");
+  assert.equal(instance.toolbarMode, true);
   assert.deepEqual(state.runtimeReads, []);
   assert.deepEqual(state.execCalls, []);
   assert.deepEqual(calls.timers, []);

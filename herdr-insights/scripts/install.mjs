@@ -339,9 +339,8 @@ async function main() {
       // during validation before replacing any live files.
       plan = await prepareInstall(appHome, plan.source, options.force);
       await applyInstall(plan);
-      if (toolbar) await applyToolbar(toolbar);
-      // Keep the previously documented flag working for existing install scripts.
-      // Default installation still never opens a tab.
+      await applyToolbar(toolbar);
+      // Default installation never opens a tab.
       if (options.open) {
         const opened = await runHerdr(["do", "tab.new", '{"name":"Insights","mod":"insights"}'], {
           env: { HERDR_APP_HOME: appHome },

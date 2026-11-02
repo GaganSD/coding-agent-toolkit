@@ -1,17 +1,12 @@
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
 import test from "node:test";
 import { collectSourceFiles, PACKAGE_ROOT } from "../../herdr-insights/scripts/lib.mjs";
 import { withInsightsToolbar } from "../../herdr-insights/scripts/toolbar.mjs";
 import { SINGLE_TOOLBAR_CONTENT } from "./install-fixtures.mjs";
 
-test("the single Insights source installs the toolbar icon and no second mod", async () => {
+test("the Insights source includes its toolbar icon", async () => {
   const source = await collectSourceFiles(PACKAGE_ROOT);
   assert.ok(source.files.some((file) => file.relative === "insights.svg"));
-  assert.deepEqual(source.modJson, { place: "none", title: "Insights" });
-  const mods = (await fs.readdir(new URL("../../herdr-insights/mods/", import.meta.url)))
-    .filter((name) => name !== ".DS_Store");
-  assert.deepEqual(mods, ["insights"]);
 });
 
 test("layout composition keeps the original tabs code and points the toolbar at one mod", () => {

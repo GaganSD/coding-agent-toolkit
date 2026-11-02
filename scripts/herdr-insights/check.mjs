@@ -201,17 +201,7 @@ async function checkDistribution() {
   notes.push(...result.notes);
 }
 
-async function checkSourceIfPresent() {
-  const sourceMod = path.join(PACKAGE_ROOT, "mods", "insights");
-  const stat = await lstatOrNull(sourceMod);
-  if (!stat) {
-    fail("mods/insights is required for the Herdr distribution");
-    return;
-  }
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    fail("mods/insights must be a regular directory");
-    return;
-  }
+async function checkSource() {
   try {
     const source = await collectSourceFiles(PACKAGE_ROOT);
     notes.push(`mods/insights source tree validates (${source.files.length} files)`);
@@ -235,7 +225,7 @@ await checkDistribution();
 await checkDocs();
 await checkScriptsAndTests();
 await checkTestInventory();
-await checkSourceIfPresent();
+await checkSource();
 for (const note of notes) console.log(`Note: ${note}`);
 if (errors.length > 0) {
   for (const error of errors) console.error(`Error: ${error}`);

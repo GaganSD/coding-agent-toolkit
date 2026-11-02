@@ -23,7 +23,6 @@ test("distribution ships one native insights mod and no separate launcher", asyn
   const modEntries = (await readdir(path.join(root, "mods"))).filter((name) => name !== ".DS_Store").sort();
   assert.deepEqual(modEntries, ["insights"],
     "one mod owns the dashboard and its toolbar button; a second launcher must not ship");
-  await assert.rejects(lstat(path.join(root, "mods/insights-launcher")), { code: "ENOENT" });
 
   const docs = await Promise.all(["README.md", "INSTALL.md", "RECIPE.md"].map(read));
   const development = await readFile(
@@ -108,6 +107,7 @@ test("shared distribution excludes developer tests, fixtures, and smoke tooling"
   await assert.rejects(lstat(path.join(root, "tests")), { code: "ENOENT" });
   assert.deepEqual((await readdir(path.join(root, "scripts"))).sort(),
     ["install.mjs", "lib.mjs", "toolbar.mjs", "uninstall.mjs"]);
+  assert.deepEqual((await inspectDistribution(root)).errors, []);
 });
 
 test("distribution inspection rejects developer tooling in the shared folder", async (t) => {

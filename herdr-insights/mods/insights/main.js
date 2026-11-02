@@ -49,7 +49,6 @@ const MIN_CELL = 12;
 const MAX_CELL = 20;
 const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
-const TOOLBAR_MODE = "toolbar";
 const TAB = { name: "Insights", mod: "insights" };
 
 /** One Insights tab per space: focus it if it exists, otherwise create it. */
@@ -437,11 +436,11 @@ function preferenceRow(label, control, c) {
 
 export default class Insights extends View {
   init(_props, cx) {
-    this.mode = props()?.mode === TOOLBAR_MODE ? TOOLBAR_MODE : "dashboard";
+    this.toolbarMode = props()?.mode === "toolbar";
     this.closed = false;
     // The toolbar is a button, not a dashboard copy: no runtime read, collector,
     // command loop, timer or editor state belongs to it.
-    if (this.mode === TOOLBAR_MODE) return;
+    if (this.toolbarMode) return;
 
     this.snapshot = null;
     this.loading = false;
@@ -537,7 +536,7 @@ export default class Insights extends View {
 
   close() {
     this.closed = true;
-    if (this.mode === TOOLBAR_MODE) return;
+    if (this.toolbarMode) return;
     this.cancelDashboardWork();
     this.activityGeneration = (this.activityGeneration ?? 0) + 1;
     try { this.activityTask?.cancel(); } catch { /* already gone */ }
@@ -1306,7 +1305,7 @@ export default class Insights extends View {
   }
 
   render(_cx) {
-    if (this.mode === TOOLBAR_MODE) return this.toolbar();
+    if (this.toolbarMode) return this.toolbar();
     const c = tokens(theme());
     const width = this.width || 960;
     const padding = width < 620 ? G.md : width < 900 ? G.lg : G.xl;

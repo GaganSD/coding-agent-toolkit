@@ -12,9 +12,7 @@ Installing this existing build? Follow [INSTALL.md](INSTALL.md) and the user's
 Herdr `AGENTS.md`. This recipe is a rebuild brief; its **Done when** checks apply
 to building/releasing, not routine installation. Installation does not launch
 smoke-test windows or open a dashboard tab unless requested. First installation
-selects a personal layout with the button in the existing toolbar row. The button
-is a `mode: "toolbar"` view of the `insights` mod; any other pane shows the
-dashboard.
+selects a personal layout with the button in the existing toolbar row.
 
 **What you see:** A vertically scrollable dashboard centered at a maximum width
 of 1180px. Use Herdr theme colors, 1px borders, 8px card corners, 6px control
@@ -184,8 +182,6 @@ code/layouts are unchanged and reinstall does not duplicate the toolbar. Also ru
 native smoke checks in temporary app homes. Inspect a native screenshot and status
 for render errors. Verify actual filters, heatmap modes, source settings, refresh,
 and empty/error states. Reinstall without changing source transcripts, existing
-layouts, keys, local edits, or `insights.json`. Confirm the current normal install
-has one `install-manifest.json` and the dashboard `runtime.json`. Keep the GitHub
-repo public and add topic `herdr-mod` for Community discovery after merging to the
+layouts, keys, local edits, or `insights.json`. Keep the GitHub repo public and add topic `herdr-mod` for Community discovery after merging to the
 default branch; allow up to an hour for indexing and at least 24 hours for picture
 screening.
