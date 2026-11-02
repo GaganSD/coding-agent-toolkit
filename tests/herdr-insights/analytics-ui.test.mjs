@@ -1140,6 +1140,38 @@ test("a failed prepare leaves the old dashboard and a retryable error", async ()
   instance.close();
 });
 
+test("partial scan continuation reschedules while busy and stops on close", async () => {
+  const { cx, calls } = liveCx();
+  const instance = blankInstance();
+  instance.sourceInputs = new Map();
+  instance.refreshInput = null;
+  instance.configEditor = null;
+  const refreshes = [];
+  instance.refresh = (timerCx) => refreshes.push(timerCx);
+  instance.snapshot = { ...savedSnapshot(), scan: { status: "partial", processed: 1, total: 3 } };
+
+  instance.saving = true;
+  instance.scheduleScanContinue(cx);
+  assert.equal(calls.after.length, 1);
+  await calls.runAfter();
+  assert.equal(refreshes.length, 0, "a busy tick must not drop the continuation");
+  assert.equal(calls.after.filter((timer) => !timer.cancelled).length, 1, "the timer reschedules");
+
+  instance.saving = false;
+  instance.loading = false;
+  await calls.runAfter();
+  assert.equal(refreshes.length, 1, "the continuation runs once the save finishes");
+
+  instance.snapshot.scan = { status: "partial", processed: 2, total: 3 };
+  instance.scheduleScanContinue(cx);
+  const pending = calls.after.filter((timer) => !timer.cancelled);
+  assert.equal(pending.length, 1);
+  instance.close();
+  assert.equal(pending[0].cancelled, true, "close cancels the pending continuation");
+  await calls.runAfter();
+  assert.equal(refreshes.length, 1, "a closed view never refreshes again");
+});
+
 test("a hung prepare times out into a retryable dashboard error", async () => {
   const { todayKey } = analytics;
   const snapshot = savedSnapshot();

@@ -800,7 +800,14 @@ export default class Insights extends View {
     if (this.scanContinueTimer) return;
     this.scanContinueTimer = cx.timer.after(delay, (timerCx) => {
       this.scanContinueTimer = null;
-      if (!this.closed) this.refresh(timerCx);
+      if (this.closed) return;
+      // A tick during an in-flight load/save must not be lost: refresh is a
+      // no-op while busy, so keep the continuation armed until it can run.
+      if (this.busy()) {
+        this.scheduleScanContinue(timerCx);
+        return;
+      }
+      this.refresh(timerCx);
     });
   }
 
