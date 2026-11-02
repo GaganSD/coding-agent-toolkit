@@ -10,7 +10,13 @@ function showInsights() {
   const active = spaces().find((space) => space.active);
   const tabIds = new Set(active?.tabs.map((tab) => tab.id) ?? []);
   const open = panes().find((pane) => pane.mod === TAB.mod && tabIds.has(pane.tab));
-  if (open) return run("tab.select", { id: open.tab });
+  if (open) {
+    // Selecting a tab alone keeps its previous focus/zoom, which may hide this
+    // pane behind a terminal. Reveal the dashboard without changing split sizes.
+    const zoomed = panes().find((pane) => pane.tab === open.tab && pane.zoomed);
+    if (zoomed && zoomed.pane !== open.pane) run("pane.zoom", { pane: zoomed.pane });
+    return run("pane.focus", { pane: open.pane });
+  }
   return run("tab.new", TAB);
 }
 

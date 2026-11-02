@@ -24,7 +24,8 @@ npm run install:local --prefix herdr-insights
 ```
 
 With Herdr running, the installer checks both mods and adds **Insights** beside
-**Files / Changes**; each click opens a new Insights tab. It installs
+**Files / Changes**; clicking it reuses the current space's Insights tab, opening
+one only when absent. It installs
 `mods/insights/` and `mods/insights-launcher/`, records ownership in
 `data/insights/`, and creates a personal layout clone for the button. Shipped
 files, keys, terminals, and usage data are unchanged. See [INSTALL.md](INSTALL.md)

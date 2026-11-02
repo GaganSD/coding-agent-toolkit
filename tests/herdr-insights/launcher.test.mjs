@@ -58,12 +58,35 @@ test("toolbar button matches native panel controls and render has no side effect
 
 test("a click shows the space's Insights tab instead of opening another", () => {
   state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }, { id: "t2" }] }];
-  state.panes = [{ mod: "terminal", tab: "t1" }, { mod: "insights", tab: "t2" }];
+  state.panes = [{ pane: "p1", mod: "terminal", tab: "t1" }, { pane: "p2", mod: "insights", tab: "t2" }];
   state.commands.length = 0;
   const launcher = new Launcher();
   click(launcher);
   click(launcher);
-  assert.deepEqual(state.commands, [["tab.select", { id: "t2" }], ["tab.select", { id: "t2" }]]);
+  assert.deepEqual(state.commands, [["pane.focus", { pane: "p2" }], ["pane.focus", { pane: "p2" }]]);
+});
+
+test("a reused dashboard is focused and revealed behind another pane's zoom", () => {
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }, { id: "t2" }] }];
+  state.panes = [
+    { pane: "terminal", mod: "terminal", tab: "t2", focused: true, zoomed: true },
+    { pane: "dashboard", mod: "insights", tab: "t2", focused: false, zoomed: false },
+    { pane: "other", mod: "terminal", tab: "t1", zoomed: true },
+  ];
+  state.commands.length = 0;
+  click(new Launcher());
+  assert.deepEqual(state.commands, [
+    ["pane.zoom", { pane: "terminal" }],
+    ["pane.focus", { pane: "dashboard" }],
+  ]);
+});
+
+test("reusing an already zoomed dashboard preserves its zoom", () => {
+  state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }] }];
+  state.panes = [{ pane: "dashboard", mod: "insights", tab: "t1", zoomed: true }];
+  state.commands.length = 0;
+  click(new Launcher());
+  assert.deepEqual(state.commands, [["pane.focus", { pane: "dashboard" }]]);
 });
 
 test("a click opens the Insights tab only when the space has none", () => {

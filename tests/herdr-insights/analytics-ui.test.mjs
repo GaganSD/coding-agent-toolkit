@@ -23,6 +23,8 @@ function fakeNativeElement() {
     items_start() { node.style.alignItems = "start"; return element; },
     flex_wrap() { node.style.flexWrap = "wrap"; return element; },
     min_w(value) { node.style.minWidth = value; return element; },
+    flex_basis(value) { node.style.flexBasis = value; return element; },
+    flex_grow(value) { node.style.flexGrow = value; return element; },
   };
   element = new Proxy(node, {
     get(target, property) {
@@ -615,7 +617,9 @@ test("model usage wraps into columns instead of switching on a pane width", () =
   assert.equal(grid.style.flexWrap, "wrap", "columns wrap instead of using a width breakpoint");
   assert.deepEqual(grid.childNodes.map((column) => column.childNodes.length), [5, 5]);
   for (const column of grid.childNodes) {
-    assert.equal(column.style.minWidth, 300, "each column keeps room for a rank, logo, name and value");
+    assert.equal(column.style.flexBasis, 300, "preferred width controls wrapping");
+    assert.equal(column.style.flexGrow, 1, "columns share remaining space");
+    assert.equal(column.style.minWidth, 0, "a column can shrink below its basis in narrow split panes");
   }
 
   const single = analytics.leaderboard(rows.slice(0, 1), null, { groupBy: "model", includeCache: true });

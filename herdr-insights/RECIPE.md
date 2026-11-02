@@ -25,7 +25,8 @@ chrome background, muted text, and native hover colors. Its root matches the tab
 bar's chrome background and 1px bottom border. Stop mouse-down propagation on
 the button so it does not drag the window. Every click shows the current space's
 existing Insights tab (the tab whose pane runs the `insights` mod) instead of
-stacking duplicates; it calls `tab.new` with `{name: "Insights", mod: "insights"}`
+stacking duplicates. Focus its pane with `pane.focus`; if a different pane in
+that tab is zoomed, unzoom it first so the dashboard is visible. It calls `tab.new` with `{name: "Insights", mod: "insights"}`
 only when that space has none. No floating window, overlay, polling, file access,
 or helper process.
 
@@ -47,8 +48,8 @@ Dashboard, top to bottom:
   a categorical legend. Keep seven model series and fold the rest into Other.
 - Model Usage: the top ten models with provider attribution, compact token totals,
   and change versus the previous calendar period. Two columns of five that wrap to
-  one when the pane cannot hold both; each column keeps room for a rank, logo,
-  name and token value rather than keying off a fixed width. Show a known model
+  one when the pane cannot hold both; use a 300px flex basis, growth, and zero
+  minimum width so a column can shrink inside narrow splits. Show a known model
   logo, else a provider logo, else an initial. Up/down arrows and theme
   success/destructive colors distinguish trends; handle New and no-comparison
   states. Rows do not expand.
@@ -142,8 +143,13 @@ only for manual copies. Track ownership/hashes in a separate install manifest.
 Keep the existing dashboard manifest compatible and use
 `launcher-install-manifest.json` for the launcher. Preflight both targets before
 writing either. Refuse symlinks and unowned collisions; refuse edited owned files
-unless explicitly forced. Preserve usage data and unrelated files. Check both
-mods with `herdr-app check` before creating/selecting the toolbar layout.
+unless explicitly forced. Preserve usage data and unrelated files. Check buffered
+copies of both mods with `herdr-app check` in a temporary app home before replacing
+either live mod; clean up on success or failure. Revalidate targets after checking
+to preserve edits made during validation. Serialize install/uninstall with an
+exclusive `.insights-install.lock` directory for the full operation, and never
+steal a lock automatically. Recheck clone destinations and source state just before
+cloning, and recheck the active layout and clone hash before deleting on uninstall.
 Keep Herdr running for toolbar installation/removal; never start a second instance.
 
 **Watch out:** Canonical total is input + output + cacheRead + cacheWrite;
@@ -167,7 +173,9 @@ no layouts, token accounting, deduplication, configuration validation, increment
 recovery, and safe installation/uninstallation.
 Run `herdr-app check` on both installed mods. Inspect a real screenshot: Insights
 must be in the same row as Files/Changes with matching button styling, no extra
-strip or floating window. Each click opens a new full-size tab. Confirm built-in
+strip or floating window. Clicks reuse the current space's dashboard, including
+when it is in a split behind another pane's zoom, without creating duplicates.
+Confirm built-in
 code/layouts are unchanged and reinstall does not duplicate the toolbar. Also run populated-render and asynchronous
 native smoke checks in temporary app homes. Inspect a native screenshot and status
 for render errors. Verify actual filters, heatmap modes, source settings, refresh,

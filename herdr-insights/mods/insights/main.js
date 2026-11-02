@@ -50,9 +50,9 @@ const MAX_CELL = 20;
 const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
 // A leaderboard row needs its rank, avatar, a readable model name, and the token
-// value. Columns keep that minimum and wrap to one column when they cannot fit,
-// so no fixed pane width decides the layout.
-const LEADERBOARD_COLUMN_MIN = 300;
+// value. A preferred basis wraps columns without imposing a minimum wider than
+// a narrow split pane; each column can still shrink to its available width.
+const LEADERBOARD_COLUMN_BASIS = 300;
 
 /**
  * Heatmap cells stay small on narrow views and grow up to MAX_CELL on wide
@@ -1752,7 +1752,7 @@ export default class Insights extends View {
         clickCx.notify();
       }, c, { variant: "outline" }));
 
-    const column = (items) => v_flex().flex_1().min_w(LEADERBOARD_COLUMN_MIN).gap(0)
+    const column = (items) => v_flex().flex_basis(LEADERBOARD_COLUMN_BASIS).flex_grow(1).min_w(0).gap(0)
       .children(items.map((entry) => row(entry)));
 
     return card(c).gap(G.md)
