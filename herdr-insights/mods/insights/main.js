@@ -1,7 +1,7 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Button, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
-import { exec, appHome, home, theme, settings, nextCommand, panes, run, readTextFile, spaces } from "herdr";
+import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, spaces } from "herdr";
 import {
   PALETTES,
   clampRefreshSeconds,
@@ -436,8 +436,8 @@ function preferenceRow(label, control, c) {
 }
 
 export default class Insights extends View {
-  init(props, cx) {
-    this.mode = props?.mode === TOOLBAR_MODE ? TOOLBAR_MODE : "dashboard";
+  init(_props, cx) {
+    this.mode = props()?.mode === TOOLBAR_MODE ? TOOLBAR_MODE : "dashboard";
     this.closed = false;
     // The toolbar is a button, not a dashboard copy: no runtime read, collector,
     // command loop, timer or editor state belongs to it.

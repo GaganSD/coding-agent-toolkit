@@ -87,8 +87,8 @@ The recipe heading and `mod.json` title are **Insights**; the native mod ID is
 
 `mods/insights/mod.json` contains `{"place":"none","title":"Insights"}`.
 `main.js` default-exports one native View using gpui-base flex builders, `theme()`,
-and `run()`. Read `props.mode`: `"toolbar"` renders only the button and its click
-handler; every other value renders the dashboard and runs its collectors. The
+and `run()`. Read Herdr's `props()?.mode`: `"toolbar"` renders only the button and
+its click handler; every other value renders the dashboard and runs its collectors. The
 button's chart icon ships in the same tree.
 
 `scripts/toolbar.mjs` integrates through layout composition, not source patching.

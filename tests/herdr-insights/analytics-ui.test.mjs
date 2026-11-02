@@ -110,6 +110,7 @@ const nextCommand = () => globalThis.__insightsTestHerdr.nextCommand();
 const exec = (...args) => globalThis.__insightsTestHerdr.exec(...args);
 const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(...args);
 const panes = () => globalThis.__insightsTestHerdr.panes();
+const props = () => globalThis.__insightsTestHerdr.props();
 const run = (...args) => globalThis.__insightsTestHerdr.run(...args);
 const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
   )
@@ -146,7 +147,7 @@ function presentationFor(snapshot, options, command = "snapshot") {
 }
 
 function useHerdr({ readTextFile, execResult } = {}) {
-  const state = { commands: [], execCalls: [], panes: [], runtimeReads: [], spaces: [] };
+  const state = { commands: [], execCalls: [], panes: [], props: {}, runtimeReads: [], spaces: [] };
   state.herdr = {
     appHome: () => "/app",
     home: () => "/home",
@@ -154,6 +155,7 @@ function useHerdr({ readTextFile, execResult } = {}) {
     settings: () => ({}),
     nextCommand: () => new Promise(() => {}),
     panes: () => state.panes,
+    props: () => state.props,
     run: (...args) => state.commands.push(args),
     spaces: () => state.spaces,
     readTextFile: async (path) => {
@@ -341,7 +343,8 @@ test("toolbar init returns before runtime, collector, command, timer or editor s
   globalThis.__insightsTestHostCalls.editorStates = 0;
   const { cx, calls } = liveCx();
   const instance = new Insights();
-  instance.init({ mode: "toolbar" }, cx);
+  state.props = { mode: "toolbar" };
+  instance.init(undefined, cx);
 
   assert.equal(instance.mode, "toolbar");
   assert.deepEqual(state.runtimeReads, []);
@@ -362,7 +365,8 @@ test("toolbar render is only the native Insights button and has no side effects"
   state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }] }];
   state.panes = [];
   const instance = new Insights();
-  instance.init({ mode: "toolbar" }, fakeCx());
+  state.props = { mode: "toolbar" };
+  instance.init({}, fakeCx());
   const root = instance.render();
   const button = root.childNodes[0];
 
@@ -391,7 +395,8 @@ test("toolbar reuses the active space's dashboard and reveals it behind another 
     { pane: "dashboard", mod: "insights", tab: "t2", focused: false, zoomed: false },
   ];
   const instance = new Insights();
-  instance.init({ mode: "toolbar" }, fakeCx());
+  state.props = { mode: "toolbar" };
+  instance.init({}, fakeCx());
   const button = instance.render().childNodes[0];
   const click = button.calls.find(([name]) => name === "on_click")[1][0];
 
@@ -410,7 +415,8 @@ test("toolbar keeps an already zoomed dashboard and opens a tab only when the sp
   state.spaces = [{ id: "s1", active: true, tabs: [{ id: "t1" }] }];
   state.panes = [{ pane: "dashboard", mod: "insights", tab: "t1", zoomed: true }];
   const instance = new Insights();
-  instance.init({ mode: "toolbar" }, fakeCx());
+  state.props = { mode: "toolbar" };
+  instance.init({}, fakeCx());
   const click = instance.render().childNodes[0].calls.find(([name]) => name === "on_click")[1][0];
 
   click();
