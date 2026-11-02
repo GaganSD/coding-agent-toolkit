@@ -23,11 +23,19 @@ cd coding-agent-toolkit
 npm run install:local --prefix herdr-insights
 ```
 
-The installer runs `herdr-app check` without opening a tab or test window.
-Follow [INSTALL.md](INSTALL.md) for the installation steps. Add `-- --open` only
-if you want it to open one **Insights** tab. It installs owned files only under
-`mods/insights/` and writes its install manifest to `data/insights/` in
-`~/.config/herdr-app`; your layouts, keys, and terminals are unchanged. Set `HERDR_APP_HOME` to use a different app home.
+With Herdr running, the installer checks both mods and adds **Insights** to the
+same toolbar row as **Files / Changes**. Each click opens a new, full-size
+Insights tab in the current space. No floating windows or background launcher.
+Follow [INSTALL.md](INSTALL.md) for details; add `-- --open` only if you also want
+the installer to open a dashboard tab.
+
+It installs `mods/insights/` and `mods/insights-launcher/`, records ownership in
+`data/insights/`, and creates a personal layout (normally `main-insights`) using
+Herdr's supported clone command. The layout composes the button beside the
+**original Herdr tab bar**—no patched or vendored tab-bar code. Shipped files,
+keys, terminals, and usage data are unchanged. Reinstalling preserves personal
+layout edits and does not create another button or change the chosen layout.
+Set `HERDR_APP_HOME` to use a different app home.
 
 ## Use
 
@@ -46,14 +54,20 @@ response text or modify source transcripts.
 ## Development
 
 [RECIPE.md](RECIPE.md) is the self-contained rebuild brief required by Herdr.
-The distribution folder is `herdr-insights`; its native mod ID is `insights`
-and its display name is **Insights**. No layouts or key bindings ship.
+The distribution folder is `herdr-insights`; its dashboard mod ID is `insights`
+and its display name is **Insights**. `insights-launcher` is a separate, native
+toolbar button using only `theme()` and `run("tab.new", ...)`; it has no polling,
+helper process, or overlays. No layouts or key bindings ship. The installer
+clones the user's current layout and wraps its `tabs` block in a row containing
+the original mod plus the button. Only the owned personal layout is changed;
+Herdr's tab bar continues receiving its normal code updates.
 
 Developer tests, fixtures, and release validation live outside this distribution;
 see the repo's [development guide](../docs/herdr-insights-development.md). They are
 not installation steps.
 
-Uninstall while keeping usage data:
+With Herdr running, uninstall while keeping usage data and returning to the
+original layout:
 
 ```sh
 npm run uninstall:local --prefix herdr-insights
