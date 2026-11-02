@@ -4,6 +4,18 @@ import path from "node:path";
 import { lstatOrNull } from "../../herdr-insights/scripts/lib.mjs";
 import { validatePng } from "./png.mjs";
 
+/** The one native Herdr mod this distribution ships. */
+export const INSIGHTS_MOD = "insights";
+
+const ALLOWED_SCRIPTS = ["install.mjs", "lib.mjs", "toolbar.mjs", "uninstall.mjs"];
+
+function modEntries(entries) {
+  return entries
+    .filter((entry) => entry.isDirectory() && entry.name !== ".DS_Store")
+    .map((entry) => entry.name)
+    .sort();
+}
+
 export async function inspectDistribution(packageRoot) {
   const errors = [];
   const notes = [];
@@ -24,7 +36,21 @@ export async function inspectDistribution(packageRoot) {
   }
 
   try {
-    const allowed = new Set(["install.mjs", "lib.mjs", "toolbar.mjs", "uninstall.mjs"]);
+    const mods = modEntries(await fs.readdir(path.join(packageRoot, "mods"), { withFileTypes: true }));
+    if (!mods.includes(INSIGHTS_MOD)) {
+      errors.push(`Distribution must contain mods/${INSIGHTS_MOD}`);
+    }
+    for (const name of mods) {
+      if (name !== INSIGHTS_MOD) {
+        errors.push(`Distribution ships one native mod; remove mods/${name}`);
+      }
+    }
+  } catch (error) {
+    errors.push(`Cannot inspect mods/: ${error.message}`);
+  }
+
+  try {
+    const allowed = new Set(ALLOWED_SCRIPTS);
     for (const name of await fs.readdir(path.join(packageRoot, "scripts"))) {
       if (!allowed.has(name)) errors.push(`Developer tooling must stay outside herdr-insights/scripts/: ${name}`);
     }
@@ -42,7 +68,7 @@ export async function inspectDistribution(packageRoot) {
 
   try {
     const mod = JSON.parse(
-      await fs.readFile(path.join(packageRoot, "mods/insights/mod.json"), "utf8"),
+      await fs.readFile(path.join(packageRoot, `mods/${INSIGHTS_MOD}/mod.json`), "utf8"),
     );
     if (mod.title !== "Insights" || mod.place !== "none") {
       errors.push('mod.json must use title "Insights" and place "none"');

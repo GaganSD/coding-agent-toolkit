@@ -14,13 +14,24 @@ const read = (relative) => readFile(path.join(root, relative), "utf8");
 test("Herdr distribution has the requested folder and display name, with no layouts or bindings", async () => {
   assert.equal(path.basename(root), "herdr-insights");
   assert.deepEqual(JSON.parse(await read("mods/insights/mod.json")), { place: "none", title: "Insights" });
-  const modEntries = (await readdir(path.join(root, "mods"))).filter((name) => name !== ".DS_Store").sort();
-  assert.deepEqual(modEntries, ["insights", "insights-launcher"]);
-  assert.deepEqual(JSON.parse(await read("mods/insights-launcher/mod.json")),
-    { place: "none", title: "Insights" });
   await assert.rejects(lstat(path.join(root, "layouts")), { code: "ENOENT" });
   await assert.rejects(lstat(path.join(root, "keys.json")), { code: "ENOENT" });
   assert.match(await read("RECIPE.md"), /^# Insights\n/);
+});
+
+test("distribution ships one native insights mod and no separate launcher", async () => {
+  const modEntries = (await readdir(path.join(root, "mods"))).filter((name) => name !== ".DS_Store").sort();
+  assert.deepEqual(modEntries, ["insights"],
+    "one mod owns the dashboard and its toolbar button; a second launcher must not ship");
+  await assert.rejects(lstat(path.join(root, "mods/insights-launcher")), { code: "ENOENT" });
+
+  const docs = await Promise.all(["README.md", "INSTALL.md", "RECIPE.md"].map(read));
+  const development = await readFile(
+    new URL("../../docs/herdr-insights-development.md", import.meta.url), "utf8");
+  for (const text of [...docs, development]) {
+    assert.doesNotMatch(text, /insights-launcher|both mods|separate launcher/i,
+      "documentation must describe one mod with a mode property");
+  }
 });
 
 test("Community preview is a complete PNG referenced by the recipe", async () => {
@@ -78,11 +89,25 @@ test("Distribution inspection rejects keys.json and layouts without ignoring the
   assert.match((await inspectDistribution(packageRoot)).errors.join("\n"), /layouts/i);
 });
 
+test("Distribution inspection rejects a second mod directory", async (t) => {
+  const temporary = await mkdtemp(path.join(tmpdir(), "insights-second-mod-"));
+  t.after(async () => rm(temporary, { recursive: true, force: true }));
+  const packageRoot = path.join(temporary, "herdr-insights");
+  await mkdir(path.join(packageRoot, "mods", "insights"), { recursive: true });
+  await mkdir(path.join(packageRoot, "mods", "insights-launcher"));
+  await copyFile(path.join(root, "preview.png"), path.join(packageRoot, "preview.png"));
+  await writeFile(
+    path.join(packageRoot, "mods", "insights", "mod.json"),
+    '{"place":"none","title":"Insights"}\n',
+  );
+  const errors = (await inspectDistribution(packageRoot)).errors.join("\n");
+  assert.match(errors, /one native mod; remove mods\/insights-launcher/);
+});
+
 test("shared distribution excludes developer tests, fixtures, and smoke tooling", async () => {
   await assert.rejects(lstat(path.join(root, "tests")), { code: "ENOENT" });
   assert.deepEqual((await readdir(path.join(root, "scripts"))).sort(),
     ["install.mjs", "lib.mjs", "toolbar.mjs", "uninstall.mjs"]);
-  assert.deepEqual((await inspectDistribution(root)).errors, []);
 });
 
 test("distribution inspection rejects developer tooling in the shared folder", async (t) => {

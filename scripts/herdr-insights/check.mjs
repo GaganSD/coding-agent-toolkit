@@ -4,13 +4,12 @@ import path from "node:path";
 
 import {
   MIN_NODE_VERSION,
-  MOD_NAMES,
   PACKAGE_ROOT,
   assertSupportedNodeVersion,
   collectSourceFiles,
   lstatOrNull,
 } from "../../herdr-insights/scripts/lib.mjs";
-import { inspectDistribution } from "./distribution.mjs";
+import { INSIGHTS_MOD, inspectDistribution } from "./distribution.mjs";
 
 const TEST_ROOT = path.resolve(PACKAGE_ROOT, "../tests/herdr-insights");
 const errors = [];
@@ -209,6 +208,10 @@ async function checkSourceIfPresent(modName) {
     fail(`mods/${modName} is required for the Herdr distribution`);
     return;
   }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    fail(`mods/${modName} must be a regular directory`);
+    return;
+  }
   try {
     const source = await collectSourceFiles(PACKAGE_ROOT, modName);
     notes.push(`mods/${modName} source tree validates (${source.files.length} files)`);
@@ -232,8 +235,7 @@ await checkDistribution();
 await checkDocs();
 await checkScriptsAndTests();
 await checkTestInventory();
-for (const modName of MOD_NAMES) await checkSourceIfPresent(modName);
-
+await checkSourceIfPresent(INSIGHTS_MOD);
 for (const note of notes) console.log(`Note: ${note}`);
 if (errors.length > 0) {
   for (const error of errors) console.error(`Error: ${error}`);

@@ -23,13 +23,12 @@ cd coding-agent-toolkit
 npm run install:local --prefix herdr-insights
 ```
 
-With Herdr running, the installer checks both mods and adds **Insights** beside
-**Files / Changes**; clicking it reuses the current space's Insights tab, opening
-one only when absent. It installs
-`mods/insights/` and `mods/insights-launcher/`, records ownership in
-`data/insights/`, and creates a personal layout clone for the button. Shipped
-files, keys, terminals, and usage data are unchanged. See [INSTALL.md](INSTALL.md)
-for the layout and click-state rules. Set `HERDR_APP_HOME` to use a different app home.
+With Herdr running, the installer checks the `insights` mod and adds an
+**Insights** button beside the native tabs; clicking it reuses the current
+space's dashboard tab, opening one only when absent. It installs `mods/insights/`
+and records ownership in `data/insights/`. Shipped files, tabs, keys, terminals,
+and usage data are unchanged. See [INSTALL.md](INSTALL.md) for the layout and
+click-state rules. Set `HERDR_APP_HOME` to use a different app home.
 
 ## Use
 
@@ -47,21 +46,14 @@ response text or modify source transcripts.
 
 ## Development
 
-[RECIPE.md](RECIPE.md) is the self-contained rebuild brief required by Herdr.
-The distribution folder is `herdr-insights`; its dashboard mod ID is `insights`
-and its display name is **Insights**. `insights-launcher` is a separate, native
-toolbar button that shows the space's existing Insights tab, opening one only
-when absent; it has no polling, helper process, or overlays. No layouts or key
-bindings ship; the button lives in a personal layout clone composed by the
-installer (see [INSTALL.md](INSTALL.md)).
+One native mod, `mods/insights`, provides both views. A pane whose content is
+`{mod: "insights", props: {mode: "toolbar"}}` renders only the button; any other
+pane shows the dashboard. Toolbar mode starts no Node helper, scans, tasks,
+timers, or editors. No layouts or key bindings ship; the button lives in a
+personal layout clone composed by the installer, which wraps the native tabs
+without modifying them (see [INSTALL.md](INSTALL.md)).
 
+[RECIPE.md](RECIPE.md) is the self-contained rebuild brief required by Herdr.
 Developer tests, fixtures, and release validation live outside this distribution;
 see the repo's [development guide](../docs/herdr-insights-development.md). They are
 not installation steps.
-
-With Herdr running, uninstall while keeping usage data and returning to the
-original layout:
-
-```sh
-npm run uninstall:local --prefix herdr-insights
-```
