@@ -8,6 +8,7 @@ import {
   readFile,
   readdir,
   rename,
+  rm,
   rmdir,
   stat,
   unlink,
@@ -234,6 +235,19 @@ async function tryUnlinkStaleLock(lockPath, observed) {
   return true;
 }
 
+async function quarantineLockDirectory(lockPath, token) {
+  const quarantine = `${lockPath}.release-${token}`;
+  try {
+    // A rename is atomic: no observer can see the lock directory emptied and
+    // later removed in separate steps. A crash leaves only the quarantine dir.
+    await rename(lockPath, quarantine);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  await rm(quarantine, { recursive: true, force: true }).catch(() => {});
+}
+
 export async function withStoreLock(
   storePath,
   callback,
@@ -245,51 +259,68 @@ export async function withStoreLock(
   const host = os.hostname();
   const startedAt = Date.now();
   const deadline = startedAt + timeoutMs;
-  const ownerPath = path.join(lockPath, `owner-${token}.json`);
-
-  for (;;) {
-    let handle;
-    let created = false;
+  const ownerName = `owner-${token}.json`;
+  const ownerPath = path.join(lockPath, ownerName);
+  // Publish a fully populated unique directory with one atomic rename. Crash
+  // windows before this point leave only a private staging directory that no
+  // writer mistakes for the lock.
+  const stagingPath = path.join(
+    path.dirname(lockPath),
+    `.${path.basename(lockPath)}.acquire-${token}`,
+  );
+  try {
+    await mkdir(stagingPath, { mode: 0o700 });
+    const handle = await open(path.join(stagingPath, ownerName), "wx", 0o600);
     try {
-      await mkdir(lockPath, { mode: 0o700 });
-      created = true;
-      handle = await open(ownerPath, "wx", 0o600);
       await handle.writeFile(
         `${JSON.stringify({ ...meta, pid: process.pid, host, startedAt, token })}\n`,
         "utf8",
       );
       await handle.sync();
-      await handle.close();
-      handle = null;
-      break;
-    } catch (error) {
-      if (handle) await handle.close().catch(() => {});
-      if (created) {
-        await unlink(ownerPath).catch(() => {});
-        await rmdir(lockPath).catch(() => {});
-      }
-      if (error?.code !== "EEXIST") throw error;
+    } finally {
+      await handle.close().catch(() => {});
+    }
+  } catch (error) {
+    await rm(stagingPath, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
 
+  try {
+    for (;;) {
       const observed = await readLockInfo(lockPath);
+      if (!observed) {
+        try {
+          await rename(stagingPath, lockPath);
+          break;
+        } catch (error) {
+          if (!["EEXIST", "ENOTEMPTY", "ENOTDIR", "EISDIR"].includes(error?.code)) {
+            throw error;
+          }
+          // A writer won the race between the existence check and the rename.
+        }
+      }
+      const current = observed ?? await readLockInfo(lockPath);
       const age = await lockAgeMs(lockPath);
-      const sameHost = observed?.host === host;
-      const pid = Number(observed?.pid);
+      const sameHost = current?.host === host;
+      const pid = Number(current?.pid);
       const dead = sameHost && Number.isInteger(pid) && !isProcessAlive(pid);
       // Only provably dead local owners can be evicted. Foreign/empty locks
       // fail closed rather than allowing two writers based on elapsed time.
-      const malformedOld = !observed?.directory && observed?.invalid && age > Math.max(staleMs, 60_000);
+      const malformedOld = !current?.directory && current?.invalid
+        && age > Math.max(staleMs, 60_000);
 
       if (dead || malformedOld) {
-        const removed = await tryUnlinkStaleLock(lockPath, observed);
+        const removed = await tryUnlinkStaleLock(lockPath, current);
         if (removed) continue;
       }
       if (Date.now() >= deadline) {
-        throw new Error(`insights store is busy (lock ${lockPath})`, {
-          cause: error,
-        });
+        throw new Error(`insights store is busy (lock ${lockPath})`);
       }
       await sleep(60 + Math.floor(Math.random() * 40));
     }
+  } catch (error) {
+    await rm(stagingPath, { recursive: true, force: true }).catch(() => {});
+    throw error;
   }
 
   try {
@@ -297,8 +328,14 @@ export async function withStoreLock(
   } finally {
     const current = await readLockInfo(lockPath);
     if (current?.token === token) {
-      await unlink(ownerPath).catch(() => {});
-      await rmdir(lockPath).catch(() => {});
+      try {
+        await quarantineLockDirectory(lockPath, token);
+      } catch {
+        // Conservative fallback for platforms/filesystems that cannot rename
+        // the directory. It is only taken after the owner token matched.
+        await unlink(ownerPath).catch(() => {});
+        await rmdir(lockPath).catch(() => {});
+      }
     }
   }
 }
