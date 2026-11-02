@@ -107,8 +107,6 @@ Reinstall must not rewrite this layout or switch the user's selected layout.
 Uninstall validates the original layout and confirms it actually became selected
 before deleting an active, unchanged owned clone. Locally edited clones, missing
 originals, or unsuccessful switching block removal before deleting any files.
-Migration of older toolbar installs uses their existing ownership proof; edited
-legacy layouts fail closed.
 `main.js` default-exports a gpui-kit `View`; use gpui-base flex/controls, `theme()`
 semantic colors, `on_size_change`, and fresh callback contexts. Do not retain `cx`.
 Cancel tasks/timers and release native editor/input state on close. Use native

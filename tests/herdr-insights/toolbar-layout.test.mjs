@@ -6,7 +6,7 @@ import { withInsightsToolbar } from "../../herdr-insights/scripts/toolbar.mjs";
 import { SINGLE_TOOLBAR_CONTENT } from "./install-fixtures.mjs";
 
 test("the single Insights source installs the toolbar icon and no second mod", async () => {
-  const source = await collectSourceFiles(PACKAGE_ROOT, "insights");
+  const source = await collectSourceFiles(PACKAGE_ROOT);
   assert.ok(source.files.some((file) => file.relative === "insights.svg"));
   assert.deepEqual(source.modJson, { place: "none", title: "Insights" });
   const mods = (await fs.readdir(new URL("../../herdr-insights/mods/", import.meta.url)))

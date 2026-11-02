@@ -90,9 +90,9 @@ async function pruneOwnedDirectories(directories) {
 }
 
 async function prepareUninstall(appHome) {
-  const targetDirectory = modDir(appHome, "insights");
-  const targetManifest = manifestPath(appHome, "insights");
-  const manifest = await readManifest(appHome, "insights");
+  const targetDirectory = modDir(appHome);
+  const targetManifest = manifestPath(appHome);
+  const manifest = await readManifest(appHome);
 
   if (!manifest) {
     const target = await lstatOrNull(targetDirectory);
@@ -160,7 +160,7 @@ async function applyUninstall(plan) {
 
   const remainingEntries = Object.entries(remaining);
   if (remainingEntries.length > 0) {
-    await writeManifest(appHome, Object.fromEntries(remainingEntries), "insights");
+    await writeManifest(appHome, Object.fromEntries(remainingEntries));
   } else {
     const currentManifest = await lstatOrNull(targetManifest);
     if (currentManifest) {

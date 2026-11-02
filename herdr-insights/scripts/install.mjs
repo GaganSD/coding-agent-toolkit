@@ -128,7 +128,7 @@ async function addParentIssues(targetDirectory, target, issues) {
 }
 
 async function collectInstallSource(sourceRoot) {
-  const source = await collectSourceFiles(sourceRoot, "insights");
+  const source = await collectSourceFiles(sourceRoot);
   source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
   source.files.push(createRuntimeFile());
   source.files.sort((left, right) => left.relative.localeCompare(right.relative));
@@ -136,9 +136,9 @@ async function collectInstallSource(sourceRoot) {
 }
 
 async function prepareInstall(appHome, source, force) {
-  const targetDirectory = modDir(appHome, "insights");
+  const targetDirectory = modDir(appHome);
   const targetDataDirectory = dataDir(appHome);
-  const targetManifest = manifestPath(appHome, "insights");
+  const targetManifest = manifestPath(appHome);
 
   if (path.resolve(source.modDir) === path.resolve(targetDirectory)) {
     throw new Error("Source and target are the same mod folder; refusing to install over itself.");
@@ -154,7 +154,7 @@ async function prepareInstall(appHome, source, force) {
     }
   }
 
-  const manifest = await readManifest(appHome, "insights");
+  const manifest = await readManifest(appHome);
   if (targetStat && !manifest) {
     throw new Error(
       `Refusing an unowned collision at ${targetDirectory}.\nNo ${targetManifest} proves this installer owns it. Move the folder aside or install with Herdr's own mod tools.`,
@@ -209,11 +209,11 @@ async function checkInstallSource(source) {
   const staging = await fs.mkdtemp(path.join(os.tmpdir(), "insights-install-check-"));
   try {
     for (const file of source.files) {
-      const target = localPath(modDir(staging, "insights"), file.relative);
+      const target = localPath(modDir(staging), file.relative);
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, file.data, { mode: file.mode });
     }
-    const check = await runHerdr(["check", modDir(staging, "insights")], {
+    const check = await runHerdr(["check", modDir(staging)], {
       env: { HERDR_APP_HOME: staging, HOME: staging },
     });
     relayHerdrOutput(check);
@@ -293,7 +293,7 @@ async function applyInstall(plan) {
     ...retainedHashes,
     ...Object.fromEntries(source.files.map((file) => [file.relative, file.hash])),
   };
-  await writeManifest(appHome, installedHashes, "insights");
+  await writeManifest(appHome, installedHashes);
 
   console.log(
     `Installed ${source.files.length} owned file(s) to ${targetDirectory} ` +

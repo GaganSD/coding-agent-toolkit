@@ -6,7 +6,7 @@ Use this existing build, not `RECIPE.md` (rebuilding).
 
 ## Install
 
-From a checkout, at the repository root; no `npm install` needed:
+From the parent of `herdr-insights/`; no `npm install` needed:
 
 ```sh
 npm run install:local --prefix herdr-insights
@@ -26,4 +26,4 @@ only if requested: click **Insights**, or add `-- --open` to the install command
 
 Stop and report; do not force overwrites or rebuild to bypass errors. Preserve
 local edits and any failed layout clone. Remove the app home's
-`.insights-install.lock` directory only after confirming no installer is running.
+`.insights-install.lock` directory only after confirming no installer/uninstaller is running.

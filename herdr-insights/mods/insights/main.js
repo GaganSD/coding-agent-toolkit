@@ -52,10 +52,6 @@ const DAY_LABEL_WIDTH = 30;
 const TOOLBAR_MODE = "toolbar";
 const TAB = { name: "Insights", mod: "insights" };
 
-function isToolbar(props) {
-  return props?.mode === TOOLBAR_MODE;
-}
-
 /** One Insights tab per space: focus it if it exists, otherwise create it. */
 function showInsights() {
   const active = spaces().find((space) => space.active);
@@ -441,7 +437,7 @@ function preferenceRow(label, control, c) {
 
 export default class Insights extends View {
   init(props, cx) {
-    this.mode = isToolbar(props) ? TOOLBAR_MODE : "dashboard";
+    this.mode = props?.mode === TOOLBAR_MODE ? TOOLBAR_MODE : "dashboard";
     this.closed = false;
     // The toolbar is a button, not a dashboard copy: no runtime read, collector,
     // command loop, timer or editor state belongs to it.

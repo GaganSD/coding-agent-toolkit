@@ -9,7 +9,7 @@ import {
   collectSourceFiles,
   lstatOrNull,
 } from "../../herdr-insights/scripts/lib.mjs";
-import { INSIGHTS_MOD, inspectDistribution } from "./distribution.mjs";
+import { inspectDistribution } from "./distribution.mjs";
 
 const TEST_ROOT = path.resolve(PACKAGE_ROOT, "../tests/herdr-insights");
 const errors = [];
@@ -201,22 +201,22 @@ async function checkDistribution() {
   notes.push(...result.notes);
 }
 
-async function checkSourceIfPresent(modName) {
-  const sourceMod = path.join(PACKAGE_ROOT, "mods", modName);
+async function checkSourceIfPresent() {
+  const sourceMod = path.join(PACKAGE_ROOT, "mods", "insights");
   const stat = await lstatOrNull(sourceMod);
   if (!stat) {
-    fail(`mods/${modName} is required for the Herdr distribution`);
+    fail("mods/insights is required for the Herdr distribution");
     return;
   }
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    fail(`mods/${modName} must be a regular directory`);
+    fail("mods/insights must be a regular directory");
     return;
   }
   try {
-    const source = await collectSourceFiles(PACKAGE_ROOT, modName);
-    notes.push(`mods/${modName} source tree validates (${source.files.length} files)`);
+    const source = await collectSourceFiles(PACKAGE_ROOT);
+    notes.push(`mods/insights source tree validates (${source.files.length} files)`);
   } catch (error) {
-    fail(`mods/${modName} source tree is invalid: ${error.message}`);
+    fail(`mods/insights source tree is invalid: ${error.message}`);
   }
 }
 
@@ -235,7 +235,7 @@ await checkDistribution();
 await checkDocs();
 await checkScriptsAndTests();
 await checkTestInventory();
-await checkSourceIfPresent(INSIGHTS_MOD);
+await checkSourceIfPresent();
 for (const note of notes) console.log(`Note: ${note}`);
 if (errors.length > 0) {
   for (const error of errors) console.error(`Error: ${error}`);

@@ -11,10 +11,7 @@ export const PACKAGE_ROOT = path.resolve(
 );
 export const MIN_NODE_VERSION = "22.15";
 export const RUNTIME_NAME = "runtime.json";
-export const MODS = Object.freeze({
-  insights: { manifest: "install-manifest.json", rel: "mods/insights", runtime: true },
-});
-export const MOD_NAMES = Object.keys(MODS);
+const MOD_REL = "mods/insights";
 export const MANIFEST_VERSION = 1;
 export const MANIFEST_OWNER = "herdr-insights";
 export const HASH_RE = /^[0-9a-f]{64}$/;
@@ -49,22 +46,16 @@ export function createRuntimeFile(nodePath = process.execPath) {
   };
 }
 
-export function modInfo(modName) {
-  const info = MODS[modName];
-  if (!info) throw new Error(`Unknown Insights mod: ${modName}`);
-  return info;
-}
-
-export function modDir(appHome, modName) {
-  return path.join(appHome, modInfo(modName).rel);
+export function modDir(appHome) {
+  return path.join(appHome, MOD_REL);
 }
 
 export function dataDir(appHome) {
   return path.join(appHome, "data", "insights");
 }
 
-export function manifestPath(appHome, modName) {
-  return path.join(dataDir(appHome), modInfo(modName).manifest);
+export function manifestPath(appHome) {
+  return path.join(dataDir(appHome), "install-manifest.json");
 }
 
 export async function lstatOrNull(target) {
@@ -222,21 +213,21 @@ export async function ensureDirectory(root, target, label = "directory", mode) {
   }
 }
 
-export async function readManifest(appHome, modName) {
+export async function readManifest(appHome) {
   try {
-    return await readManifestData(appHome, modName);
+    return await readManifestData(appHome);
   } catch (error) {
     throw new Error(
       `${error.message}\nNo target files were changed. To recover, preserve or move aside both ` +
-      `${modDir(appHome, modName)} and ${manifestPath(appHome, modName)}, then reinstall. ` +
+      `${modDir(appHome)} and ${manifestPath(appHome)}, then reinstall. ` +
       `Leave ${path.join(dataDir(appHome), "insights.json")} in place.`,
       { cause: error },
     );
   }
 }
 
-async function readManifestData(appHome, modName) {
-  const file = manifestPath(appHome, modName);
+async function readManifestData(appHome) {
+  const file = manifestPath(appHome);
   await assertNoSymlinkComponents(appHome, file);
   const stat = await lstatOrNull(file);
   if (!stat) return null;
@@ -265,7 +256,7 @@ async function readManifestData(appHome, modName) {
   if (parsed.owner !== MANIFEST_OWNER) {
     throw new Error(`Install manifest belongs to another owner: ${String(parsed.owner)}`);
   }
-  if (parsed.target !== modInfo(modName).rel) {
+  if (parsed.target !== MOD_REL) {
     throw new Error(`Install manifest targets another folder: ${String(parsed.target)}`);
   }
   if (!parsed.files || typeof parsed.files !== "object" || Array.isArray(parsed.files)) {
@@ -284,7 +275,7 @@ async function readManifestData(appHome, modName) {
   return { ...parsed, files, path: file };
 }
 
-export async function writeManifest(appHome, files, modName) {
+export async function writeManifest(appHome, files) {
   const directory = dataDir(appHome);
   await ensureDirectory(appHome, directory, "Insights data directory");
 
@@ -303,11 +294,11 @@ export async function writeManifest(appHome, files, modName) {
   const manifest = {
     version: MANIFEST_VERSION,
     owner: MANIFEST_OWNER,
-    target: modInfo(modName).rel,
+    target: MOD_REL,
     installedAt: new Date().toISOString(),
     files: sortedFiles,
   };
-  const file = manifestPath(appHome, modName);
+  const file = manifestPath(appHome);
   await assertNoSymlinkComponents(appHome, file);
   await writeFileAtomic(file, `${JSON.stringify(manifest, null, 2)}\n`, 0o644);
   return manifest;
@@ -355,8 +346,8 @@ function isGeneratedSourceFile(name) {
   return name === "jsconfig.json" || name.endsWith(".d.ts");
 }
 
-export async function collectSourceFiles(sourceRoot, modName) {
-  const relativeMod = modInfo(modName).rel;
+export async function collectSourceFiles(sourceRoot) {
+  const relativeMod = MOD_REL;
   const declaredModDir = path.join(path.resolve(sourceRoot), relativeMod);
   const declaredStat = await lstatOrNull(declaredModDir);
   if (!declaredStat) {
