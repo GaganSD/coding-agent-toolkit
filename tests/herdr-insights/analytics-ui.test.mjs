@@ -299,7 +299,7 @@ test("native mod keeps timers and shell use inside the Herdr contract", () => {
   assert.match(mainSource, /configure/);
   assert.match(mainSource, /--config/);
   assert.match(mainSource, /on_size_change/);
-  assert.match(mainSource, /overflow_x_scrollbar/);
+  assert.match(mainSource, /overflow_hidden/);
   assert.match(mainSource, /nextCommand/);
   assert.match(mainSource, /name === "refresh"/);
   assert.match(mainSource, /name === "settings"/);
@@ -467,7 +467,7 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
     null,
   );
   const metrics = heatmapMetrics(undefined, heatmap.weeks.length);
-  const grid = card.childNodes[1].childNodes[0].childNodes[0];
+  const grid = card.childNodes[1].childNodes[0];
   const monthNodes = grid.childNodes[0].childNodes.slice(1);
   assert.equal(monthNodes.length, heatmap.months.length);
 
@@ -494,6 +494,8 @@ test("heatmap grows on wide views and prefers the newest weeks when narrow", () 
   assert.match(mainSource, /\.when\(metrics\.centered, \(el\) => el\.justify_center\(\)\)/);
   assert.match(mainSource, /\.when\(!metrics\.centered, \(el\) => el\.justify_end\(\)\)/,
     "an overflowing grid is end-aligned so recent weeks stay visible");
+  assert.match(mainSource, /h_flex\(\)\.w_full\(\)\.overflow_hidden\(\)[\s\S]{0,200}metrics\.centered/,
+    "the grid is clipped, not scrolled, so end alignment applies");
 });
 
 test("dashboard is divided into token and model usage sections", () => {

@@ -1629,13 +1629,13 @@ export default class Insights extends View {
           this.heatmapMode = key;
           this.scheduleDashboard(changeCx, { force: true });
         }, c)))
-      .child(v_flex().w_full().overflow_x_scrollbar()
-        // The latest data matters most: when the grid cannot fit, let it overflow
-        // to the left so the visible columns are the most recent weeks.
-        .child(h_flex().w_full()
-          .when(metrics.centered, (el) => el.justify_center())
-          .when(!metrics.centered, (el) => el.justify_end())
-          .child(grid)))
+      // The latest data matters most: when the grid cannot fit, it is clipped on
+      // the left so the visible columns are the most recent weeks. A scroll
+      // container would size to the grid and defeat the end alignment.
+      .child(h_flex().w_full().overflow_hidden()
+        .when(metrics.centered, (el) => el.justify_center())
+        .when(!metrics.centered, (el) => el.justify_end())
+        .child(grid))
       .child(legend);
   }
 
