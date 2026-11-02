@@ -445,7 +445,7 @@ function createZstdFrameSplitter({ onFrameStart, onFrameData, onFrameEnd }) {
         } else if (state === "skippableSize") {
           remaining = head.readUInt32LE(0);
           head = Buffer.alloc(0);
-          state = "skip";
+          state = remaining === 0 ? "magic" : "skip";
         } else if (state === "frameHeader") {
           // The descriptor may arrive before the rest of the header; wait for
           // the full window/dictionary/content-size fields.
@@ -461,6 +461,11 @@ function createZstdFrameSplitter({ onFrameStart, onFrameData, onFrameEnd }) {
           if (type === 3) fail("reserved block type");
           remaining = type === 1 ? 1 : header >> 3;
           state = "blockData";
+          if (remaining === 0) {
+            if (!lastBlock) state = "blockHeader";
+            else if (checksum) state = "checksum";
+            else await endFrame();
+          }
         } else if (state === "checksum") {
           head = Buffer.alloc(0);
           await endFrame();
@@ -701,9 +706,7 @@ async function scanCompressedFile(
   let chunksSeen = 0;
   let decoderInput = null;
   let decoderDone = null;
-  const consumer = createRecordConsumer(store, entry, source, sink);
-  consumer.offset = 0;
-  consumer.lineNo = entry.lineNo ?? 0;
+  let consumer;
   const now = nowFn(options);
   const delay = pausableDelay(options.streamDelayMs);
   const splitter = createZstdFrameSplitter({
@@ -758,6 +761,10 @@ async function scanCompressedFile(
   });
   try {
     if (entry.offset || entry.rows.length || Object.keys(entry.state).length) resetFileEntry(store, entry);
+    // Bind parser context only after resetting the archive's previous state.
+    consumer = createRecordConsumer(store, entry, source, sink);
+    consumer.offset = 0;
+    consumer.lineNo = entry.lineNo ?? 0;
     for await (const chunk of createReadStream(filePath)) {
       if (deliberateStop) break;
       await splitter.push(chunk);

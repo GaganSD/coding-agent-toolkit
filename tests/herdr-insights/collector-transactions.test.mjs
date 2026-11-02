@@ -278,6 +278,19 @@ test("a skippable zstd frame between data frames is ignored, not decoded", async
   assert.equal(rows.reduce((sum, row) => sum + row.messages, 0), 2);
 });
 
+test("empty trailing data and skippable frames preserve preceding archive rows", async () => {
+  const [firstFrame, secondFrame] = await codexFrames();
+  const emptySkip = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0]);
+  const { store, first } = await scanArchive([
+    firstFrame, secondFrame, zstdCompressSync(Buffer.alloc(0)), emptySkip,
+  ]);
+  assert.equal(first.stats.errors, 0);
+  assert.equal(snapshotRows(store).reduce((sum, row) => sum + row.messages, 0), 2);
+  const empty = await scanArchive([zstdCompressSync(Buffer.alloc(0))]);
+  assert.equal(empty.first.stats.errors, 0);
+  assert.deepEqual(snapshotRows(empty.store), []);
+});
+
 test("a truncated second zstd frame rolls back and stays fingerprinted", async () => {
   const [firstFrame, secondFrame] = await codexFrames();
   const { file, store, first } = await scanArchive([
@@ -297,6 +310,33 @@ test("a truncated second zstd frame rolls back and stays fingerprinted", async (
   assert.equal(repeated.stats.filesRead, 0, "the corrupt fingerprint suppresses rereads");
   assert.equal(repeated.stats.bytesRead, 0);
   assert.equal(snapshotRows(store).length, 0);
+});
+
+test("replacing an archive binds the parser to fresh session state", async (t) => {
+  const plain = await readFile(path.join(here, "fixtures", "codex-modern.jsonl"), "utf8");
+  const { file, store, first } = await scanArchive([
+    zstdCompressSync(plain.replaceAll("codex-fixture", "before-replacement")),
+  ]);
+  const home = path.dirname(path.dirname(path.dirname(file)));
+  t.after(async () => {
+    const { rm } = await import("node:fs/promises");
+    await rm(path.dirname(home), { recursive: true, force: true });
+  });
+  assert.equal(first.stats.errors, 0);
+  assert.deepEqual([...new Set(snapshotRows(store).map((row) => row.session))], ["codex:before-replacement"]);
+  // Grow the same inode so truncation handling cannot hide a stale parser context.
+  const skip = Buffer.alloc(1024);
+  skip.writeUInt32LE(0x184d2a50, 0);
+  skip.writeUInt32LE(skip.length - 8, 4);
+  await writeFile(file, Buffer.concat([
+    zstdCompressSync(plain.replaceAll("codex-fixture", "after-replacement")),
+    skip,
+  ]));
+  const updated = await scanSources(store, { home });
+  assert.equal(updated.stats.errors, 0);
+  const rows = snapshotRows(store);
+  assert.deepEqual([...new Set(rows.map((row) => row.session))], ["codex:after-replacement"]);
+  assert.equal(rows.reduce((sum, row) => sum + row.messages, 0), 2);
 });
 
 test("production scanning does not clone the accumulated store", async () => {
