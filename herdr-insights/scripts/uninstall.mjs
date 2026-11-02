@@ -122,8 +122,8 @@ async function applyUninstall(plan) {
   const ownedParents = [];
   const remaining = Object.create(null);
 
-  for (const [relative, oldHash] of Object.entries(manifest.files)) {
-    if (!targetStat) break;
+  const entries = targetStat ? Object.entries(manifest.files) : [];
+  for (const [relative, oldHash] of entries) {
     const target = localPath(targetDirectory, relative);
 
     try {

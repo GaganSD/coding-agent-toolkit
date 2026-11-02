@@ -12,8 +12,12 @@ export const PACKAGE_ROOT = path.resolve(
 export const MIN_NODE_VERSION = "22.15";
 export const RUNTIME_NAME = "runtime.json";
 export const MODS = Object.freeze({
-  insights: { manifest: "install-manifest.json", runtime: true },
-  "insights-launcher": { manifest: "launcher-install-manifest.json" },
+  insights: { manifest: "install-manifest.json", rel: "mods/insights", runtime: true },
+  "insights-launcher": {
+    manifest: "launcher-install-manifest.json",
+    optional: true,
+    rel: "mods/insights-launcher",
+  },
 });
 export const MOD_NAMES = Object.keys(MODS);
 export const MANIFEST_VERSION = 1;
@@ -50,16 +54,22 @@ export function createRuntimeFile(nodePath = process.execPath) {
   };
 }
 
-export function modDir(appHome, modName = "insights") {
-  return path.join(appHome, "mods", modName);
+export function modInfo(modName) {
+  const info = MODS[modName];
+  if (!info) throw new Error(`Unknown Insights mod: ${modName}`);
+  return info;
+}
+
+export function modDir(appHome, modName) {
+  return path.join(appHome, modInfo(modName).rel);
 }
 
 export function dataDir(appHome) {
   return path.join(appHome, "data", "insights");
 }
 
-export function manifestPath(appHome, modName = "insights") {
-  return path.join(dataDir(appHome), MODS[modName].manifest);
+export function manifestPath(appHome, modName) {
+  return path.join(dataDir(appHome), modInfo(modName).manifest);
 }
 
 export async function lstatOrNull(target) {
@@ -200,7 +210,7 @@ export async function ensureDirectory(root, target, label = "directory", mode) {
   }
 }
 
-export async function readManifest(appHome, modName = "insights") {
+export async function readManifest(appHome, modName) {
   try {
     return await readManifestData(appHome, modName);
   } catch (error) {
@@ -243,7 +253,7 @@ async function readManifestData(appHome, modName) {
   if (parsed.owner !== MANIFEST_OWNER) {
     throw new Error(`Install manifest belongs to another owner: ${String(parsed.owner)}`);
   }
-  if (parsed.target !== `mods/${modName}`) {
+  if (parsed.target !== modInfo(modName).rel) {
     throw new Error(`Install manifest targets another folder: ${String(parsed.target)}`);
   }
   if (!parsed.files || typeof parsed.files !== "object" || Array.isArray(parsed.files)) {
@@ -262,7 +272,7 @@ async function readManifestData(appHome, modName) {
   return { ...parsed, files, path: file };
 }
 
-export async function writeManifest(appHome, files, modName = "insights") {
+export async function writeManifest(appHome, files, modName) {
   const directory = dataDir(appHome);
   await ensureDirectory(appHome, directory, "Insights data directory");
 
@@ -281,7 +291,7 @@ export async function writeManifest(appHome, files, modName = "insights") {
   const manifest = {
     version: MANIFEST_VERSION,
     owner: MANIFEST_OWNER,
-    target: `mods/${modName}`,
+    target: modInfo(modName).rel,
     installedAt: new Date().toISOString(),
     files: sortedFiles,
   };
@@ -333,8 +343,8 @@ function isGeneratedSourceFile(name) {
   return name === "jsconfig.json" || name.endsWith(".d.ts");
 }
 
-export async function collectSourceFiles(sourceRoot, modName = "insights") {
-  const relativeMod = `mods/${modName}`;
+export async function collectSourceFiles(sourceRoot, modName) {
+  const relativeMod = modInfo(modName).rel;
   const declaredModDir = path.join(path.resolve(sourceRoot), relativeMod);
   const declaredStat = await lstatOrNull(declaredModDir);
   if (!declaredStat) {

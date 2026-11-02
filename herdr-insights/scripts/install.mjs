@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   PACKAGE_ROOT,
   MODS,
+  MOD_NAMES,
   RUNTIME_NAME,
   assertNoSymlinkComponents,
   assertSupportedNodeVersion,
@@ -120,22 +121,23 @@ async function addParentIssues(targetDirectory, target, issues) {
   }
 }
 
-async function prepareInstall(options, modName) {
-  assertSupportedNodeVersion();
-  const sourceRoot = options.source
-    ? path.resolve(expandHome(options.source))
-    : PACKAGE_ROOT;
-  const source = await collectSourceFiles(sourceRoot, modName);
-  // Only the dashboard needs Node; the launcher runs entirely inside Herdr.
-  if (MODS[modName].runtime) {
-    source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
-    source.files.push(createRuntimeFile());
+async function collectInstallSources(sourceRoot) {
+  const sources = new Map();
+  for (const modName of MOD_NAMES) {
+    if (MODS[modName].optional && !await lstatOrNull(path.join(sourceRoot, MODS[modName].rel))) continue;
+    const source = await collectSourceFiles(sourceRoot, modName);
+    // Only the dashboard needs Node; the launcher runs entirely inside Herdr.
+    if (MODS[modName].runtime) {
+      source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
+      source.files.push(createRuntimeFile());
+    }
+    source.files.sort((left, right) => left.relative.localeCompare(right.relative));
+    sources.set(modName, source);
   }
-  source.files.sort((left, right) => left.relative.localeCompare(right.relative));
+  return sources;
+}
 
-  // Validate the source before creating the app home. A bad --source must not
-  // leave a new target directory behind.
-  const appHome = await resolveAppHome(options.appHome);
+async function prepareInstall(appHome, source, modName, force) {
   const targetDirectory = modDir(appHome, modName);
   const targetDataDirectory = dataDir(appHome);
   const targetManifest = manifestPath(appHome, modName);
@@ -185,7 +187,7 @@ async function prepareInstall(options, modName) {
     }
 
     const currentHash = sha256(await fs.readFile(target));
-    if (currentHash !== oldHash && currentHash !== file.hash && !options.force) {
+    if (currentHash !== oldHash && currentHash !== file.hash && !force) {
       issues.push(
         `Owned file was edited locally: ${target} (use --force to replace it with reviewed source)`,
       );
@@ -313,16 +315,18 @@ async function main() {
   }
 
   try {
-    // Preflight every target before changing either mod. Older dashboard-only
-    // source folders remain installable through --source.
-    const plans = [];
+    assertSupportedNodeVersion();
     const sourceRoot = options.source ? path.resolve(expandHome(options.source)) : PACKAGE_ROOT;
-    for (const modName of Object.keys(MODS)) {
-      if (modName !== "insights" && !await lstatOrNull(path.join(sourceRoot, "mods", modName))) continue;
-      plans.push(await prepareInstall(options, modName));
+    // Validate every source before creating the app home. A bad --source must
+    // not leave a new target directory behind.
+    const sources = await collectInstallSources(sourceRoot);
+    const appHome = await resolveAppHome(options.appHome);
+    // Preflight every target before changing either mod.
+    const plans = [];
+    for (const [modName, source] of sources) {
+      plans.push(await prepareInstall(appHome, source, modName, options.force));
     }
-    const launcher = plans.find((plan) => plan.modName === "insights-launcher");
-    const toolbar = launcher ? await prepareToolbar(launcher.appHome) : null;
+    const toolbar = sources.has("insights-launcher") ? await prepareToolbar(appHome) : null;
     for (const plan of plans) await applyInstall(plan);
     if (toolbar) await applyToolbar(toolbar);
     return 0;
