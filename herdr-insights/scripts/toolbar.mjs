@@ -114,6 +114,15 @@ export async function prepareToolbar(appHome) {
 export async function applyToolbar(plan) {
   if (plan.record) return;
   const { appHome, source, layout, file } = plan;
+  // Checks may have taken seconds. Revalidate clone inputs immediately before
+  // Herdr can copy state (its native clone may overwrite destination state).
+  await readRegular(appHome, stateFile(appHome, source));
+  const state = stateFile(appHome, layout);
+  await assertNoSymlinkComponents(appHome, state);
+  await assertNoSymlinkComponents(appHome, file);
+  if (await lstatOrNull(file) || await lstatOrNull(state)) {
+    throw new Error(`Toolbar destination appeared during install: ${layout}; no layout or click state replaced.`);
+  }
   await command(appHome, ["do", "layout.clone", JSON.stringify({ name: source, as: layout })]);
   try {
     // The supported clone command preserves Herdr's click/appearance state.
@@ -149,19 +158,28 @@ export async function prepareToolbarRemoval(appHome) {
     if (original === null) throw new Error(`Original layout ${record.source} is missing. Select another layout before uninstalling.`);
     JSON.parse(original);
   }
-  return { appHome, record, file, active };
+  return { appHome, record, file };
 }
 
 export async function removeToolbar(plan) {
   if (!plan) return;
-  const { appHome, record, file, active } = plan;
-  const current = await readRegular(appHome, file);
+  const { appHome, record, file } = plan;
+  let current = await readRegular(appHome, file);
   if (current !== null && sha256(current) !== record.hash) throw new Error(`Toolbar layout changed during uninstall: ${file}`);
-  if (active) {
+  // The person can switch layouts while preflight is running. Never trust its
+  // earlier active-layout snapshot when deciding whether it is safe to delete.
+  const status = JSON.parse(await command(appHome, ["status"]));
+  if (status.layout === record.layout) {
+    const original = await readRegular(appHome, layoutFile(appHome, record.source));
+    if (original === null) throw new Error(`Original layout ${record.source} is missing. Select another layout before uninstalling.`);
+    JSON.parse(original);
     await command(appHome, ["do", "layout.switch", JSON.stringify({ name: record.source })]);
-    const status = JSON.parse(await command(appHome, ["status"]));
-    if (status.layout !== record.source) throw new Error(`Herdr did not leave ${record.layout}; no files removed.`);
+    const afterSwitch = JSON.parse(await command(appHome, ["status"]));
+    if (afterSwitch.layout !== record.source) throw new Error(`Herdr did not leave ${record.layout}; no files removed.`);
   }
+  // Commands yield to the live app; preserve any edits made during that wait.
+  current = await readRegular(appHome, file);
+  if (current !== null && sha256(current) !== record.hash) throw new Error(`Toolbar layout changed during uninstall: ${file}`);
   if (current !== null) await fs.unlink(file);
   await fs.unlink(path.join(dataDir(appHome), RECORD));
   console.log(`Removed owned toolbar layout ${record.layout}; original layout ${record.source} is unchanged.`);

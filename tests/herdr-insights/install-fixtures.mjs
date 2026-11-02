@@ -79,6 +79,9 @@ const args = process.argv.slice(2);
 const log = process.env.FAKE_HERDR_LOG;
 if (log) fs.appendFileSync(log, JSON.stringify({ appHome: process.env.HERDR_APP_HOME ?? null, args }) + "\\n");
 
+if (args[0] === "check" && process.env.FAKE_HERDR_EDIT_TARGET) {
+  fs.appendFileSync(process.env.FAKE_HERDR_EDIT_TARGET, "edit during check\\n");
+}
 if (args[0] === "check" && (process.env.FAKE_HERDR_FAIL === "check" ||
     (process.env.FAKE_HERDR_FAIL === "launcher-check" && args[1].endsWith("insights-launcher")))) {
   console.error("fake herdr-app: check failed");
@@ -95,6 +98,9 @@ if (args[0] === "status") {
   const chosen = last ? JSON.parse(last.args[2]) : null;
   console.log(JSON.stringify({ layout: chosen?.as ?? chosen?.name ?? "main", overlays: [], errors: [] }));
   process.exit(0);
+}
+if (args[0] === "do" && args[1] === "layout.switch" && process.env.FAKE_HERDR_FAIL === "edit-on-switch") {
+  fs.appendFileSync(path.join(process.env.HERDR_APP_HOME, "layouts/main-insights.json"), "local edit\\n");
 }
 if (args[0] === "do" && args[1] === "layout.clone") {
   const request = JSON.parse(args[2]);
@@ -133,10 +139,10 @@ export function makeEnvironment(root, appHome, fake, options = {}) {
   return env;
 }
 
-export function runInstall({ appHome, fake, sourceRoot, extra = [], fail, pathLookup = false }) {
+export function runInstall({ appHome, fake, sourceRoot, extra = [], fail, pathLookup = false, env = {} }) {
   const root = path.dirname(appHome);
   const environment = makeEnvironment(root, appHome, fake, { fail, pathLookup });
-  return runNode(INSTALL_SCRIPT, ["--source", sourceRoot, "--app-home", appHome, ...extra], environment);
+  return runNode(INSTALL_SCRIPT, ["--source", sourceRoot, "--app-home", appHome, ...extra], { ...environment, ...env });
 }
 
 export function runUninstall({ appHome, fake, fail }) {
@@ -185,6 +191,17 @@ export async function readLog(fake) {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+
+export async function assertStagedChecks(log, names, appHome) {
+  const checks = log.filter((entry) => entry.args[0] === "check");
+  assert.deepEqual(checks.map((entry) => path.basename(entry.args[1])), names);
+  for (const entry of checks) {
+    assert.notEqual(entry.appHome, await fs.realpath(appHome), "checks must not use the live app home");
+    assert.deepEqual(entry.args, ["check", path.join(entry.appHome, "mods", path.basename(entry.args[1]))]);
+    assert.equal(await exists(entry.appHome), false, "temporary checks must be cleaned up");
+  }
+  return checks.map((entry) => entry.args);
 }
 
 export async function readJson(file) {

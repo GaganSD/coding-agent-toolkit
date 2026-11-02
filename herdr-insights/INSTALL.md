@@ -14,9 +14,10 @@ npm run install:local --prefix herdr-insights
 
 Only that folder is needed; no `npm install` is required. The installer:
 
-- Copies the dashboard and its tiny toolbar-button mod, records ownership, and
-  configures the local Node path.
-- Runs `herdr-app check` on both mods.
+- Buffers both mod trees, generates the local Node path, and runs
+  `herdr-app check` on temporary copies before replacing either live mod.
+  A failed check preserves the installed build; temporary check files are removed.
+- Copies the validated dashboard and toolbar-button mod and records ownership.
 - On first installation, uses Herdr's supported `layout.clone` to create and
   select `<current-layout>-insights` (normally `main-insights`, with a numeric
   suffix if that name or its click state is taken). It composes the
@@ -37,13 +38,20 @@ layout names and click-state files are skipped, never overwritten. Do not force 
 errors. If installation fails after creating a layout clone, preserve it and
 report the failure instead of retrying over an unowned folder/file.
 
+Install and uninstall share an exclusive `.insights-install.lock` directory in
+Herdr's app home. A second operation refuses to run. If an interrupted process
+leaves this lock behind, confirm no installer/uninstaller is running before
+removing the empty lock directory and retrying. Never remove a live operation's lock.
+
 Finish when both **`herdr-app check passed`** messages appear and installation
 exits successfully. Do not run developer tests or change tabs during installation.
 Never launch a second Herdr instance.
 
 ## Open the dashboard only if requested
 
-The installer adds the button without opening a dashboard tab. To open one:
+The installer adds the button without opening a dashboard tab by default. The
+previously documented `--open` flag remains supported for scripts that explicitly
+request a new tab after installation. To open one separately:
 
 ```sh
 herdr-app do tab.new '{"name":"Insights","mod":"insights"}'

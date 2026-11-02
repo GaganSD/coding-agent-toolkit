@@ -192,6 +192,23 @@ export async function assertNoSymlinkComponents(root, target) {
   }
 }
 
+/** Serialize installers/uninstallers, including preflight and native commands. */
+export async function withInstallerLock(appHome, action) {
+  if (!appHome) return action();
+  const lock = path.join(appHome, ".insights-install.lock");
+  try {
+    await fs.mkdir(lock, { mode: 0o700 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    throw new Error(`Insights install/uninstall is locked at ${lock}. Wait for the other installer; if it was interrupted, remove this empty lock directory only after confirming it has stopped.`, { cause: error });
+  }
+  try {
+    return await action();
+  } finally {
+    await fs.rmdir(lock);
+  }
+}
+
 export async function ensureDirectory(root, target, label = "directory", mode) {
   await assertNoSymlinkComponents(root, target);
   const existing = await lstatOrNull(target);

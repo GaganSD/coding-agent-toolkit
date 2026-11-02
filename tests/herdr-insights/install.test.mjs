@@ -14,6 +14,7 @@ import {
   RUNTIME_REL,
   UNINSTALL_SCRIPT,
   assertFailure,
+  assertStagedChecks,
   assertSuccess,
   createFakeRunner,
   createSource,
@@ -139,11 +140,7 @@ test("fresh install copies only owned mod files and preserves local app state", 
 
   const log = await readLog(fake);
   assert.equal(log.length, 1);
-  assert.deepEqual(log[0].args, [
-    "check",
-    path.join(await fs.realpath(appHome), "mods", "insights"),
-  ]);
-  assert.equal(log[0].appHome, await fs.realpath(appHome));
+  await assertStagedChecks(log, ["insights"], appHome);
 
   const fakeHome = path.join(root, "fake home");
   if (await exists(fakeHome)) {
@@ -247,11 +244,7 @@ test("install runs only herdr-app check and never opens a tab", async (t) => {
 
   const log = await readLog(fake);
   assert.equal(log.length, 1);
-  assert.deepEqual(log[0].args, [
-    "check",
-    path.join(await fs.realpath(appHome), "mods", "insights"),
-  ]);
-  assert.equal(log[0].appHome, await fs.realpath(appHome));
+  await assertStagedChecks(log, ["insights"], appHome);
   assert.doesNotMatch(result.stdout, /Opened the Insights tab/);
 });
 
@@ -468,7 +461,8 @@ test("a failed herdr-app check exits nonzero, does not open, and the install can
   assertFailure(failed);
   assert.match(failed.stderr, /fake herdr-app: check failed/);
   assert.match(failed.stderr, /herdr-app check failed/);
-  assert.equal(await exists(path.join(appHome, "mods", "insights", "main.js")), true);
+  assert.equal(await exists(path.join(appHome, "mods", "insights", "main.js")), false);
+  assert.deepEqual(await snapshotTree(appHome), Object.entries(APP_FILES).sort(([a], [b]) => a.localeCompare(b)));
   let log = await readLog(fake);
   assert.equal(log.length, 1);
   assert.equal(log[0].args[0], "check");

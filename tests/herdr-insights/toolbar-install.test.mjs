@@ -9,6 +9,7 @@ import {
   PACKAGE_ROOT,
   TOOLBAR_LAYOUT,
   assertFailure,
+  assertStagedChecks,
   assertSuccess,
   createFakeRunner,
   createSourceWithLauncher,
@@ -40,10 +41,11 @@ test("standalone distribution installs toolbar without repo tooling or a floatin
   });
   assertSuccess(result);
   assert.match(result.stdout, /herdr-app check passed/);
-  const installedHome = await fs.realpath(appHome);
-  assert.deepEqual((await readLog(fake)).map((entry) => entry.args), [
+  const log = await readLog(fake);
+  const checks = await assertStagedChecks(log, ["insights", "insights-launcher"], appHome);
+  assert.deepEqual(log.map((entry) => entry.args), [
     ["status"],
-    ...["insights", "insights-launcher"].map((name) => ["check", path.join(installedHome, "mods", name)]),
+    ...checks,
     ["do", "layout.clone", '{"name":"main","as":"main-insights"}'],
   ]);
   await assert.rejects(fs.lstat(path.join(appHome, "data/insights/insights.json")), { code: "ENOENT" });
@@ -58,11 +60,11 @@ test("launcher installs, checks, reinstalls and uninstalls through the same safe
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
-  const installedHome = await fs.realpath(appHome);
-  assert.deepEqual((await readLog(fake)).map((entry) => entry.args), [
+  const log = await readLog(fake);
+  const checks = await assertStagedChecks(log, ["insights", "insights-launcher"], appHome);
+  assert.deepEqual(log.map((entry) => entry.args), [
     ["status"],
-    ["check", path.join(installedHome, "mods/insights")],
-    ["check", path.join(installedHome, "mods/insights-launcher")],
+    ...checks,
     ["do", "layout.clone", '{"name":"main","as":"main-insights"}'],
   ]);
   const launcher = path.join(appHome, "mods/insights-launcher");

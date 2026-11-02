@@ -13,6 +13,7 @@ import {
   resolveAppHome,
   sha256,
   writeManifest,
+  withInstallerLock,
 } from "./lib.mjs";
 
 import { prepareToolbarRemoval, removeToolbar } from "./toolbar.mjs";
@@ -195,20 +196,22 @@ async function main() {
 
   try {
     const appHome = await resolveAppHome(options.appHome, { create: false });
-    // Validate ownership, manifests and target types before deleting either mod.
-    const plans = [];
-    if (appHome) {
-      for (const modName of MOD_NAMES) {
-        const plan = await prepareUninstall(appHome, modName);
-        if (plan) plans.push(plan);
+    await withInstallerLock(appHome, async () => {
+      // Validate ownership, manifests and target types before deleting either mod.
+      const plans = [];
+      if (appHome) {
+        for (const modName of MOD_NAMES) {
+          const plan = await prepareUninstall(appHome, modName);
+          if (plan) plans.push(plan);
+        }
       }
-    }
-    const toolbar = await prepareToolbarRemoval(appHome);
-    await removeToolbar(toolbar);
-    for (const plan of plans) await applyUninstall(plan);
-    if (plans.length === 0 && !toolbar) {
-      console.log("Insights is not installed by this package; nothing to remove.");
-    }
+      const toolbar = await prepareToolbarRemoval(appHome);
+      await removeToolbar(toolbar);
+      for (const plan of plans) await applyUninstall(plan);
+      if (plans.length === 0 && !toolbar) {
+        console.log("Insights is not installed by this package; nothing to remove.");
+      }
+    });
     return 0;
   } catch (error) {
     console.error(`Error: ${error.message}`);
