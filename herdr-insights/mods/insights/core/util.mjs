@@ -237,7 +237,7 @@ async function tryUnlinkStaleLock(lockPath, observed) {
 export async function withStoreLock(
   storePath,
   callback,
-  { timeoutMs = 20_000, staleMs = STORE_LOCK_STALE_MS } = {},
+  { timeoutMs = 20_000, staleMs = STORE_LOCK_STALE_MS, meta = {} } = {},
 ) {
   const lockPath = `${storePath}.lock`;
   await ensureParent(lockPath);
@@ -255,7 +255,7 @@ export async function withStoreLock(
       created = true;
       handle = await open(ownerPath, "wx", 0o600);
       await handle.writeFile(
-        `${JSON.stringify({ pid: process.pid, host, startedAt, token })}\n`,
+        `${JSON.stringify({ ...meta, pid: process.pid, host, startedAt, token })}\n`,
         "utf8",
       );
       await handle.sync();
@@ -301,4 +301,13 @@ export async function withStoreLock(
       await rmdir(lockPath).catch(() => {});
     }
   }
+}
+
+/** The committed lock owner, if any. Used for fast status responses. */
+export async function readStoreLockInfo(storePath) {
+  return readLockInfo(`${storePath}.lock`);
+}
+
+export function isLockBusyError(error) {
+  return /insights store is busy/.test(String(error?.message ?? ""));
 }

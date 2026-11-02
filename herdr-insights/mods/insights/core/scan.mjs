@@ -14,12 +14,14 @@ import {
 import {
   addTask,
   addUsage,
+  beginStoreTransaction,
+  commitStoreTransaction,
   dedupKeyFor,
   fileKey,
   newFileEntry,
-  prepareStore,
   removeLatestFallbackTaskForSession,
   resetFileEntry,
+  rollbackStoreTransaction,
   taskKeyFor,
 } from "./store.mjs";
 
@@ -27,6 +29,34 @@ const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
 const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2 };
+const PROGRESS_CHUNK_INTERVAL = 64;
+
+export class ScanStopError extends Error {
+  constructor(reason) {
+    super(`scan stopped (${reason})`);
+    this.name = "ScanStopError";
+    this.reason = reason;
+  }
+}
+
+function nowFn(options) {
+  return typeof options?.now === "function" ? options.now : Date.now;
+}
+
+function deadlineReached(options, now = nowFn(options)()) {
+  const deadline = options?.deadline;
+  return Number.isFinite(deadline) && now >= deadline;
+}
+
+function stopRequested(options) {
+  if (typeof options?.shouldStop !== "function") return false;
+  return Boolean(options.shouldStop());
+}
+
+function pausableDelay(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return () => new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function warningSink(warnings, stats, sourceState) {
   let hidden = 0;
@@ -286,12 +316,18 @@ function createLineConsumer(onLine) {
   };
 }
 
-async function streamRange(filePath, start, end, onChunk) {
+async function streamRange(filePath, start, end, onChunk, { shouldStop } = {}) {
   const handle = await open(filePath, "r");
   let position = start;
   let bytes = 0;
+  let stopped = false;
+  let first = true;
   try {
     while (position < end) {
+      if (!first && shouldStop?.()) {
+        stopped = true;
+        break;
+      }
       const toRead = Math.min(CHUNK_BYTES, end - position);
       const buffer = Buffer.allocUnsafe(toRead);
       const { bytesRead } = await handle.read(buffer, 0, toRead, position);
@@ -299,11 +335,12 @@ async function streamRange(filePath, start, end, onChunk) {
       position += bytesRead;
       bytes += bytesRead;
       await onChunk(buffer.subarray(0, bytesRead), position - bytesRead);
+      first = false;
     }
   } finally {
     await handle.close();
   }
-  return bytes;
+  return { bytes, stopped, position };
 }
 
 function hasZstdSupport() {
@@ -348,6 +385,7 @@ async function parseBuffers(
   startOffset,
   endOffset,
   sink,
+  options = {},
 ) {
   const context = lineContext(store, entry, source, sink);
   const consumer = createLineConsumer((record, info) => {
@@ -369,10 +407,28 @@ async function parseBuffers(
   });
   consumer.offset = startOffset;
   consumer.lineNo = entry.lineNo ?? 0;
+  const now = nowFn(options);
+  const delay = pausableDelay(options.streamDelayMs);
   let chunkStart = startOffset;
+  let chunksSeen = 0;
+  let bytes = 0;
   for await (const chunk of chunks) {
+    if (chunksSeen > 0) {
+      if (stopRequested(options)) throw new ScanStopError("stop");
+      if (deadlineReached(options, now())) throw new ScanStopError("budget");
+    }
+    if (delay) await delay();
     consumer.feedAt(chunk, chunkStart);
     chunkStart += chunk.length;
+    bytes += chunk.length;
+    chunksSeen += 1;
+    if (chunksSeen % PROGRESS_CHUNK_INTERVAL === 0) {
+      options.onStreamProgress?.({
+        file: entry.path,
+        bytes,
+        phase: "decompress",
+      });
+    }
   }
   consumer.finish(endOffset ?? chunkStart);
   if (consumer.skippedLargeLine) {
@@ -380,7 +436,7 @@ async function parseBuffers(
       `${source.adapter} ${entry.path}: a line larger than ${MAX_LINE_BYTES} bytes was skipped.`,
     );
   }
-  return { offset: consumer.offset, lineNo: consumer.lineNo };
+  return { offset: consumer.offset, lineNo: consumer.lineNo, bytes };
 }
 
 async function processStringChunks(
@@ -391,8 +447,9 @@ async function processStringChunks(
   startOffset,
   endOffset,
   sink,
+  options = {},
 ) {
-  return parseBuffers(store, entry, source, chunks, startOffset, endOffset, sink);
+  return parseBuffers(store, entry, source, chunks, startOffset, endOffset, sink, options);
 }
 
 async function scanPlainFile(
@@ -403,63 +460,74 @@ async function scanPlainFile(
   fileStat,
   sink,
   stats,
+  options = {},
 ) {
   const adapter = source.adapter;
-  let dirty = false;
   const start = entry.offset;
 
-  if (fileStat.size > start) {
-    const context = lineContext(store, entry, source, sink);
-    const consumer = createLineConsumer((record, info) => {
-      if (info.parseError) {
-        sink.warn(
-          `${adapter} ${entry.path}: line ${info.lineNo} is not valid JSON; skipped.`,
-        );
-        return;
-      }
-      if (!isPlainObject(record)) return;
-      context.lineHash = info.hash;
-      try {
-        parseAdapterRecord(adapter, record, context);
-      } catch (error) {
-        sink.warn(
-          `${adapter} ${entry.path}: line ${info.lineNo} could not be parsed: ${error.message}`,
-        );
-      }
-    });
-    consumer.offset = start;
-    consumer.lineNo = entry.lineNo ?? 0;
-    consumer.discarding = entry.state.discardingLargeLine;
-    let bytes = 0;
-    try {
-      await streamRange(filePath, start, fileStat.size, async (chunk, chunkStart) => {
-        bytes += chunk.length;
-        consumer.feedAt(chunk, chunkStart);
-      });
-      consumer.finish(start + bytes);
-      delete entry.state.readFailed;
-    } catch (error) {
-      // Keep the accepted complete prefix and its parser state together. The
-      // unfinished suffix is retried even if the file metadata is unchanged.
-      entry.state.readFailed = true;
-      sink.warn(`${adapter} ${entry.path}: read failed; accepted prefix retained: ${error.message}`);
+  if (fileStat.size <= start) {
+    if (entry.state.scanPending) {
+      delete entry.state.scanPending;
+      return { dirty: true, pending: false };
     }
-    stats.bytesRead += bytes;
-    if (bytes > 0) stats.filesRead += 1;
-    if (consumer.skippedLargeLine) {
-      sink.warn(
-        `${adapter} ${entry.path}: a line larger than ${MAX_LINE_BYTES} bytes was skipped.`,
-      );
-    }
-    entry.offset = consumer.offset;
-    entry.lineNo = consumer.lineNo;
-    if (consumer.discarding) entry.state.discardingLargeLine = true;
-    else delete entry.state.discardingLargeLine;
-    dirty = true;
-    return dirty;
+    return { dirty: false, pending: false };
   }
 
-  return dirty;
+  const context = lineContext(store, entry, source, sink);
+  const consumer = createLineConsumer((record, info) => {
+    if (info.parseError) {
+      sink.warn(
+        `${adapter} ${entry.path}: line ${info.lineNo} is not valid JSON; skipped.`,
+      );
+      return;
+    }
+    if (!isPlainObject(record)) return;
+    context.lineHash = info.hash;
+    try {
+      parseAdapterRecord(adapter, record, context);
+    } catch (error) {
+      sink.warn(
+        `${adapter} ${entry.path}: line ${info.lineNo} could not be parsed: ${error.message}`,
+      );
+    }
+  });
+  consumer.offset = start;
+  consumer.lineNo = entry.lineNo ?? 0;
+  consumer.discarding = entry.state.discardingLargeLine;
+  const now = nowFn(options);
+  let bytes = 0;
+  let stopped = false;
+  try {
+    const result = await streamRange(filePath, start, fileStat.size, async (chunk, chunkStart) => {
+      bytes += chunk.length;
+      consumer.feedAt(chunk, chunkStart);
+    }, {
+      shouldStop: () => stopRequested(options) || deadlineReached(options, now()),
+    });
+    bytes = result.bytes;
+    stopped = result.stopped;
+    consumer.finish(start + bytes);
+    if (!stopped) delete entry.state.readFailed;
+  } catch (error) {
+    // Keep the accepted complete prefix and its parser state together. The
+    // unfinished suffix is retried even if the file metadata is unchanged.
+    entry.state.readFailed = true;
+    sink.warn(`${adapter} ${entry.path}: read failed; accepted prefix retained: ${error.message}`);
+  }
+  stats.bytesRead += bytes;
+  if (bytes > 0) stats.filesRead += 1;
+  if (consumer.skippedLargeLine) {
+    sink.warn(
+      `${adapter} ${entry.path}: a line larger than ${MAX_LINE_BYTES} bytes was skipped.`,
+    );
+  }
+  entry.offset = consumer.offset;
+  entry.lineNo = consumer.lineNo;
+  if (consumer.discarding) entry.state.discardingLargeLine = true;
+  else delete entry.state.discardingLargeLine;
+  if (stopped) entry.state.scanPending = true;
+  else delete entry.state.scanPending;
+  return { dirty: true, pending: stopped };
 }
 
 async function scanCompressedFile(
@@ -470,7 +538,7 @@ async function scanCompressedFile(
   fileStat,
   sink,
   stats,
-  checkpoint,
+  options = {},
 ) {
   if (!hasZstdSupport()) {
     entry.size = fileStat.size;
@@ -480,9 +548,10 @@ async function scanCompressedFile(
     sink.warn(
       `${source.adapter} ${entry.path}: .jsonl.zst needs Node's zstd API (Node 22.15+); skipped.`,
     );
-    return { ok: true, dirty: true };
+    return { status: "unsupported", dirty: true };
   }
-  // Roll back metadata if a stream fails after producing valid records. Raw
+  // The caller owns a per-file transaction. Any decompression failure or
+  // deadline stop discards this open archive without exposing its rows. Raw
   // transcript bytes are never retained: the line consumer is bounded.
   let result;
   try {
@@ -490,21 +559,23 @@ async function scanCompressedFile(
     result = await pipeline(
       createReadStream(filePath),
       zlib.createZstdDecompress(),
-      async (chunks) => processStringChunks(store, entry, source, chunks, 0, undefined, sink),
+      async (chunks) => processStringChunks(
+        store, entry, source, chunks, 0, undefined, sink, options,
+      ),
     );
   } catch (error) {
-    Object.assign(store, checkpoint);
-    prepareStore(store);
-    sink.warn(
-      `${source.adapter} ${entry.path}: zstd file could not be decompressed: ${error.message}`,
-    );
-    return { ok: false, dirty: false };
+    if (error instanceof ScanStopError) {
+      return { status: "stopped", reason: error.reason, dirty: false };
+    }
+    return { status: "corrupt", error, dirty: false };
   }
   stats.bytesRead += fileStat.size;
   if (fileStat.size > 0) stats.filesRead += 1;
+  stats.decompressedBytes = (stats.decompressedBytes ?? 0) + (result.bytes ?? 0);
   entry.offset = fileStat.size;
   entry.lineNo = result.lineNo;
-  return { ok: true, dirty: true };
+  delete entry.state.zstdError;
+  return { status: "ok", dirty: true };
 }
 
 function openCodeString(value) {
@@ -523,7 +594,7 @@ function openCodeInt(value) {
  * every write while the main database may not, so the checkpoint fingerprint
  * covers both files.
  */
-async function scanOpenCodeDb(store, source, filePath, sink, stats) {
+async function scanOpenCodeDb(store, source, filePath, sink, stats, options = {}) {
   let dbStat;
   try {
     dbStat = await stat(filePath);
@@ -531,9 +602,9 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
     if (error?.code !== "ENOENT") {
       sink.warn(`opencode ${filePath}: cannot stat file: ${error.message}`);
     }
-    return false;
+    return { dirty: false, aborted: false };
   }
-  if (!dbStat.isFile()) return false;
+  if (!dbStat.isFile()) return { dirty: false, aborted: false };
   let walStat = null;
   try {
     walStat = await stat(`${filePath}-wal`);
@@ -542,7 +613,44 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
 
   const key = fileKey(source.id, filePath);
   let entry = store.files[key];
-  let dirty = false;
+  if (entry?.state.opencodeParserVersion === 2 && entry.state.opencodeFingerprint === fingerprint) {
+    if (entry.state.opencodeMalformedRows) sink.warn(`opencode ${filePath}: ${entry.state.opencodeMalformedRows} malformed message rows were skipped.`);
+    stats.unchangedFiles += 1;
+    return { dirty: false, aborted: false };
+  }
+
+  let sqlite;
+  try {
+    sqlite = await import("node:sqlite");
+  } catch {
+    const tx = beginStoreTransaction(store, { fileId: entry?.id });
+    let dirty = false;
+    if (!entry) {
+      entry = newFileEntry(store, {
+        sourceId: source.id,
+        adapter: source.adapter,
+        path: filePath,
+        dev: String(dbStat.dev),
+        ino: String(dbStat.ino),
+        size: 0,
+        mtimeMs: 0,
+        compressed: false,
+      });
+      dirty = true;
+    }
+    if (entry.state.unsupported !== "sqlite") {
+      sink.warn(`opencode ${filePath}: node:sqlite is unavailable in this Node runtime; skipped.`);
+      entry.state.unsupported = "sqlite";
+      dirty = true;
+    }
+    commitStoreTransaction(tx);
+    stats.unchangedFiles += 1;
+    return { dirty, aborted: false };
+  }
+
+  let db;
+  let malformedRows = 0;
+  const tx = beginStoreTransaction(store, { fileId: entry?.id });
   if (!entry) {
     entry = newFileEntry(store, {
       sourceId: source.id,
@@ -554,38 +662,20 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
       mtimeMs: 0,
       compressed: false,
     });
-    dirty = true;
   }
-  if (entry.state.opencodeParserVersion === 2 && entry.state.opencodeFingerprint === fingerprint) {
-    if (entry.state.opencodeMalformedRows) sink.warn(`opencode ${filePath}: ${entry.state.opencodeMalformedRows} malformed message rows were skipped.`);
-    stats.unchangedFiles += 1;
-    return dirty;
-  }
-
-  let sqlite;
-  try {
-    sqlite = await import("node:sqlite");
-  } catch {
-    if (entry.state.unsupported !== "sqlite") {
-      sink.warn(`opencode ${filePath}: node:sqlite is unavailable in this Node runtime; skipped.`);
-      entry.state.unsupported = "sqlite";
-      dirty = true;
-    }
-    stats.unchangedFiles += 1;
-    return dirty;
-  }
-
-  let db;
-  let checkpoint;
-  let malformedRows = 0;
+  const now = nowFn(options);
+  let rowsSeen = 0;
   try {
     // Never open an external source writable, including on recovery errors.
     db = new sqlite.DatabaseSync(filePath, { readOnly: true });
     const records = db.prepare("SELECT session_id, id, time_created, data FROM message").iterate();
-    checkpoint = structuredClone(store);
     resetFileEntry(store, entry);
     delete entry.state.unsupported;
     for (const record of records) {
+      if (stopRequested(options) || (rowsSeen > 0 && deadlineReached(options, now()))) {
+        throw new ScanStopError("budget");
+      }
+      rowsSeen += 1;
       let data;
       try {
         data = JSON.parse(record.data);
@@ -633,13 +723,14 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
         );
       }
     }
+    commitStoreTransaction(tx);
   } catch (error) {
-    if (checkpoint) {
-      Object.assign(store, checkpoint);
-      prepareStore(store);
+    rollbackStoreTransaction(tx);
+    if (error instanceof ScanStopError) {
+      return { dirty: false, aborted: true, reason: error.reason };
     }
     sink.warn(`opencode ${filePath}: scan failed: ${error.message}`);
-    return dirty;
+    return { dirty: false, aborted: false };
   } finally {
     try { db?.close(); } catch { /* close is best-effort */ }
   }
@@ -654,10 +745,10 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
   if (malformedRows) sink.warn(`opencode ${filePath}: ${malformedRows} malformed message rows were skipped.`);
   stats.filesRead += 1;
   stats.bytesRead += dbStat.size + (walStat?.size ?? 0);
-  return true;
+  return { dirty: true, aborted: false };
 }
 
-async function scanOneFile(store, source, filePath, sink, stats) {
+async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   const sourceSink = {
     warn(message) {
       sink.warn(`[${source.id}] ${message}`, source.id);
@@ -667,7 +758,7 @@ async function scanOneFile(store, source, filePath, sink, stats) {
     },
   };
   if (source.adapter === "opencode") {
-    return scanOpenCodeDb(store, source, filePath, sourceSink, stats);
+    return scanOpenCodeDb(store, source, filePath, sourceSink, stats, options);
   }
   let fileStat;
   try {
@@ -676,98 +767,98 @@ async function scanOneFile(store, source, filePath, sink, stats) {
     if (error?.code !== "ENOENT") {
       sourceSink.warn(`${source.adapter} ${filePath}: cannot stat file: ${error.message}`);
     }
-    return false;
+    return { dirty: false, aborted: false };
   }
-  if (!fileStat.isFile()) return false;
-
-  const key = fileKey(source.id, filePath);
-  let entry = store.files[key];
-  const isNew = !entry;
-  let dirty = false;
-  if (!entry) {
-    entry = newFileEntry(store, {
-      sourceId: source.id,
-      adapter: source.adapter,
-      path: filePath,
-      dev: String(fileStat.dev),
-      ino: String(fileStat.ino),
-      size: 0,
-      mtimeMs: 0,
-      compressed: filePath.endsWith(".jsonl.zst"),
-    });
-    dirty = true;
-  }
+  if (!fileStat.isFile()) return { dirty: false, aborted: false };
 
   const dev = String(fileStat.dev);
   const ino = String(fileStat.ino);
-  const parserVersion = PARSER_VERSIONS[entry.adapter];
-  const parserKey = `${entry.adapter}ParserVersion`;
-  const parserCurrent = (!parserVersion || entry.state[parserKey] === parserVersion)
-    && !(entry.state.unsupported === "zstd" && hasZstdSupport());
-  if (parserCurrent && !entry.state.readFailed && entry.dev === dev && entry.ino === ino
-    && entry.size === fileStat.size && entry.mtimeMs === fileStat.mtimeMs) {
-    stats.unchangedFiles += 1;
-    return dirty;
-  }
-  // Capture before migrations/truncation reset anything, including ownership
-  // transferred to copied files. Unchanged archives never allocate a checkpoint.
-  const checkpoint = entry.compressed && hasZstdSupport() ? structuredClone(store) : null;
-  let forceRead = false;
-  if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
-    // Migrate existing history once for accounting fixes. New files own no
-    // metadata and must never trigger a global ownership cleanup scan.
-    resetFileEntry(store, entry);
-    forceRead = true;
-    dirty = true;
-  }
+  const key = fileKey(source.id, filePath);
+  const existing = store.files[key];
+  const isNew = !existing;
+  const parserVersion = PARSER_VERSIONS[existing?.adapter ?? source.adapter];
+  const parserKey = `${existing?.adapter ?? source.adapter}ParserVersion`;
+  const parserCurrent = (!parserVersion || existing?.state[parserKey] === parserVersion)
+    && !(existing?.state.unsupported === "zstd" && hasZstdSupport());
   if (
-    entry.state.unsupported === "zstd" &&
-    hasZstdSupport() &&
-    filePath.endsWith(".jsonl.zst")
-  ) {
-    resetFileEntry(store, entry);
-    forceRead = true;
-    dirty = true;
-  }
-  if (
-    entry.dev !== dev ||
-    entry.ino !== ino ||
-    fileStat.size < entry.size ||
-    fileStat.size < entry.offset
-  ) {
-    resetFileEntry(store, entry);
-    entry.dev = dev;
-    entry.ino = ino;
-    forceRead = true;
-    dirty = true;
-  }
-
-  if (
-    !forceRead &&
-    !entry.state.readFailed &&
-    entry.size === fileStat.size &&
-    entry.mtimeMs === fileStat.mtimeMs
+    existing
+    && parserCurrent
+    && !existing.state.readFailed
+    && !existing.state.scanPending
+    && existing.dev === dev
+    && existing.ino === ino
+    && existing.size === fileStat.size
+    && existing.mtimeMs === fileStat.mtimeMs
   ) {
     stats.unchangedFiles += 1;
-    return dirty;
+    return { dirty: false, aborted: false };
   }
 
-  if (filePath.endsWith(".jsonl.zst")) {
-    const compressed = await scanCompressedFile(
-      store,
-      entry,
-      source,
-      filePath,
-      fileStat,
-      sourceSink,
-      stats,
-      checkpoint,
-    );
-    if (!compressed.ok) return dirty;
-    dirty = compressed.dirty || dirty;
-  } else {
-    dirty =
-      (await scanPlainFile(
+  // Every changed file gets a precise transaction. The previous committed
+  // contributions stay visible until the whole file is accepted, and a failure
+  // restores rows, dedup/task ownership, parser state, and nextFileId.
+  const tx = beginStoreTransaction(store, { fileId: existing?.id });
+  let entry = existing;
+  let dirty = false;
+  try {
+    if (!entry) {
+      entry = newFileEntry(store, {
+        sourceId: source.id,
+        adapter: source.adapter,
+        path: filePath,
+        dev,
+        ino,
+        size: 0,
+        mtimeMs: 0,
+        compressed: filePath.endsWith(".jsonl.zst"),
+      });
+      dirty = true;
+    }
+
+    let forceRead = false;
+    if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
+      // Migrate existing history once for accounting fixes. New files own no
+      // metadata and must never trigger a global ownership cleanup scan.
+      resetFileEntry(store, entry);
+      forceRead = true;
+      dirty = true;
+    }
+    if (
+      entry.state.unsupported === "zstd" &&
+      hasZstdSupport() &&
+      filePath.endsWith(".jsonl.zst")
+    ) {
+      resetFileEntry(store, entry);
+      forceRead = true;
+      dirty = true;
+    }
+    if (
+      entry.dev !== dev ||
+      entry.ino !== ino ||
+      fileStat.size < entry.size ||
+      fileStat.size < entry.offset
+    ) {
+      resetFileEntry(store, entry);
+      entry.dev = dev;
+      entry.ino = ino;
+      forceRead = true;
+      dirty = true;
+    }
+
+    if (
+      !forceRead &&
+      !entry.state.readFailed &&
+      !entry.state.scanPending &&
+      entry.size === fileStat.size &&
+      entry.mtimeMs === fileStat.mtimeMs
+    ) {
+      stats.unchangedFiles += 1;
+      commitStoreTransaction(tx);
+      return { dirty, aborted: false };
+    }
+
+    if (filePath.endsWith(".jsonl.zst")) {
+      const compressed = await scanCompressedFile(
         store,
         entry,
         source,
@@ -775,17 +866,87 @@ async function scanOneFile(store, source, filePath, sink, stats) {
         fileStat,
         sourceSink,
         stats,
-      )) || dirty;
-  }
+        options,
+      );
+      if (compressed.status === "stopped") {
+        rollbackStoreTransaction(tx);
+        return {
+          dirty: false,
+          aborted: true,
+          abortedFile: {
+            sourceId: source.id,
+            adapter: source.adapter,
+            path: filePath,
+            size: fileStat.size,
+            mtimeMs: fileStat.mtimeMs,
+            dev,
+            ino,
+            reason: compressed.reason ?? "budget",
+          },
+        };
+      }
+      if (compressed.status === "corrupt") {
+        rollbackStoreTransaction(tx);
+        // Preserve the previous good archive and remember this exact corrupt
+        // fingerprint so an unchanged broken file is not re-read every refresh.
+        entry.size = fileStat.size;
+        entry.mtimeMs = fileStat.mtimeMs;
+        entry.offset = fileStat.size;
+        entry.state.zstdError = `${fileStat.mtimeMs}:${fileStat.size}`;
+        sourceSink.warn(
+          `${source.adapter} ${entry.path}: zstd file could not be decompressed: ${compressed.error.message}`,
+        );
+        return { dirty: true, aborted: false };
+      }
+      dirty = compressed.dirty || dirty;
+      commitStoreTransaction(tx);
+      entry.size = fileStat.size;
+      entry.mtimeMs = fileStat.mtimeMs;
+      entry.path = filePath;
+      if (parserVersion) entry.state[parserKey] = parserVersion;
+      delete entry.state.zstdError;
+      delete entry.state.scanPending;
+      return { dirty, aborted: false };
+    }
 
-  entry.size = fileStat.size;
-  entry.mtimeMs = fileStat.mtimeMs;
-  entry.path = filePath;
-  if (parserVersion) entry.state[parserKey] = parserVersion;
-  return dirty;
+    const plain = await scanPlainFile(
+      store,
+      entry,
+      source,
+      filePath,
+      fileStat,
+      sourceSink,
+      stats,
+      options,
+    );
+    dirty = plain.dirty || dirty;
+    commitStoreTransaction(tx);
+    entry.path = filePath;
+    if (parserVersion) entry.state[parserKey] = parserVersion;
+    if (!plain.pending) {
+      entry.size = fileStat.size;
+      entry.mtimeMs = fileStat.mtimeMs;
+      delete entry.state.scanPending;
+    }
+    return { dirty, aborted: false, pending: plain.pending };
+  } catch (error) {
+    rollbackStoreTransaction(tx);
+    sourceSink.warn(`${source.adapter} ${filePath}: scan failed: ${error.message}`);
+    return { dirty: false, aborted: false };
+  }
 }
 
-export async function scanSources(store, { home, onProgress } = {}) {
+export async function scanSources(store, {
+  home,
+  onProgress,
+  onCheckpoint,
+  onStreamProgress,
+  deadline,
+  shouldStop,
+  now,
+  streamDelayMs,
+  mode = "foreground",
+} = {}) {
   const warnings = [];
   const stats = {
     files: 0,
@@ -793,6 +954,7 @@ export async function scanSources(store, { home, onProgress } = {}) {
     bytesRead: 0,
     unchangedFiles: 0,
     errors: 0,
+    decompressedBytes: 0,
   };
   const sourceState = {};
   for (const source of store.config.sources) {
@@ -810,11 +972,42 @@ export async function scanSources(store, { home, onProgress } = {}) {
   const discovered = await discoverFiles(store.config, home, sink, sourceState);
   const seenInodes = new Set();
   const seenPaths = new Set();
+  const options = {
+    deadline,
+    shouldStop,
+    now: now ?? Date.now,
+    streamDelayMs,
+    onStreamProgress: (progress) => {
+      onStreamProgress?.(progress);
+    },
+  };
   let dirty = false;
   let processed = 0;
+  let stopReason = null;
+  let abortedFile = null;
 
   for (const found of discovered) {
-    onProgress?.({ processed, total: discovered.length, file: found.file });
+    if (stopRequested(options)) {
+      stopReason = "stop";
+      break;
+    }
+    if (processed > 0 && deadlineReached(options, options.now())
+      && (stats.filesRead > 0 || dirty)) {
+      // A tiny budget still guarantees one changed file per slice. Otherwise a
+      // slice could repeatedly stop on the same unchanged prefix and never
+      // converge; unchanged files remain cheap discovery/stat work.
+      stopReason = "budget";
+      break;
+    }
+    onProgress?.({
+      processed,
+      total: discovered.length,
+      file: found.file,
+      mode,
+      filesRead: stats.filesRead,
+      bytesRead: stats.bytesRead,
+      phase: "scan",
+    });
     processed += 1;
     if (seenPaths.has(found.file)) continue;
     let fileStat;
@@ -838,24 +1031,52 @@ export async function scanSources(store, { home, onProgress } = {}) {
     sourceState[found.source.id].files += 1;
     const beforeRead = stats.filesRead;
     const beforeBytes = stats.bytesRead;
-    const changed = await scanOneFile(
+    const result = await scanOneFile(
       store,
       found.source,
       found.file,
       sink,
       stats,
+      options,
     ).catch((error) => {
       sink.warn(
         `[${found.source.id}] ${found.source.adapter} ${found.file}: scan failed: ${error.message}`,
         found.source.id,
       );
-      return false;
+      return { dirty: false, aborted: false };
     });
     sourceState[found.source.id].filesRead +=
       stats.filesRead - beforeRead;
     sourceState[found.source.id].bytesRead +=
       stats.bytesRead - beforeBytes;
-    dirty = changed || dirty;
+    dirty = Boolean(result?.dirty) || dirty;
+    if (result?.aborted) {
+      stopReason = result.reason ?? "budget";
+      abortedFile = result.abortedFile ?? {
+        sourceId: found.source.id,
+        adapter: found.source.adapter,
+        path: found.file,
+        size: fileStat.size,
+        mtimeMs: fileStat.mtimeMs,
+        dev: String(fileStat.dev),
+        ino: String(fileStat.ino),
+        reason: result.reason ?? "budget",
+      };
+      break;
+    }
+    if (result?.pending) {
+      // Plain JSONL reached a slice boundary inside a file. The accepted
+      // complete prefix is committed and its offset resumes next time.
+      stopReason = "budget";
+      break;
+    }
+    await onCheckpoint?.({
+      processed,
+      total: discovered.length,
+      file: found.file,
+      stats,
+      dirty,
+    });
   }
 
   const sourceStats = {};
@@ -877,11 +1098,22 @@ export async function scanSources(store, { home, onProgress } = {}) {
   }
 
   sink.finish();
-  return { stats, warnings, dirty, sourceStats };
+  return {
+    stats,
+    warnings,
+    dirty,
+    sourceStats,
+    complete: stopReason === null,
+    stopped: stopReason !== null,
+    stopReason,
+    abortedFile,
+    processed,
+    total: discovered.length,
+  };
 }
 
-export async function rebuildScan(store, { home }) {
-  return scanSources(store, { home });
+export async function rebuildScan(store, options = {}) {
+  return scanSources(store, options);
 }
 
 export { createLineConsumer, processStringChunks, scanOneFile, walkRoot };
