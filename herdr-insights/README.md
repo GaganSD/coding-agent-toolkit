@@ -79,3 +79,21 @@ without modifying them (see [INSTALL.md](INSTALL.md)).
 Developer tests, fixtures, and release validation live outside this distribution;
 see the repo's [development guide](../docs/herdr-insights-development.md). They are
 not installation steps.
+
+### Reproducible performance benchmark
+
+The opt-in benchmark uses only synthetic sessions and never reads a real home:
+
+```sh
+node scripts/herdr-insights/benchmark.mjs
+```
+
+It starts three fresh presenter processes per case and records medians plus peak
+RSS, source/store/payload bytes, filesRead, bytesRead, structuredClone counts,
+and every gate in `research/issue-109/round2-perf-benchmark.json` (gitignored).
+Cases cover 1,000 and 10,008 unique compressed Codex sessions cold and warm, a
+single 250,000-event session, and 50MiB/500MiB plain and zstd payloads with fixed
+usage cardinality. It also checks cached `status` latency while a stream-throttled
+worker indexes. The benchmark is a development measurement, not native Herdr
+proof and not a Node 22 compatibility certification; see the artifact's pending
+gates for that separate work.
