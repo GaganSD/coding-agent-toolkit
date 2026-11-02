@@ -306,4 +306,20 @@ test("a bounded scan never exposes rows from an unfinished archive", async () =>
   assert.equal(result.abortedFile?.path?.endsWith("big.jsonl.zst"), true);
   assert.equal(Object.keys(store.files).length, 0, "an aborted archive contributes no file entry");
   assert.deepEqual(snapshotRows(store), []);
+
+  // A deliberate budget stop is not corruption: retrying without a budget--
+  // or the promoted worker--must index the same valid archive normally.
+  const retry = await scanSources(store, {
+    home,
+    deadline: Date.now() + 60_000,
+    now: Date.now,
+  });
+  assert.equal(retry.complete, true);
+  assert.equal(retry.abortedFile, null);
+  assert.equal(retry.stats.errors, 0);
+  assert.equal(Object.keys(store.files).length, 1);
+  const [entry] = Object.values(store.files);
+  assert.equal(entry.state.zstdError, undefined, "a budget stop leaves no corrupt fingerprint");
+  assert.ok(entry.rows.length > 0, "the valid archive is indexed on retry");
+  assert.equal(snapshotRows(store).length > 0, true);
 });
