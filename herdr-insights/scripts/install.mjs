@@ -3,7 +3,7 @@ import path from "node:path";
 
 import {
   PACKAGE_ROOT,
-  MOD_NAMES,
+  MODS,
   RUNTIME_NAME,
   assertNoSymlinkComponents,
   assertSupportedNodeVersion,
@@ -28,8 +28,6 @@ import {
 
 import { prepareToolbar, applyToolbar } from "./toolbar.mjs";
 
-const OPEN_ARGS = ["do", "tab.new", '{"name":"Insights","mod":"insights"}'];
-
 function usage() {
   return `Insights local installer
 
@@ -38,7 +36,6 @@ Usage:
   node scripts/install.mjs [options]
 
 Options:
-  --open                Open the Insights tab after herdr-app check passes
   --force               Replace owned files edited locally (never unowned files or links)
   --source <folder>     Source package folder containing mods/insights (development)
   --app-home <folder>   Herdr app home (default: $HERDR_APP_HOME or ~/.config/herdr-app)
@@ -57,7 +54,6 @@ function parseArgs(argv) {
     appHome: null,
     force: false,
     help: false,
-    open: false,
     source: null,
   };
 
@@ -66,10 +62,6 @@ function parseArgs(argv) {
     if (argument === "--") continue;
     if (argument === "--help" || argument === "-h") {
       options.help = true;
-      continue;
-    }
-    if (argument === "--open") {
-      options.open = true;
       continue;
     }
     if (argument === "--force") {
@@ -135,7 +127,7 @@ async function prepareInstall(options, modName) {
     : PACKAGE_ROOT;
   const source = await collectSourceFiles(sourceRoot, modName);
   // Only the dashboard needs Node; the launcher runs entirely inside Herdr.
-  if (modName === "insights") {
+  if (MODS[modName].runtime) {
     source.files = source.files.filter((file) => file.relative !== RUNTIME_NAME);
     source.files.push(createRuntimeFile());
   }
@@ -286,8 +278,10 @@ async function applyInstall(plan) {
         removed.length ? `, ${removed.length} stale removed` : ""
       }).`,
   );
-  if (modName === "insights") console.log(`Generated ${RUNTIME_NAME} for Node ${process.execPath}.`);
-  console.log(`Insights data stays at ${targetDataDirectory}; insights.json is untouched.`);
+  if (MODS[modName].runtime) {
+    console.log(`Generated ${RUNTIME_NAME} for Node ${process.execPath}.`);
+    console.log(`Insights data stays at ${targetDataDirectory}; insights.json is untouched.`);
+  }
   for (const kept of keptStale) {
     console.warn(`Kept an owned file no longer in the source: ${kept}`);
   }
@@ -323,7 +317,7 @@ async function main() {
     // source folders remain installable through --source.
     const plans = [];
     const sourceRoot = options.source ? path.resolve(expandHome(options.source)) : PACKAGE_ROOT;
-    for (const modName of MOD_NAMES) {
+    for (const modName of Object.keys(MODS)) {
       if (modName !== "insights" && !await lstatOrNull(path.join(sourceRoot, "mods", modName))) continue;
       plans.push(await prepareInstall(options, modName));
     }
@@ -331,14 +325,6 @@ async function main() {
     const toolbar = launcher ? await prepareToolbar(launcher.appHome) : null;
     for (const plan of plans) await applyInstall(plan);
     if (toolbar) await applyToolbar(toolbar);
-    if (options.open) {
-      const opened = await runHerdr(OPEN_ARGS, { env: { HERDR_APP_HOME: plans[0].appHome } });
-      relayHerdrOutput(opened);
-      if (opened.error || opened.code !== 0 || opened.signal) {
-        throw new Error(herdrFailure(opened, "herdr-app do tab.new"));
-      }
-      console.log("Opened the Insights tab in the current Herdr space.");
-    }
     return 0;
   } catch (error) {
     console.error(`Error: ${error.message}`);

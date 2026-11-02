@@ -89,12 +89,7 @@ async function pruneOwnedDirectories(directories) {
   }
 }
 
-async function prepareUninstall(options, modName) {
-  const appHome = await resolveAppHome(options.appHome, { create: false });
-  if (!appHome) {
-    console.log("Insights is not installed by this package; nothing to remove.");
-    return;
-  }
+async function prepareUninstall(appHome, modName) {
   const targetDirectory = modDir(appHome, modName);
   const targetManifest = manifestPath(appHome, modName);
   const manifest = await readManifest(appHome, modName);
@@ -106,8 +101,7 @@ async function prepareUninstall(options, modName) {
         `No install manifest at ${targetManifest}; refusing to remove unowned files in ${targetDirectory}.`,
       );
     }
-    console.log("Insights is not installed by this package; nothing to remove.");
-    return;
+    return null;
   }
 
   const targetStat = await lstatOrNull(targetDirectory);
@@ -122,7 +116,6 @@ async function prepareUninstall(options, modName) {
 }
 
 async function applyUninstall(plan) {
-  if (!plan) return;
   const { appHome, targetDirectory, targetManifest, manifest, targetStat, modName } = plan;
   const removed = [];
   const kept = [];
@@ -204,14 +197,18 @@ async function main() {
     const appHome = await resolveAppHome(options.appHome, { create: false });
     // Validate ownership, manifests and target types before deleting either mod.
     const plans = [];
-    for (const modName of MOD_NAMES) {
-      if (modName !== "insights" && (!appHome ||
-        (!await lstatOrNull(modDir(appHome, modName)) && !await lstatOrNull(manifestPath(appHome, modName))))) continue;
-      plans.push(await prepareUninstall(options, modName));
+    if (appHome) {
+      for (const modName of MOD_NAMES) {
+        const plan = await prepareUninstall(appHome, modName);
+        if (plan) plans.push(plan);
+      }
     }
     const toolbar = await prepareToolbarRemoval(appHome);
     await removeToolbar(toolbar);
     for (const plan of plans) await applyUninstall(plan);
+    if (plans.length === 0 && !toolbar) {
+      console.log("Insights is not installed by this package; nothing to remove.");
+    }
     return 0;
   } catch (error) {
     console.error(`Error: ${error.message}`);

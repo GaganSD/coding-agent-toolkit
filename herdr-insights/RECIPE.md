@@ -138,8 +138,7 @@ Keep the existing dashboard manifest compatible and use
 `launcher-install-manifest.json` for the launcher. Preflight both targets before
 writing either. Refuse symlinks and unowned collisions; refuse edited owned files
 unless explicitly forced. Preserve usage data and unrelated files. Check both
-mods with `herdr-app check` before creating/selecting the toolbar layout. Only
-with `--open`, run `herdr-app do tab.new '{"name":"Insights","mod":"insights"}'`.
+mods with `herdr-app check` before creating/selecting the toolbar layout.
 Keep Herdr running for toolbar installation/removal; never start a second instance.
 
 **Watch out:** Canonical total is input + output + cacheRead + cacheWrite;

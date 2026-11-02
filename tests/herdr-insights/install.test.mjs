@@ -16,7 +16,6 @@ const PACKAGE_ROOT = path.resolve(
 const INSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "install.mjs");
 const UNINSTALL_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "uninstall.mjs");
 const CHECK_SCRIPT = fileURLToPath(new URL("../../scripts/herdr-insights/check.mjs", import.meta.url));
-const OPEN_JSON = '{"name":"Insights","mod":"insights"}';
 const RUNTIME_REL = "runtime.json";
 
 const DEFAULT_MOD_FILES = {
@@ -71,15 +70,13 @@ test("corrupt manifests fail closed with recovery guidance and preserve data", a
   assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const manifest = path.join(appHome, "data/insights/install-manifest.json");
   await fs.writeFile(manifest, "{broken");
-  const snapshot = async () => Promise.all((await listFiles(appHome)).map(async (relative) =>
-    [relative, await fs.readFile(path.join(appHome, relative), "utf8")]));
-  const before = await snapshot();
+  const before = await snapshotTree(appHome);
   for (const result of [runInstall({ appHome, fake, sourceRoot }), runUninstall({ appHome })]) {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /preserve or move aside both/);
     assert.match(result.stderr, /insights.json.*in place/);
   }
-  assert.deepEqual(await snapshot(), before);
+  assert.deepEqual(await snapshotTree(appHome), before);
 });
 
 test("reinstall retains ownership proof for edited stale files", async (t) => {
@@ -243,7 +240,7 @@ test("runtime.json is generated from the installer Node, replaces a source copy,
   assert.equal(await exists(path.join(symlinkApp, "mods", "insights")), false);
 });
 
-test("--open uses argv-safe executable arguments and runs only after a passing check", async (t) => {
+test("install runs only herdr-app check and never opens a tab", async (t) => {
   const root = await temporaryRoot(t);
   const sourceRoot = await createSource(root, DEFAULT_MOD_FILES, "reviewed source's tree");
   const appHome = path.join(root, "herdr app's home (dev)");
@@ -254,19 +251,17 @@ test("--open uses argv-safe executable arguments and runs only after a passing c
     fake,
     pathLookup: true,
     sourceRoot,
-    extra: ["--open"],
   });
   assertSuccess(result);
 
   const log = await readLog(fake);
-  assert.equal(log.length, 2);
+  assert.equal(log.length, 1);
   assert.deepEqual(log[0].args, [
     "check",
     path.join(await fs.realpath(appHome), "mods", "insights"),
   ]);
   assert.equal(log[0].appHome, await fs.realpath(appHome));
-  assert.deepEqual(log[1].args, ["do", "tab.new", OPEN_JSON]);
-  assert.match(result.stdout, /Opened the Insights tab/);
+  assert.doesNotMatch(result.stdout, /Opened the Insights tab/);
 });
 
 test("reinstall is idempotent, updates reviewed files, removes stale ones, and keeps local extras", async (t) => {
@@ -477,7 +472,6 @@ test("a failed herdr-app check exits nonzero, does not open, and the install can
     appHome,
     fake,
     sourceRoot,
-    extra: ["--open"],
     fail: "check",
   });
   assertFailure(failed);
@@ -488,12 +482,12 @@ test("a failed herdr-app check exits nonzero, does not open, and the install can
   assert.equal(log.length, 1);
   assert.equal(log[0].args[0], "check");
 
-  const rerun = runInstall({ appHome, fake, sourceRoot, extra: ["--open"] });
+  const rerun = runInstall({ appHome, fake, sourceRoot });
   assertSuccess(rerun);
   log = await readLog(fake);
-  assert.equal(log.length, 3);
+  assert.equal(log.length, 2);
   assert.equal(log[1].args[0], "check");
-  assert.deepEqual(log[2].args, ["do", "tab.new", OPEN_JSON]);
+  assert.equal(log.filter((entry) => entry.args[0] === "do").length, 0);
   assert.equal(
     await fs.readFile(path.join(appHome, "data", "insights", "insights.json"), "utf8"),
     APP_FILES["data/insights/insights.json"],
@@ -777,19 +771,17 @@ test("standalone distribution installs toolbar without repo tooling or a floatin
 
 test("launcher installs, checks, reinstalls and uninstalls through the same safe ownership rules", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
-  assertSuccess(runInstall({ appHome, fake, sourceRoot, extra: ["--open"] }));
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
   const installedHome = await fs.realpath(appHome);
   assert.deepEqual((await readLog(fake)).map((entry) => entry.args), [
     ["status"],
     ["check", path.join(installedHome, "mods/insights")],
     ["check", path.join(installedHome, "mods/insights-launcher")],
     ["do", "layout.clone", '{"name":"main","as":"main-insights"}'],
-    ["do", "tab.new", OPEN_JSON],
   ]);
   const launcher = path.join(appHome, "mods/insights-launcher");
   assert.deepEqual(await listFiles(launcher), ["insights.svg", "main.js", "mod.json"]);
@@ -821,8 +813,7 @@ test("launcher installs, checks, reinstalls and uninstalls through the same safe
 
 test("launcher collisions and links fail before either mod is written, even with --force", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   const fake = await createFakeRunner(root);
   for (const kind of ["unowned", "symlink"]) {
     const appHome = path.join(root, kind);
@@ -842,13 +833,12 @@ test("launcher collisions and links fail before either mod is written, even with
 
 test("launcher check or activation failures never open a dashboard tab", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   for (const fail of ["launcher-check", "open"]) {
     const fake = await createFakeRunner(path.join(root, fail));
     const appHome = path.join(root, fail, "app");
     await writeTree(appHome, { "layouts/main.json": TOOLBAR_LAYOUT });
-    const result = runInstall({ appHome, fake, sourceRoot, fail, extra: ["--open"] });
+    const result = runInstall({ appHome, fake, sourceRoot, fail });
     assertFailure(result);
     const log = await readLog(fake);
     assert.equal(log.filter((entry) => entry.args[1] === "tab.new").length, 0);
@@ -862,8 +852,7 @@ test("launcher check or activation failures never open a dashboard tab", async (
 
 test("uninstall preflights both targets before deleting either mod", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   const fake = await createFakeRunner(root);
   for (const kind of ["symlink", "unowned", "corrupt-manifest"]) {
     const appHome = path.join(root, kind);
@@ -878,19 +867,16 @@ test("uninstall preflights both targets before deleting either mod", async (t) =
     } else {
       await fs.writeFile(path.join(appHome, "data/insights/launcher-install-manifest.json"), "{broken");
     }
-    const snapshot = async () => Promise.all((await listFiles(appHome)).map(async (relative) =>
-      [relative, await fs.readFile(path.join(appHome, relative), "utf8")]));
-    const before = await snapshot();
+    const before = await snapshotTree(appHome);
     assertFailure(runUninstall({ appHome }));
-    assert.deepEqual(await snapshot(), before, kind);
+    assert.deepEqual(await snapshotTree(appHome), before, kind);
     assert.equal(await exists(path.join(appHome, "mods/insights/main.js")), true);
   }
 });
 
 test("toolbar refuses unsupported layouts and state symlinks before writing either mod", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   const fake = await createFakeRunner(root);
   for (const kind of ["unsupported", "symlink", "state-link", "state-directory-link"]) {
     const appHome = path.join(root, kind);
@@ -917,8 +903,7 @@ test("toolbar refuses unsupported layouts and state symlinks before writing eith
 
 test("reinstall preserves edited personal layouts and uninstall fails closed before deleting any files", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, APP_FILES);
   const fake = await createFakeRunner(root);
@@ -950,8 +935,7 @@ test("reinstall preserves edited personal layouts and uninstall fails closed bef
 
 test("toolbar skips layout/state collisions, preserves click state, and can reinstall after uninstall", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   const appHome = path.join(root, "app");
   const state = '{"nodes":{"panel":{"hidden":false}},"theme":"ink"}\n';
   await writeTree(appHome, {
@@ -983,8 +967,7 @@ test("toolbar skips layout/state collisions, preserves click state, and can rein
 
 test("uninstall verifies the original layout exists and actually became selected", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   for (const fail of ["missing-source", "ignored-switch"]) {
     const appHome = path.join(root, fail);
     await writeTree(appHome, APP_FILES);
@@ -1002,8 +985,7 @@ test("uninstall verifies the original layout exists and actually became selected
 
 test("toolbar ownership records reject traversal and do not overwrite personal files", async (t) => {
   const root = await temporaryRoot(t);
-  const sourceRoot = await createSource(root);
-  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"), path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
+  const sourceRoot = await createSourceWithLauncher(root);
   const fake = await createFakeRunner(root);
   const appHome = path.join(root, "app");
   await writeTree(appHome, {
@@ -1104,6 +1086,13 @@ async function createSource(root, files = DEFAULT_MOD_FILES, name = "reviewed so
     "layouts/other.json": '{"id":"other"}\n',
     "tests/source-only.txt": "not installed\n",
   });
+  return sourceRoot;
+}
+
+async function createSourceWithLauncher(root) {
+  const sourceRoot = await createSource(root);
+  await fs.cp(path.join(PACKAGE_ROOT, "mods/insights-launcher"),
+    path.join(sourceRoot, "mods/insights-launcher"), { recursive: true });
   return sourceRoot;
 }
 
@@ -1232,6 +1221,11 @@ async function readLog(fake) {
 
 async function readJson(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
+}
+
+async function snapshotTree(root) {
+  return Promise.all((await listFiles(root)).map(async (relative) =>
+    [relative, await fs.readFile(path.join(root, relative), "utf8")]));
 }
 
 async function writeTree(base, files) {

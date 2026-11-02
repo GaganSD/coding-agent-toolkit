@@ -23,19 +23,12 @@ cd coding-agent-toolkit
 npm run install:local --prefix herdr-insights
 ```
 
-With Herdr running, the installer checks both mods and adds **Insights** to the
-same toolbar row as **Files / Changes**. Each click opens a new, full-size
-Insights tab in the current space. No floating windows or background launcher.
-Follow [INSTALL.md](INSTALL.md) for details; add `-- --open` only if you also want
-the installer to open a dashboard tab.
-
-It installs `mods/insights/` and `mods/insights-launcher/`, records ownership in
-`data/insights/`, and creates a personal layout (normally `main-insights`) using
-Herdr's supported clone command. The layout composes the button beside the
-**original Herdr tab bar**—no patched or vendored tab-bar code. Shipped files,
-keys, terminals, and usage data are unchanged. Reinstalling preserves personal
-layout edits and does not create another button or change the chosen layout.
-Set `HERDR_APP_HOME` to use a different app home.
+With Herdr running, the installer checks both mods and adds **Insights** beside
+**Files / Changes**; each click opens a new Insights tab. It installs
+`mods/insights/` and `mods/insights-launcher/`, records ownership in
+`data/insights/`, and creates a personal layout clone for the button. Shipped
+files, keys, terminals, and usage data are unchanged. See [INSTALL.md](INSTALL.md)
+for the layout and click-state rules. Set `HERDR_APP_HOME` to use a different app home.
 
 ## Use
 
@@ -57,10 +50,8 @@ response text or modify source transcripts.
 The distribution folder is `herdr-insights`; its dashboard mod ID is `insights`
 and its display name is **Insights**. `insights-launcher` is a separate, native
 toolbar button using only `theme()` and `run("tab.new", ...)`; it has no polling,
-helper process, or overlays. No layouts or key bindings ship. The installer
-clones the user's current layout and wraps its `tabs` block in a row containing
-the original mod plus the button. Only the owned personal layout is changed;
-Herdr's tab bar continues receiving its normal code updates.
+helper process, or overlays. No layouts or key bindings ship; the button lives in
+a personal layout clone composed by the installer (see [INSTALL.md](INSTALL.md)).
 
 Developer tests, fixtures, and release validation live outside this distribution;
 see the repo's [development guide](../docs/herdr-insights-development.md). They are

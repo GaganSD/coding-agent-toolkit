@@ -66,20 +66,12 @@ Keep `herdr-insights/` self-contained, with `RECIPE.md`, `INSTALL.md`, `README.m
 key snippets, developer tests/fixtures, or smoke-test tooling in that folder.
 The installer preflights both mod trees before writing either, generates the
 dashboard's local Node path, and records ownership separately for each mod.
-The toolbar integration uses a personal layout clone. It wraps the original
-`tabs` block in a row containing the unchanged native tabs mod and the tiny
-Insights button. No built-in mod source is cloned, patched, or vendored; no
-floating windows or polling are used. Herdr's clone command preserves appearance
-and click state. Preflight source-state links and choose an unused destination
-layout/state name. Never edit or delete Herdr's click-state files; reinstall after
-uninstall chooses another name if state remains. The installer tracks the owned clone in `toolbar-install.json`,
-never rewrites it on reinstall, and removes it only if unchanged. With Herdr
-running, uninstall returns to the original layout before removing the clone.
-Vendor tab-bar code keeps updating; the personal layout's structure remains a
-clone and does not automatically inherit future structural changes to `main`.
-Its button creates a new Insights tab with `tab.new`. Validate both mods with
-`herdr-app check` and inspect the actual toolbar in the existing window; do not
-launch a second instance.
+The toolbar is a personal layout clone wrapping Herdr's original `tabs` block;
+no built-in mod source is cloned, patched, or vendored. See
+[INSTALL.md](../herdr-insights/INSTALL.md) for the clone, click-state, and
+ownership rules. A clone does not inherit future structural changes to its
+source layout. Validate both mods with `herdr-app check` and inspect the actual
+toolbar in the existing window; do not launch a second instance.
 
 For Herdr Community discovery, publish the folder in a public GitHub repo and
 add topic `herdr-mod` after merging to the default branch. Allow up to an hour for

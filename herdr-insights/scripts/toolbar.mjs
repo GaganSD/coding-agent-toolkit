@@ -10,14 +10,18 @@ const OWNER = "herdr-insights-toolbar";
 const BUTTON_ID = "insights-toolbar-button";
 const NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
-function stateFile(appHome, name) {
-  layoutFile(appHome, name); // Validate the filename before using it below .state.
-  return path.join(appHome, "layouts", ".state", `${name}.json`);
+function assertName(name) {
+  if (typeof name !== "string" || !NAME.test(name)) throw new Error(`Unsupported layout name: ${JSON.stringify(name)}`);
 }
 
 function layoutFile(appHome, name) {
-  if (typeof name !== "string" || !NAME.test(name)) throw new Error(`Unsupported layout name: ${JSON.stringify(name)}`);
+  assertName(name);
   return path.join(appHome, "layouts", `${name}.json`);
+}
+
+function stateFile(appHome, name) {
+  assertName(name);
+  return path.join(appHome, "layouts", ".state", `${name}.json`);
 }
 
 async function readRegular(appHome, file) {
@@ -37,7 +41,6 @@ async function readRecord(appHome) {
       typeof record.source !== "string" || !NAME.test(record.source) ||
       typeof record.layout !== "string" || !NAME.test(record.layout) ||
       !record.layout.startsWith(`${record.source}-insights`) ||
-      !/^(?:-[1-9]\d*)?$/.test(record.layout.slice(`${record.source}-insights`.length)) ||
       typeof record.hash !== "string" || !HASH_RE.test(record.hash)) {
     throw new Error(`Invalid toolbar ownership record: ${file}`);
   }
@@ -54,7 +57,7 @@ async function command(appHome, args) {
 
 /** Preserve the original tabs mod and its updates; compose one button beside it. */
 export function withInsightsToolbar(layout) {
-  const copy = JSON.parse(JSON.stringify(layout));
+  const copy = structuredClone(layout);
   const nodes = [];
   function walk(node) {
     nodes.push(node);
@@ -146,12 +149,12 @@ export async function prepareToolbarRemoval(appHome) {
     if (original === null) throw new Error(`Original layout ${record.source} is missing. Select another layout before uninstalling.`);
     JSON.parse(original);
   }
-  return { appHome, record, file, exists: text !== null, active };
+  return { appHome, record, file, active };
 }
 
 export async function removeToolbar(plan) {
   if (!plan) return;
-  const { appHome, record, file, exists, active } = plan;
+  const { appHome, record, file, active } = plan;
   const current = await readRegular(appHome, file);
   if (current !== null && sha256(current) !== record.hash) throw new Error(`Toolbar layout changed during uninstall: ${file}`);
   if (active) {
@@ -159,7 +162,7 @@ export async function removeToolbar(plan) {
     const status = JSON.parse(await command(appHome, ["status"]));
     if (status.layout !== record.source) throw new Error(`Herdr did not leave ${record.layout}; no files removed.`);
   }
-  if (exists && current !== null) await fs.unlink(file);
+  if (current !== null) await fs.unlink(file);
   await fs.unlink(path.join(dataDir(appHome), RECORD));
   console.log(`Removed owned toolbar layout ${record.layout}; original layout ${record.source} is unchanged.`);
 }

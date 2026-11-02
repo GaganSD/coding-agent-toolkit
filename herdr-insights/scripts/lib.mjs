@@ -10,10 +10,12 @@ export const PACKAGE_ROOT = path.resolve(
   "..",
 );
 export const MIN_NODE_VERSION = "22.15";
-export const MOD_REL = "mods/insights";
-export const DATA_REL = "data/insights";
-export const MANIFEST_NAME = "install-manifest.json";
 export const RUNTIME_NAME = "runtime.json";
+export const MODS = Object.freeze({
+  insights: { manifest: "install-manifest.json", runtime: true },
+  "insights-launcher": { manifest: "launcher-install-manifest.json" },
+});
+export const MOD_NAMES = Object.keys(MODS);
 export const MANIFEST_VERSION = 1;
 export const MANIFEST_OWNER = "herdr-insights";
 export const HASH_RE = /^[0-9a-f]{64}$/;
@@ -48,15 +50,8 @@ export function createRuntimeFile(nodePath = process.execPath) {
   };
 }
 
-export const MOD_NAMES = ["insights", "insights-launcher"];
-
-function modRelative(modName) {
-  if (!MOD_NAMES.includes(modName)) throw new Error(`Unknown Insights mod: ${modName}`);
-  return `mods/${modName}`;
-}
-
 export function modDir(appHome, modName = "insights") {
-  return path.join(appHome, modRelative(modName));
+  return path.join(appHome, "mods", modName);
 }
 
 export function dataDir(appHome) {
@@ -64,8 +59,7 @@ export function dataDir(appHome) {
 }
 
 export function manifestPath(appHome, modName = "insights") {
-  modRelative(modName);
-  return path.join(dataDir(appHome), modName === "insights" ? MANIFEST_NAME : "launcher-install-manifest.json");
+  return path.join(dataDir(appHome), MODS[modName].manifest);
 }
 
 export async function lstatOrNull(target) {
@@ -249,7 +243,7 @@ async function readManifestData(appHome, modName) {
   if (parsed.owner !== MANIFEST_OWNER) {
     throw new Error(`Install manifest belongs to another owner: ${String(parsed.owner)}`);
   }
-  if (parsed.target !== modRelative(modName)) {
+  if (parsed.target !== `mods/${modName}`) {
     throw new Error(`Install manifest targets another folder: ${String(parsed.target)}`);
   }
   if (!parsed.files || typeof parsed.files !== "object" || Array.isArray(parsed.files)) {
@@ -287,7 +281,7 @@ export async function writeManifest(appHome, files, modName = "insights") {
   const manifest = {
     version: MANIFEST_VERSION,
     owner: MANIFEST_OWNER,
-    target: modRelative(modName),
+    target: `mods/${modName}`,
     installedAt: new Date().toISOString(),
     files: sortedFiles,
   };
@@ -340,7 +334,7 @@ function isGeneratedSourceFile(name) {
 }
 
 export async function collectSourceFiles(sourceRoot, modName = "insights") {
-  const relativeMod = modRelative(modName);
+  const relativeMod = `mods/${modName}`;
   const declaredModDir = path.join(path.resolve(sourceRoot), relativeMod);
   const declaredStat = await lstatOrNull(declaredModDir);
   if (!declaredStat) {
