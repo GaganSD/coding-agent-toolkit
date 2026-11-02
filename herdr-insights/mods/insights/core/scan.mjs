@@ -506,7 +506,10 @@ async function scanPlainFile(
     });
     bytes = result.bytes;
     stopped = result.stopped;
-    consumer.finish(start + bytes);
+    // Finish a partial tail only at true EOF. A budget stop can land after a
+    // prefix that happens to parse as JSON but is still part of a longer line;
+    // committing it would invent rows and advance the offset into the line.
+    if (!stopped) consumer.finish(start + bytes);
     if (!stopped) delete entry.state.readFailed;
   } catch (error) {
     // Keep the accepted complete prefix and its parser state together. The
@@ -887,12 +890,30 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       }
       if (compressed.status === "corrupt") {
         rollbackStoreTransaction(tx);
-        // Preserve the previous good archive and remember this exact corrupt
-        // fingerprint so an unchanged broken file is not re-read every refresh.
+        // A first-seen archive was detached by rollback. Persist a rowless
+        // fingerprint stub so an unchanged corrupt file is not re-read and
+        // re-warned on every refresh. A previously indexed archive keeps its
+        // last good rows and metadata.
+        const key = fileKey(source.id, filePath);
+        if (!store.files[key]) {
+          entry = newFileEntry(store, {
+            sourceId: source.id,
+            adapter: source.adapter,
+            path: filePath,
+            dev,
+            ino,
+            size: 0,
+            mtimeMs: 0,
+            compressed: true,
+          });
+        }
         entry.size = fileStat.size;
         entry.mtimeMs = fileStat.mtimeMs;
         entry.offset = fileStat.size;
         entry.state.zstdError = `${fileStat.mtimeMs}:${fileStat.size}`;
+        // Mark the fingerprint as current so a first-seen stub is not treated
+        // as a parser migration and re-read on the next refresh.
+        if (parserVersion) entry.state[parserKey] = parserVersion;
         sourceSink.warn(
           `${source.adapter} ${entry.path}: zstd file could not be decompressed: ${compressed.error.message}`,
         );

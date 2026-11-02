@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { readFile, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,6 +174,48 @@ test("a corrupt archive after shared revisions preserves sibling rows, dedup and
   assert.equal(repeated.stats.errors, 0);
   assert.equal(repeated.stats.filesRead, 0);
   assert.equal(JSON.stringify(snapshotRows(store)), beforeRows);
+});
+
+test("a first-seen corrupt archive persists a rowless fingerprint and recovers", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "insights-first-corrupt-"));
+  const home = path.join(root, "home");
+  const sessions = path.join(home, ".codex", "sessions");
+  await mkdir(sessions, { recursive: true });
+  const file = path.join(sessions, "bad.jsonl.zst");
+  await writeFile(file, Buffer.from("not a zstd frame"));
+  const store = emptyStore();
+  store.config = {
+    ...store.config,
+    sources: [{ id: "codex", label: "Codex", adapter: "codex", enabled: true, roots: ["~/.codex/sessions"] }],
+  };
+
+  const first = await scanSources(store, { home });
+  assert.equal(first.stats.errors, 1);
+  const keys = Object.keys(store.files);
+  assert.equal(keys.length, 1, "the corrupt file itself is fingerprinted");
+  const entry = store.files[keys[0]];
+  assert.equal(entry.path.endsWith(path.basename(file)), true);
+  assert.deepEqual(entry.rows, []);
+  assert.deepEqual(entry.tasks, []);
+  const badStat = await stat(file);
+  assert.equal(entry.size, badStat.size);
+  assert.equal(entry.offset, badStat.size);
+  assert.equal(entry.state.zstdError, `${badStat.mtimeMs}:${badStat.size}`);
+
+  const repeated = await scanSources(store, { home });
+  assert.equal(repeated.stats.errors, 0, "the stored fingerprint suppresses re-warning");
+  assert.equal(repeated.stats.filesRead, 0);
+  assert.equal(repeated.stats.bytesRead, 0);
+  assert.equal(store.files[keys[0]], entry, "the same rowless stub stays in the store");
+  assert.deepEqual(entry.rows, []);
+
+  const plain = await readFile(path.join(here, "fixtures", "codex-modern.jsonl"), "utf8");
+  await writeFile(file, zstdCompressSync(plain));
+  const recovered = await scanSources(store, { home });
+  assert.equal(recovered.stats.errors, 0);
+  assert.equal(recovered.stats.filesRead, 1);
+  assert.equal(entry.state.zstdError, undefined);
+  assert.ok(entry.rows.length > 0, "a valid replacement is indexed");
 });
 
 test("production scanning does not clone the accumulated store", async () => {

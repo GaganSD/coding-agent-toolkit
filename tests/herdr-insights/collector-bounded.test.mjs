@@ -146,6 +146,62 @@ test("plain JSONL continuation reads only the unfinished tail and is not fingerp
   assert.equal(third.stats.filesRead, 0);
 });
 
+test("a budget stop before a newline never commits a parseable mid-line prefix", async () => {
+  const contextInfo = await context("insights-plain-boundary-");
+  const file = path.join(contextInfo.home, ".pi", "agent", "sessions", "boundary.jsonl");
+  const record = {
+    type: "message",
+    id: "assistant-boundary",
+    timestamp: "2026-04-04T00:00:00Z",
+    message: {
+      role: "assistant",
+      model: "boundary-model",
+      provider: "boundary-provider",
+      usage: { input: 1_234, output: 5, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+      stopReason: "stop",
+      content: [],
+    },
+  };
+  const chunkBytes = 256 * 1024;
+  const head = Buffer.from(JSON.stringify(record));
+  assert.ok(head.length < chunkBytes, "the valid prefix must fit in one chunk");
+  // The first chunk is complete JSON followed by whitespace, so a premature
+  // finish() would accept it. The non-whitespace suffix makes the whole line
+  // invalid, and a budget stop must leave it uncommitted.
+  const prefix = Buffer.concat([head, Buffer.alloc(chunkBytes - head.length, 0x20)]);
+  const suffix = Buffer.from("trailing-junk\n");
+  await writeFile(file, Buffer.concat([prefix, suffix]));
+  const totalSize = (await stat(file)).size;
+
+  const oracleStore = emptyStore(normalizeConfig(sourceConfig()));
+  await scanSources(oracleStore, { home: contextInfo.home });
+  assert.deepEqual(snapshotRows(oracleStore), [], "one-shot rejects the whole line");
+
+  const store = emptyStore(normalizeConfig(sourceConfig()));
+  const first = await scanSources(store, {
+    home: contextInfo.home,
+    deadline: Date.now(),
+    now: Date.now,
+  });
+  assert.equal(first.complete, false);
+  assert.equal(first.stopped, true);
+  assert.deepEqual(snapshotRows(store), [], "no phantom usage from the parseable prefix");
+  const entry = Object.values(store.files)[0];
+  assert.ok(entry);
+  assert.equal(entry.offset, 0, "the safe offset stays before the unfinished line");
+  assert.equal(entry.state.scanPending, true);
+  assert.notEqual(entry.size, totalSize, "the unfinished tail is not fingerprinted as complete");
+
+  const second = await scanSources(store, { home: contextInfo.home });
+  assert.equal(second.complete, true);
+  assert.equal(second.stats.bytesRead, totalSize, "continuation rereads the unfinished line");
+  assert.equal(second.stats.filesRead, 1);
+  assert.deepEqual(snapshotRows(store), snapshotRows(oracleStore), "continuation matches one-shot");
+  assert.equal(entry.offset, totalSize);
+  assert.equal(entry.size, totalSize);
+  assert.equal(entry.state.scanPending, undefined);
+});
+
 test("partial scans expose savedAt separately from the last completed scan", async () => {
   const contextInfo = await context("insights-timestamps-");
   for (let index = 0; index < 3; index += 1) {
