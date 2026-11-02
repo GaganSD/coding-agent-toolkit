@@ -48,16 +48,24 @@ export function createRuntimeFile(nodePath = process.execPath) {
   };
 }
 
-export function modDir(appHome) {
-  return path.join(appHome, "mods", "insights");
+export const MOD_NAMES = ["insights", "insights-launcher"];
+
+function modRelative(modName) {
+  if (!MOD_NAMES.includes(modName)) throw new Error(`Unknown Insights mod: ${modName}`);
+  return `mods/${modName}`;
+}
+
+export function modDir(appHome, modName = "insights") {
+  return path.join(appHome, modRelative(modName));
 }
 
 export function dataDir(appHome) {
   return path.join(appHome, "data", "insights");
 }
 
-export function manifestPath(appHome) {
-  return path.join(dataDir(appHome), MANIFEST_NAME);
+export function manifestPath(appHome, modName = "insights") {
+  modRelative(modName);
+  return path.join(dataDir(appHome), modName === "insights" ? MANIFEST_NAME : "launcher-install-manifest.json");
 }
 
 export async function lstatOrNull(target) {
@@ -198,21 +206,21 @@ export async function ensureDirectory(root, target, label = "directory", mode) {
   }
 }
 
-export async function readManifest(appHome) {
+export async function readManifest(appHome, modName = "insights") {
   try {
-    return await readManifestData(appHome);
+    return await readManifestData(appHome, modName);
   } catch (error) {
     throw new Error(
       `${error.message}\nNo target files were changed. To recover, preserve or move aside both ` +
-      `${modDir(appHome)} and ${manifestPath(appHome)}, then reinstall. ` +
+      `${modDir(appHome, modName)} and ${manifestPath(appHome, modName)}, then reinstall. ` +
       `Leave ${path.join(dataDir(appHome), "insights.json")} in place.`,
       { cause: error },
     );
   }
 }
 
-async function readManifestData(appHome) {
-  const file = manifestPath(appHome);
+async function readManifestData(appHome, modName) {
+  const file = manifestPath(appHome, modName);
   await assertNoSymlinkComponents(appHome, file);
   const stat = await lstatOrNull(file);
   if (!stat) return null;
@@ -241,7 +249,7 @@ async function readManifestData(appHome) {
   if (parsed.owner !== MANIFEST_OWNER) {
     throw new Error(`Install manifest belongs to another owner: ${String(parsed.owner)}`);
   }
-  if (parsed.target !== MOD_REL) {
+  if (parsed.target !== modRelative(modName)) {
     throw new Error(`Install manifest targets another folder: ${String(parsed.target)}`);
   }
   if (!parsed.files || typeof parsed.files !== "object" || Array.isArray(parsed.files)) {
@@ -260,7 +268,7 @@ async function readManifestData(appHome) {
   return { ...parsed, files, path: file };
 }
 
-export async function writeManifest(appHome, files) {
+export async function writeManifest(appHome, files, modName = "insights") {
   const directory = dataDir(appHome);
   await ensureDirectory(appHome, directory, "Insights data directory");
 
@@ -279,11 +287,11 @@ export async function writeManifest(appHome, files) {
   const manifest = {
     version: MANIFEST_VERSION,
     owner: MANIFEST_OWNER,
-    target: MOD_REL,
+    target: modRelative(modName),
     installedAt: new Date().toISOString(),
     files: sortedFiles,
   };
-  const file = manifestPath(appHome);
+  const file = manifestPath(appHome, modName);
   await assertNoSymlinkComponents(appHome, file);
   await writeFileAtomic(file, `${JSON.stringify(manifest, null, 2)}\n`, 0o644);
   return manifest;
@@ -331,12 +339,13 @@ function isGeneratedSourceFile(name) {
   return name === "jsconfig.json" || name.endsWith(".d.ts");
 }
 
-export async function collectSourceFiles(sourceRoot) {
-  const declaredModDir = path.join(path.resolve(sourceRoot), MOD_REL);
+export async function collectSourceFiles(sourceRoot, modName = "insights") {
+  const relativeMod = modRelative(modName);
+  const declaredModDir = path.join(path.resolve(sourceRoot), relativeMod);
   const declaredStat = await lstatOrNull(declaredModDir);
   if (!declaredStat) {
     throw new Error(
-      `Source folder not found: ${declaredModDir}\nExpected ${MOD_REL}/ with main.js, mod.json (place "none") and the collector.`,
+      `Source folder not found: ${declaredModDir}\nExpected ${relativeMod}/ with main.js and mod.json.`,
     );
   }
   if (declaredStat.isSymbolicLink()) {
@@ -419,9 +428,7 @@ export async function collectSourceFiles(sourceRoot) {
     throw new Error("Source mod.json must contain a JSON object.");
   }
   if (modJson.place !== "none") {
-    throw new Error(
-      'Source mod.json must use "place": "none"; Insights opens through the installed mod tab, not as a docked panel.',
-    );
+    throw new Error(`Source ${relativeMod}/mod.json must use "place": "none".`);
   }
 
   return { files, modDir: root, modJson };
