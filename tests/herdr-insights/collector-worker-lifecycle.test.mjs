@@ -7,7 +7,14 @@ import test from "node:test";
 
 import { collectSnapshot } from "../../herdr-insights/mods/insights/collector.mjs";
 import { normalizeConfig } from "../../herdr-insights/mods/insights/core/config.mjs";
-import { readWorkerClaim, workerClaimPath } from "../../herdr-insights/mods/insights/core/fence.mjs";
+import {
+  claimPidRecord,
+  classifyWorkerClaim,
+  readFence,
+  readWorkerClaim,
+  updateWorkerClaimPid,
+  workerClaimPath,
+} from "../../herdr-insights/mods/insights/core/fence.mjs";
 import {
   ensureIndexer,
   indexerPath,
@@ -189,6 +196,144 @@ test("worker failure is recorded under the lock and never clobbers a queued gene
     }
     await rm(ctx.root, { recursive: true, force: true });
   }
+});
+
+test("unchanged configure does not pin later snapshots on a live fence", async () => {
+  const ctx = await context("insights-unchanged-config-");
+  await writeFile(
+    path.join(ctx.home, ".pi", "agent", "sessions", "one.jsonl"),
+    piSession("one", 4),
+  );
+  const config = { sources: piSource };
+  const first = await collectSnapshot("configure", {
+    store: ctx.store,
+    home: ctx.home,
+    config,
+  });
+  assert.equal(first.scan.status, "complete");
+  const inputOf = (snapshot) => snapshot.rows.reduce((sum, row) => sum + row.tokens.input, 0);
+  assert.equal(inputOf(first), 4);
+  const generation = JSON.parse(await readFile(ctx.store, "utf8")).generation;
+
+  const second = await collectSnapshot("configure", {
+    store: ctx.store,
+    home: ctx.home,
+    config,
+  });
+  assert.notEqual(second.scan.status, "reconfiguring");
+  const committed = JSON.parse(await readFile(ctx.store, "utf8"));
+  assert.equal(committed.generation, generation, "an unchanged save does not bump the generation");
+  const fence = await readFence(ctx.store);
+  if (fence) assert.ok(fence.generation <= committed.generation);
+
+  await writeFile(
+    path.join(ctx.home, ".pi", "agent", "sessions", "two.jsonl"),
+    piSession("two", 8),
+  );
+  const third = await collectSnapshot("snapshot", { store: ctx.store, home: ctx.home });
+  assert.equal(third.scan.status, "complete");
+  assert.equal(inputOf(third), 12, "new usage is scanned instead of staying reconfiguring");
+  await rm(ctx.root, { recursive: true, force: true });
+});
+
+test("configure signals only a same-host worker pid", async () => {
+  const ctx = await context("insights-foreign-signal-");
+  let signaled = false;
+  const onSignal = () => { signaled = true; };
+  process.on("SIGTERM", onSignal);
+  const foreignLock = `${ctx.store}.lock`;
+  await mkdir(foreignLock, { recursive: true });
+  await writeFile(path.join(foreignLock, "owner-foreign.json"), `${JSON.stringify({
+    role: "worker",
+    pid: process.pid,
+    host: "foreign-host",
+    generation: 0,
+    token: "foreign-token",
+    startedAt: Date.now(),
+  })}\n`);
+  try {
+    await assert.rejects(
+      collectSnapshot("configure", {
+        store: ctx.store,
+        home: ctx.home,
+        config: { sources: piSource },
+        lockWaitMs: 150,
+      }),
+      /busy/,
+    );
+    assert.equal(signaled, false, "a foreign host lock must not be signaled on this machine");
+  } finally {
+    process.off("SIGTERM", onSignal);
+    await rm(ctx.root, { recursive: true, force: true });
+  }
+
+  const local = await context("insights-local-signal-");
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  const exited = new Promise((resolve) => child.once("exit", () => resolve(true)));
+  const localLock = `${local.store}.lock`;
+  await mkdir(localLock, { recursive: true });
+  const { hostname } = await import("node:os");
+  await writeFile(path.join(localLock, "owner-local.json"), `${JSON.stringify({
+    role: "worker",
+    pid: child.pid,
+    host: hostname(),
+    generation: 0,
+    token: "local-token",
+    startedAt: Date.now(),
+  })}\n`);
+  try {
+    // A dead same-host lock is reclaimed, so configure may proceed after the
+    // signal. The assertion is that this machine's worker pid was signaled.
+    await collectSnapshot("configure", {
+      store: local.store,
+      home: local.home,
+      config: { sources: piSource },
+      lockWaitMs: 200,
+    }).catch((error) => {
+      assert.match(String(error?.message), /busy/);
+    });
+    const didExit = await Promise.race([
+      exited,
+      new Promise((resolve) => setTimeout(() => resolve(false), 1_000)),
+    ]);
+    assert.equal(didExit, true, "the same-host worker pid is signaled");
+  } finally {
+    if (child.pid && isProcessAlive(child.pid)) {
+      try { process.kill(child.pid, "SIGKILL"); } catch { /* already gone */ }
+    }
+    await rm(local.root, { recursive: true, force: true });
+  }
+});
+
+test("pid publication keeps the worker claim parseable", async () => {
+  const ctx = await context("insights-claim-pid-");
+  const claim = {
+    version: 1,
+    token: "token-a",
+    pid: null,
+    host: "local",
+    generation: 3,
+    startedAt: 1,
+    at: 10,
+  };
+  const original = `${JSON.stringify({ ...claim, note: "x".repeat(80) })}\n`;
+  await writeFile(workerClaimPath(ctx.store), original);
+  const record = claimPidRecord(original, { ...JSON.parse(original), pid: 42, at: 2 });
+  assert.ok(Buffer.byteLength(record) >= Buffer.byteLength(original));
+  assert.equal(JSON.parse(record).pid, 42);
+  assert.equal(JSON.parse(record).token, "token-a");
+  assert.equal(await updateWorkerClaimPid(ctx.store, "token-a", 42), true);
+  const text = await readFile(workerClaimPath(ctx.store), "utf8");
+  assert.ok(text.trim().length > 0, "the claim is never published empty");
+  assert.equal(JSON.parse(text).pid, 42);
+  assert.equal(JSON.parse(text).token, "token-a");
+  assert.equal(classifyWorkerClaim({ status: "pending" }, "token-a", 42), "pending");
+  assert.equal(classifyWorkerClaim({ status: "missing" }, "token-a", 42), "replaced");
+  assert.equal(
+    classifyWorkerClaim({ status: "ok", claim: { ...claim, token: "other" } }, "token-a", 42),
+    "replaced",
+  );
+  await rm(ctx.root, { recursive: true, force: true });
 });
 
 test("promotion spawns one worker that waits out the launcher lock handoff", async () => {

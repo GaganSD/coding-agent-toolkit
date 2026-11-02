@@ -357,7 +357,13 @@ const ZSTD_FCS_BYTES = [0, 2, 4, 8];
  * its own fresh decoder. This parser walks frame, header, block and checksum
  * lengths to delimit frames; skippable frames are discarded without decoding.
  */
-function createZstdFrameSplitter({ onFrameStart, onFrameData, onFrameEnd }) {
+function createZstdFrameSplitter({
+  onFrameStart,
+  onFrameData,
+  onFrameEnd,
+  onFrameBoundary,
+  onSkippedBytes,
+}) {
   let head = Buffer.alloc(0);
   let state = "magic";
   let remaining = 0;
@@ -401,6 +407,8 @@ function createZstdFrameSplitter({ onFrameStart, onFrameData, onFrameEnd }) {
           const take = Math.min(remaining, chunk.length - offset);
           if (take > 0 && state === "blockData") {
             await onFrameData(chunk.subarray(offset, offset + take));
+          } else if (take > 0 && state === "skip") {
+            await onSkippedBytes?.(take);
           }
           offset += take;
           remaining -= take;
@@ -430,12 +438,14 @@ function createZstdFrameSplitter({ onFrameStart, onFrameData, onFrameEnd }) {
           const magic = magicBytes.readUInt32LE(0);
           head = Buffer.alloc(0);
           if (magic === ZSTD_FRAME_MAGIC) {
+            await onFrameBoundary?.();
             frames += 1;
             dataFrame = true;
             state = "frameHeader";
             await onFrameStart();
             await onFrameData(magicBytes);
           } else if ((magic & ZSTD_SKIPPABLE_MASK) === ZSTD_SKIPPABLE_MAGIC) {
+            await onFrameBoundary?.();
             frames += 1;
             dataFrame = false;
             state = "skippableSize";
@@ -641,7 +651,14 @@ async function scanPlainFile(
       bytes += chunk.length;
       consumer.feedAt(chunk, chunkStart);
     }, {
-      shouldStop: () => stopRequested(options) || deadlineReached(options, now()),
+      // Honor cancellation immediately. A deadline stop must still reach a
+      // newline or the large-line cap: one 256 KiB chunk with no newline
+      // leaves the safe offset unchanged, and every later slice repeats it.
+      shouldStop: () => {
+        if (stopRequested(options)) return true;
+        if (!deadlineReached(options, now())) return false;
+        return consumer.offset > start || consumer.discarding;
+      },
     });
     bytes = result.bytes;
     stopped = result.stopped;
@@ -709,7 +726,24 @@ async function scanCompressedFile(
   let consumer;
   const now = nowFn(options);
   const delay = pausableDelay(options.streamDelayMs);
+  let frameBoundaries = 0;
+  let skippedBytes = 0;
+  const enforceCompressedLimit = () => {
+    if (stopRequested(options)) throw new ScanStopError("stop");
+    if (deadlineReached(options, now())) throw new ScanStopError("budget");
+  };
   const splitter = createZstdFrameSplitter({
+    async onFrameBoundary() {
+      frameBoundaries += 1;
+      // The first frame may start after the foreground budget is already
+      // gone. Every later frame, including empty and skippable frames that
+      // produce no decoder output, has to observe the same stop.
+      if (frameBoundaries > 1) enforceCompressedLimit();
+    },
+    async onSkippedBytes(count) {
+      skippedBytes += count;
+      if (skippedBytes >= CHUNK_BYTES) enforceCompressedLimit();
+    },
     async onFrameStart() {
       decoderInput = new PassThrough();
       const input = decoderInput;
@@ -765,9 +799,12 @@ async function scanCompressedFile(
     consumer = createRecordConsumer(store, entry, source, sink);
     consumer.offset = 0;
     consumer.lineNo = entry.lineNo ?? 0;
+    let sawCompressedChunk = false;
     for await (const chunk of createReadStream(filePath)) {
+      if (sawCompressedChunk) enforceCompressedLimit();
       if (deliberateStop) break;
       await splitter.push(chunk);
+      sawCompressedChunk = true;
     }
     if (deliberateStop) throw deliberateStop;
     if (!splitter.complete) {

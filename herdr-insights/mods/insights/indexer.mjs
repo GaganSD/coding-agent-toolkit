@@ -12,10 +12,11 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  classifyWorkerClaim,
   clearWorkerClaim,
   readEffectiveFence,
   readFenceStrict,
-  readWorkerClaim,
+  readWorkerClaimResult,
   storeGeneration,
 } from "./core/fence.mjs";
 import { progressWriter } from "./core/progress.mjs";
@@ -95,10 +96,11 @@ async function recordWorkerFailure(storePath, generation, error) {
 async function waitForClaim(storePath, token) {
   const deadline = Date.now() + CLAIM_WAIT_MS;
   for (;;) {
-    const claim = await readWorkerClaim(storePath);
-    if (!claim || claim.token !== token) return { ok: false, reason: "claim-replaced" };
-    if (claim.pid === process.pid) return { ok: true, claim };
-    if (Number.isInteger(claim.pid) && claim.pid > 0) return { ok: false, reason: "claim-other-pid" };
+    const result = await readWorkerClaimResult(storePath);
+    const decision = classifyWorkerClaim(result, token, process.pid);
+    if (decision === "ready") return { ok: true, claim: result.claim };
+    if (decision === "replaced") return { ok: false, reason: "claim-replaced" };
+    if (decision === "other") return { ok: false, reason: "claim-other-pid" };
     if (Date.now() >= deadline) return { ok: false, reason: "claim-timeout" };
     await new Promise((resolve) => setTimeout(resolve, 40));
   }

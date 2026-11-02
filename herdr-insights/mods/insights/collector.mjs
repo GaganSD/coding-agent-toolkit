@@ -10,6 +10,7 @@ import {
   bumpFence,
   readEffectiveFence,
   readWorkerClaim,
+  relaxFence,
   restoreFence,
   workerClaimActive,
 } from "./core/fence.mjs";
@@ -296,11 +297,13 @@ async function runWithStoreLock(
         if (
           signalWorker
           && !signaled
+          && owner.host === os.hostname()
           && Number.isInteger(owner.pid)
           && owner.pid > 0
           && (fenceGeneration === null || Number(owner.generation ?? 0) < fenceGeneration)
         ) {
-          // Only the pid recorded by the current writer lease is signalled.
+          // Same host only. A shared store directory must not signal whatever
+          // local process happens to reuse the other machine's worker pid.
           try { process.kill(owner.pid, "SIGTERM"); } catch { /* already exiting */ }
           signaled = true;
         }
@@ -437,14 +440,14 @@ async function scanAndPersist(
   if (completed && !mustSave && store.lastCompletedScanAt === null) mustSave = true;
 
   const guarded = guard ? await guard() : null;
-  if (guarded) return { fenced: true };
+  if (guarded) return { fenced: true, saved: false };
   if (result.abortedFile) {
     // Persist the abandoned file marker under the writer lock; the worker is
     // spawned by the caller only AFTER this lock is released so it can take
     // ownership immediately instead of exiting on a busy lock.
     await saveStore(storePath, store, { status: "partial", now: finishedIso });
     const snapshot = buildSnapshot(store, result, finishedIso, loaded?.warnings, loaded?.errors);
-    return { snapshot, worker: null, promote: true };
+    return { snapshot, worker: null, promote: true, saved: true };
   }
 
   if (mustSave) {
@@ -460,7 +463,7 @@ async function scanAndPersist(
     store.lastCompletedScanAt = loaded?.store?.lastCompletedScanAt ?? store.lastCompletedScanAt;
   }
   const snapshot = buildSnapshot(store, result, finishedIso, loaded?.warnings, loaded?.errors);
-  return { snapshot, worker: null };
+  return { snapshot, worker: null, saved: mustSave };
 }
 
 async function promoteIndexer(storePath, home, snapshot, testStreamDelayMs = 0) {
@@ -630,82 +633,112 @@ async function configureStore(
       const loaded = await loadStore(storePath);
       const store = loaded.store;
       let dirty = loaded.dirty;
-      store.generation = Math.max(storeGeneration(store) + 1, fence.generation);
-      const previousStatus = store.scan.status;
-      const configChanged = JSON.stringify(store.config) !== JSON.stringify(config);
-      const mappingsChanged = sourcesSignature(store.config) !== sourcesSignature(config);
-      const cleared = mappingsChanged || rebuild;
-      if (cleared) {
-        clearCollectedData(store);
-        store.scan = emptyScanState();
-        store.scan.generation = store.generation;
-        store.scan.startedAt = new Date(now()).toISOString();
-        store.lastCompletedScanAt = null;
-        dirty = true;
-      }
-      if (configChanged) {
-        store.config = config;
-        dirty = true;
-      }
-      applied = true;
-      // Persist accepted config first. Config acceptance is never reported as a
-      // completed scan; retained committed data keeps its completed timestamp.
-      const acceptedComplete = !cleared && previousStatus === "complete";
-      const acceptedIso = new Date(now()).toISOString();
-      if (dirty) {
-        store.scan.generation = store.generation;
-        store.scan.updatedAt = acceptedIso;
-        await saveStore(storePath, store, {
-          completed: false,
-          status: acceptedComplete ? "complete" : "partial",
-          now: acceptedIso,
+      const previousGeneration = storeGeneration(store);
+      store.generation = Math.max(previousGeneration + 1, fence.generation);
+      let persistedGeneration = previousGeneration;
+      let outcome = null;
+      try {
+        const previousStatus = store.scan.status;
+        const configChanged = JSON.stringify(store.config) !== JSON.stringify(config);
+        const mappingsChanged = sourcesSignature(store.config) !== sourcesSignature(config);
+        const cleared = mappingsChanged || rebuild;
+        if (cleared) {
+          clearCollectedData(store);
+          store.scan = emptyScanState();
+          store.scan.generation = store.generation;
+          store.scan.startedAt = new Date(now()).toISOString();
+          store.lastCompletedScanAt = null;
+          dirty = true;
+        }
+        if (configChanged) {
+          store.config = config;
+          dirty = true;
+        }
+        applied = true;
+        // Persist accepted config first. Config acceptance is never reported as a
+        // completed scan; retained committed data keeps its completed timestamp.
+        const acceptedComplete = !cleared && previousStatus === "complete";
+        const acceptedIso = new Date(now()).toISOString();
+        if (dirty) {
+          store.scan.generation = store.generation;
+          store.scan.updatedAt = acceptedIso;
+          await saveStore(storePath, store, {
+            completed: false,
+            status: acceptedComplete ? "complete" : "partial",
+            now: acceptedIso,
+          });
+          persistedGeneration = store.generation;
+          dirty = false;
+        }
+
+        if (await removeStalePendingFile(storePath, store, now)) dirty = true;
+        if (store.scan.pendingFile) {
+          const nowIso = new Date(now()).toISOString();
+          if (dirty) {
+            await saveStore(storePath, store, { status: "partial", now: nowIso });
+            persistedGeneration = store.generation;
+          }
+          const snapshot = buildSnapshot(
+            store,
+            scanResultFromStore(store),
+            nowIso,
+            loaded.warnings,
+            loaded.errors,
+          );
+          snapshot.scan = { ...snapshot.scan, status: "partial" };
+          outcome = { snapshot, worker: null, promote: true };
+          return outcome;
+        }
+
+        const scanned = await scanAndPersist(storePath, home, store, {
+          loaded,
+          dirty,
+          budgetMs,
+          now,
+          testStreamDelayMs,
+          mode: "configure",
+          guard: async () => {
+            const fenceAfter = await readEffectiveFence(storePath, { now: now() });
+            return Boolean(fenceAfter && !fenceAfter.stale && fenceAfter.generation > store.generation);
+          },
         });
-        dirty = false;
+        if (scanned.fenced) {
+          // A newer configure is already queued; its generation fence owns the
+          // next commit. Return committed data without writing this generation.
+          const committed = await loadStore(storePath, { readOnly: true });
+          const nowIso = new Date(now()).toISOString();
+          const snapshot = buildSnapshot(
+            committed.store,
+            scanResultFromStore(committed.store),
+            nowIso,
+            loaded.warnings,
+            loaded.errors,
+          );
+          snapshot.scan = { ...snapshot.scan, status: "reconfiguring" };
+          outcome = { snapshot, worker: null };
+          return outcome;
+        }
+        if (scanned.saved) persistedGeneration = store.generation;
+        outcome = scanned;
+        return outcome;
+      } finally {
+        // An unchanged settings save bumps the fence before it knows whether
+        // a write is required. If this generation was not committed, put the
+        // fence back so a live configure process cannot pin later snapshots
+        // in "reconfiguring" until the fence expires.
+        if (persistedGeneration < fence.generation) {
+          await relaxFence(storePath, fence.generation, persistedGeneration);
+          store.generation = persistedGeneration;
+          if (store.scan) store.scan.generation = persistedGeneration;
+          if (Number.isInteger(outcome?.snapshot?.scan?.generation)
+            && outcome.snapshot.scan.generation !== persistedGeneration) {
+            outcome.snapshot.scan = {
+              ...outcome.snapshot.scan,
+              generation: persistedGeneration,
+            };
+          }
+        }
       }
-
-      if (await removeStalePendingFile(storePath, store, now)) dirty = true;
-      if (store.scan.pendingFile) {
-        const nowIso = new Date(now()).toISOString();
-        if (dirty) await saveStore(storePath, store, { status: "partial", now: nowIso });
-        const snapshot = buildSnapshot(
-          store,
-          scanResultFromStore(store),
-          nowIso,
-          loaded.warnings,
-          loaded.errors,
-        );
-        snapshot.scan = { ...snapshot.scan, status: "partial" };
-        return { snapshot, worker: null, promote: true };
-      }
-
-      const scanned = await scanAndPersist(storePath, home, store, {
-        loaded,
-        dirty,
-        budgetMs,
-        now,
-        testStreamDelayMs,
-        mode: "configure",
-        guard: async () => {
-          const fenceAfter = await readEffectiveFence(storePath, { now: now() });
-          return Boolean(fenceAfter && !fenceAfter.stale && fenceAfter.generation > store.generation);
-        },
-      });
-      if (scanned.fenced) {
-        // A newer configure is already queued; its generation fence owns the
-        // next commit. Return committed data without writing this generation.
-        const committed = await loadStore(storePath, { readOnly: true });
-        const nowIso = new Date(now()).toISOString();
-        const snapshot = buildSnapshot(
-          committed.store,
-          scanResultFromStore(committed.store),
-          nowIso,
-          loaded.warnings,
-          loaded.errors,
-        );
-        snapshot.scan = { ...snapshot.scan, status: "reconfiguring" };
-        return { snapshot, worker: null };
-      }
-      return scanned;
     }, {
       waitMs: lockWaitMs,
       meta: { role: "configure", generation: fence.generation },

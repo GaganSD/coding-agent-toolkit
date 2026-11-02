@@ -146,7 +146,7 @@ test("plain JSONL continuation reads only the unfinished tail and is not fingerp
   assert.equal(third.stats.filesRead, 0);
 });
 
-test("a budget stop before a newline never commits a parseable mid-line prefix", async () => {
+test("a stop before a newline never commits a parseable mid-line prefix", async () => {
   const contextInfo = await context("insights-plain-boundary-");
   const file = path.join(contextInfo.home, ".pi", "agent", "sessions", "boundary.jsonl");
   const record = {
@@ -167,7 +167,9 @@ test("a budget stop before a newline never commits a parseable mid-line prefix",
   assert.ok(head.length < chunkBytes, "the valid prefix must fit in one chunk");
   // The first chunk is complete JSON followed by whitespace, so a premature
   // finish() would accept it. The non-whitespace suffix makes the whole line
-  // invalid, and a budget stop must leave it uncommitted.
+  // invalid, and a cancellation inside that line must leave it uncommitted.
+  // Budget exhaustion is not this case: a slice keeps reading until a newline
+  // so the next refresh cannot repeat the same chunk forever.
   const prefix = Buffer.concat([head, Buffer.alloc(chunkBytes - head.length, 0x20)]);
   const suffix = Buffer.from("trailing-junk\n");
   await writeFile(file, Buffer.concat([prefix, suffix]));
@@ -178,10 +180,17 @@ test("a budget stop before a newline never commits a parseable mid-line prefix",
   assert.deepEqual(snapshotRows(oracleStore), [], "one-shot rejects the whole line");
 
   const store = emptyStore(normalizeConfig(sourceConfig()));
+  let polls = 0;
   const first = await scanSources(store, {
     home: contextInfo.home,
     deadline: Date.now(),
     now: Date.now,
+    // The first poll is the scan loop. Later polls are inside the open file,
+    // so cancellation lands after the first chunk and before the newline.
+    shouldStop: () => {
+      polls += 1;
+      return polls > 1;
+    },
   });
   assert.equal(first.complete, false);
   assert.equal(first.stopped, true);
@@ -200,6 +209,50 @@ test("a budget stop before a newline never commits a parseable mid-line prefix",
   assert.equal(entry.offset, totalSize);
   assert.equal(entry.size, totalSize);
   assert.equal(entry.state.scanPending, undefined);
+});
+
+test("an exhausted budget finishes a plain line longer than one read chunk", async () => {
+  const contextInfo = await context("insights-long-line-");
+  const file = path.join(contextInfo.home, ".pi", "agent", "sessions", "long.jsonl");
+  const record = {
+    type: "message",
+    id: "assistant-long-line",
+    timestamp: "2026-04-04T00:00:00Z",
+    message: {
+      role: "assistant",
+      model: "long-model",
+      provider: "long-provider",
+      usage: { input: 9, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+      stopReason: "stop",
+      content: [{ type: "text", text: "z".repeat(300 * 1024) }],
+    },
+  };
+  const line = `${JSON.stringify(record)}\n`;
+  assert.ok(Buffer.byteLength(line) > 256 * 1024, "the line must span more than one chunk");
+  await writeFile(file, line);
+  const totalSize = (await stat(file)).size;
+  const store = emptyStore(normalizeConfig(sourceConfig()));
+  let result;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    result = await scanSources(store, {
+      home: contextInfo.home,
+      deadline: Date.now(),
+      now: Date.now,
+    });
+    if (result.complete) break;
+  }
+  assert.equal(result.complete, true, "a long line must not be retried from the same offset");
+  const entry = Object.values(store.files)[0];
+  assert.equal(entry.offset, totalSize);
+  assert.equal(entry.state.scanPending, undefined);
+  assert.equal(snapshotRows(store).reduce((sum, row) => sum + row.tokens.input, 0), 9);
+  const again = await scanSources(store, {
+    home: contextInfo.home,
+    deadline: Date.now(),
+    now: Date.now,
+  });
+  assert.equal(again.stats.bytesRead, 0, "the finished line is not read again");
+  assert.equal(again.stats.filesRead, 0);
 });
 
 test("partial scans expose savedAt separately from the last completed scan", async () => {

@@ -278,6 +278,50 @@ test("a skippable zstd frame between data frames is ignored, not decoded", async
   assert.equal(rows.reduce((sum, row) => sum + row.messages, 0), 2);
 });
 
+test("empty and skippable frames still honor a scan deadline", async () => {
+  const emptySkip = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0]);
+  const empties = Buffer.concat(Array.from({ length: 8 }, () => emptySkip));
+  const payload = 256 * 1024;
+  const header = Buffer.alloc(8);
+  header.writeUInt32LE(0x184d2a50, 0);
+  header.writeUInt32LE(payload, 4);
+  const hugeSkip = Buffer.concat([header, Buffer.alloc(payload)]);
+  const root = await mkdtemp(path.join(tmpdir(), "insights-empty-limit-"));
+  const home = path.join(root, "home");
+  const sessions = path.join(home, ".codex", "sessions");
+  await mkdir(sessions, { recursive: true });
+  await writeFile(path.join(sessions, "empty.jsonl.zst"), Buffer.concat([empties, hugeSkip]));
+  const store = archiveStore();
+  const stopped = await scanSources(store, {
+    home,
+    deadline: Date.now(),
+    now: Date.now,
+  });
+  assert.equal(stopped.complete, false);
+  assert.equal(stopped.abortedFile?.reason, "budget");
+  assert.equal(stopped.stats.errors, 0, "a budget stop is not archive corruption");
+  assert.equal(Object.keys(store.files).length, 0, "the unfinished archive is rolled back");
+
+  const cancelledRoot = await mkdtemp(path.join(tmpdir(), "insights-empty-cancel-"));
+  const cancelledHome = path.join(cancelledRoot, "home");
+  const cancelledSessions = path.join(cancelledHome, ".codex", "sessions");
+  await mkdir(cancelledSessions, { recursive: true });
+  await writeFile(path.join(cancelledSessions, "empty.jsonl.zst"), Buffer.concat([empties, hugeSkip]));
+  const cancelledStore = archiveStore();
+  let polls = 0;
+  const cancelled = await scanSources(cancelledStore, {
+    home: cancelledHome,
+    // Let the scan enter the archive, then cancel on the next empty frame.
+    shouldStop: () => {
+      polls += 1;
+      return polls > 1;
+    },
+  });
+  assert.equal(cancelled.complete, false);
+  assert.equal(cancelled.abortedFile?.reason, "stop");
+  assert.equal(Object.keys(cancelledStore.files).length, 0);
+});
+
 test("empty trailing data and skippable frames preserve preceding archive rows", async () => {
   const [firstFrame, secondFrame] = await codexFrames();
   const emptySkip = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0]);

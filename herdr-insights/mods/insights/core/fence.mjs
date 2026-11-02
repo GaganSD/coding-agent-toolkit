@@ -122,16 +122,77 @@ export async function restoreFence(storePath, generation) {
   return true;
 }
 
-export async function readWorkerClaim(storePath) {
-  try {
-    const value = await readJsonFile(workerClaimPath(storePath));
-    if (!isPlainObject(value)) return null;
-    if (typeof value.token !== "string" || value.token.length === 0) return null;
-    if (!Number.isInteger(value.generation) || value.generation < 0) return null;
-    return value;
-  } catch {
-    return null;
+/**
+ * Drop a fence this process still owns back to the committed generation.
+ * A newer configure (different generation or pid) is left untouched. Generation
+ * 0 removes the file; readers treat a missing fence as "no configure queued".
+ */
+export async function relaxFence(storePath, ownedGeneration, committedGeneration) {
+  const current = await readFence(storePath);
+  if (!current || current.pid !== process.pid) return false;
+  if (current.generation !== ownedGeneration) return false;
+  if (!Number.isInteger(committedGeneration) || committedGeneration >= ownedGeneration) return false;
+  if (committedGeneration < 1) {
+    await unlink(fencePath(storePath)).catch((error) => {
+      if (error?.code !== "ENOENT") throw error;
+    });
+    return true;
   }
+  await writeFence(storePath, committedGeneration);
+  return true;
+}
+
+/**
+ * Startup readers must tell "reaped" apart from "publisher is mid-write".
+ * A missing file is replacement. An empty or torn file is still the same claim
+ * until the startup deadline; treating it as replacement kills a live worker.
+ */
+export async function readWorkerClaimResult(storePath) {
+  let text;
+  try {
+    text = await readFile(workerClaimPath(storePath), "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return { status: "missing" };
+    return { status: "pending" };
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { status: "pending" };
+  }
+  if (!isPlainObject(value) || typeof value.token !== "string" || value.token.length === 0) {
+    return { status: "pending" };
+  }
+  if (!Number.isInteger(value.generation) || value.generation < 0) return { status: "pending" };
+  return { status: "ok", claim: value };
+}
+
+export async function readWorkerClaim(storePath) {
+  const result = await readWorkerClaimResult(storePath);
+  return result.status === "ok" ? result.claim : null;
+}
+
+/** Token checks stay strict. Only an unreadable in-place publish is retried. */
+export function classifyWorkerClaim(result, token, pid) {
+  if (!result || result.status === "missing") return "replaced";
+  if (result.status !== "ok") return "pending";
+  if (result.claim?.token !== token) return "replaced";
+  if (result.claim.pid === pid) return "ready";
+  if (Number.isInteger(result.claim.pid) && result.claim.pid > 0) return "other";
+  return "pending";
+}
+
+/**
+ * Pid publication bytes. The record is never shorter than the previous file,
+ * so the publisher does not have to truncate first. Trailing spaces are JSON
+ * whitespace; a concurrent reader never observes an empty claim.
+ */
+export function claimPidRecord(currentText, next) {
+  const body = JSON.stringify(next);
+  const previousBytes = Buffer.byteLength(String(currentText ?? ""));
+  const pad = Math.max(0, previousBytes - Buffer.byteLength(body) - 1);
+  return `${body}${" ".repeat(pad)}\n`;
 }
 
 export async function writeWorkerClaim(storePath, claim) {
@@ -173,8 +234,10 @@ export async function updateWorkerClaimPid(storePath, token, pid) {
     try { current = JSON.parse(text); } catch { current = null; }
     if (!isPlainObject(current) || current.token !== token) return false;
     const next = { ...current, pid, at: Date.now() };
-    await handle.truncate(0);
-    await handle.write(`${JSON.stringify(next)}\n`, 0, "utf8");
+    // Overwrite in place at offset 0. Truncating first publishes an empty
+    // claim, and the worker treats that as claim-replaced and exits.
+    const content = claimPidRecord(text, next);
+    await handle.write(content, 0, "utf8");
     await handle.sync();
     return true;
   } catch (error) {
