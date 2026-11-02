@@ -590,6 +590,35 @@ test("model usage leaderboard is models-only with ranked change rows", () => {
   assert.deepEqual(valueColumn.childNodes[1].childNodes, ["—"], "no previous period shows a dash");
 });
 
+test("model usage splits into two columns once each column has room", () => {
+  const instance = blankInstance();
+  const c = ui.tokens({
+    background: "#101010",
+    surface: "#181818",
+    border: "#333333",
+    foreground: "#f5f5f5",
+    muted: "#9a9a9a",
+    dim: "#707070",
+    accent: "#5aa7ff",
+  });
+  const rows = Array.from({ length: 10 }, (_, index) => ({
+    day: "2024-01-10",
+    model: `model-${index}`,
+    provider: "p-one",
+    tokens: { input: 100 - index, output: 10 },
+  }));
+  const leaders = analytics.leaderboard(rows, null, { groupBy: "model", includeCache: true });
+
+  instance.width = 739;
+  const narrow = instance.leaderboardCard(c, leaders, { label: "All time" }).childNodes[1];
+  assert.equal(narrow.childNodes.length, 10, "one column below the breakpoint");
+
+  instance.width = 740;
+  const wide = instance.leaderboardCard(c, leaders, { label: "All time" }).childNodes[1];
+  assert.equal(wide.childNodes.length, 2, "two columns at the breakpoint");
+  assert.deepEqual(wide.childNodes.map((column) => column.childNodes.length), [5, 5]);
+});
+
 test("loading state shows live scan progress and scan status lives in settings", () => {
   assert.doesNotMatch(mainSource, /Reading local session history|collector and presentation helper|Preparing the compact dashboard|Initializing the native source|bottomGrid/);
   assert.match(mainSource, /children\(\[preferences, sources, scan, json\]\)/);

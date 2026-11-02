@@ -49,6 +49,9 @@ const MIN_CELL = 12;
 const MAX_CELL = 20;
 const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
+// Two leaderboard columns need room for a name and a token value in each; below
+// this pane width one column reads better than two cramped ones.
+const LEADERBOARD_TWO_COLUMN_MIN = 740;
 
 /**
  * Heatmap cells stay small on narrow views and grow up to MAX_CELL on wide
@@ -1711,7 +1714,7 @@ export default class Insights extends View {
     const half = Math.ceil(entries.length / 2);
     const left = entries.slice(0, half);
     const right = entries.slice(half);
-    const twoColumns = (this.width || 960) >= 960 && right.length > 0;
+    const twoColumns = (this.width || 960) >= LEADERBOARD_TWO_COLUMN_MIN && right.length > 0;
 
     const changeLabel = (entry) => {
       if (entry.change.kind === "none") return "—";

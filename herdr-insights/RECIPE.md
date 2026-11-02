@@ -44,7 +44,7 @@ Dashboard, top to bottom:
 - Top models: a 26-week stacked token chart with date labels, a token axis, and
   a categorical legend. Keep seven model series and fold the rest into Other.
 - Model Usage: the top ten models with provider attribution, compact token totals,
-  and change versus the previous calendar period. Use two columns at 960px+, one
+  and change versus the previous calendar period. Use two columns at 740px+, one
   below. Show a known model logo, else a provider logo, else an initial. Up/down
   arrows and theme success/destructive colors distinguish trends; handle New and
   no-comparison states. Rows do not expand.
