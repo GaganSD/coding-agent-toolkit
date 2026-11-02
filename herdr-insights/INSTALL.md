@@ -29,15 +29,3 @@ Stop and report; do not force overwrites or rebuild to bypass errors. The layout
 must contain the native `tabs` block. Preserve local edits and any failed layout
 clone. Remove the app home's `.insights-install.lock` directory only after
 confirming no installer/uninstaller is running.
-
-## Uninstall
-
-With Herdr running, from the same parent directory:
-
-```sh
-npm run uninstall:local --prefix herdr-insights
-```
-
-Returns to the original layout if needed, then removes unchanged owned layout/mod
-files. Edited toolbar layouts block removal; stop and report. Usage data, click
-state, and edited/unowned files remain.
