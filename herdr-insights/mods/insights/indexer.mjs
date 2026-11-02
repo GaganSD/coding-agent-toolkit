@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import {
   clearWorkerClaim,
   readEffectiveFence,
+  readFenceStrict,
   readWorkerClaim,
   storeGeneration,
 } from "./core/fence.mjs";
@@ -30,12 +31,17 @@ import { isLockBusyError, withStoreLock } from "./core/util.mjs";
 const SAVE_INTERVAL_MS = 1_500;
 const FENCE_POLL_MS = 250;
 const CLAIM_WAIT_MS = 5_000;
+// The launcher may still hold the store lock for a bounded moment after it
+// published the pending file and spawned this process. Wait for that handoff
+// instead of exiting on the first busy lock (which cleared the claim and
+// livelocked promotion).
+const HANDOFF_WAIT_MS = 5_000;
 
 function parseArgs(argv) {
-  const options = { testStreamDelayMs: 0 };
+  const options = { testStreamDelayMs: 0, testFailAfterCheckpointMs: 0 };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    const match = /^--(store|home|generation|claim-token|test-stream-delay-ms)(?:=(.*))?$/.exec(arg);
+    const match = /^--(store|home|generation|claim-token|test-stream-delay-ms|test-fail-after-checkpoint)(?:=(.*))?$/.exec(arg);
     if (!match) throw new Error(`unknown argument ${arg}`);
     let value = match[2];
     if (value === undefined) {
@@ -59,7 +65,31 @@ function parseArgs(argv) {
     generation,
     claimToken: options["claim-token"],
     testStreamDelayMs: Number.isFinite(delay) && delay > 0 ? delay : 0,
+    testFailAfterCheckpointMs: Number(options["test-fail-after-checkpoint"] ?? options.testFailAfterCheckpointMs ?? 0) || 0,
   };
+}
+
+/**
+ * Record a worker failure only under writer authority (inside the store lock),
+ * immediately re-reading the committed generation so a newer configure or
+ * rebuild can never be overwritten back to "failed".
+ */
+async function recordWorkerFailure(storePath, generation, error) {
+  try {
+    const loaded = await loadStore(storePath);
+    ensureStoreMeta(loaded.store);
+    if (storeGeneration(loaded.store) !== generation) return false;
+    const scan = loaded.store.scan ?? emptyScanState();
+    loaded.store.scan = scan;
+    scan.status = "failed";
+    scan.workerPid = null;
+    scan.error = error.message;
+    scan.updatedAt = new Date().toISOString();
+    await saveStore(storePath, loaded.store, { status: "failed" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function waitForClaim(storePath, token) {
@@ -90,7 +120,7 @@ function scanViewUpdate(store, state, { status = "running" } = {}) {
 
 export async function runIndexer(argv) {
   const options = parseArgs(argv);
-  const { storePath, home, generation, claimToken, testStreamDelayMs } = options;
+  const { storePath, home, generation, claimToken, testStreamDelayMs, testFailAfterCheckpointMs } = options;
   const claim = await waitForClaim(storePath, claimToken);
   if (!claim.ok) return { exitCode: 3, reason: claim.reason };
 
@@ -105,11 +135,20 @@ export async function runIndexer(argv) {
   let lastSave = Date.now();
   try {
     const result = await withStoreLock(storePath, async () => {
+      try {
       const loaded = await loadStore(storePath);
       const store = loaded.store;
       ensureStoreMeta(store);
       if (storeGeneration(store) !== generation) {
         return { exitCode: 0, reason: "stale-generation" };
+      }
+      // A corrupt or unreadable fence is not "no fence": fail closed before
+      // this generation writes anything, rather than trusting a helper that
+      // maps every read error to null.
+      try {
+        await readFenceStrict(storePath);
+      } catch (error) {
+        return { exitCode: 1, reason: "fence-unreadable", error };
       }
       const startFence = await readEffectiveFence(storePath);
       if (startFence && !startFence.stale && startFence.generation > generation) {
@@ -131,6 +170,9 @@ export async function runIndexer(argv) {
 
       fenceCheck = async () => {
         if (fenceAborted) return;
+        // Throws if the fence exists but cannot be trusted; callers treat that
+        // as "do not commit" (fail closed). Missing fence stays legitimate.
+        await readFenceStrict(storePath);
         const fence = await readEffectiveFence(storePath);
         if (fence && !fence.stale && fence.generation > generation) fenceAborted = true;
       };
@@ -165,6 +207,12 @@ export async function runIndexer(argv) {
             });
           },
           onCheckpoint: async (state) => {
+            if (testFailAfterCheckpointMs > 0) {
+              // Test hook: keep writer authority for a bounded window so a
+              // concurrent client can queue on the lock, then fail.
+              await new Promise((resolve) => setTimeout(resolve, testFailAfterCheckpointMs));
+              throw new Error("injected indexer failure after checkpoint");
+            }
             scanViewUpdate(store, state);
             store.scan.workerPid = process.pid;
             const finished = new Date().toISOString();
@@ -226,26 +274,20 @@ export async function runIndexer(argv) {
         exitCode: 0,
         reason: scanned.complete ? "complete" : (stopping ? "stopped" : "partial"),
       };
+      } catch (error) {
+        // Still inside the lock: the failure status is written under the same
+        // writer authority as every other commit, then the lock is released.
+        await recordWorkerFailure(storePath, generation, error);
+        return { exitCode: 1, reason: "error", error };
+      }
     }, {
-      timeoutMs: 0,
+      timeoutMs: HANDOFF_WAIT_MS,
       meta: { role: "worker", generation },
     });
     return result ?? { exitCode: 0 };
   } catch (error) {
+    // Lock was never held: report without writing any store state.
     if (isLockBusyError(error)) return { exitCode: 0, reason: "lock-busy" };
-    try {
-      const loaded = await loadStore(storePath);
-      const store = loaded.store;
-      ensureStoreMeta(store);
-      if (storeGeneration(store) === generation) {
-        if (!store.scan) store.scan = emptyScanState();
-        store.scan.status = "failed";
-        store.scan.workerPid = null;
-        store.scan.error = error.message;
-        store.scan.updatedAt = new Date().toISOString();
-        await saveStore(storePath, store, { status: "failed" });
-      }
-    } catch { /* failure reporting is best-effort */ }
     return { exitCode: 1, reason: "error", error };
   } finally {
     progress.clear();

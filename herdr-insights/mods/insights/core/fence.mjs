@@ -1,5 +1,6 @@
-import { unlink } from "node:fs/promises";
+import { link, open, readFile, rename, unlink } from "node:fs/promises";
 import os from "node:os";
+import { randomBytes } from "node:crypto";
 import {
   atomicWriteJson,
   isPlainObject,
@@ -38,6 +39,32 @@ export function nextGeneration(...values) {
     if (Number.isInteger(number) && number > highest) highest = number;
   }
   return highest + 1;
+}
+
+/**
+ * Strict fence read for writer authority. A missing fence is a legitimate
+ * "no configure queued" answer, but a corrupt/unreadable fence must NOT be
+ * treated as absent: callers that gate commits fail closed on the thrown error.
+ */
+export async function readFenceStrict(storePath) {
+  let text;
+  try {
+    text = await readFile(fencePath(storePath), "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`insights generation fence is unreadable: ${error.message}`, { cause: error });
+  }
+  if (!isPlainObject(value) || value.version !== FENCE_VERSION
+    || !Number.isInteger(value.generation) || value.generation < 1) {
+    throw new Error("insights generation fence is malformed");
+  }
+  return value;
 }
 
 export async function readFence(storePath) {
@@ -112,16 +139,82 @@ export async function writeWorkerClaim(storePath, claim) {
   return claim;
 }
 
-export async function clearWorkerClaim(storePath, token) {
-  const current = await readWorkerClaim(storePath);
-  if (!current || current.token !== token) return false;
+/**
+ * Exclusive claim creation (O_CREAT|O_EXCL); never last-write-wins. Concurrent
+ * launchers either create the claim or observe EEXIST and coalesce.
+ */
+export async function tryCreateWorkerClaim(storePath, claim) {
+  const file = workerClaimPath(storePath);
+  let handle;
   try {
-    await unlink(workerClaimPath(storePath));
+    handle = await open(file, "wx", 0o600);
+    await handle.writeFile(`${JSON.stringify(claim)}\n`, "utf8");
+    await handle.sync();
+    await handle.close();
+    return true;
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    if (error?.code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+/**
+ * Record the spawned pid without clobbering a claim that was replaced
+ * concurrently: the open handle pins the inode, so a rename by a reaper makes
+ * this write land in the quarantined file instead of a newer claim.
+ */
+export async function updateWorkerClaimPid(storePath, token, pid) {
+  let handle;
+  try {
+    handle = await open(workerClaimPath(storePath), "r+");
+    const text = await handle.readFile("utf8");
+    let current;
+    try { current = JSON.parse(text); } catch { current = null; }
+    if (!isPlainObject(current) || current.token !== token) return false;
+    const next = { ...current, pid, at: Date.now() };
+    await handle.truncate(0);
+    await handle.write(`${JSON.stringify(next)}\n`, 0, "utf8");
+    await handle.sync();
     return true;
   } catch (error) {
     if (error?.code === "ENOENT") return false;
     throw error;
+  } finally {
+    if (handle) await handle.close().catch(() => {});
   }
+}
+
+/**
+ * Token-safe release/reclaim. The claim file is renamed to a private
+ * quarantine name first (atomic, single winner), then verified by token. A
+ * claim that was replaced between observation and rename is restored with an
+ * exclusive link so it is never destroyed by a stale reaper.
+ */
+async function reapWorkerClaim(storePath, token) {
+  const file = workerClaimPath(storePath);
+  const quarantine = `${file}.${process.pid}-${randomBytes(6).toString("hex")}.reap`;
+  try {
+    await rename(file, quarantine);
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+  let current;
+  try { current = JSON.parse(await readFile(quarantine, "utf8")); } catch { current = null; }
+  if (current?.token !== token) {
+    // We moved a claim that had already been replaced. Put it back only if the
+    // slot is still empty; otherwise a newer claim exists and wins.
+    try { await link(quarantine, file); } catch { /* newer claim present */ }
+    await unlink(quarantine).catch(() => {});
+    return false;
+  }
+  await unlink(quarantine).catch(() => {});
+  return true;
+}
+
+export async function clearWorkerClaim(storePath, token) {
+  return reapWorkerClaim(storePath, token);
 }
 
 /**

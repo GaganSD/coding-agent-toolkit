@@ -359,24 +359,15 @@ async function scanAndPersist(
   );
   if (completed && !mustSave && store.lastCompletedScanAt === null) mustSave = true;
 
-  let worker;
   const guarded = guard ? await guard() : null;
   if (guarded) return { fenced: true };
   if (result.abortedFile) {
-    // Persist the abandoned file marker before the worker starts so a restart
-    // promotes the same file instead of repeating a foreground prefix.
+    // Persist the abandoned file marker under the writer lock; the worker is
+    // spawned by the caller only AFTER this lock is released so it can take
+    // ownership immediately instead of exiting on a busy lock.
     await saveStore(storePath, store, { status: "partial", now: finishedIso });
-    worker = await ensureIndexer(storePath, home, {
-      generation: store.generation,
-      ackMs: 0,
-      testStreamDelayMs,
-    });
-    if (worker.pid) {
-      store.scan.workerPid = worker.pid;
-      store.scan.status = "running";
-    }
     const snapshot = buildSnapshot(store, result, finishedIso, loaded?.warnings, loaded?.errors);
-    return { snapshot, worker };
+    return { snapshot, worker: null, promote: true };
   }
 
   if (mustSave) {
@@ -393,6 +384,20 @@ async function scanAndPersist(
   }
   const snapshot = buildSnapshot(store, result, finishedIso, loaded?.warnings, loaded?.errors);
   return { snapshot, worker: null };
+}
+
+async function promoteIndexer(storePath, home, snapshot, testStreamDelayMs = 0) {
+  // Called only after the caller released the store lock: the child is then
+  // the next writer and waits out any bounded handoff instead of livelocking.
+  const worker = await ensureIndexer(storePath, home, {
+    generation: snapshot.scan?.generation ?? null,
+    ackMs: 0,
+    testStreamDelayMs,
+  });
+  if (worker.pid) {
+    snapshot.scan = { ...snapshot.scan, status: "running", workerPid: worker.pid };
+  }
+  return worker;
 }
 
 async function finishWorkerAck(snapshot, worker, storePath, workerAckMs) {
@@ -458,19 +463,8 @@ async function snapshotWithStore(
 
     if (await removeStalePendingFile(storePath, store, now)) dirty = true;
     if (store.scan.pendingFile) {
-      const worker = await ensureIndexer(storePath, home, {
-        generation: store.generation,
-        ackMs: 0,
-        testStreamDelayMs,
-      });
-      if (worker.pid) {
-        store.scan.workerPid = worker.pid;
-        store.scan.status = "running";
-      }
       const nowIso = new Date(now()).toISOString();
-      if (dirty || worker.pid) {
-        await saveStore(storePath, store, { status: "running", now: nowIso });
-      }
+      if (dirty) await saveStore(storePath, store, { status: "partial", now: nowIso });
       const snapshot = buildSnapshot(
         store,
         scanResultFromStore(store),
@@ -478,8 +472,8 @@ async function snapshotWithStore(
         loaded.warnings,
         loaded.errors,
       );
-      snapshot.scan = { ...snapshot.scan, status: worker.pid ? "running" : "partial" };
-      return { snapshot, worker, fenced: false };
+      snapshot.scan = { ...snapshot.scan, status: "partial" };
+      return { snapshot, worker: null, promote: true, fenced: false };
     }
 
     const scanned = await scanAndPersist(storePath, home, store, {
@@ -521,7 +515,10 @@ async function snapshotWithStore(
     if (rebuild && fence) await restoreFence(storePath, baseline);
     return busySnapshot(storePath, lock.owner, now);
   }
-  const { snapshot, worker } = lock.value;
+  const { snapshot, worker: lockedWorker, promote } = lock.value;
+  const worker = promote
+    ? await promoteIndexer(storePath, home, snapshot, testStreamDelayMs)
+    : (lockedWorker ?? null);
   return finishWorkerAck(snapshot, worker, storePath, workerAckMs);
 }
 
@@ -591,19 +588,8 @@ async function configureStore(
 
       if (await removeStalePendingFile(storePath, store, now)) dirty = true;
       if (store.scan.pendingFile) {
-        const worker = await ensureIndexer(storePath, home, {
-          generation: store.generation,
-          ackMs: 0,
-          testStreamDelayMs,
-        });
-        if (worker.pid) {
-          store.scan.workerPid = worker.pid;
-          store.scan.status = "running";
-        }
         const nowIso = new Date(now()).toISOString();
-        if (dirty || worker.pid) {
-          await saveStore(storePath, store, { status: "running", now: nowIso });
-        }
+        if (dirty) await saveStore(storePath, store, { status: "partial", now: nowIso });
         const snapshot = buildSnapshot(
           store,
           scanResultFromStore(store),
@@ -611,8 +597,8 @@ async function configureStore(
           loaded.warnings,
           loaded.errors,
         );
-        snapshot.scan = { ...snapshot.scan, status: worker.pid ? "running" : "partial" };
-        return { snapshot, worker };
+        snapshot.scan = { ...snapshot.scan, status: "partial" };
+        return { snapshot, worker: null, promote: true };
       }
 
       const scanned = await scanAndPersist(storePath, home, store, {
@@ -654,7 +640,10 @@ async function configureStore(
       if (!applied) await restoreFence(storePath, baseline);
       throw new Error("insights store is busy; configuration was not applied");
     }
-    const { snapshot, worker } = lock.value;
+    const { snapshot, worker: lockedWorker, promote } = lock.value;
+    const worker = promote
+      ? await promoteIndexer(storePath, home, snapshot, testStreamDelayMs)
+      : (lockedWorker ?? null);
     return finishWorkerAck(snapshot, worker, storePath, workerAckMs);
   } catch (error) {
     if (!applied) await restoreFence(storePath, baseline).catch(() => {});

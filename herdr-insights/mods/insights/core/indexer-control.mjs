@@ -7,8 +7,9 @@ import {
   readEffectiveFence,
   readWorkerClaim,
   storeGeneration,
+  tryCreateWorkerClaim,
+  updateWorkerClaimPid,
   workerClaimActive,
-  writeWorkerClaim,
 } from "./fence.mjs";
 import { isProcessAlive, readStoreLockInfo, sleep } from "./util.mjs";
 
@@ -44,8 +45,13 @@ export async function ensureIndexer(
   }
   if (existing) {
     // A live claim (including a foreign host) is handled above. Only a
-    // provably dead local pid or an expired spawn placeholder reaches here.
+    // provably dead local pid or an expired spawn placeholder is reaped, and
+    // only under the exact token we observed.
     await clearWorkerClaim(storePath, existing.token);
+    const reread = await readWorkerClaim(storePath);
+    if (workerClaimActive(reread)) {
+      return { spawned: false, pid: Number.isInteger(reread.pid) ? reread.pid : null, claim: reread };
+    }
   }
 
   const claim = {
@@ -57,9 +63,14 @@ export async function ensureIndexer(
     startedAt: Date.now(),
     at: Date.now(),
   };
-  // The worker waits briefly for its pid to be recorded, so writing the token
-  // before spawn makes concurrent launchers coalesce even during spawn.
-  await writeWorkerClaim(storePath, claim);
+  // The worker waits briefly for its pid to be recorded, so publishing the
+  // token before spawn makes concurrent launchers coalesce even during spawn.
+  // Exclusive create, not last-write-wins: a launcher that loses EEXIST never
+  // overwrites the winner's claim.
+  if (!(await tryCreateWorkerClaim(storePath, claim))) {
+    const other = await readWorkerClaim(storePath);
+    return { spawned: false, pid: Number.isInteger(other?.pid) ? other.pid : null, claim: other };
+  }
 
   const args = [
     testWorkerPath ?? indexerPath(),
@@ -90,7 +101,12 @@ export async function ensureIndexer(
 
   const recorded = { ...claim, pid: child.pid, at: Date.now() };
   try {
-    await writeWorkerClaim(storePath, recorded);
+    const published = await updateWorkerClaimPid(storePath, claim.token, child.pid);
+    if (!published) {
+      // The claim was reaped/replaced while spawning; do not resurrect it. The
+      // child will observe the missing/replaced token and exit without work.
+      return { spawned: false, pid: null, claim: recorded, lostClaim: true };
+    }
   } catch (error) {
     await clearWorkerClaim(storePath, claim.token);
     return { spawned: false, pid: null, error };
