@@ -218,6 +218,87 @@ test("a first-seen corrupt archive persists a rowless fingerprint and recovers",
   assert.ok(entry.rows.length > 0, "a valid replacement is indexed");
 });
 
+function archiveStore() {
+  const store = emptyStore();
+  store.config = {
+    ...store.config,
+    sources: [{ id: "codex", label: "Codex", adapter: "codex", enabled: true, roots: ["~/.codex/sessions"] }],
+  };
+  return store;
+}
+
+async function codexFrames() {
+  const plain = await readFile(path.join(here, "fixtures", "codex-modern.jsonl"), "utf8");
+  const lines = plain.split("\n").filter(Boolean);
+  const mid = Math.floor(lines.length / 2);
+  return [
+    zstdCompressSync(`${lines.slice(0, mid).join("\n")}\n`),
+    zstdCompressSync(`${lines.slice(mid).join("\n")}\n`),
+  ];
+}
+
+async function scanArchive(frames) {
+  const root = await mkdtemp(path.join(tmpdir(), "insights-multiframe-"));
+  const home = path.join(root, "home");
+  const sessions = path.join(home, ".codex", "sessions");
+  await mkdir(sessions, { recursive: true });
+  const file = path.join(sessions, "archive.jsonl.zst");
+  await writeFile(file, Buffer.concat(frames));
+  const store = archiveStore();
+  const first = await scanSources(store, { home });
+  return { file, store, first };
+}
+
+test("two concatenated zstd frames both contribute rows", async () => {
+  const [firstFrame, secondFrame] = await codexFrames();
+  const { store, first } = await scanArchive([firstFrame, secondFrame]);
+  assert.equal(first.stats.errors, 0);
+  assert.equal(first.stats.filesRead, 1);
+  const [entry] = Object.values(store.files);
+  assert.equal(entry.state.zstdError, undefined);
+  assert.equal(entry.rows.length, 2, "both frames were decoded");
+  const rows = snapshotRows(store);
+  assert.deepEqual(
+    rows.map((row) => row.model).sort(),
+    ["gpt-6.1", "gpt-6.2"],
+  );
+  assert.equal(rows.reduce((sum, row) => sum + row.messages, 0), 2);
+});
+
+test("a skippable zstd frame between data frames is ignored, not decoded", async () => {
+  const [firstFrame, secondFrame] = await codexFrames();
+  const skippable = Buffer.from([0x50, 0x2a, 0x4d, 0x18, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc]);
+  const { store, first } = await scanArchive([firstFrame, skippable, secondFrame]);
+  assert.equal(first.stats.errors, 0);
+  const rows = snapshotRows(store);
+  assert.deepEqual(
+    rows.map((row) => row.model).sort(),
+    ["gpt-6.1", "gpt-6.2"],
+  );
+  assert.equal(rows.reduce((sum, row) => sum + row.messages, 0), 2);
+});
+
+test("a truncated second zstd frame rolls back and stays fingerprinted", async () => {
+  const [firstFrame, secondFrame] = await codexFrames();
+  const { file, store, first } = await scanArchive([
+    firstFrame,
+    secondFrame.subarray(0, secondFrame.length - 20),
+  ]);
+  assert.equal(first.stats.errors, 1, "the truncated frame is corrupt");
+  assert.equal(snapshotRows(store).length, 0, "no frame rows are committed");
+  const [entry] = Object.values(store.files);
+  assert.equal(entry.rows.length, 0);
+  const badStat = await stat(file);
+  assert.equal(entry.state.zstdError, `${badStat.mtimeMs}:${badStat.size}`);
+  assert.equal(entry.offset, badStat.size);
+
+  const repeated = await scanSources(store, { home: path.dirname(path.dirname(path.dirname(file))) });
+  assert.equal(repeated.stats.errors, 0);
+  assert.equal(repeated.stats.filesRead, 0, "the corrupt fingerprint suppresses rereads");
+  assert.equal(repeated.stats.bytesRead, 0);
+  assert.equal(snapshotRows(store).length, 0);
+});
+
 test("production scanning does not clone the accumulated store", async () => {
   const scanSource = await readFile(
     path.join(here, "../../herdr-insights/mods/insights/core/scan.mjs"),

@@ -323,3 +323,47 @@ test("a bounded scan never exposes rows from an unfinished archive", async () =>
   assert.ok(entry.rows.length > 0, "the valid archive is indexed on retry");
   assert.equal(snapshotRows(store).length > 0, true);
 });
+
+test("a budget stop inside a multi-frame zstd archive is retried without a fingerprint", async () => {
+  const { zstdCompressSync } = await import("node:zlib");
+  const bounded = await context("insights-multiframe-budget-");
+  const sessions = path.join(bounded.home, ".codex", "sessions");
+  await mkdir(sessions, { recursive: true });
+  const plain = await readFile(new URL("./fixtures/codex-modern.jsonl", import.meta.url), "utf8");
+  const lines = plain.split("\n").filter(Boolean);
+  const mid = Math.floor(lines.length / 2);
+  await writeFile(path.join(sessions, "multi.jsonl.zst"), Buffer.concat([
+    zstdCompressSync(`${lines.slice(0, mid).join("\n")}\n`),
+    zstdCompressSync(`${lines.slice(mid).join("\n")}\n`),
+  ]));
+  const store = emptyStore(normalizeConfig({
+    sources: [{
+      id: "codex",
+      label: "Codex",
+      adapter: "codex",
+      enabled: true,
+      roots: ["~/.codex/sessions"],
+    }],
+  }));
+  const stopped = await scanSources(store, {
+    home: bounded.home,
+    deadline: Date.now(),
+    now: Date.now,
+  });
+  assert.equal(stopped.abortedFile?.path?.endsWith("multi.jsonl.zst"), true);
+  assert.equal(stopped.stats.errors, 0);
+  assert.equal(Object.keys(store.files).length, 0, "an aborted archive contributes no file entry");
+  assert.deepEqual(snapshotRows(store), []);
+
+  const retry = await scanSources(store, {
+    home: bounded.home,
+    deadline: Date.now() + 60_000,
+    now: Date.now,
+  });
+  assert.equal(retry.complete, true);
+  assert.equal(retry.stats.errors, 0);
+  const [entry] = Object.values(store.files);
+  assert.equal(entry.state.zstdError, undefined, "a budget stop leaves no corrupt fingerprint");
+  assert.equal(entry.rows.length, 2, "both frames are indexed on retry");
+  assert.equal(snapshotRows(store).reduce((sum, row) => sum + row.messages, 0), 2);
+});

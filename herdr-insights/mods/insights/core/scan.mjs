@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { createReadStream } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { Transform } from "node:stream";
+import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as zlib from "node:zlib";
 import { parseAdapterRecord } from "./adapters.mjs";
@@ -351,118 +352,125 @@ const ZSTD_DICT_ID_BYTES = [0, 1, 2, 4];
 const ZSTD_FCS_BYTES = [0, 2, 4, 8];
 
 /**
- * Structural zstd frame validator. Some Node 22 runtimes silently accept a
- * complete frame followed by a truncated extra frame or arbitrary trailing
- * bytes. The decoder still streams the payload; this tap only walks frame,
- * header, block and checksum lengths so corruption is detected consistently
- * instead of depending on runtime-specific end-of-stream behaviour.
+ * Structural zstd stream splitter. Some Node 22 runtimes stop a decoder at
+ * the first frame of a concatenated stream, so each data frame is decoded by
+ * its own fresh decoder. This parser walks frame, header, block and checksum
+ * lengths to delimit frames; skippable frames are discarded without decoding.
  */
-function createZstdFrameValidator() {
-  let buffer = Buffer.alloc(0);
+function createZstdFrameSplitter({ onFrameStart, onFrameData, onFrameEnd }) {
+  let head = Buffer.alloc(0);
   let state = "magic";
-  let frames = 0;
   let remaining = 0;
   let lastBlock = false;
   let checksum = false;
+  let frames = 0;
+  let dataFrame = false;
 
   const fail = (message) => {
     throw new Error(`invalid zstd stream: ${message}`);
   };
 
-  const parse = () => {
-    for (;;) {
-      if (state === "magic") {
-        if (buffer.length < 4) return;
-        const magic = buffer.readUInt32LE(0);
-        buffer = buffer.subarray(4);
-        if (magic === ZSTD_FRAME_MAGIC) {
-          frames += 1;
-          state = "frameHeader";
-        } else if ((magic & ZSTD_SKIPPABLE_MASK) === ZSTD_SKIPPABLE_MAGIC) {
-          frames += 1;
-          state = "skippableSize";
-        } else {
-          fail("unknown frame magic");
-        }
-      } else if (state === "skippableSize") {
-        if (buffer.length < 4) return;
-        remaining = buffer.readUInt32LE(0);
-        buffer = buffer.subarray(4);
-        state = "skip";
-      } else if (state === "skip") {
-        if (remaining > 0) {
-          if (buffer.length === 0) return;
-          const take = Math.min(remaining, buffer.length);
-          buffer = buffer.subarray(take);
-          remaining -= take;
-          continue;
-        }
-        state = "magic";
-      } else if (state === "frameHeader") {
-        if (buffer.length < 1) return;
-        const descriptor = buffer[0];
-        if (descriptor & 0x18) fail("reserved frame header bits");
-        const fcsFlag = descriptor >> 6;
-        const singleSegment = (descriptor >> 5) & 1;
-        checksum = Boolean((descriptor >> 2) & 1);
-        const dictBytes = ZSTD_DICT_ID_BYTES[descriptor & 0x03];
-        const fcsBytes = fcsFlag === 0 && singleSegment ? 1 : ZSTD_FCS_BYTES[fcsFlag];
-        const headerBytes = 1 + (singleSegment ? 0 : 1) + dictBytes + fcsBytes;
-        if (buffer.length < headerBytes) return;
-        buffer = buffer.subarray(headerBytes);
-        state = "blockHeader";
-      } else if (state === "blockHeader") {
-        if (buffer.length < 3) return;
-        const header = buffer.readUIntLE(0, 3);
-        buffer = buffer.subarray(3);
-        lastBlock = Boolean(header & 1);
-        const type = (header >> 1) & 0x03;
-        if (type === 3) fail("reserved block type");
-        remaining = type === 1 ? 1 : header >> 3;
-        state = "blockData";
-      } else if (state === "blockData") {
-        if (remaining > 0) {
-          if (buffer.length === 0) return;
-          const take = Math.min(remaining, buffer.length);
-          buffer = buffer.subarray(take);
-          remaining -= take;
-          continue;
-        }
-        if (lastBlock) {
-          state = checksum ? "checksum" : "magic";
-        } else {
-          state = "blockHeader";
-        }
-      } else if (state === "checksum") {
-        if (buffer.length < 4) return;
-        buffer = buffer.subarray(4);
-        state = "magic";
-      }
+  const need = () => {
+    if (state === "magic" || state === "skippableSize") return 4;
+    if (state === "blockHeader") return 3;
+    if (state === "checksum") return 4;
+    if (state === "frameHeader") {
+      if (head.length < 1) return 1;
+      const descriptor = head[0];
+      if (descriptor & 0x18) fail("reserved frame header bits");
+      const fcsFlag = descriptor >> 6;
+      const singleSegment = (descriptor >> 5) & 1;
+      const dictBytes = ZSTD_DICT_ID_BYTES[descriptor & 0x03];
+      const fcsBytes = fcsFlag === 0 && singleSegment ? 1 : ZSTD_FCS_BYTES[fcsFlag];
+      return 1 + (singleSegment ? 0 : 1) + dictBytes + fcsBytes;
     }
+    return 0;
+  };
+
+  const endFrame = async () => {
+    dataFrame = false;
+    await onFrameEnd();
+    state = "magic";
   };
 
   return {
-    push(chunk) {
-      buffer = buffer.length ? Buffer.concat([buffer, chunk]) : chunk;
-      parse();
-    },
-    get complete() {
-      return frames > 0 && state === "magic" && buffer.length === 0;
-    },
-  };
-}
-
-function zstdValidationTap(validator) {
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      try {
-        validator.push(chunk);
-        callback(null, chunk);
-      } catch (error) {
-        callback(error);
+    async push(chunk) {
+      let offset = 0;
+      while (offset < chunk.length) {
+        if (state === "skip" || state === "blockData") {
+          const take = Math.min(remaining, chunk.length - offset);
+          if (take > 0 && state === "blockData") {
+            await onFrameData(chunk.subarray(offset, offset + take));
+          }
+          offset += take;
+          remaining -= take;
+          if (remaining === 0) {
+            if (state === "skip") {
+              state = "magic";
+            } else if (lastBlock) {
+              if (checksum) state = "checksum";
+              else await endFrame();
+            } else {
+              state = "blockHeader";
+            }
+          }
+          continue;
+        }
+        const size = need();
+        const take = Math.min(size - head.length, chunk.length - offset);
+        if (take > 0) {
+          const piece = chunk.subarray(offset, offset + take);
+          head = Buffer.concat([head, piece]);
+          offset += take;
+          if (dataFrame) await onFrameData(piece);
+        }
+        if (head.length < size) return;
+        if (state === "magic") {
+          const magicBytes = head;
+          const magic = magicBytes.readUInt32LE(0);
+          head = Buffer.alloc(0);
+          if (magic === ZSTD_FRAME_MAGIC) {
+            frames += 1;
+            dataFrame = true;
+            state = "frameHeader";
+            await onFrameStart();
+            await onFrameData(magicBytes);
+          } else if ((magic & ZSTD_SKIPPABLE_MASK) === ZSTD_SKIPPABLE_MAGIC) {
+            frames += 1;
+            dataFrame = false;
+            state = "skippableSize";
+          } else {
+            fail("unknown frame magic");
+          }
+        } else if (state === "skippableSize") {
+          remaining = head.readUInt32LE(0);
+          head = Buffer.alloc(0);
+          state = "skip";
+        } else if (state === "frameHeader") {
+          // The descriptor may arrive before the rest of the header; wait for
+          // the full window/dictionary/content-size fields.
+          if (head.length < need()) continue;
+          checksum = Boolean((head[0] >> 2) & 1);
+          head = Buffer.alloc(0);
+          state = "blockHeader";
+        } else if (state === "blockHeader") {
+          const header = head.readUIntLE(0, 3);
+          head = Buffer.alloc(0);
+          lastBlock = Boolean(header & 1);
+          const type = (header >> 1) & 0x03;
+          if (type === 3) fail("reserved block type");
+          remaining = type === 1 ? 1 : header >> 3;
+          state = "blockData";
+        } else if (state === "checksum") {
+          head = Buffer.alloc(0);
+          await endFrame();
+        }
       }
     },
-  });
+    get complete() {
+      return frames > 0 && state === "magic" && head.length === 0;
+    },
+  };
 }
 
 function hasZstdSupport() {
@@ -499,18 +507,9 @@ function lineContext(store, entry, source, sink) {
   };
 }
 
-async function parseBuffers(
-  store,
-  entry,
-  source,
-  chunks,
-  startOffset,
-  endOffset,
-  sink,
-  options = {},
-) {
+function createRecordConsumer(store, entry, source, sink) {
   const context = lineContext(store, entry, source, sink);
-  const consumer = createLineConsumer((record, info) => {
+  return createLineConsumer((record, info) => {
     if (info.parseError) {
       sink.warn(
         `${source.adapter} ${entry.path}: line ${info.lineNo} is not valid JSON; skipped.`,
@@ -527,6 +526,19 @@ async function parseBuffers(
       );
     }
   });
+}
+
+async function parseBuffers(
+  store,
+  entry,
+  source,
+  chunks,
+  startOffset,
+  endOffset,
+  sink,
+  options = {},
+) {
+  const consumer = createRecordConsumer(store, entry, source, sink);
   consumer.offset = startOffset;
   consumer.lineNo = entry.lineNo ?? 0;
   const now = nowFn(options);
@@ -677,35 +689,93 @@ async function scanCompressedFile(
   }
   // The caller owns a per-file transaction. Any decompression failure or
   // deadline stop discards this open archive without exposing its rows. Raw
-  // transcript bytes are never retained: the line consumer is bounded.
-  // Capture the deliberate stop at the destination because some Node 22
-  // pipeline implementations re-wrap a destination error as a generic
-  // AbortError. Only this exact captured ScanStopError is a budget stop;
-  // every other stream failure remains a corruption/IO failure.
+  // transcript bytes are never retained: each frame streams through its own
+  // decoder into one shared line consumer, so a line may span frames.
+  // Capture the deliberate stop here because some Node 22 pipeline
+  // implementations re-wrap a destination error as a generic AbortError.
+  // Only this exact captured ScanStopError is a budget stop; every structural
+  // or CRC failure on a complete frame remains a corruption failure.
   let deliberateStop = null;
-  const validator = createZstdFrameValidator();
-  let result;
-  try {
-    if (entry.offset || entry.rows.length || Object.keys(entry.state).length) resetFileEntry(store, entry);
-    result = await pipeline(
-      createReadStream(filePath),
-      zstdValidationTap(validator),
-      zlib.createZstdDecompress(),
-      async (chunks) => {
+  let decompressedBytes = 0;
+  let chunkStart = 0;
+  let chunksSeen = 0;
+  let decoderInput = null;
+  let decoderDone = null;
+  const consumer = createRecordConsumer(store, entry, source, sink);
+  consumer.offset = 0;
+  consumer.lineNo = entry.lineNo ?? 0;
+  const now = nowFn(options);
+  const delay = pausableDelay(options.streamDelayMs);
+  const splitter = createZstdFrameSplitter({
+    async onFrameStart() {
+      decoderInput = new PassThrough();
+      const input = decoderInput;
+      decoderDone = pipeline(input, zlib.createZstdDecompress(), async (chunks) => {
         try {
-          return await processStringChunks(
-            store, entry, source, chunks, 0, undefined, sink, options,
-          );
+          for await (const chunk of chunks) {
+            if (chunksSeen > 0) {
+              if (stopRequested(options)) throw new ScanStopError("stop");
+              if (deadlineReached(options, now())) throw new ScanStopError("budget");
+            }
+            if (delay) await delay();
+            consumer.feedAt(chunk, chunkStart);
+            chunkStart += chunk.length;
+            decompressedBytes += chunk.length;
+            chunksSeen += 1;
+            if (chunksSeen % PROGRESS_CHUNK_INTERVAL === 0) {
+              options.onStreamProgress?.({
+                file: entry.path,
+                bytes: decompressedBytes,
+                phase: "decompress",
+              });
+            }
+          }
         } catch (error) {
           if (error instanceof ScanStopError) deliberateStop = error;
           throw error;
         }
-      },
-    );
-    if (!validator.complete) {
+      });
+      // The parser awaits the pipeline; this guard only prevents a transient
+      // unhandled rejection between a destination failure and the next write.
+      decoderDone.catch(() => {});
+    },
+    async onFrameData(data) {
+      if (deliberateStop) throw deliberateStop;
+      const input = decoderInput;
+      if (!input.write(data)) {
+        await Promise.race([once(input, "drain"), decoderDone]);
+        if (deliberateStop) throw deliberateStop;
+      }
+    },
+    async onFrameEnd() {
+      const input = decoderInput;
+      const done = decoderDone;
+      decoderInput = null;
+      decoderDone = null;
+      input.end();
+      await done;
+    },
+  });
+  try {
+    if (entry.offset || entry.rows.length || Object.keys(entry.state).length) resetFileEntry(store, entry);
+    for await (const chunk of createReadStream(filePath)) {
+      if (deliberateStop) break;
+      await splitter.push(chunk);
+    }
+    if (deliberateStop) throw deliberateStop;
+    if (!splitter.complete) {
       throw new Error("invalid zstd stream: truncated or trailing data");
     }
+    // Finish the shared consumer only at the true end of the stream. Budget
+    // stops must not commit a partial tail that may still continue.
+    consumer.finish(chunkStart);
+    if (consumer.skippedLargeLine) {
+      sink.warn(
+        `${source.adapter} ${entry.path}: a line larger than ${MAX_LINE_BYTES} bytes was skipped.`,
+      );
+    }
   } catch (error) {
+    decoderInput?.destroy();
     const stop = deliberateStop ?? (error instanceof ScanStopError ? error : null);
     if (stop) {
       return { status: "stopped", reason: stop.reason, dirty: false };
@@ -714,9 +784,9 @@ async function scanCompressedFile(
   }
   stats.bytesRead += fileStat.size;
   if (fileStat.size > 0) stats.filesRead += 1;
-  stats.decompressedBytes = (stats.decompressedBytes ?? 0) + (result.bytes ?? 0);
+  stats.decompressedBytes = (stats.decompressedBytes ?? 0) + decompressedBytes;
   entry.offset = fileStat.size;
-  entry.lineNo = result.lineNo;
+  entry.lineNo = consumer.lineNo;
   delete entry.state.zstdError;
   return { status: "ok", dirty: true };
 }
