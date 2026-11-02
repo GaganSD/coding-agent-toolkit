@@ -9,7 +9,9 @@ import { migrateLoadedConfig, normalizeConfig, sourcesSignature } from "./core/c
 import {
   bumpFence,
   readEffectiveFence,
+  readWorkerClaim,
   restoreFence,
+  workerClaimActive,
 } from "./core/fence.mjs";
 import {
   DEFAULT_WORKER_ACK_MS,
@@ -17,7 +19,7 @@ import {
   waitForIndexerAck,
 } from "./core/indexer-control.mjs";
 import { scanSources } from "./core/scan.mjs";
-import { progressWriter } from "./core/progress.mjs";
+import { progressWriter, readLiveProgress } from "./core/progress.mjs";
 import {
   clearCollectedData,
   emptyScanState,
@@ -171,23 +173,79 @@ function busyOverrides(owner) {
   };
 }
 
+function liveView(live) {
+  return {
+    file: live.file,
+    phase: live.phase,
+    processed: live.processed,
+    total: live.total,
+    filesRead: live.filesRead,
+    bytesRead: live.bytesRead,
+    decodedBytes: live.decodedBytes,
+    updatedAt: live.updatedAt,
+  };
+}
+
+/**
+ * Overlay metadata-only worker progress on committed rows/stats. The sidecar is
+ * not authoritative: it is accepted only while the matching local claim AND the
+ * store writer lock are owned by the same live pid at the committed generation.
+ * A stale, dead, replaced, or foreign worker is ignored, and only current file,
+ * counters, phase, and timestamps cross the boundary. Rows, config, accounting,
+ * and timestamps are never taken from progress.
+ */
+async function overlayLiveProgress(storePath, snapshot) {
+  const scan = snapshot?.scan;
+  if (!scan || !["running", "partial", "starting"].includes(scan.status)) return snapshot;
+  if (!Number.isInteger(scan.generation)) return snapshot;
+  const live = await readLiveProgress(storePath);
+  if (!live) return snapshot;
+  if (live.store !== path.resolve(storePath) || live.generation !== scan.generation) return snapshot;
+  const [claim, owner] = await Promise.all([
+    readWorkerClaim(storePath),
+    readStoreLockInfo(storePath),
+  ]);
+  if (!claim || claim.host !== os.hostname() || !workerClaimActive(claim)) return snapshot;
+  if (claim.pid !== live.pid || claim.generation !== live.generation || claim.token !== live.token) {
+    return snapshot;
+  }
+  if (!owner || owner.role !== "worker" || owner.host !== os.hostname()) return snapshot;
+  if (owner.pid !== live.pid || Number(owner.generation) !== live.generation) return snapshot;
+  if (Number.isInteger(scan.workerPid) && scan.workerPid !== live.pid) return snapshot;
+  return {
+    ...snapshot,
+    scan: {
+      ...scan,
+      status: "running",
+      workerPid: live.pid,
+      live: liveView(live),
+    },
+  };
+}
+
 /**
  * Committed presentation for a reader. Never takes the writer lock, so a long
  * indexer cannot make status/prepare wait for a scan. The cache is used only
- * when it is at least as new as the committed store.
+ * when it is at least as new as the committed store. Live worker progress is a
+ * sanitized metadata overlay; committed rows/stats remain authoritative.
  */
 export async function readCommittedSnapshot(storePath, { now = Date.now } = {}) {
   const nowIso = new Date(now()).toISOString();
   const cached = await readPresentationCache(storePath);
-  if (cached) return buildSnapshotFromCache(cached, nowIso);
-  const loaded = await loadStore(storePath, { readOnly: true });
-  return buildSnapshot(
-    loaded.store,
-    scanResultFromStore(loaded.store),
-    nowIso,
-    loaded.warnings,
-    loaded.errors,
-  );
+  let snapshot;
+  if (cached) {
+    snapshot = buildSnapshotFromCache(cached, nowIso);
+  } else {
+    const loaded = await loadStore(storePath, { readOnly: true });
+    snapshot = buildSnapshot(
+      loaded.store,
+      scanResultFromStore(loaded.store),
+      nowIso,
+      loaded.warnings,
+      loaded.errors,
+    );
+  }
+  return overlayLiveProgress(storePath, snapshot);
 }
 
 async function busySnapshot(storePath, owner, now) {
@@ -322,6 +380,20 @@ async function scanAndPersist(
   const startedAt = now();
   const deadline = startedAt + Math.max(0, Number(budgetMs) || 0);
   const progress = progressWriter(storePath);
+  // Foreground stream progress carries only the open file and decoded bytes.
+  // Keep the last accepted discovery counters so a mid-file update never
+  // replaces useful progress with 0/1, and label decoded bytes separately from
+  // the committed accepted stats.
+  let live = {
+    processed: 0,
+    total: 0,
+    file: null,
+    filesRead: 0,
+    bytesRead: 0,
+    decodedBytes: 0,
+    phase: "scan",
+  };
+  const publish = (state) => progress.update({ ...live, ...state, mode, workerPid: null });
   let result;
   try {
     result = await scanSources(store, {
@@ -331,14 +403,19 @@ async function scanAndPersist(
       mode,
       streamDelayMs: testStreamDelayMs,
       shouldStop: () => false,
-      onProgress: (state) => progress.update({ ...state, workerPid: null }),
-      onStreamProgress: (state) => progress.update({
-        ...state,
-        processed: 0,
-        total: 1,
-        mode,
-        workerPid: null,
-      }),
+      onProgress: (state) => {
+        live = { ...live, ...state, decodedBytes: 0 };
+        publish(live);
+      },
+      onStreamProgress: (state) => {
+        live = {
+          ...live,
+          file: state.file ?? live.file,
+          phase: state.phase ?? "decompress",
+          decodedBytes: Number.isInteger(state.bytes) ? state.bytes : live.decodedBytes,
+        };
+        publish(live);
+      },
     });
   } finally {
     progress.clear();

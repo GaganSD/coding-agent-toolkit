@@ -37,6 +37,28 @@ click-state rules. Set `HERDR_APP_HOME` to use a different app home.
 - Open **Settings** to choose sources, edit paths, toggle cached tokens, or
   change the palette and refresh interval.
 
+## Long scans and recovery
+
+- A foreground refresh is a bounded slice. When work remains it returns
+  committed data, the dashboard keeps rendering, and the view automatically
+  continues. Herdr's exec timeout is unchanged.
+- A giant non-seekable zstd archive that cannot finish in one slice continues
+  in one managed local detached Node worker. Polling never restarts it. There
+  is no fabricated compressed-offset resume; after a crash the unfinished
+  archive and any uncheckpointed batch are replayed, while completed files stay
+  committed.
+- `prepare` and status reads use a metadata-only cache plus sanitized live progress
+  (current file, decoded bytes, counters). Only a matching live local worker
+  claim and writer lock at the same generation may publish it; rows, config,
+  and accounting always come from committed state.
+- `savedAt`/`lastScanAt` is the last persisted write; `lastCompletedScanAt` is
+  the last fully completed scan. A saved partial scan is not a completed scan.
+- Locks fail closed. Empty, foreign, or legacy lock state is never age-evicted
+  automatically. Clean up manually only after proving no writer is running;
+  `lock.acquire-*`/quarantine leftovers are inactive, but recheck before
+  deleting anything.
+- Node.js 22.15+ is required.
+
 ## Privacy
 
 No network requests or uploads. The mod runs a local Node helper, reads session

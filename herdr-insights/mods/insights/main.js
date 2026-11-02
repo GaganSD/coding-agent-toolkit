@@ -51,6 +51,12 @@ const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
 const TAB = { name: "Insights", mod: "insights" };
 
+function shortFileName(value) {
+  if (typeof value !== "string" || value.length === 0) return "";
+  const index = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
+  return index >= 0 ? value.slice(index + 1) : value;
+}
+
 /** One Insights tab per space: focus it if it exists, otherwise create it. */
 function showInsights() {
   const active = spaces().find((space) => space.active);
@@ -754,12 +760,35 @@ export default class Insights extends View {
         let next = null;
         try {
           const parsed = JSON.parse(await readTextFile(this.progressPath()));
-          if (parsed && Number.isFinite(Number(parsed.processed)) && Number.isFinite(Number(parsed.total))) next = parsed;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            // Merge only allowlisted display metadata into the last foreground
+            // view: a mid-file stream update must not drop discovery counters.
+            const merged = { ...(this.scanProgress ?? {}) };
+            let useful = false;
+            for (const key of ["processed", "total", "filesRead", "bytesRead", "bytes", "decodedBytes"]) {
+              const value = Number(parsed[key]);
+              if (Number.isFinite(value) && value >= 0) {
+                merged[key === "bytes" ? "decodedBytes" : key] = Math.floor(value);
+                useful = true;
+              }
+            }
+            if (typeof parsed.file === "string") {
+              merged.file = parsed.file;
+              useful = true;
+            }
+            if (typeof parsed.phase === "string") {
+              merged.phase = parsed.phase;
+              useful = true;
+            }
+            if (useful) next = merged;
+          }
         } catch { /* the progress file is best-effort */ }
         if (generation !== this.progressGeneration || !this.loading) return;
         this.progressTask = null;
         const changed = (next?.processed ?? null) !== (this.scanProgress?.processed ?? null)
-          || (next?.file ?? null) !== (this.scanProgress?.file ?? null);
+          || (next?.file ?? null) !== (this.scanProgress?.file ?? null)
+          || (next?.decodedBytes ?? null) !== (this.scanProgress?.decodedBytes ?? null)
+          || (next?.phase ?? null) !== (this.scanProgress?.phase ?? null);
         this.scanProgress = next;
         if (changed) progressCx.notify();
       });
@@ -814,14 +843,26 @@ export default class Insights extends View {
   scanStatusLabel(scan) {
     if (!scan || typeof scan !== "object") return "";
     if (scan.status === "reconfiguring") return "Applying configuration…";
+    const live = scan.live && typeof scan.live === "object" ? scan.live : null;
+    const total = Number(live?.total ?? scan.total) || 0;
+    const processed = Number(live?.processed ?? scan.processed) || 0;
+    const file = shortFileName(live?.file);
+    const decodedBytes = Number(live?.decodedBytes) || 0;
     if (scan.status === "running" || scan.status === "starting") {
-      return Number(scan.total) > 0
-        ? `Indexing ${formatInt(scan.processed)} of ${formatInt(scan.total)} files…`
+      if (live && (file || decodedBytes > 0)) {
+        const counts = total > 0
+          ? `${formatInt(processed)} of ${formatInt(total)} files`
+          : "in the background";
+        return [`Indexing ${counts}`, file, decodedBytes > 0 ? `${formatBytes(decodedBytes)} decoded` : null]
+          .filter(Boolean).join(" · ") + "…";
+      }
+      return total > 0
+        ? `Indexing ${formatInt(processed)} of ${formatInt(total)} files…`
         : "Indexing in the background…";
     }
     if (scan.status === "partial") {
-      return Number(scan.total) > 0
-        ? `Scanning ${formatInt(scan.processed)} of ${formatInt(scan.total)} files…`
+      return total > 0
+        ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files…`
         : "Scanning…";
     }
     return "";
@@ -1453,11 +1494,15 @@ export default class Insights extends View {
     const total = Number(progress?.total) || 0;
     const processed = Number(progress?.processed) || 0;
     const file = typeof progress?.file === "string" ? progress.file : "";
+    const decodedBytes = Number(progress?.decodedBytes ?? progress?.bytes) || 0;
     return stateCard(c, {
       tone: loading ? c.accent : c.destructive,
       title: loading ? "Loading local insights" : "Insights needs its collector",
       body: loading
-        ? (total > 0 ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files` : null)
+        ? [
+          total > 0 ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files` : null,
+          decodedBytes > 0 ? `${formatBytes(decodedBytes)} decoded` : null,
+        ].filter(Boolean).join(" · ") || null
         : (this.error || "The collector did not return a snapshot yet."),
       detail: loading && file ? file : null,
       action: loading || this.busy() ? null : button("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), c, {

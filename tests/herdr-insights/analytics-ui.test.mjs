@@ -1358,3 +1358,63 @@ test("scan progress awaits the host read and ignores results after cancellation"
   assert.equal(instance.scanProgress, null);
   assert.equal(instance.progressTask, null);
 });
+
+test("progress poll merges mid-file stream state, keeps counts, and stops when settled", async () => {
+  const state = useHerdr({
+    readTextFile: async () => JSON.stringify({
+      file: "/tmp/open-giant.jsonl.zst",
+      decodedBytes: 4096,
+      rows: [{ injected: true }],
+      config: { injected: true },
+    }),
+  });
+  const instance = blankInstance();
+  instance.sourceInputs = new Map();
+  instance.loading = true;
+  const { cx, calls } = liveCx();
+  instance.armProgress(cx);
+  instance.scanProgress = { processed: 7, total: 11, file: "/tmp/previous.jsonl" };
+  calls.timers[0].fn(cx);
+  await flush();
+  assert.equal(instance.scanProgress.processed, 7, "stream progress keeps accepted counts");
+  assert.equal(instance.scanProgress.total, 11);
+  assert.equal(instance.scanProgress.decodedBytes, 4096);
+  assert.equal(instance.scanProgress.file, "/tmp/open-giant.jsonl.zst");
+  assert.equal(instance.scanProgress.rows, undefined, "only display metadata is accepted");
+  assert.equal(instance.scanProgress.config, undefined);
+
+  instance.loading = false;
+  calls.timers[0].fn(cx);
+  await flush();
+  assert.equal(instance.scanProgress, null, "completion stops and clears the poll");
+  assert.equal(instance.progressTimer, null);
+  const reads = state.runtimeReads.length;
+  calls.timers[0].fn(cx);
+  await flush();
+  assert.equal(state.runtimeReads.length, reads, "a settled poll never reads again");
+
+  instance.loading = true;
+  instance.armProgress(cx);
+  instance.close();
+  assert.equal(instance.scanProgress, null, "close cancels in-flight progress");
+  assert.equal(instance.progressTimer, null);
+});
+
+test("running worker status shows current file and decoded bytes", () => {
+  const instance = blankInstance();
+  const label = instance.scanStatusLabel({
+    status: "running",
+    processed: 2,
+    total: 10,
+    live: {
+      file: "/home/u/.codex/sessions/open-giant.jsonl.zst",
+      processed: 3,
+      total: 10,
+      decodedBytes: 123_456,
+      phase: "decompress",
+    },
+  });
+  assert.match(label, /Indexing 3 of 10 files/);
+  assert.match(label, /open-giant\.jsonl\.zst/, "the live file is visible");
+  assert.match(label, /decoded/, "in-progress decoded bytes are visible");
+});

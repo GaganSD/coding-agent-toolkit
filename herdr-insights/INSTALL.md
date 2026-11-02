@@ -27,3 +27,12 @@ only if requested: click **Insights**, or add `-- --open` to the install command
 Stop and report; do not force overwrites or rebuild to bypass errors. Preserve
 local edits and any failed layout clone. Remove the app home's
 `.insights-install.lock` directory only after confirming no installer/uninstaller is running.
+
+Long scans are expected. Foreground refreshes are bounded and auto-continue;
+giant zstd archives may finish in one managed local Node worker. Do not raise
+Herdr's exec timeout. Lock/claim files fail closed: never delete a live or
+foreign owner by age. Remove stale lock, `lock.acquire-*`, or quarantine
+leftovers only after proving no writer is running and rechecking first.
+
+Node.js **22.15+** is required. A partial save updates `savedAt`/`lastScanAt`,
+not `lastCompletedScanAt`.

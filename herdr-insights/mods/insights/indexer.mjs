@@ -132,6 +132,37 @@ export async function runIndexer(argv) {
   process.on("SIGINT", onSignal);
 
   const progress = progressWriter(storePath);
+  // Metadata-only live view. Discovery counters survive stream updates so the
+  // UI never loses the accepted progress while a single giant file decodes.
+  let live = {
+    processed: 0,
+    total: 0,
+    file: null,
+    filesRead: 0,
+    bytesRead: 0,
+    decodedBytes: 0,
+    phase: "scan",
+  };
+  const publishProgress = (state = {}) => {
+    if (Number.isInteger(state.processed)) live.processed = state.processed;
+    if (Number.isInteger(state.total)) live.total = state.total;
+    if (typeof state.file === "string") live.file = state.file;
+    if (typeof state.phase === "string") live.phase = state.phase;
+    if (Number.isInteger(state.decodedBytes)) live.decodedBytes = state.decodedBytes;
+    if (Number.isInteger(state.bytes)) live.decodedBytes = state.bytes;
+    if (Number.isInteger(state.filesRead)) live.filesRead = state.filesRead;
+    if (Number.isInteger(state.bytesRead)) live.bytesRead = state.bytesRead;
+    if (Number.isInteger(state.stats?.filesRead)) live.filesRead = state.stats.filesRead;
+    if (Number.isInteger(state.stats?.bytesRead)) live.bytesRead = state.stats.bytesRead;
+    progress.update({
+      ...live,
+      mode: "worker",
+      workerPid: process.pid,
+      generation,
+      token: claimToken,
+      store: storePath,
+    });
+  };
   let lastSave = Date.now();
   try {
     const result = await withStoreLock(storePath, async () => {
@@ -191,20 +222,10 @@ export async function runIndexer(argv) {
           streamDelayMs: testStreamDelayMs,
           shouldStop: () => stopping || fenceAborted,
           onProgress: (state) => {
-            progress.update({
-              ...state,
-              mode: "worker",
-              workerPid: process.pid,
-              generation,
-            });
+            publishProgress({ ...state, decodedBytes: 0 });
           },
           onStreamProgress: (state) => {
-            progress.update({
-              ...state,
-              mode: "worker",
-              workerPid: process.pid,
-              generation,
-            });
+            publishProgress(state);
           },
           onCheckpoint: async (state) => {
             if (testFailAfterCheckpointMs > 0) {
@@ -216,15 +237,13 @@ export async function runIndexer(argv) {
             scanViewUpdate(store, state);
             store.scan.workerPid = process.pid;
             const finished = new Date().toISOString();
-            progress.update({
+            publishProgress({
               processed: state.processed,
               total: state.total,
               file: state.file,
               filesRead: state.stats?.filesRead ?? 0,
               bytesRead: state.stats?.bytesRead ?? 0,
-              mode: "worker",
-              workerPid: process.pid,
-              generation,
+              decodedBytes: 0,
               phase: "scan",
             });
             if (Date.now() - lastSave >= SAVE_INTERVAL_MS) {
