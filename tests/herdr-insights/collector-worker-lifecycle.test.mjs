@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -187,6 +187,7 @@ test("worker failure is recorded under the lock and never clobbers a queued gene
     if (isProcessAlive(child.pid)) {
       try { process.kill(child.pid, "SIGTERM"); } catch { /* already gone */ }
     }
+    await rm(ctx.root, { recursive: true, force: true });
   }
 });
 
@@ -237,5 +238,6 @@ test("promotion spawns one worker that waits out the launcher lock handoff", asy
     }
     await waitFor(async () => !(worker?.pid && isProcessAlive(worker.pid)), { timeoutMs: 5_000 });
     await waitFor(async () => (await readWorkerClaim(ctx.store)) === null, { timeoutMs: 5_000 });
+    await rm(ctx.root, { recursive: true, force: true });
   }
 });
