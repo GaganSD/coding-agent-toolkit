@@ -63,6 +63,17 @@ test("expanded members, images, unknown tools, text and narrow terminals break f
   groups.dispose();
 });
 
+test("mutations fold like any other tool, diff block included", () => {
+  for (const name of ["edit", "write"]) {
+    const { chat, groups } = setup();
+    chat.children.splice(1, 0, mockTool(name));
+    const rows = chat.render(80).join("\n");
+    assert.match(rows, /Done \(3 tool calls\)/);
+    assert.match(rows, /├─ ✓ Bash \(pwd\)/, "members keep their guides");
+    groups.dispose();
+  }
+});
+
 test("groups retain their summary and guides without a theme", () => {
   const chat = new Container();
   chat.addChild(mockTool()); chat.addChild(mockTool());

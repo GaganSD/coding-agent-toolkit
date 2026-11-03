@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- New `/theme` picker: Light/Dark sections, 15 palettes per flavor, live preview, Enter saves, Escape restores, responsive two-column/stacked/tiny layouts. `/theme slate` stays an alias and `/slate theme` opens the same picker.
+- The selector groups Catppuccin under **Light** (Latte, Frappé) and **Dark** (Macchiato, Mocha) sections; Tokyo Night and Black Metal sit under Dark. Frappé is mid-dark and is grouped under Light by choice.
+- Selected rows in the picker use body text on the selection background, keeping every light palette above 3:1 instead of ~1.45:1 for accent-colored selections.
+- Catppuccin Latte (light), Frappé, and Macchiato flavors alongside Mocha, all taken from the official palette (https://catppuccin.com/palette).
+- Each flavor ships the same 15 palettes: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default. Palette choices survive navigation within the selector.
+- On Pi 1.4, cancelling after preview restores the original palette but automatic terminal-appearance following resumes only after `/reload` (public theme-instance API limitation). Saved theme and light/dark settings are untouched.
+
+### Changed
+
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest); diffs still fold into the usual grouped tool runs.
+- `/theme` is the only theme surface: `/slate theme` opens the picker and takes no arguments. `/slate theme <flavor> <palette>` and the old `/slate theme <name>` forms are now plain invalid usage instead of a second 60-name command tree.
+- `/slate style` is removed along with the theme arguments; the picker is the only theme surface. Pink is labelled `Pink` instead of its full theme name, and saved full names such as `catppuccin-latte-mauve` remain valid through Pi's `/settings`.
+- Mocha Quiet remains a saved theme and now shows as the last palette in the Mocha row.
+- Effort ramps follow each flavor: dark flavors brighten toward the accent, Latte deepens toward an accent darkened into body text, so every ramp stays monotonic.
+
 ### Fixed
 
 - Native MCP validation is used on newer Pi versions by default. Missing validation is a warning, not a configuration failure.

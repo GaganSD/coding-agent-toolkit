@@ -80,15 +80,8 @@ import {
 } from "./bug.ts";
 import { findChatContainer, layoutRootOf, syncMessageWindow, type MessageWindow } from "./message-window.ts";
 import { installNewSessionNoticeFilter } from "./stock-notices.ts";
-import {
-  STYLE_LABELS,
-  STYLES,
-  resolveCatppuccinTheme,
-  themeMessage,
-  type Flavor,
-  type Style,
-} from "./catppuccin.ts";
-import { persistTheme, SLATE_NATIVE_THEME, SLATE_THEME } from "./install-defaults.ts";
+import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
+import { selectSlateTheme } from "./theme-selector.ts";
 import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
@@ -862,51 +855,19 @@ export default function piSlate(pi: ExtensionAPI): void {
     return undefined;
   };
 
-  const currentCatppuccin = (ctx: ExtensionContext) => resolveCatppuccinTheme(ctx.ui.theme.name);
-
-  const pickStyle = async (ctx: ExtensionContext): Promise<Style | undefined> => {
-    const current = currentCatppuccin(ctx).style;
-    const value = await ctx.ui.select(
-      "Style",
-      STYLES.map((style) => withCurrent(STYLE_LABELS[style], style === current)),
-    );
-    if (!value) return undefined;
-    const key = withoutCurrent(value);
-    return STYLES.find((style) => STYLE_LABELS[style] === key);
-  };
-
-  const applyNamedTheme = (ctx: ExtensionContext, name: string, message?: string): void => {
+  const applyNamedTheme = (ctx: ExtensionContext, name: string): boolean => {
     const result = ctx.ui.setTheme(name);
     if (!result.success) {
       ctx.ui.notify(result.error ?? `Could not load ${name}. Run /reload first.`, "error");
-      return;
+      return false;
     }
     persistTheme(ctx.cwd, name);
     requestRender(true);
-    ctx.ui.notify(message ?? `Theme set to ${name === SLATE_NATIVE_THEME ? "system default" : name}`, "info");
+    ctx.ui.notify(`Theme set to ${name === SLATE_NATIVE_THEME ? "system default" : name}`, "info");
+    return true;
   };
 
-  const applyCatppuccin = (ctx: ExtensionContext, flavor: Flavor, style: Style): void => {
-    const next = resolveCatppuccinTheme(ctx.ui.theme.name, flavor, style);
-    applyNamedTheme(ctx, next.name, themeMessage(next.flavor, next.style));
-  };
-
-  const pickTheme = async (ctx: ExtensionContext): Promise<void> => {
-    const mocha = currentCatppuccin(ctx).style;
-    const value = await ctx.ui.select("Theme", [
-      withCurrent("System default", ctx.ui.theme.name === SLATE_NATIVE_THEME),
-      withCurrent("Tokyo Night", ctx.ui.theme.name === SLATE_THEME),
-      withCurrent("Black Metal", ctx.ui.theme.name === "black-metal"),
-      ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], ctx.ui.theme.name?.startsWith("catppuccin-") === true && style === mocha)),
-    ]);
-    if (!value) return;
-    const key = withoutCurrent(value);
-    if (key === "System default") { applyNamedTheme(ctx, SLATE_NATIVE_THEME); return; }
-    if (key === "Tokyo Night") { applyNamedTheme(ctx, SLATE_THEME, "Theme set to Tokyo Night"); return; }
-    if (key === "Black Metal") { applyNamedTheme(ctx, "black-metal", "Theme set to Black Metal"); return; }
-    const style = STYLES.find((item) => STYLE_LABELS[item] === key);
-    if (style) applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
-  };
+  const pickTheme = (ctx: ExtensionContext): Promise<void> => selectSlateTheme(ctx, name => applyNamedTheme(ctx, name));
 
   const pickWidth = async (ctx: ExtensionContext): Promise<{ picked: true; width?: number } | undefined> => {
     const percent = sidebar.preferredWidth ?? config.sidebarPercent;
@@ -1115,6 +1076,15 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
   };
 
+  // Pi 1.4 has no built-in /theme command; core theme selection lives in /settings.
+  pi.registerCommand("theme", {
+    description: "Choose a theme with live preview",
+    handler: async (args, ctx) => {
+      if (args.trim() && args.trim() !== "slate") { ctx.ui.notify("Usage: /theme (Pi themes are also available in /settings)", "info"); return; }
+      await pickTheme(ctx);
+    },
+  });
+
   pi.registerCommand("slate", {
     description: "Session dashboard, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, header logo, progress indicator, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
@@ -1235,24 +1205,6 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       if (kind === "theme-menu") {
         await pickTheme(ctx);
-        return;
-      }
-
-      if (parsed.kind === "named-theme") {
-        applyNamedTheme(ctx, parsed.name); return;
-      }
-
-      if (parsed.kind === "theme") {
-        const style = parsed.style ?? (parsed.flavor ? currentCatppuccin(ctx).style : await pickStyle(ctx));
-        if (!style) return;
-        applyCatppuccin(ctx, parsed.flavor ?? currentCatppuccin(ctx).flavor, style);
-        return;
-      }
-
-      if (kind === "style") {
-        const style = (parsed.kind === "style" ? parsed.value : undefined) ?? await pickStyle(ctx);
-        if (!style) return;
-        applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
         return;
       }
 

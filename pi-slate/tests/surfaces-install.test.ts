@@ -91,6 +91,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   let header: Component | undefined;
   const ui = {
     theme,
+    getTheme: (name: string) => ({ ...theme, name }),
     notify: (message: string) => notices.push(message),
     setHeader: (factory: ((tui: TUI, theme: Theme) => Component) | undefined) => { assert.ok(factory); calls.push("header"); header = factory(tui, theme); },
     setFooter: (factory: (() => Component) | undefined) => { assert.ok(factory); calls.push("footer"); assert.deepEqual(factory().render(80), []); },
@@ -374,35 +375,51 @@ test("real host below-editor widget renderer adds no rows for the TUI handle", (
 
 const unstyled = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 
-test("system default and explicit Tokyo Night preserve unrelated native settings", async t => {
+test("picker choices preserve unrelated native settings", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   const settingsPath = join(dirname(f.path), "settings.json");
   await writeFile(settingsPath, JSON.stringify({ theme: "existing-theme", quietStartup: true, packages: ["keep-this-package"] }));
   const themes: string[] = [];
   t.mock.method(f.ctx.ui, "setTheme", (name: string) => { themes.push(name); return { success: true }; });
-  await f.commands.get("slate")!.handler("theme default", f.ctx);
+  t.mock.method(f.ctx.ui, "custom", async () => "system");
+  await f.commands.get("slate")!.handler("theme", f.ctx);
   assert.deepEqual(themes, ["system"]);
   let saved = JSON.parse(await readFile(settingsPath, "utf8"));
   assert.equal(saved.theme, "system"); assert.equal(saved.quietStartup, true);
   assert.deepEqual(saved.packages, ["keep-this-package"]);
-  await f.commands.get("slate")!.handler("theme tokyo-night", f.ctx);
+  t.mock.method(f.ctx.ui, "custom", async () => "tokyo-night");
+  await f.commands.get("slate")!.handler("theme", f.ctx);
   assert.deepEqual(themes, ["system", "tokyo-night"]);
   saved = JSON.parse(await readFile(settingsPath, "utf8"));
   assert.equal(saved.theme, "tokyo-night"); assert.equal(saved.quietStartup, true);
   assert.deepEqual(saved.packages, ["keep-this-package"]);
 });
 
-test("Black Metal is selectable by command and from the theme picker", async t => {
+test("/theme opens directly, retains aliases, and rejects unknown arguments", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: [] }));
+  const menus: string[] = [];
+  t.mock.method(f.ctx.ui, "custom", async () => { menus.push("Theme"); return undefined; });
+  t.mock.method(f.ctx.ui, "setTheme", () => ({ success: true }));
+  await f.commands.get("theme")!.handler("", f.ctx);
+  await f.commands.get("theme")!.handler("  ", f.ctx);
+  await f.commands.get("theme")!.handler("slate", f.ctx);
+  await f.commands.get("slate")!.handler("theme", f.ctx);
+  assert.deepEqual(menus, ["Theme", "Theme", "Theme", "Theme"]);
+  await f.commands.get("theme")!.handler("dark", f.ctx);
+  await f.commands.get("theme")!.handler("slate extra", f.ctx);
+  assert.deepEqual(menus, ["Theme", "Theme", "Theme", "Theme"], "unrelated arguments never open the Slate picker");
+  assert.equal(f.commands.has("settings"), false, "core settings remain untouched");
+});
+
+test("a picker choice is persisted as the saved theme", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   const settingsPath = join(dirname(f.path), "settings.json");
   const themes: string[] = [];
   t.mock.method(f.ctx.ui, "setTheme", (name: string) => { themes.push(name); return { success: true }; });
-  await f.commands.get("slate")!.handler("theme black-metal", f.ctx);
+  t.mock.method(f.ctx.ui, "custom", async () => "black-metal");
+  await f.commands.get("slate")!.handler("theme", f.ctx);
   assert.deepEqual(themes, ["black-metal"]);
   assert.equal(JSON.parse(await readFile(settingsPath, "utf8")).theme, "black-metal");
-  f.choices.push("Black Metal");
-  await f.commands.get("slate")!.handler("theme", f.ctx);
-  assert.deepEqual(themes, ["black-metal", "black-metal"], "picker lists Black Metal");
 });
 
 test("prompt shortcut stays unset unless shortcuts.prompts is a valid chord", async t => {

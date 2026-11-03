@@ -262,35 +262,27 @@ test("/slate args route density, footer, and width", () => {
     { value: "progress snake", label: "progress snake" },
     { value: "progress cylon-scanner", label: "progress cylon-scanner" },
   ]);
-  assert.deepEqual(slateArgumentCompletions("theme b"), [
-    { value: "theme black-metal", label: "theme black-metal" },
-  ]);
-  assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
-  assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
-  assert.deepEqual(parseSlateArgs("message-length 50"), { ok: true, kind: "message-length", value: 50 });
-  assert.deepEqual(parseSlateArgs("message-length all"), { ok: true, kind: "message-length", value: "all" });
-  assert.deepEqual(parseSlateArgs("bug"), { ok: true, kind: "bug-menu" });
-  assert.deepEqual(parseSlateArgs("bug file"), { ok: true, kind: "bug", action: "file" });
-  assert.deepEqual(parseSlateArgs("bug open"), { ok: true, kind: "bug", action: "open" });
+  assert.equal(slateArgumentCompletions("theme b"), null);
+  assert.equal(slateArgumentCompletions("theme lat"), null);
   assert.deepEqual(parseSlateArgs("theme"), { ok: true, kind: "theme-menu" });
-  assert.deepEqual(parseSlateArgs("theme mocha"), { ok: true, kind: "theme", flavor: "mocha" });
-  assert.deepEqual(parseSlateArgs("theme mauve"), { ok: true, kind: "theme", style: "mauve" });
-  assert.deepEqual(parseSlateArgs("theme mocha mauve"), {
-    ok: true,
-    kind: "theme",
-    flavor: "mocha",
-    style: "mauve",
-  });
-  assert.deepEqual(parseSlateArgs("theme black-metal"), { ok: true, kind: "named-theme", name: "black-metal" });
-  assert.deepEqual(parseSlateArgs("theme blackmetal"), { ok: true, kind: "named-theme", name: "black-metal" });
-  assert.deepEqual(parseSlateArgs("theme black-metal extra"), { ok: false });
-  assert.deepEqual(parseSlateArgs("theme pantera"), { ok: false });
-  assert.deepEqual(parseSlateArgs("theme latte quiet"), { ok: false });
+  // Theme selection moved into the `/theme` picker; arguments are invalid, not routed.
+  for (const args of [
+    "theme mocha", "theme mauve", "theme mocha mauve", "theme black-metal", "theme blackmetal",
+    "theme pantera", "theme latte quiet", "theme catppuccin-mocha-pink",
+    "theme mocha catppuccin-mocha-pink", "theme pink", "theme latte", "theme frappe rosewater",
+    "theme frappé maroon", "theme macchiato default", "theme mocha quiet", "theme latte blue",
+    "theme nope", "theme mocha mauve extra", "theme system", "theme default",
+  ]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
   assert.deepEqual(parseSlateArgs("flavor mocha"), { ok: false });
   assert.deepEqual(parseSlateArgs("diff"), { ok: false });
-  assert.deepEqual(parseSlateArgs("style sapphire"), { ok: true, kind: "style", value: "sapphire" });
-  assert.deepEqual(parseSlateArgs("theme nope"), { ok: false });
-  assert.deepEqual(parseSlateArgs("theme mocha mauve extra"), { ok: false });
+  // `/slate style` is gone; the picker is the only theme surface.
+  for (const args of ["style", "style sapphire", "style catppuccin-mocha-pink", "style quiet"]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
+  assert.equal(slateArgumentCompletions("style"), null);
+  assert.equal(slateArgumentCompletions("theme p"), null);
   assert.deepEqual(parseSlateArgs("bug nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("width nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("nope"), { ok: false });
