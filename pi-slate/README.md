@@ -34,7 +34,7 @@ While the model runs, the composer edge shows a progress animation — `/slate p
 
 ### Diff
 
-With `tool-cards` selected, `edit` and `write` results are syntax-highlighted in the transcript even while collapsed: the first 16 diff rows render inline (split view for edits at 100+ columns), and expanding the tool shows the rest. Diff blocks stay outside grouped tool lists so the split layout keeps its width.
+With `tool-cards` selected, `edit` and `write` results are syntax-highlighted in the transcript even while collapsed: the first 16 diff rows render inline (split view for edits when the row has 100+ columns), and expanding the tool shows the rest. Diffs keep folding into `Done (N tool calls)` groups like any other row.
 
 ![Split YAML edit with word-level emphasis](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-diff-yaml.png)
 

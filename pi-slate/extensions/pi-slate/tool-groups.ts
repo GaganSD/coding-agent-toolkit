@@ -4,8 +4,6 @@ import { truncateToWidth, type Component, type Container, type TuiMouseEvent } f
 import { TOOL_STYLE_NAMES } from "./tool-style.ts";
 
 const names = new Set(TOOL_STYLE_NAMES);
-/** Diff blocks keep their own width; indenting them inside a group ruins the split view. */
-const diffNames = new Set(["edit", "write"]);
 type Tool = Component & {
   toolCallId: string; toolName: string; expanded: boolean; isPartial: boolean;
   result?: { isError?: boolean; content?: Array<{ type: string }> };
@@ -15,7 +13,6 @@ type Thought = Component & { hideThinkingBlock?: boolean; thinkingVisibilityOver
 function tool(component: Component): component is Tool {
   const value = component as Partial<Tool>;
   return typeof value.toolCallId === "string" && names.has(value.toolName ?? "")
-    && !diffNames.has(value.toolName ?? "")
     && typeof value.setExpanded === "function" && typeof value.expanded === "boolean"
     && !value.result?.content?.some((part) => part.type === "image");
 }

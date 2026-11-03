@@ -63,13 +63,13 @@ test("expanded members, images, unknown tools, text and narrow terminals break f
   groups.dispose();
 });
 
-test("diff blocks never fold into a tool group", () => {
+test("mutations fold like any other tool, diff block included", () => {
   for (const name of ["edit", "write"]) {
     const { chat, groups } = setup();
     chat.children.splice(1, 0, mockTool(name));
     const rows = chat.render(80).join("\n");
-    assert.doesNotMatch(rows, /Done \(|Running \(/);
-    assert.match(rows, /^ {0,2}✓ Bash \(pwd\)/m, "neighbours keep their own rows");
+    assert.match(rows, /Done \(3 tool calls\)/);
+    assert.match(rows, /├─ ✓ Bash \(pwd\)/, "members keep their guides");
     groups.dispose();
   }
 });
