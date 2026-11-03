@@ -21,7 +21,7 @@ export type SearchEffort = (typeof SEARCH_EFFORTS)[number];
 /** `{ type: "string", enum }`: Google-compatible string enum, identical JSON to pi-ai's StringEnum. */
 function stringEnum<const T extends readonly string[]>(
 	values: T,
-	options?: { description?: string; default?: T[number] },
+	options?: { description?: string },
 ): Schema<T[number]> {
 	return {
 		type: "string",
