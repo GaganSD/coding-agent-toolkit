@@ -12,8 +12,9 @@
 
 ### Changed
 
-- `/slate theme <palette>` and `/slate style <palette>` accept bare palette names; `catppuccin-mocha-pink` and every full `catppuccin-<flavor>-<palette>` name still resolve. Pink is now labelled `Pink` instead of its full theme name.
-- `/slate theme <flavor> [palette]` switches flavor without losing the current palette. Mocha Quiet remains available as a legacy palette.
+- `/theme` is the only theme surface: `/slate theme` opens the picker and takes no arguments. `/slate theme <flavor> <palette>` and the old `/slate theme <name>` forms are now plain invalid usage instead of a second 60-name command tree.
+- `/slate style <palette>` keeps accepting bare palette names, `catppuccin-mocha-pink`, and every full `catppuccin-<flavor>-<palette>` name. Pink is now labelled `Pink` instead of its full theme name.
+- Mocha Quiet remains available as a legacy palette.
 - Effort ramps follow each flavor: dark flavors brighten toward the accent, light flavors deepen toward it.
 
 ### Fixed

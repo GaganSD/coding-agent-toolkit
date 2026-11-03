@@ -78,24 +78,9 @@ All colors come from the official Catppuccin palette (https://catppuccin.com/pal
 
 The selector requires interactive terminal mode. Pi 1.4 has no built-in `/theme` command; core theme selection remains in `/settings`. After previewing and cancelling, Pi's public theme-instance API restores the original palette but pauses automatic terminal-appearance following (including `system` and light/dark pairs) until `/reload`. Merely opening and cancelling without previewing does not affect appearance following.
 
-Direct selection with `/slate theme <name>` remains supported:
+`/slate theme` opens the same picker and nothing else — it takes no arguments. Every bundled theme (system, Tokyo Night, Black Metal, and all Catppuccin flavors and palettes) is reachable from `/theme`, so the picker is the only documented theme surface. `/slate style <palette>` stays as a Catppuccin-only compatibility alias; full theme names such as `catppuccin-latte-mauve` are still accepted by `/slate style` and by Pi's own `/settings`.
 
-| Command | Result |
-| --- | --- |
-| `/slate theme system` (or `default`) | Pi's system theme |
-| `/slate theme tokyo-night` | Tokyo Night (dark) |
-| `/slate theme black-metal` | Black Metal (dark) |
-| `/slate theme latte` | Catppuccin Latte (light) |
-| `/slate theme frappe` (or `frappé`) | Catppuccin Frappé (light) |
-| `/slate theme macchiato` | Catppuccin Macchiato (dark) |
-| `/slate theme mocha` | Catppuccin Mocha (dark) |
-| `/slate theme <flavor> <palette>` | e.g. `latte rosewater`, `mocha mauve`, `frappe teal` |
-| `/slate theme <palette>` | Sets that palette on the current flavor |
-| `/slate style <palette>` | Retained Catppuccin alias |
-
-The palette names are `rosewater`, `flamingo`, `pink`, `mauve`, `red`, `maroon`, `peach`, `yellow`, `green`, `teal`, `sky`, `sapphire`, `blue`, `lavender`, and `default`; `quiet` stays a legacy Mocha alias. Full theme names such as `catppuccin-latte-mauve` are accepted too.
-
-Black Metal is an optional bundled theme, not an install default: pick it with `/slate theme black-metal` or `/theme` (`/slate theme` also opens the menu). Confirmed selections are saved and also appear in `/settings`.
+Black Metal is an optional bundled theme, not an install default: pick it from `/theme` under Dark. Confirmed selections are saved and also appear in `/settings`.
 
 With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin palette, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; on light flavors the ramp deepens toward the accent instead of brightening. The effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
 

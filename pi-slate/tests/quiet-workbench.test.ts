@@ -27,12 +27,13 @@ test("bundled default Tokyo Night loads with the native validator and restrained
   assert.notEqual(theme.getBgAnsi("customMessageBg"), theme.getBgAnsi("userMessageBg"));
 });
 
-test("default restores the system theme while Tokyo Night remains explicit", () => {
-  for (const name of ["default", "tokyo-night", "tokyonight"])
-    assert.deepEqual(parseSlateArgs("theme " + name), { ok: true, kind: "named-theme", name: name === "default" ? "system" : "tokyo-night" });
-  assert.deepEqual(parseSlateArgs("theme mocha default"), { ok: true, kind: "theme", flavor: "mocha", style: "default" });
+test("theme selection belongs to the picker: /slate theme takes no arguments", () => {
+  assert.deepEqual(parseSlateArgs("theme"), { ok: true, kind: "theme-menu" });
+  for (const args of ["theme default", "theme tokyo-night", "theme tokyonight", "theme black-metal",
+    "theme mocha default", "theme mocha mauve", "theme latte", "theme tokyo-night extra"]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
   assert.deepEqual(parseSlateArgs("style default"), { ok: true, kind: "style", value: "default" });
-  assert.deepEqual(parseSlateArgs("theme tokyo-night extra"), { ok: false });
 });
 
 test("compact viewport hides the rail without changing stored width or focus", () => {

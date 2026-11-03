@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { FLAVORS, parseFlavor, parseStyle, STYLES, stylesFor, type Flavor, type Style } from "./catppuccin.ts";
+import { STYLES, parseStyle, type Style } from "./catppuccin.ts";
 import { parseSurfaces, SURFACES, type Surface } from "./surfaces.ts";
 import { isProgressStyle, type ProgressStyle } from "./working-wave.ts";
 
@@ -303,7 +303,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [system|tokyo-night|black-metal|<flavor> [style]|<style>] | style [<style>] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | style [<style>] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -313,7 +313,7 @@ export function withoutCurrent(label: string): string {
   return label.endsWith(" (current)") ? label.slice(0, -" (current)".length) : label;
 }
 
-const THEME_STYLES = [...FLAVORS, ...STYLES] as const;
+const THEME_STYLES = [...STYLES] as const;
 const SLATE_COMPLETIONS = [
   "session", "session mcp", "session skills", "session prompts", "session commands", "session tasks", "session image",
   "surfaces",
@@ -353,11 +353,6 @@ const SLATE_COMPLETIONS = [
   "message-length default",
   "message-length all",
   "theme",
-  "theme system",
-  "theme tokyo-night",
-  "theme black-metal",
-  ...THEME_STYLES.map((style) => `theme ${style}`),
-  ...FLAVORS.flatMap((flavor) => stylesFor(flavor).map((style) => `theme ${flavor} ${style}`)),
   "style",
   ...THEME_STYLES.map((style) => `style ${style}`),
   "bug",
@@ -381,8 +376,6 @@ export type SlateArgs =
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
-  | { ok: true; kind: "named-theme"; name: "system" | "tokyo-night" | "black-metal" }
-  | { ok: true; kind: "theme"; flavor?: Flavor; style?: Style }
   | { ok: true; kind: "style"; value?: Style }
   | { ok: true; kind: "bug-menu" }
   | { ok: true; kind: "bug"; action: "file" | "open" }
@@ -391,7 +384,7 @@ export type SlateArgs =
 export function parseSlateArgs(raw: string): SlateArgs {
   const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return { ok: true, kind: "menu" };
-  const [head, tail, extra] = words;
+  const [head, tail] = words;
   if (head === "session") {
     if (words.length === 1) return { ok: true, kind: "session" };
     if (words.length === 2 && (tail === "mcp" || tail === "skills" || tail === "prompts" || tail === "commands" || tail === "tasks" || tail === "image")) return { ok: true, kind: "session", section: tail };
@@ -407,22 +400,9 @@ export function parseSlateArgs(raw: string): SlateArgs {
     }
     return { ok: false };
   }
+  // Theme selection lives in the `/theme` picker; `/slate theme` only opens it.
   if (head === "theme") {
-    if (words.length > 3) return { ok: false };
-    if (!tail) return { ok: true, kind: "theme-menu" };
-    if (tail === "default" && !extra) return { ok: true, kind: "named-theme", name: "system" };
-    if (tail === "system" && !extra) return { ok: true, kind: "named-theme", name: "system" };
-    if ((tail === "tokyo-night" || tail === "tokyonight") && !extra) return { ok: true, kind: "named-theme", name: "tokyo-night" };
-    if ((tail === "black-metal" || tail === "blackmetal") && !extra) return { ok: true, kind: "named-theme", name: "black-metal" };
-    const flavor = parseFlavor(tail);
-    if (flavor) {
-      if (!extra) return { ok: true, kind: "theme", flavor };
-      const style = parseStyle(extra);
-      return style && stylesFor(flavor).includes(style) ? { ok: true, kind: "theme", flavor, style } : { ok: false };
-    }
-    const style = parseStyle(tail);
-    if (style && !extra) return { ok: true, kind: "theme", style };
-    return { ok: false };
+    return words.length === 1 ? { ok: true, kind: "theme-menu" } : { ok: false };
   }
   if (words.length > 2) return { ok: false };
   if (head === "style") {

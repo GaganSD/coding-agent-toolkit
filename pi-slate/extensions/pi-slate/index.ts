@@ -1234,17 +1234,6 @@ export default function piSlate(pi: ExtensionAPI): void {
         return;
       }
 
-      if (parsed.kind === "named-theme") {
-        applyNamedTheme(ctx, parsed.name); return;
-      }
-
-      if (parsed.kind === "theme") {
-        const style = parsed.style ?? (parsed.flavor ? currentCatppuccin(ctx).style : await pickStyle(ctx));
-        if (!style) return;
-        applyCatppuccin(ctx, parsed.flavor ?? currentCatppuccin(ctx).flavor, style);
-        return;
-      }
-
       if (kind === "style") {
         const style = (parsed.kind === "style" ? parsed.value : undefined) ?? await pickStyle(ctx);
         if (!style) return;
