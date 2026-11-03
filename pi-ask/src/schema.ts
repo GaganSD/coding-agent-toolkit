@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-schema";
 
 /** `{ type: "string", enum }`: Google-compatible string enum, identical JSON to pi-ai's StringEnum. */
-export function stringEnum<const T extends readonly string[]>(
+function stringEnum<const T extends readonly string[]>(
 	values: T,
 	options?: { description?: string },
 ): Schema<T[number]> {
