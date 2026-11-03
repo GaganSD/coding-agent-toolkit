@@ -10,6 +10,10 @@
 
 - `catppuccin-mocha-pink` theme, selected by its full name with `/slate theme catppuccin-mocha-pink` or `/slate style catppuccin-mocha-pink`.
 
+### Fixed
+
+- Native MCP validation is used on newer Pi versions by default. Missing validation is a warning, not a configuration failure.
+
 ## 0.1.18
 
 Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.

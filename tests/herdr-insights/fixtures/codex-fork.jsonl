@@ -1,0 +1,5 @@
+{"type":"session_meta","timestamp":"2026-03-07T07:00:00Z","payload":{"id":"6f2c9d7e-4a1b-4c8d-9e3f-2a5b7c8d9e01","cwd":"/repo/codex-fork","model_provider":"openai"}}
+{"type":"session_meta","timestamp":"2026-03-07T07:00:01Z","payload":{"id":"1a2b3c4d-5e6f-4708-9abc-def012345678","cwd":"/repo/codex-fork","model_provider":"openai"}}
+{"type":"turn_context","timestamp":"2026-03-07T07:00:02Z","payload":{"turn_id":"fork-turn-1","model":"fork-model","cwd":"/repo/codex-fork"}}
+{"type":"token_usage_record","timestamp":"2026-03-07T07:00:03Z","payload":{"thread_id":"6f2c9d7e-4a1b-4c8d-9e3f-2a5b7c8d9e01","turn_id":"fork-turn-1","response_id":"fork-response-1","usage":{"input_tokens":50,"cached_input_tokens":10,"cache_write_input_tokens":5,"output_tokens":10,"reasoning_output_tokens":2,"total_tokens":75}}}
+{"type":"event_msg","timestamp":"2026-03-07T07:00:04Z","payload":{"thread_id":"6f2c9d7e-4a1b-4c8d-9e3f-2a5b7c8d9e01","type":"task_complete","turn_id":"fork-turn-1","duration_ms":2000,"started_at":1770000000,"completed_at":1770000002}}

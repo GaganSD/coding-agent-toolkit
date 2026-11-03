@@ -9,27 +9,25 @@ export type SidebarMcpHost = {
   stripBom: boolean;
 };
 
-// Verified against native file parsers; unknown formats still fail closed.
-const HOST_FORMATS = new Map([
-  ["0.99.0", { projectOverrides: false, stripBom: false }],
-  ["1.0.0", { projectOverrides: false, stripBom: false }],
-  ["1.1.0", { projectOverrides: true, stripBom: false }],
-  ["1.3.0", { projectOverrides: true, stripBom: false }],
-  ["1.4.0", { projectOverrides: true, stripBom: true }],
-]);
+/** Version only selects legacy parsing exceptions; capabilities determine availability. */
+function hostParsing(version: string): { projectOverrides: boolean; stripBom: boolean } {
+  if (version === "0.99.0" || version === "1.0.0") return { projectOverrides: false, stripBom: false };
+  const release = /^1\.(\d+)\.(\d+)$/.exec(version);
+  const minor = release ? Number(release[1]) : Number.NaN;
+  const patch = release ? Number(release[2]) : Number.NaN;
+  // 1.0.4+ and the released 1.1–1.3 minors merge project overrides and reject a BOM. 1.4+ strips it.
+  if ((minor === 0 && patch >= 4) || (minor >= 1 && minor < 4)) return { projectOverrides: true, stripBom: false };
+  return { projectOverrides: true, stripBom: true };
+}
 
 export async function loadSidebarMcpHost(packageDir: string, version: string): Promise<SidebarMcpHost | undefined> {
   try {
-    const patch = /^1\.0\.(\d+)$/.exec(version);
-    const format = HOST_FORMATS.get(version)
-      ?? (patch !== null && Number(patch[1]) >= 4 ? { projectOverrides: true, stripBom: false } : undefined);
-    if (!format) return undefined;
+    const { projectOverrides, stripBom } = hostParsing(version);
     const native = await import(pathToFileURL(join(packageDir, "dist/core/mcp-servers.js")).href) as {
       validateMcpServerConfig?: SidebarMcpHost["validate"];
       mcpNamespace?: SidebarMcpHost["namespace"];
     };
     if (typeof native.validateMcpServerConfig !== "function") return undefined;
-    const { projectOverrides, stripBom } = format;
     if (projectOverrides && typeof native.mcpNamespace !== "function") return undefined;
     return { validate: native.validateMcpServerConfig,
       namespace: projectOverrides ? native.mcpNamespace! : name => name, projectOverrides, stripBom };

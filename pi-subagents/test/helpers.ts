@@ -55,7 +55,7 @@ export function plan(prompt: (context: RunContext) => Promise<SubAgentResult> = 
     validate() {},
     async start(context) {
       context.transcript(context.directory + "/transcript/test.jsonl");
-      return { prompt: () => prompt(context), steer: async () => "queued", abort: async () => {}, dispose() {} };
+      return { prompt: () => prompt(context), steer: async () => "queued", followUp: async () => "queued", abort: async () => {}, dispose() {} };
     },
     ...overrides,
   };

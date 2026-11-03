@@ -275,17 +275,19 @@ export class Sidebar implements Component {
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
-    const unknown = this.resources.mcp.some(x => x.enabled === null);
-    const rejected = this.resources.mcp.filter(x => x.enabled === null).length;
+    const unknownCount = this.resources.mcp.filter(x => x.enabled === null).length;
     const errors = this.resources.mcpError
-      ? (this.resources.mcpError === "MCP configuration has rejected entries" && rejected > 0 ? rejected : 1)
+      ? (this.resources.mcpError === "MCP configuration has rejected entries" && unknownCount > 0 ? unknownCount : 1)
       : 0;
+    const allUnknown = unknownCount > 0 && unknownCount === this.resources.mcp.length;
+    const warning = !errors && Boolean(this.resources.mcpWarning);
     const loaded = this.resources.skills.filter(x => x.loaded).length;
-    const resourceHeading = (label: string, count: string, failed = 0): string =>
+    const resourceHeading = (label: string, count: string, failed = 0, warned = false): string =>
       this.heading(label) + this.paint("muted", ` · ${count}`)
-      + (failed ? this.paint("error", ` · ${failed} ${failed === 1 ? "Error" : "Errors"}`) : "");
+      + (failed ? this.paint("error", ` · ${failed} ${failed === 1 ? "Error" : "Errors"}`) : "")
+      + (warned ? this.paint("warning", " · 1 Warning") : "");
     const rows: Row[] = [{ text: "" }, {
-      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, errors || !unknown ? `${enabled} Enabled` : "—", errors),
+      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors, warning),
       action: () => this.toggleSection("mcp"),
     }];
     if (this.folds.mcp) rows.push(...this.resourceRows("mcp"));
@@ -306,8 +308,9 @@ export class Sidebar implements Component {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
         const state = server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled";
+        const validationWarning = !this.resources.mcpError && server.enabled === null ? this.resources.mcpWarning : undefined;
         rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
-          action: () => this.actions?.inspect?.(server.name, `${state} (configuration, not connection status)\nSource: ${server.source}\nUse /mcp to manage this server.`) });
+          action: () => this.actions?.inspect?.(server.name, `${state} (configuration, not connection status)\nSource: ${server.source}${validationWarning ? `\n${validationWarning}` : ""}\nUse /mcp to manage this server.`) });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;
         rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", `${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`), list, item: i,

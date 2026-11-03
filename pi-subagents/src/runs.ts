@@ -206,6 +206,12 @@ export class RunManager {
     return run.subAgent.steer(text(message, "message", 8192));
   }
 
+  async followUp(id: string, message: string): Promise<string> {
+    const run = this.owned(id);
+    if (run.record.state !== "running" || !run.subAgent) throw new Error("Follow-up requires a running sub-agent; use reply for its pending question");
+    return run.subAgent.followUp(text(message, "message", 8192));
+  }
+
   async reply(id: string, requestId: string, message: string): Promise<void> {
     const run = this.owned(id);
     if (run.record.state !== "waiting_for_agent" || !run.question || run.question.question.id !== requestId) {

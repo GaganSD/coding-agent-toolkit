@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- `subagent followUp` and `/subagents followUp` queue a message after the sub-agent's pending work, the same follow-up verb as the owning session; steer still enters after the current turn.
+- Exact-ID status presents cached context usage and the current tool alongside state, model/thinking, and evidence paths, inside the same closed output schema.
+
+### Changed
+
+- Worker threads render finalized conversation with Pi's native markdown theme and show context usage in the header; tool output stays clamped behind Tools.
+
+### Fixed
+
+- Settled sub-agents reject `steer`/`followUp` instead of acknowledging input their disposing session would never process.
+- Threads re-render cached markdown with the active theme after invalidation instead of retaining stale colors.
+
 ## 0.1.0
 
 Support extension-provided models through the owning Pi registry, tighten admission and resume validation, and clarify workspace isolation.

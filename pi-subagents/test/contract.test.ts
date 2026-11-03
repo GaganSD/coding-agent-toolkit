@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Check } from "typebox/value";
 import { loadProfiles, parseProfile } from "../src/agents.ts";
 import { DEFAULT_CONFIG, parseConfig } from "../src/config.ts";
 import { parseCommand, resolveRun } from "../src/inspect.ts";
 import { formatEntry, readTranscript } from "../src/transcript.ts";
-import { parseRequest, presentLaunch } from "../src/tool.ts";
+import { OutputSchema, parseRequest, presentLaunch, presentRun } from "../src/tool.ts";
+import type { RunRecord } from "../src/types.ts";
 import { formatElapsed, nextLive, plain, rows } from "../src/ui.ts";
 import { temp } from "./helpers.ts";
 
@@ -28,6 +30,23 @@ test("requests reject invalid action/field combinations", () => {
   assert.deepEqual(parseRequest({ action: "status" }), { action: "status" });
   assert.deepEqual(parseRequest({ action: "resume", id: " run-a " }), { action: "resume", id: "run-a" });
   assert.deepEqual(parseRequest({ action: "reply", id: "a", requestId: "b", message: "yes" }), { action: "reply", id: "a", requestId: "b", message: "yes" });
+});
+
+test("exact-ID status presents cached context and current tool inside the closed output schema", () => {
+  const base: RunRecord = {
+    id: "run-a", owner: "p", agent: "worker", mode: "edit", task: "A",
+    cwd: "/wt", workspace: "/wt", model: "fixture/test", thinking: "off", state: "running",
+    startedAt: "t", elapsedMs: 0, metadataPath: "/a.json",
+    currentTool: "bash", contextUsage: { tokens: 10, contextWindow: 100, percent: 10 },
+  };
+  const view = presentRun(base);
+  assert.equal(view.currentTool, "bash");
+  assert.deepEqual(view.contextUsage, { tokens: 10, contextWindow: 100, percent: 10 });
+  assert(Check(OutputSchema, view));
+  const unknown = presentRun({ ...base, currentTool: undefined, contextUsage: { tokens: null, percent: null, contextWindow: 64000 } });
+  assert(!("currentTool" in unknown));
+  assert.deepEqual(unknown.contextUsage, { tokens: null, percent: null, contextWindow: 64000 }, "unknown stays unknown, never zero");
+  assert(Check(OutputSchema, unknown));
 });
 
 test("config is bounded and rejects unknown or unsafe limits", () => {
@@ -114,6 +133,7 @@ test("human command parse and unique prefix attach", () => {
   assert.deepEqual(parseCommand("400163b5"), { action: "attach", id: "400163b5" });
   assert.deepEqual(parseCommand("stop 400163b5-6198-4959-83d3-952535a67ce3"), { action: "stop", id: "400163b5-6198-4959-83d3-952535a67ce3" });
   assert.deepEqual(parseCommand("steer 400163b5 focus on the hero"), { action: "steer", id: "400163b5", message: "focus on the hero" });
+  assert.deepEqual(parseCommand("followUp 400163b5 run the tests after"), { action: "followUp", id: "400163b5", message: "run the tests after" });
   assert.deepEqual(parseCommand("reply 400163b5 use the existing API"), { action: "reply", id: "400163b5", message: "use the existing API" });
   // The id may be a substring of the head word; the message must still start after the id token.
   assert.deepEqual(parseCommand("steer ee focus the hero"), { action: "steer", id: "ee", message: "focus the hero" });

@@ -15,10 +15,10 @@
     "decision-model",
     "jev"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-automode",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-automode",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-automode"
   },
   "engines": {

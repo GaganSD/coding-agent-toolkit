@@ -119,7 +119,7 @@ for (const cancellation of ["stop", "signal"] as const) {
         context.transcript(context.directory + "/session.jsonl");
         return {
           prompt: async () => { throw new Error("503 Service Unavailable"); },
-          failure: () => "transient_provider", steer: async () => "queued",
+          failure: () => "transient_provider", steer: async () => "queued", followUp: async () => "queued",
           abort: async () => {}, dispose() {},
         };
       },
@@ -181,11 +181,32 @@ test("agent replies require the exact owner/run/question; no fake completion", a
   await assert.rejects(manager.reply(id!, "wrong", "x"), /matching/);
   await assert.rejects(setup().manager.reply(id!, question.id, "x"), /Unknown run ID/);
   await assert.rejects(manager.steer(id!, "x"), /use reply/);
+  await assert.rejects(manager.followUp(id!, "x"), /use reply/);
   await manager.reply(id!, question.id, "existing");
   await manager.settled(id!);
   await assert.rejects(manager.reply(id!, question.id, "again"), /matching/);
   assert.equal(manager.status(id!).state, "completed");
   assert.deepEqual(notifications.map(item => item.kind), ["question", "finished"]);
+});
+
+test("steer and followUp reach only a running sub-agent, in order", async () => {
+  const { manager } = setup();
+  const sent: Array<[string, string]> = [];
+  const gate = deferred<SubAgentResult>();
+  const [id] = await manager.launch([plan(undefined, { start: async () => ({
+    prompt: () => gate.promise,
+    steer: async message => { sent.push(["steer", message]); return "queued"; },
+    followUp: async message => { sent.push(["followUp", message]); return "queued"; },
+    abort: async () => {}, dispose() {},
+  }) })]);
+  await until(() => manager.status(id!).state === "running");
+  await manager.steer(id!, "adjust now");
+  await manager.followUp(id!, "after pending work");
+  assert.deepEqual(sent, [["steer", "adjust now"], ["followUp", "after pending work"]]);
+  gate.resolve({ report: "done", toolErrors: 0 });
+  await manager.settled(id!);
+  await assert.rejects(manager.followUp(id!, "too late"), /running sub-agent/);
+  await manager.shutdown();
 });
 
 test("stop cancels a blocked agent wait; no indefinite pending request", async () => {
@@ -285,7 +306,7 @@ test("stop during slow startup disposes the late sub-agent without prompting it"
   const { manager } = setup();
   const [id] = await manager.launch([plan(undefined, { start: () => startup.promise })]);
   const stop = manager.stop(id!);
-  startup.resolve({ prompt: async () => { prompted++; return { report: "bad", toolErrors: 0 }; }, steer: async () => "queued", abort: async () => {}, dispose() { disposed++; } });
+  startup.resolve({ prompt: async () => { prompted++; return { report: "bad", toolErrors: 0 }; }, steer: async () => "queued", followUp: async () => "queued", abort: async () => {}, dispose() { disposed++; } });
   await stop;
   assert.equal(prompted, 0);
   assert.equal(disposed, 1);
@@ -313,7 +334,7 @@ test("unknown cleanup keeps capacity and workspace reserved, and trips the proce
 test("cleanup errors fail closed even after a valid report", async () => {
   const { manager } = setup();
   const [id] = await manager.launch([plan(undefined, { start: async () => ({
-    prompt: async () => ({ report: "Valid report", toolErrors: 0 }), steer: async () => "queued",
+    prompt: async () => ({ report: "Valid report", toolErrors: 0 }), steer: async () => "queued", followUp: async () => "queued",
     abort: async () => {}, dispose: () => { throw new Error("dispose failed"); },
   }) })]);
   await manager.settled(id!);
@@ -324,7 +345,7 @@ test("abort failure still attempts disposal and never releases uncertain capacit
   let disposed = false;
   const { manager } = setup();
   const [id] = await manager.launch([plan(undefined, { start: async () => ({
-    prompt: async () => ({ report: "Report", toolErrors: 0 }), steer: async () => "queued",
+    prompt: async () => ({ report: "Report", toolErrors: 0 }), steer: async () => "queued", followUp: async () => "queued",
     abort: async () => { throw new Error("abort failed"); }, dispose: () => { disposed = true; },
   }) })]);
   await manager.settled(id!);
@@ -410,7 +431,7 @@ test("cleanup poisoning during allocation prevents another sub-agent from starti
   };
   const { manager } = setup({ store });
   const [first] = await manager.launch([plan(undefined, { start: async () => ({
-    prompt: () => done.promise, steer: async () => "queued", abort: async () => {},
+    prompt: () => done.promise, steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
     dispose() { throw new Error("Unconfirmed disposal"); },
   }) })]);
   const admission = manager.launch([plan(undefined, { workspace: "/other", start: async () => { starts++; throw new Error("Must not start"); } })]);
@@ -438,7 +459,7 @@ test("startup transfers cleanup ownership before validation can fail", async () 
   let unsafe = 0, disposed = 0;
   const { manager } = setup({ unsafeCleanup: () => { unsafe++; } });
   const [id] = await manager.launch([plan(undefined, { start: async context => {
-    context.own({ prompt: async () => { throw new Error("Must not prompt"); }, steer: async () => "queued",
+    context.own({ prompt: async () => { throw new Error("Must not prompt"); }, steer: async () => "queued", followUp: async () => "queued",
       abort: async () => { throw new Error("Startup abort failed"); }, dispose() { disposed++; },
     });
     throw new Error("Startup validation failed");
@@ -491,7 +512,7 @@ test("failed and cancelled sub-agents preserve available evidence before disposa
   const { manager } = setup();
   let disposed = false;
   const [id] = await manager.launch([plan(undefined, { start: async () => ({
-    prompt: async () => { throw new Error("Failure after billable work"); }, steer: async () => "queued", abort: async () => {},
+    prompt: async () => { throw new Error("Failure after billable work"); }, steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
     evidence() { assert.equal(disposed, false); return { usage, toolErrors: 2 }; }, dispose() { disposed = true; },
   }) })]);
   await manager.settled(id!);
@@ -514,7 +535,7 @@ test("resume restarts an eligible failed run with the same ID, transcript, and b
           if (current === 1) throw new Error("503 Service Unavailable");
           return { report: `Recovered by attempt ${current}${message ? " after resume" : ""}`, toolErrors: 0 };
         },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
@@ -566,7 +587,7 @@ test("resume rejects unsafe states and does not start a sub-agent", async () => 
   await assert.rejects(manager.resume(completed!), /failed transient provider/);
   const [unknown] = await manager.launch([plan(undefined, { start: async () => {
     starts++;
-    return { prompt: async () => ({ report: "x", toolErrors: 0 }), steer: async () => "queued", abort: async () => {}, dispose() { throw new Error("dispose failed"); } };
+    return { prompt: async () => ({ report: "x", toolErrors: 0 }), steer: async () => "queued", followUp: async () => "queued", abort: async () => {}, dispose() { throw new Error("dispose failed"); } };
   } })]);
   await manager.settled(unknown!);
   assert.equal(manager.status(unknown!).state, "cleanup_unknown");
@@ -586,7 +607,7 @@ function resumableEditTask(calls: { count: number }): PreparedTask {
           if (current === 1) throw new Error("503 Service Unavailable");
           return { report: "Recovered", toolErrors: 0 };
         },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
@@ -642,7 +663,7 @@ test("concurrent resume requests start one attempt and do not consume launch bud
           if (current === 1) throw new Error("503 Service Unavailable");
           return { report: "Recovered", toolErrors: 0 };
         },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
@@ -666,7 +687,7 @@ test("resume allowance exhausts even when failures stay transient", async () => 
       context.transcript(context.directory + "/transcript/test.jsonl");
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => "transient_provider" as const,
         dispose() {},
       };
@@ -698,7 +719,7 @@ test("resume applies a fresh timeout to the new attempt", async () => {
           if (current === 1) throw new Error("503 Service Unavailable");
           return waitForAbort(context).then(() => ({ report: "Must not finish", toolErrors: 0 }));
         },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
@@ -727,7 +748,7 @@ test("stop and shutdown cannot start a queued resume", async () => {
             await waitForAbort(context);
             return { report: "Must not complete", toolErrors: 0 };
           },
-          steer: async () => "queued", abort: async () => {},
+          steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
           failure: () => current === 1 ? "transient_provider" as const : undefined,
           dispose() {},
         };
@@ -756,7 +777,7 @@ test("resume persist failure does not start a sub-agent or spend the allowance",
       context.baseline?.("launch-head");
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => "transient_provider" as const,
         dispose() {},
       };
@@ -787,7 +808,7 @@ test("non-transient provider failures are not resumable", async () => {
       context.transcript(context.directory + "/transcript/test.jsonl");
       return {
         prompt: async () => { throw new Error("insufficient_quota"); },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => "provider" as const,
         dispose() {},
       };
@@ -807,7 +828,7 @@ test("a new manager cannot resume from leftover artifacts", async () => {
       context.transcript(context.directory + "/transcript/test.jsonl");
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => "transient_provider" as const,
         dispose() {},
       };

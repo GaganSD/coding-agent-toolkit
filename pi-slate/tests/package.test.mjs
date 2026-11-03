@@ -16,7 +16,7 @@ test("README screenshots use gallery-compatible Markdown and bundled assets", ()
   assert.doesNotMatch(readme, /<img\b/i);
   const images = [...readme.matchAll(/!\[([^\]]+)\]\((https:\/\/[^)]+)\)/g)];
   assert.ok(images.length >= 5);
-  const assetUrl = /^https:\/\/raw\.githubusercontent\.com\/GaganSD\/pi-extensions\/(main|[0-9a-f]{40})\/pi-slate\/assets\//;
+  const assetUrl = /^https:\/\/raw\.githubusercontent\.com\/GaganSD\/coding-agent-toolkit\/(main|[0-9a-f]{40})\/pi-slate\/assets\//;
   for (const [, alt, url] of images) {
     assert.ok(alt.length > 0);
     assert.ok(assetUrl.test(url), url);

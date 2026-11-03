@@ -17,10 +17,10 @@
     "parallel",
     "jev"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-web-search",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-web-search",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-web-search"
   },
   "files": [

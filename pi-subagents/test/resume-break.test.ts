@@ -34,7 +34,7 @@ function transient(starts: { count: number }, workspace = "/repo", mode: "inspec
           if (current === 1) throw new Error("503 Service Unavailable");
           return { report: `recovered-${current}`, toolErrors: 0 };
         },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => current === 1 ? "transient_provider" as const : undefined,
         dispose() {},
       };
@@ -69,7 +69,7 @@ test("2 unclassified errors stay ineligible even with a transcript", async () =>
       context.transcript(context.directory + "/transcript/test.jsonl");
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         dispose() {},
       };
     },
@@ -128,7 +128,7 @@ test("6 a cleanup-unknown neighbor keeps the workspace reserved against resume",
     async start() {
       return {
         prompt: async () => ({ report: "x", toolErrors: 0 }),
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         dispose() { throw new Error("dispose failed"); },
       };
     },
@@ -166,7 +166,7 @@ test("8 a thrown resume start must not stay starting or count as success", async
       if (resumeFrom) throw new Error("ENOENT: transcript missing");
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => "transient_provider" as const,
         dispose() {},
       };
@@ -209,7 +209,7 @@ test("10 notice/list hide exhausted resume; a new manager cannot revive artifact
       context.transcript(context.directory + "/transcript/test.jsonl");
       return {
         prompt: async () => { throw new Error("503 Service Unavailable"); },
-        steer: async () => "queued", abort: async () => {},
+        steer: async () => "queued", followUp: async () => "queued", abort: async () => {},
         failure: () => "transient_provider" as const,
         dispose() {},
       };

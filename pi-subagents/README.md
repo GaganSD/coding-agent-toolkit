@@ -6,7 +6,7 @@ Tiny yet powerful, benchmarked sub-agents for Pi
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@gagansd/pi-subagents"><img src="https://img.shields.io/npm/v/@gagansd/pi-subagents.svg" alt="npm" /></a>
-  <a href="https://github.com/GaganSD/pi-extensions/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
 </p>
 
 ## Benchmark
@@ -21,7 +21,7 @@ Tiny yet powerful, benchmarked sub-agents for Pi
 These frozen figures are from a prior measured campaign, not measurements or a
 rebenchmark of this new release's changed artifact. Both models ran through the
 same five dynamic workflow tasks using different subagents packages. See the
-[benchmark methodology](https://github.com/GaganSD/pi-extensions/blob/main/benchmarks/README.md).
+[benchmark methodology](https://github.com/GaganSD/coding-agent-toolkit/blob/main/benchmarks/README.md).
 
 ## Installation
 
@@ -37,8 +37,8 @@ and print/RPC/standalone hosts are not supported.
 
 - Delegate bounded work from one agent session to worker and reviewer sub-agents
 - Fresh native Pi sessions, session-bound, no nested delegation
-- `subagent` tool: run (1–4 tasks), list, status, resume, steer, stop, reply
-- `/subagents` to attach, resume, steer, reply, or stop
+- `subagent` tool: run (1–4 tasks), list, status, resume, steer, followUp, stop, reply
+- `/subagents` to attach, resume, steer, followUp, reply, or stop
 - Focusable worker roster and dedicated conversations; settled runs leave the roster
 - Supports Markdown agent profiles
 - Local reports and transcripts
@@ -137,7 +137,9 @@ routes by the manager's run UUID, never a native session ID. Exact machine-facin
 JSON and saved `run.json`/reports/transcripts are unchanged.
 
 Sub-agents are **in-process native Pi SDK sessions**, not separate worker
-processes. Context occupancy is Pi's estimated current usage divided by the
+processes. Threads render finalized conversation with Pi's native markdown
+theme; steer interrupts after the current turn while followUp queues after
+pending work, exactly like the owning session. Context occupancy is Pi's estimated current usage divided by the
 selected context window, not cumulative billed tokens. Unknown remains unknown;
 real zero and values above 100% are preserved. Estimates refresh at finalized
 lifecycle/compaction boundaries, never on streamed tokens or paint.

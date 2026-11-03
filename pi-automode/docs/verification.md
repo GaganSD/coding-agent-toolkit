@@ -168,7 +168,7 @@ install it into or change the user's Pi configuration automatically.
 ## Repository checks (2026-10-16)
 
 The package lives in
-[`pi-extensions/pi-automode`](https://github.com/GaganSD/pi-extensions/tree/main/pi-automode)
+[`coding-agent-toolkit/pi-automode`](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-automode)
 and is prepared for publication as `@gagansd/pi-automode` (MIT, `0.1.0`).
 Monorepo CI runs lint, typecheck, unit and integration suites, and a packed
 clean-consumer registration smoke for this package.
