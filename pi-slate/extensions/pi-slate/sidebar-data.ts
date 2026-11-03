@@ -243,7 +243,8 @@ function resolveMcp(
   }
   for (const [name, server] of files) rows.set(name, { name: sidebarText(name), source: server.source, enabled: server.config.enabled !== false });
   for (const [name, row] of invalid) if (!rows.has(name)) rows.set(name, row);
-  const mcpError = rejected ? "MCP configuration has rejected entries" : undefined;
+  // File errors take precedence; a missing adapter may still warn alongside them.
+  const mcpError = project?.error ?? global.error ?? (rejected ? "MCP configuration has rejected entries" : undefined);
   const mcpWarning = !host && rows.size > 0 ? "MCP configuration validation unavailable" : undefined;
   return { mcp: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name)),
     ...(mcpError ? { mcpError } : {}), ...(mcpWarning ? { mcpWarning } : {}) };
@@ -275,10 +276,7 @@ export class SidebarMcpFiles {
   snapshot(agentDir: string, cwd: string, trusted: boolean, registered: readonly { name: string; config: unknown }[]): SidebarMcpResult {
     const global = this.read(join(agentDir, "mcp.json"));
     const project = trusted ? this.read(join(cwd, ".pi", "mcp.json")) : undefined;
-    const result = resolveMcp(registered, global, project, this.host);
-    const mcpError = project?.error ?? global.error ?? result.mcpError;
-    // A file error outranks a missing adapter. The warning may still travel with the rows.
-    return { mcp: result.mcp, ...(mcpError ? { mcpError } : {}), ...(result.mcpWarning ? { mcpWarning: result.mcpWarning } : {}) };
+    return resolveMcp(registered, global, project, this.host);
   }
   clear(): void { this.cached.clear(); }
 }

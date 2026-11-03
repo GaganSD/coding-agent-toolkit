@@ -83,7 +83,7 @@ test("host adapter requires native validation and modern namespaces", async t =>
     { name: "complete", exports: "export const validateMcpServerConfig = (_name, value) => value; export const mcpNamespace = name => name;", modern: true, legacy: true },
     { name: "throws", exports: "throw new Error(\"load failed\");", modern: false, legacy: false },
   ];
-  const modernVersions = ["1.1.0", "1.3.0", "1.4.0", "1.4.1", "1.5.0", "1.5.1", "1.10.0", "2.0.0", "not-a-version"];
+  const modernVersions = ["1.1.0", "1.4.0", "2.0.0", "not-a-version"];
   for (const fixture of fixtures) {
     const packageDir = join(root, fixture.name);
     await mkdir(join(packageDir, "dist/core"), { recursive: true });

@@ -275,20 +275,19 @@ export class Sidebar implements Component {
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
-    const unknown = this.resources.mcp.some(x => x.enabled === null);
-    const rejected = this.resources.mcp.filter(x => x.enabled === null).length;
+    const unknownCount = this.resources.mcp.filter(x => x.enabled === null).length;
     const errors = this.resources.mcpError
-      ? (this.resources.mcpError === "MCP configuration has rejected entries" && rejected > 0 ? rejected : 1)
+      ? (this.resources.mcpError === "MCP configuration has rejected entries" && unknownCount > 0 ? unknownCount : 1)
       : 0;
-    const allUnknown = this.resources.mcp.length > 0 && this.resources.mcp.every(x => x.enabled === null);
-    const warnings = errors || !this.resources.mcpWarning ? 0 : 1;
+    const allUnknown = unknownCount > 0 && unknownCount === this.resources.mcp.length;
+    const warning = !errors && Boolean(this.resources.mcpWarning);
     const loaded = this.resources.skills.filter(x => x.loaded).length;
-    const resourceHeading = (label: string, count: string, failed = 0, warned = 0): string =>
+    const resourceHeading = (label: string, count: string, failed = 0, warned = false): string =>
       this.heading(label) + this.paint("muted", ` · ${count}`)
       + (failed ? this.paint("error", ` · ${failed} ${failed === 1 ? "Error" : "Errors"}`) : "")
-      + (warned ? this.paint("warning", ` · ${warned} ${warned === 1 ? "Warning" : "Warnings"}`) : "");
+      + (warned ? this.paint("warning", " · 1 Warning") : "");
     const rows: Row[] = [{ text: "" }, {
-      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknown) ? "—" : `${enabled} Enabled`, errors, warnings),
+      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors, warning),
       action: () => this.toggleSection("mcp"),
     }];
     if (this.folds.mcp) rows.push(...this.resourceRows("mcp"));
