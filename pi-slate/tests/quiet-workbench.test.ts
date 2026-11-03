@@ -27,13 +27,15 @@ test("bundled default Tokyo Night loads with the native validator and restrained
   assert.notEqual(theme.getBgAnsi("customMessageBg"), theme.getBgAnsi("userMessageBg"));
 });
 
-test("theme selection belongs to the picker: /slate theme takes no arguments", () => {
+test("theme selection belongs to the picker: /slate theme and /slate style take no arguments", () => {
   assert.deepEqual(parseSlateArgs("theme"), { ok: true, kind: "theme-menu" });
   for (const args of ["theme default", "theme tokyo-night", "theme tokyonight", "theme black-metal",
     "theme mocha default", "theme mocha mauve", "theme latte", "theme tokyo-night extra"]) {
     assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
   }
-  assert.deepEqual(parseSlateArgs("style default"), { ok: true, kind: "style", value: "default" });
+  for (const args of ["style", "style default", "style mauve"]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
 });
 
 test("compact viewport hides the rail without changing stored width or focus", () => {

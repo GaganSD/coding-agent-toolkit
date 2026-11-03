@@ -80,14 +80,6 @@ import {
 } from "./bug.ts";
 import { findChatContainer, layoutRootOf, syncMessageWindow, type MessageWindow } from "./message-window.ts";
 import { installNewSessionNoticeFilter } from "./stock-notices.ts";
-import {
-  STYLE_LABELS,
-  STYLES,
-  resolveCatppuccinTheme,
-  themeMessage,
-  type Flavor,
-  type Style,
-} from "./catppuccin.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
@@ -863,20 +855,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     return undefined;
   };
 
-  const currentCatppuccin = (ctx: ExtensionContext) => resolveCatppuccinTheme(ctx.ui.theme.name);
-
-  const pickStyle = async (ctx: ExtensionContext): Promise<Style | undefined> => {
-    const current = currentCatppuccin(ctx).style;
-    const value = await ctx.ui.select(
-      "Style",
-      STYLES.map((style) => withCurrent(STYLE_LABELS[style], style === current)),
-    );
-    if (!value) return undefined;
-    const key = withoutCurrent(value);
-    return STYLES.find((style) => STYLE_LABELS[style] === key);
-  };
-
-  const applyNamedTheme = (ctx: ExtensionContext, name: string, message?: string): boolean => {
+  const applyNamedTheme = (ctx: ExtensionContext, name: string): boolean => {
     const result = ctx.ui.setTheme(name);
     if (!result.success) {
       ctx.ui.notify(result.error ?? `Could not load ${name}. Run /reload first.`, "error");
@@ -884,13 +863,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     persistTheme(ctx.cwd, name);
     requestRender(true);
-    ctx.ui.notify(message ?? `Theme set to ${name === SLATE_NATIVE_THEME ? "system default" : name}`, "info");
+    ctx.ui.notify(`Theme set to ${name === SLATE_NATIVE_THEME ? "system default" : name}`, "info");
     return true;
-  };
-
-  const applyCatppuccin = (ctx: ExtensionContext, flavor: Flavor, style: Style): void => {
-    const next = resolveCatppuccinTheme(ctx.ui.theme.name, flavor, style);
-    applyNamedTheme(ctx, next.name, themeMessage(next.flavor, next.style));
   };
 
   const pickTheme = (ctx: ExtensionContext): Promise<void> => selectSlateTheme(ctx, name => applyNamedTheme(ctx, name));
@@ -1231,13 +1205,6 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       if (kind === "theme-menu") {
         await pickTheme(ctx);
-        return;
-      }
-
-      if (kind === "style") {
-        const style = (parsed.kind === "style" ? parsed.value : undefined) ?? await pickStyle(ctx);
-        if (!style) return;
-        applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
         return;
       }
 

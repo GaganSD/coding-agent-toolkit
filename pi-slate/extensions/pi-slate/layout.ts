@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { STYLES, parseStyle, type Style } from "./catppuccin.ts";
 import { parseSurfaces, SURFACES, type Surface } from "./surfaces.ts";
 import { isProgressStyle, type ProgressStyle } from "./working-wave.ts";
 
@@ -303,7 +302,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | style [<style>] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -313,7 +312,6 @@ export function withoutCurrent(label: string): string {
   return label.endsWith(" (current)") ? label.slice(0, -" (current)".length) : label;
 }
 
-const THEME_STYLES = [...STYLES] as const;
 const SLATE_COMPLETIONS = [
   "session", "session mcp", "session skills", "session prompts", "session commands", "session tasks", "session image",
   "surfaces",
@@ -353,8 +351,6 @@ const SLATE_COMPLETIONS = [
   "message-length default",
   "message-length all",
   "theme",
-  "style",
-  ...THEME_STYLES.map((style) => `style ${style}`),
   "bug",
   "bug file",
   "bug open",
@@ -376,7 +372,6 @@ export type SlateArgs =
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
-  | { ok: true; kind: "style"; value?: Style }
   | { ok: true; kind: "bug-menu" }
   | { ok: true; kind: "bug"; action: "file" | "open" }
   | { ok: false };
@@ -405,11 +400,6 @@ export function parseSlateArgs(raw: string): SlateArgs {
     return words.length === 1 ? { ok: true, kind: "theme-menu" } : { ok: false };
   }
   if (words.length > 2) return { ok: false };
-  if (head === "style") {
-    if (!tail) return { ok: true, kind: "style" };
-    const style = parseStyle(tail);
-    return style ? { ok: true, kind: "style", value: style } : { ok: false };
-  }
   if (head === "density") {
     if (!tail) return { ok: true, kind: "density" };
     if (tail === "comfortable" || tail === "compact") return { ok: true, kind: "density", value: tail };

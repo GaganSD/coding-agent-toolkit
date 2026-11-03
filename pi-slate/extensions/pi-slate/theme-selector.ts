@@ -1,36 +1,38 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, parseColor, truncateToWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
 import {
-  buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTIONS,
-  PALETTE_STYLES, parseCatppuccinTheme, STYLE_LABELS,
+  buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTION,
+  FLAVORS, STYLE_LABELS, stylesFor,
 } from "./catppuccin.ts";
+import { SLATE_NATIVE_THEME } from "./install-defaults.ts";
+import { slateThemeVars } from "./themes.ts";
 
 export type ThemeVariant = { name: string; label: string; color?: string };
 export type ThemeChoice = { label: string; variants: ThemeVariant[]; section?: string };
 
-/** Catppuccin flavor rows: one theme per flavor, 15 palettes each. */
+/** Catppuccin flavor rows: one theme per flavor, with every palette that flavor ships. */
 function flavorChoices(): ThemeChoice[] {
-  return FLAVOR_SECTIONS.flatMap(({ label: section, flavors }) => flavors.map((flavor) => ({
+  return FLAVORS.map((flavor) => ({
     label: `Catppuccin ${FLAVOR_LABELS[flavor]}`,
-    section,
-    variants: PALETTE_STYLES.map((style) => ({
+    section: FLAVOR_SECTION[flavor],
+    variants: stylesFor(flavor).map((style) => ({
       name: catppuccinThemeName(flavor, style),
       label: STYLE_LABELS[style],
       color: buildCatppuccinTheme(flavor, style).vars.accent,
     })),
-  })));
+  }));
 }
 
 export function slateThemeChoices(initial?: string): ThemeChoice[] {
   const choices: ThemeChoice[] = [
-    { label: "System default", variants: [{ name: "system", label: "Terminal palette" }] },
+    { label: "System default", variants: [{ name: SLATE_NATIVE_THEME, label: "Terminal palette" }] },
     ...flavorChoices(),
-    { label: "Tokyo Night", section: "Dark", variants: [{ name: "tokyo-night", label: "Default", color: "#7aa2f7" }] },
-    { label: "Black Metal", section: "Dark", variants: [{ name: "black-metal", label: "Default", color: "#dd9999" }] },
+    { label: "Tokyo Night", section: "Dark", variants: [{ name: "tokyo-night", label: "Default", color: slateThemeVars("tokyo-night")?.accent }] },
+    { label: "Black Metal", section: "Dark", variants: [{ name: "black-metal", label: "Default", color: slateThemeVars("black-metal")?.accent }] },
   ];
-  // Legacy selections outside the shipped palettes stay visible and re-selectable.
+  // A saved theme outside the shipped rows (an external theme) stays re-selectable.
   if (initial && !choices.some(choice => choice.variants.some(variant => variant.name === initial))) {
-    choices.unshift({ label: `${initial} (current)`, variants: [{ name: initial, label: "Current palette" }] });
+    choices.unshift({ label: initial, variants: [{ name: initial, label: "Current palette" }] });
   }
   return choices;
 }
@@ -78,11 +80,6 @@ export class ThemeSelector implements Component {
     this.rows = themeRows(choices);
     this.variants = choices.map(choice => Math.max(0, choice.variants.findIndex(variant => variant.name === initial)));
     this.selected = Math.max(0, choices.findIndex(choice => choice.variants.some(variant => variant.name === initial)));
-    // A Catppuccin theme outside the shipped palettes (legacy Mocha Quiet) keeps its own row.
-    const current = parseCatppuccinTheme(initial);
-    if (current && !PALETTE_STYLES.includes(current.style)) {
-      this.variants[this.selected] = Math.max(0, choices[this.selected]!.variants.findIndex(variant => variant.name === initial));
-    }
   }
 
   private current(): ThemeVariant | undefined { return this.choices[this.selected]?.variants[this.variants[this.selected] ?? 0]; }
@@ -132,9 +129,11 @@ export class ThemeSelector implements Component {
     const inner = width - 4;
     const bodyHeight = height - 7;
     const border = (text: string) => th.fg("border", text);
+    // Body text, not the accent, paints selected rows: accent on selectedBg drops
+    // below 3:1 on light flavors (Latte rosewater/yellow are ~1.45:1).
     const selectedRow = (text: string, selected: boolean, columns: number) => {
       const row = fit(`${selected ? "›" : " "} ${text}`, columns);
-      return selected ? th.style(row, { fg: "accent", bg: "selectedBg", bold: true }) : row;
+      return selected ? th.style(row, { fg: "text", bg: "selectedBg", bold: true }) : row;
     };
     // Both viewports are bounded and center their selected row, including on
     // resize. Headers carry position and hidden-row counts instead of wrapping.
@@ -156,13 +155,16 @@ export class ThemeSelector implements Component {
           return selectedRow(this.choices[row.index]!.label, row.index === this.selected, columns);
         });
     };
-    const paletteRows = (columns: number, rows: number) => viewport("Palettes", this.variants[this.selected] ?? 0,
-      choice?.variants.length ?? 0, this.variants[this.selected] ?? 0, choice?.variants.length ?? 0, columns, rows, i => {
-        const variant = choice!.variants[i]!;
+    const paletteRows = (columns: number, rows: number) => {
+      const index = this.variants[this.selected] ?? 0;
+      const variants = choice?.variants ?? [];
+      return viewport("Palettes", index, variants.length, index, variants.length, columns, rows, i => {
+        const variant = variants[i]!;
         const swatch = variant.color ? th.style("████", { fg: parseColor(variant.color) }) : th.fg("muted", "▒▒▒▒");
         const label = `${swatch} ${variant.label}${columns >= 34 && variant.color ? `  ${th.fg("dim", variant.color)}` : ""}`;
-        return selectedRow(label, i === this.variants[this.selected], columns);
+        return selectedRow(label, i === index, columns);
       });
+    };
     let body: string[];
     if (width >= 68) {
       const left = Math.floor((inner - 3) * 0.48), right = inner - 3 - left;

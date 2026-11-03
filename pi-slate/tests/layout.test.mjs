@@ -277,8 +277,11 @@ test("/slate args route density, footer, and width", () => {
   }
   assert.deepEqual(parseSlateArgs("flavor mocha"), { ok: false });
   assert.deepEqual(parseSlateArgs("diff"), { ok: false });
-  assert.deepEqual(parseSlateArgs("style sapphire"), { ok: true, kind: "style", value: "sapphire" });
-  assert.deepEqual(parseSlateArgs("style catppuccin-mocha-pink"), { ok: true, kind: "style", value: "pink" });
+  // `/slate style` is gone; the picker is the only theme surface.
+  for (const args of ["style", "style sapphire", "style catppuccin-mocha-pink", "style quiet"]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
+  assert.equal(slateArgumentCompletions("style"), null);
   assert.equal(slateArgumentCompletions("theme p"), null);
   assert.deepEqual(parseSlateArgs("bug nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("width nope"), { ok: false });

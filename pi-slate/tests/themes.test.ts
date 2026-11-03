@@ -66,6 +66,28 @@ test("unregistered themes use the same fallback for diff colors and syntax", () 
   }
 });
 
+function luminance(hex: string): number {
+  const channel = (start: number) => {
+    const value = parseInt(hex.slice(start, start + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return channel(1) * 0.2126 + channel(3) * 0.7152 + channel(5) * 0.0722;
+}
+
+const contrast = (a: string, b: string) => {
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high! + 0.05) / (low! + 0.05);
+};
+
+test("selected rows and body text clear WCAG on every theme", () => {
+  for (const theme of allSlateThemes()) {
+    // The picker paints selected rows bold `text` on `selectedBg`; accents stay on
+    // swatches only, because accent-on-selection falls to ~1.45:1 on Latte.
+    assert.ok(contrast(role(theme, "text"), role(theme, "selectedBg")) >= 3, `${theme.name}: selected row`);
+    assert.ok(contrast(role(theme, "text"), theme.export.pageBg) >= 4.5, `${theme.name}: body text`);
+  }
+});
+
 test("mixHex blends foreground over background", () => {
   assert.equal(mixHex("#ffffff", "#000000", 0), "#000000");
   assert.equal(mixHex("#ffffff", "#000000", 1), "#ffffff");
@@ -78,7 +100,7 @@ const EFFORT = [
 ] as const;
 
 
-test("bundled effort ramps start neutral and brighten toward each theme's border accent", () => {
+test("bundled effort ramps intensify monotonically from the neutral border toward the border accent", () => {
   const approvedMax: Record<string, string> = {
     "tokyo-night": "#6785ca", "black-metal": "#8a8a8a",
     "catppuccin-mocha-default": "#9ea7da", "catppuccin-mocha-quiet": "#9da3bd",
@@ -91,9 +113,11 @@ test("bundled effort ramps start neutral and brighten toward each theme's border
     const ramp = EFFORT.map(([, token]) => role(theme, token));
     const border = role(theme, "border"), accent = role(theme, "borderAccent");
     const stops = [0, 0.10, 0.20, 0.32, 0.44, 0.57, 0.70];
+    // Light flavors ramp toward the accent darkened 50% into body text.
+    const target = luminance(theme.export.pageBg) > 0.5 ? mixHex(accent, role(theme, "text"), 0.5) : accent;
     assert.equal(ramp[0], border, `${theme.name}: off matches the neutral frame`);
-    ramp.forEach((value, index) => assert.equal(value, mixHex(accent, border, stops[index]!), `${theme.name}: stop ${index}`));
-    assert.equal(ramp.at(-1), mixHex(accent, border, 0.70), `${theme.name}: approved max tint`);
+    ramp.forEach((value, index) => assert.equal(value, mixHex(target, border, stops[index]!), `${theme.name}: stop ${index}`));
+    assert.equal(ramp.at(-1), mixHex(target, border, 0.70), `${theme.name}: approved max tint`);
     if (approvedMax[theme.name]) assert.equal(ramp.at(-1), approvedMax[theme.name], `${theme.name}: pinned tint`);
     assert.equal(new Set(ramp).size, 7, `${theme.name}: distinct truecolor stops`);
     // Every stop is a bounded blend: 70% of the way to the accent at most, so the
@@ -102,6 +126,14 @@ test("bundled effort ramps start neutral and brighten toward each theme's border
     const distance = (from: number[], to: number[]) => Math.hypot(...from.map((value, index) => value - to[index]!));
     const full = distance(rgb(border), rgb(accent));
     for (const stop of ramp) assert.ok(distance(rgb(stop), rgb(border)) < full, `${theme.name}: restrained stop`);
+    // Light flavors deepen toward the accent; dark flavors brighten. Either way
+    // intensity must move one way: a reversal at the top stop is a real bug.
+    const brightness = ramp.map(luminance);
+    const direction = brightness[6]! > brightness[0]! ? 1 : -1;
+    for (let i = 1; i < brightness.length; i++) {
+      assert.ok((brightness[i]! - brightness[i - 1]!) * direction > 0, `${theme.name}: stop ${i} reverses`);
+    }
+    assert.ok(Math.abs(brightness[6]! - brightness[0]!) > 0.01, `${theme.name}: ramp is visible`);
     assert.equal(role(theme, "bashMode"), role(theme, "success"), "bash keeps its separate mode color");
   }
 });

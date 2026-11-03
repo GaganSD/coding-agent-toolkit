@@ -4,23 +4,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
-  DEFAULT_FLAVOR,
-  DEFAULT_STYLE,
   FLAVORS,
   FLAVOR_LABELS,
-  FLAVOR_SECTIONS,
-  PALETTE_STYLES,
+  FLAVOR_SECTION,
   STYLES,
   STYLE_LABELS,
   allCatppuccinThemes,
   buildCatppuccinTheme,
   catppuccinThemeName,
-  parseCatppuccinTheme,
-  parseFlavor,
-  parseStyle,
-  resolveCatppuccinTheme,
   stylesFor,
-  themeMessage,
 } from "../extensions/pi-slate/catppuccin.ts";
 
 const THEMES_DIR = join(dirname(fileURLToPath(import.meta.url)), "../themes");
@@ -44,17 +36,10 @@ const REQUIRED_STYLES = [
 test("all four official flavors and their sections stay official", () => {
   assert.deepEqual([...FLAVORS], ["latte", "frappe", "macchiato", "mocha"]);
   assert.deepEqual(FLAVOR_LABELS, { latte: "Latte", frappe: "Frappé", macchiato: "Macchiato", mocha: "Mocha" });
-  assert.deepEqual(FLAVOR_SECTIONS.map(section => [section.label, [...section.flavors]]), [
-    ["Light", ["latte", "frappe"]],
-    ["Dark", ["macchiato", "mocha"]],
-  ]);
-  assert.equal(parseFlavor("Mocha"), "mocha");
-  assert.equal(parseFlavor("Latte"), "latte");
-  assert.equal(parseFlavor("Frappé"), "frappe");
-  assert.equal(parseFlavor("frappe"), "frappe");
-  assert.equal(parseFlavor("Macchiato"), "macchiato");
-  assert.equal(parseFlavor("ink"), undefined);
+  assert.deepEqual(FLAVOR_SECTION, { latte: "Light", frappe: "Light", macchiato: "Dark", mocha: "Dark" });
 });
+
+const PALETTE_STYLES = stylesFor("latte");
 
 test("fifteen palette styles ship for every flavor, plus legacy Mocha Quiet", () => {
   assert.equal(PALETTE_STYLES.length, 15);
@@ -64,41 +49,15 @@ test("fifteen palette styles ship for every flavor, plus legacy Mocha Quiet", ()
   for (const flavor of FLAVORS) {
     assert.equal(stylesFor(flavor).length, flavor === "mocha" ? 16 : 15, flavor);
   }
-  assert.equal(parseStyle("Mauve"), "mauve");
-  assert.equal(parseStyle("Rosewater"), "rosewater");
-  assert.equal(parseStyle("pink"), "pink");
-  assert.equal(parseStyle("catppuccin-mocha-pink"), "pink");
-  assert.equal(parseStyle("catppuccin-latte-blue"), "blue");
-  assert.equal(parseStyle("canonical"), "default");
-  assert.equal(parseStyle("quiet"), "quiet");
-  assert.equal(parseStyle("ember"), undefined);
 });
 
 test("theme names encode flavor and style", () => {
   assert.equal(catppuccinThemeName("mocha", "mauve"), "catppuccin-mocha-mauve");
-  assert.deepEqual(parseCatppuccinTheme("catppuccin-mocha-quiet"), { flavor: "mocha", style: "quiet" });
-  assert.deepEqual(parseCatppuccinTheme("catppuccin-mocha-pink"), { flavor: "mocha", style: "pink" });
-  assert.deepEqual(parseCatppuccinTheme("catppuccin-latte-rosewater"), { flavor: "latte", style: "rosewater" });
-  assert.deepEqual(parseCatppuccinTheme("catppuccin-macchiato-lavender"), { flavor: "macchiato", style: "lavender" });
-  assert.equal(parseCatppuccinTheme("catppuccin-latte-quiet"), undefined, "quiet stays Mocha-only");
-  assert.equal(parseCatppuccinTheme("pi-slate"), undefined);
-  assert.deepEqual(resolveCatppuccinTheme("pi-slate"), {
-    flavor: DEFAULT_FLAVOR,
-    style: DEFAULT_STYLE,
-    name: "catppuccin-mocha-mauve",
-  });
-  assert.deepEqual(resolveCatppuccinTheme("catppuccin-mocha-teal", "latte", "peach"), {
-    flavor: "latte",
-    style: "peach",
-    name: "catppuccin-latte-peach",
-  });
-  assert.deepEqual(resolveCatppuccinTheme("catppuccin-mocha-quiet", "latte"), {
-    flavor: "latte",
-    style: DEFAULT_STYLE,
-    name: "catppuccin-latte-mauve",
-  });
-  assert.equal(themeMessage("mocha", "mauve"), "Theme set to Mocha · Mauve");
-  assert.equal(themeMessage("latte", "rosewater"), "Theme set to Latte · Rosewater");
+  assert.equal(catppuccinThemeName("latte", "rosewater"), "catppuccin-latte-rosewater");
+  assert.equal(catppuccinThemeName("frappe", "pink"), "catppuccin-frappe-pink");
+  assert.equal(catppuccinThemeName("macchiato", "lavender"), "catppuccin-macchiato-lavender");
+  assert.equal(stylesFor("latte").includes("quiet"), false, "quiet stays Mocha-only");
+  assert.equal(stylesFor("mocha").includes("quiet"), true);
 });
 
 test("every flavor and style is a valid theme file of palette tokens", () => {
@@ -138,17 +97,23 @@ test("each flavor keeps its fifteen accents distinct", () => {
   }
 });
 
-test("light flavors stay light and dark flavors stay dark", () => {
+test("Latte is the light palette; the other three are dark and grouped by section", () => {
   const luminance = (hex: string) => [1, 3, 5]
     .map((start) => parseInt(hex.slice(start, start + 2), 16) / 255)
     .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
     .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0);
-  for (const flavor of ["latte", "frappe"] as const) {
+  for (const style of stylesFor("latte")) {
+    assert.ok(luminance(buildCatppuccinTheme("latte", style).export.pageBg) > 0.5, `latte-${style}`);
+  }
+  for (const flavor of ["frappe", "macchiato", "mocha"] as const) {
     for (const style of stylesFor(flavor)) {
-      assert.ok(luminance(buildCatppuccinTheme(flavor, style).export.pageBg) > 0.02, `${flavor}-${style}`);
+      assert.ok(luminance(buildCatppuccinTheme(flavor, style).export.pageBg) < 0.2, `${flavor}-${style}`);
     }
   }
-  assert.ok(luminance(buildCatppuccinTheme("latte", "default").export.pageBg) > luminance(buildCatppuccinTheme("mocha", "default").export.pageBg));
-  assert.ok(luminance(buildCatppuccinTheme("frappe", "default").export.pageBg) > luminance(buildCatppuccinTheme("macchiato", "default").export.pageBg));
-  assert.ok(luminance(buildCatppuccinTheme("macchiato", "default").export.pageBg) > luminance(buildCatppuccinTheme("mocha", "default").export.pageBg));
+  // Frappé is a mid-dark palette that ships under the Light section by product
+  // choice; the effort ramp follows its base, not its section heading.
+  const frappe = buildCatppuccinTheme("frappe", "mauve");
+  assert.ok(luminance(frappe.vars.thinkingMax!) > luminance(frappe.vars.thinkingOff!), "frappe ramps brighter");
+  const latte = buildCatppuccinTheme("latte", "mauve");
+  assert.ok(luminance(latte.vars.thinkingMax!) < luminance(latte.vars.thinkingOff!), "latte ramps deeper");
 });

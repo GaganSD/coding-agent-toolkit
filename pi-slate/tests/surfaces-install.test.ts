@@ -411,14 +411,14 @@ test("/theme opens directly, retains aliases, and rejects unknown arguments", as
   assert.equal(f.commands.has("settings"), false, "core settings remain untouched");
 });
 
-test("Black Metal is selectable from the theme picker and saves", async t => {
+test("a picker choice is persisted as the saved theme", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   const settingsPath = join(dirname(f.path), "settings.json");
   const themes: string[] = [];
   t.mock.method(f.ctx.ui, "setTheme", (name: string) => { themes.push(name); return { success: true }; });
   t.mock.method(f.ctx.ui, "custom", async () => "black-metal");
   await f.commands.get("slate")!.handler("theme", f.ctx);
-  assert.deepEqual(themes, ["black-metal"], "picker lists Black Metal");
+  assert.deepEqual(themes, ["black-metal"]);
   assert.equal(JSON.parse(await readFile(settingsPath, "utf8")).theme, "black-metal");
 });
 

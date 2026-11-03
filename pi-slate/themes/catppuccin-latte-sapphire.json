@@ -34,12 +34,12 @@
     "panel": "#e6e9ef",
     "surface": "#ccd0da",
     "thinkingOff": "#9ca0b0",
-    "thinkingMinimal": "#90a0b1",
-    "thinkingLow": "#83a0b1",
-    "thinkingMedium": "#74a0b2",
-    "thinkingHigh": "#65a0b2",
-    "thinkingXhigh": "#559fb3",
-    "thinkingMax": "#459fb4"
+    "thinkingMinimal": "#929cad",
+    "thinkingLow": "#8898a9",
+    "thinkingMedium": "#7b93a5",
+    "thinkingHigh": "#6f8ea1",
+    "thinkingXhigh": "#62899d",
+    "thinkingMax": "#558399"
   },
   "colors": {
     "accent": "accent",

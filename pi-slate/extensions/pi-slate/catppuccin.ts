@@ -1,4 +1,4 @@
-import { effortPalette } from "./theme-palette.ts";
+import { effortPalette, mixHex } from "./theme-palette.ts";
 
 /** Official Catppuccin flavors (https://catppuccin.com/palette). */
 export const FLAVORS = ["latte", "frappe", "macchiato", "mocha"] as const;
@@ -13,10 +13,9 @@ export const FLAVOR_LABELS: Record<Flavor, string> = {
 };
 
 /** Picker grouping; Frappé is mid-tone, but it sits with Latte under Light. */
-export const FLAVOR_SECTIONS: readonly { label: string; flavors: readonly Flavor[] }[] = [
-  { label: "Light", flavors: ["latte", "frappe"] },
-  { label: "Dark", flavors: ["macchiato", "mocha"] },
-];
+export const FLAVOR_SECTION: Record<Flavor, string> = {
+  latte: "Light", frappe: "Light", macchiato: "Dark", mocha: "Dark",
+};
 
 /** Every accent hue Catppuccin defines, plus the neutral Default style. */
 const ACCENT_STYLES = [
@@ -28,11 +27,8 @@ export const STYLES = [...ACCENT_STYLES, "default", "quiet"] as const;
 
 export type Style = (typeof STYLES)[number];
 
-/** The 15 palette options each flavor ships; `quiet` stays a legacy Mocha style. */
-export const PALETTE_STYLES: readonly Style[] = STYLES.filter((style) => style !== "quiet");
-
 export function stylesFor(flavor: Flavor): readonly Style[] {
-  return flavor === "mocha" ? STYLES : PALETTE_STYLES;
+  return flavor === "mocha" ? STYLES : STYLES.filter((style) => style !== "quiet");
 }
 
 export const STYLE_LABELS: Record<Style, string> = {
@@ -53,9 +49,6 @@ export const STYLE_LABELS: Record<Style, string> = {
   default: "Default",
   quiet: "Quiet",
 };
-
-export const DEFAULT_FLAVOR: Flavor = "mocha";
-export const DEFAULT_STYLE: Style = "mauve";
 
 type Swatch =
   | "rosewater" | "flamingo" | "pink" | "mauve" | "red" | "maroon" | "peach" | "yellow"
@@ -128,54 +121,14 @@ export function catppuccinThemeName(flavor: Flavor, style: Style): string {
   return `catppuccin-${flavor}-${style}`;
 }
 
-export function parseFlavor(raw: string): Flavor | undefined {
-  const value = raw.trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
-  if (value === "frappe") return "frappe";
-  return FLAVORS.find((flavor) => flavor === value);
-}
-
-export function parseStyle(raw: string): Style | undefined {
-  const value = raw.trim().toLowerCase();
-  if (value === "canonical") return "default";
-  // Accept the bare style key (`pink`) and any full theme name (`catppuccin-mocha-pink`).
-  const candidate = /^catppuccin-[a-z]+-([a-z]+)$/.exec(value)?.[1] ?? value;
-  return STYLES.find((style) => style === candidate);
-}
-
-export function flavorSection(flavor: Flavor): string {
-  return FLAVOR_SECTIONS.find((section) => section.flavors.includes(flavor))!.label;
-}
-
-export function parseCatppuccinTheme(name: string | undefined): { flavor: Flavor; style: Style } | undefined {
-  if (!name) return undefined;
-  const match = /^catppuccin-([a-z]+)-([a-z]+)$/.exec(name);
-  if (!match) return undefined;
-  const flavor = parseFlavor(match[1]!);
-  const style = STYLES.find((candidate) => candidate === match[2]);
-  if (!flavor || !style || !stylesFor(flavor).includes(style)) return undefined;
-  return { flavor, style };
-}
-
-export function resolveCatppuccinTheme(
-  name: string | undefined,
-  flavor?: Flavor,
-  style?: Style,
-): { flavor: Flavor; style: Style; name: string } {
-  const current = parseCatppuccinTheme(name);
-  const nextFlavor = flavor ?? current?.flavor ?? DEFAULT_FLAVOR;
-  const requested = style ?? current?.style ?? DEFAULT_STYLE;
-  const nextStyle = stylesFor(nextFlavor).includes(requested) ? requested : DEFAULT_STYLE;
-  return { flavor: nextFlavor, style: nextStyle, name: catppuccinThemeName(nextFlavor, nextStyle) };
-}
-
-export function themeMessage(flavor: Flavor, style: Style): string {
-  return `Theme set to ${FLAVOR_LABELS[flavor]} · ${STYLE_LABELS[style]}`;
-}
-
 export function buildCatppuccinTheme(flavor: Flavor, style: Style): CatppuccinThemeJson {
   const palette = PALETTES[flavor];
   const roles = STYLE_ROLES[style];
-  const effort = effortPalette(palette[roles.border], palette[roles.accent]);
+  // Latte's accents sit within a few percent of its neutral border, so a straight
+  // blend reverses; darkening the target toward body text keeps it monotonic.
+  const accent = palette[roles.accent];
+  const target = flavor === "latte" ? mixHex(accent, palette.text, 0.5) : accent;
+  const effort = effortPalette(palette[roles.border], target);
   return {
     $schema: THEME_SCHEMA,
     name: catppuccinThemeName(flavor, style),

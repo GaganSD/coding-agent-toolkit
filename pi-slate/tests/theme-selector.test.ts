@@ -3,7 +3,7 @@ import test from "node:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { parseColor, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
-import { FLAVOR_LABELS, PALETTE_STYLES, catppuccinThemeName } from "../extensions/pi-slate/catppuccin.ts";
+import { FLAVOR_LABELS, catppuccinThemeName, stylesFor } from "../extensions/pi-slate/catppuccin.ts";
 import { selectSlateTheme, slateThemeChoices, ThemeSelector, type ThemeChoice } from "../extensions/pi-slate/theme-selector.ts";
 import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js";
 import { initTheme, setThemeInstance } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
@@ -17,11 +17,10 @@ const up = "\x1b[A", down = "\x1b[B", right = "\x1b[C", left = "\x1b[D";
 function fixture(initial = "catppuccin-mocha-pink") {
   const previews: string[] = [];
   const done: Array<string | undefined> = [];
-  const terminal = { rows: 40, columns: 80 };
-  let renders = 0;
-  const selector = new ThemeSelector(slateThemeChoices(initial), initial, { terminal: terminal as TUI["terminal"], requestRender: () => { renders++; } },
+  const terminal = { rows: 40 };
+  const selector = new ThemeSelector(slateThemeChoices(initial), initial, { terminal: terminal as TUI["terminal"], requestRender() {} },
     () => theme, keys, name => { previews.push(name); return undefined; }, value => done.push(value));
-  return { selector, previews, done, terminal, renders: () => renders };
+  return { selector, previews, done, terminal };
 }
 
 test("theme navigation previews immediately and keeps each flavor's palette", () => {
@@ -32,7 +31,7 @@ test("theme navigation previews immediately and keeps each flavor's palette", ()
   assert.match(opened, /── Dark/);
   assert.match(opened, /Catppuccin Latte/);
   assert.match(opened, /Themes 5\/7/);
-  assert.match(opened, /Palettes 3\/15/);
+  assert.match(opened, /Palettes 3\/16/);
   f.selector.handleInput(right);
   assert.deepEqual(f.previews, ["catppuccin-mocha-mauve"]);
   f.selector.handleInput(right);
@@ -96,10 +95,10 @@ test("an external original theme stays visibly selected until navigation", () =>
   const selector = new ThemeSelector(choices, "external", {
     terminal: { rows: 40 } as TUI["terminal"], requestRender() {},
   }, () => theme, keys, () => assert.fail("opening must not preview"), () => {});
-  assert.match(selector.render(58).join("\n"), /› external \(current\)/);
+  assert.match(selector.render(58).join("\n"), /› external/);
 });
 
-test("picker lists Light and Dark sections with 15 palettes per flavor", () => {
+test("picker lists Light and Dark sections with every shipped palette", () => {
   const choices = slateThemeChoices();
   assert.deepEqual(choices.map(choice => choice.label), [
     "System default", "Catppuccin Latte", "Catppuccin Frappé", "Catppuccin Macchiato",
@@ -108,7 +107,8 @@ test("picker lists Light and Dark sections with 15 palettes per flavor", () => {
   assert.deepEqual(choices.map(choice => choice.section), [
     undefined, "Light", "Light", "Dark", "Dark", "Dark", "Dark",
   ]);
-  for (const choice of choices.slice(1, 5)) assert.equal(choice.variants.length, 15, choice.label);
+  assert.deepEqual(choices.slice(1, 5).map(choice => choice.variants.length), [15, 15, 15, 16]);
+  assert.equal(choices[4]!.variants.at(-1)!.label, "Quiet", "Mocha keeps the legacy palette reachable");
   assert.deepEqual(choices[1]!.variants.map(variant => variant.label), [
     "Rosewater", "Flamingo", "Pink", "Mauve", "Red", "Maroon", "Peach", "Yellow",
     "Green", "Teal", "Sky", "Sapphire", "Blue", "Lavender", "Default",
@@ -119,24 +119,26 @@ test("picker lists Light and Dark sections with 15 palettes per flavor", () => {
   assert.equal(accents(3).Teal, "#8bd5ca");
   assert.equal(accents(4).Lavender, "#b4befe");
   for (const index of [1, 2, 3, 4]) {
-    assert.equal(new Set(Object.values(accents(index))).size, 14, "hues are distinct; Default reuses lavender");
+    const hues = Object.entries(accents(index)).filter(([label]) => label !== "Default");
+    // Mocha adds legacy Quiet; Default always reuses the flavor's lavender.
+    assert.equal(new Set(hues.map(([, color]) => color)).size, index === 4 ? 15 : 14, "hues are distinct");
   }
 });
 
-test("fifteen-palette cycle wraps in both directions", () => {
+test("the palette cycle wraps in both directions", () => {
   const f = fixture("catppuccin-mocha-rosewater");
   f.selector.handleInput(left);
-  assert.equal(f.previews.at(-1), "catppuccin-mocha-default");
+  assert.equal(f.previews.at(-1), "catppuccin-mocha-quiet");
   f.selector.handleInput(right);
   assert.equal(f.previews.at(-1), "catppuccin-mocha-rosewater");
-  for (let i = 0; i < 15; i++) f.selector.handleInput(right);
+  for (let i = 0; i < 16; i++) f.selector.handleInput(right);
   assert.equal(f.previews.at(-1), "catppuccin-mocha-rosewater");
-  assert.equal(f.previews.length, 17);
+  assert.equal(f.previews.length, 18);
 });
 
 for (const flavor of ["latte", "frappe", "macchiato", "mocha"] as const) {
   test(`${flavor} keeps every shipped palette reachable from the picker`, () => {
-    for (const style of PALETTE_STYLES) {
+    for (const style of stylesFor(flavor)) {
       const initial = catppuccinThemeName(flavor, style);
       const f = fixture(initial);
       assert.deepEqual(f.previews, [], `${initial} opens selected`);
@@ -147,13 +149,12 @@ for (const flavor of ["latte", "frappe", "macchiato", "mocha"] as const) {
   });
 }
 
-test("legacy mocha quiet keeps its own current row outside the shipped palettes", () => {
+test("legacy mocha quiet stays reachable from the Mocha row", () => {
   const f = fixture("catppuccin-mocha-quiet");
   assert.deepEqual(f.previews, []);
-  assert.match(f.selector.render(88).join("\n"), /› catppuccin-mocha-quiet \(current\)/);
-  f.selector.handleInput(right);
-  f.selector.handleInput(left);
-  assert.deepEqual(f.previews, [], "current row does not cycle");
+  const text = f.selector.render(88).join("\n");
+  assert.match(text, /Catppuccin Mocha/);
+  assert.match(text, /Palettes 16\/16/);
   f.selector.handleInput("\r");
   assert.deepEqual(f.done, ["catppuccin-mocha-quiet"]);
 });
@@ -356,7 +357,9 @@ test("palette swatches retain their concrete colors and selected rows have a ful
   const text = selector.render(88).join("\n");
   assert(text.includes(live.style("████", { fg: parseColor("#8839ef") })), "Latte mauve swatch");
   assert(text.includes(live.style("████", { fg: parseColor("#7287fd") })), "Latte lavender swatch");
-  assert(text.includes(live.style("› Catppuccin Latte".padEnd(38), { fg: "accent", bg: "selectedBg", bold: true })));
+  // Selected rows use body text on the selection background: accents drop to
+  // ~1.45:1 on Latte, while text stays readable on every flavor.
+  assert(text.includes(live.style("› Catppuccin Latte".padEnd(38), { fg: "text", bg: "selectedBg", bold: true })));
 });
 
 test("non-terminal modes do not start a selector or change themes", async () => {

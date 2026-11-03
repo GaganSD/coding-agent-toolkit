@@ -69,16 +69,16 @@ Other extensions can publish detached terminals or jobs to the sidebar's task sh
 Open `/theme` for a larger, centered theme selector with live preview (`/theme slate` remains an alias):
 
 - **↑ / ↓** selects and immediately applies a theme; **← / →** changes its palette. Dedicated theme and color-swatch lists show selection, position, and overflow counts; both scroll without changing the dialog's shape.
-- Themes are grouped into **Light** and **Dark** sections. Light holds Catppuccin Latte and Frappé; Dark holds Macchiato, Mocha, Tokyo Night, and Black Metal.
+- Themes are grouped into **Light** and **Dark** sections. Light holds Catppuccin Latte and Frappé; Dark holds Macchiato, Mocha, Tokyo Night, and Black Metal. Frappé is a mid-dark palette shipped under Light by choice; its effort ramp behaves like the other dark flavors.
 - Wide terminals use two columns; narrow terminals stack the lists, and very small screens keep the selected identity and essential controls. The dialog resizes to fit the terminal, not the selected theme or palette.
-- Every Catppuccin flavor carries the same **15 palettes**: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default (a neutral frame that reuses the flavor's lavender accent). Each flavor remembers its palette while the selector is open. The legacy Mocha Quiet style stays selectable and opens in a separate current-palette row.
+- Every Catppuccin flavor carries the same **15 palettes**: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default (a neutral frame that reuses the flavor's lavender accent). Each flavor remembers its palette while the selector is open, and Mocha additionally lists the legacy Quiet palette.
 - **Enter** confirms and saves; **Escape** (or **Ctrl+C**) restores the original visible theme without changing saved theme settings or Slate configuration.
 
 All colors come from the official Catppuccin palette (https://catppuccin.com/palette). Every bundled theme is generated from one registry, so `npm run themes` reproduces `themes/*.json` exactly.
 
 The selector requires interactive terminal mode. Pi 1.4 has no built-in `/theme` command; core theme selection remains in `/settings`. After previewing and cancelling, Pi's public theme-instance API restores the original palette but pauses automatic terminal-appearance following (including `system` and light/dark pairs) until `/reload`. Merely opening and cancelling without previewing does not affect appearance following.
 
-`/slate theme` opens the same picker and nothing else — it takes no arguments. Every bundled theme (system, Tokyo Night, Black Metal, and all Catppuccin flavors and palettes) is reachable from `/theme`, so the picker is the only documented theme surface. `/slate style <palette>` stays as a Catppuccin-only compatibility alias; full theme names such as `catppuccin-latte-mauve` are still accepted by `/slate style` and by Pi's own `/settings`.
+Saved names such as `catppuccin-latte-mauve` stay valid and can still be set directly through Pi's own `/settings`.
 
 Black Metal is an optional bundled theme, not an install default: pick it from `/theme` under Dark. Confirmed selections are saved and also appear in `/settings`.
 
@@ -126,7 +126,7 @@ These work when `editor` is selected. No terminal configuration.
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. Not footer-slot ownership. |
-| Theme | `/theme` or `/slate theme [default\|tokyo-night\|black-metal\|quiet\|mauve\|catppuccin-mocha-pink\|red\|lavender\|sapphire\|peach\|teal]` | Default restores Pi's system theme. Tokyo Night and Black Metal are explicit; other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
+| Theme | `/theme` (or `/slate theme`) | Opens the Light/Dark picker: Latte and Frappé under Light, Macchiato, Mocha, Tokyo Night, and Black Metal under Dark. 15 palettes per Catppuccin flavor, live preview, no arguments. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Independent Surfaces
