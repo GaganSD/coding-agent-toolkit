@@ -2,16 +2,9 @@ import { arr, bool, lit, nul, num, obj, opt, str, union, type Schema } from "@ea
 import { THINKING_LEVELS, type RunRecord, type Task } from "./types.ts";
 import { keys, modelName, object, text, thinkingLevel } from "./validation.ts";
 
-/** `{ type: "string", enum }`: Google-compatible string enum, identical JSON to pi-ai's StringEnum. */
-function stringEnum<const T extends readonly string[]>(
-  values: T,
-  options?: { description?: string },
-): Schema<T[number]> {
-  return {
-    type: "string",
-    enum: [...values],
-    ...(options?.description ? { description: options.description } : {}),
-  };
+/** `{ type: "string", enum }`: Google-compatible string enum. */
+function stringEnum<const T extends readonly string[]>(values: T): Schema<T[number]> {
+  return { type: "string", enum: [...values] };
 }
 
 const ThinkingSchema = stringEnum(THINKING_LEVELS);
