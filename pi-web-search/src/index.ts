@@ -71,8 +71,9 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		namespace: { name: "search", description: "Cited public web and code retrieval." },
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 		execute: (toolCallId, params, signal, onUpdate, ctx) =>
-			search(toolCallId, params, signal, onUpdate, ctx),
-		renderCall(args: SearchInput, theme) {
+			search(toolCallId, params as SearchInput, signal, onUpdate, ctx),
+		renderCall(rawArgs: unknown, theme) {
+			const args = rawArgs as SearchInput;
 			const target = args.query ?? args.ref ?? (args.urls?.length ? `${args.urls.length} URL(s)` : "…");
 			const scope = args.scope ?? "web";
 			const effort = args.effort ?? (scope === "both" ? "thorough" : "fast");

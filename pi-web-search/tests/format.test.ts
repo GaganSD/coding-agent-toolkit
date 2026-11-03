@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 
 import {
 	CLIP_MARKER,
@@ -14,6 +14,8 @@ import {
 } from "../src/format.ts";
 import type { StreamResult } from "../src/providers/types.ts";
 
+const validateOutput = compile(SearchOutputSchema);
+
 function textOf(result: { content: { type: string; text?: string }[] }): string {
 	const part = result.content[0];
 	return part?.type === "text" ? (part.text ?? "") : "";
@@ -26,7 +28,7 @@ test("codemode gets schema-valid citation data, not a markdown-only result", () 
 		sources: [{ title: "Source", url: "https://example.com/code" }],
 	});
 	assert.equal(result.isError, false);
-	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
+	assert.equal(validateOutput.check(result.structuredContent), true);
 	const data = result.structuredContent as { status: string; text?: string; searchResults: Array<{ citedText?: string }> };
 	assert.equal(data.status, "success");
 	assert.equal("text" in data, false);
@@ -38,7 +40,7 @@ test("codemode gets schema-valid citation data, not a markdown-only result", () 
 
 test("truncated model output and structured text have identical markers", () => {
 	const result = formatResult("one\\ntwo\\nthree", {}, { maxLines: 1 });
-	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
+	assert.equal(validateOutput.check(result.structuredContent), true);
 	assert.equal((result.structuredContent as { text: string }).text, textOf(result));
 });
 

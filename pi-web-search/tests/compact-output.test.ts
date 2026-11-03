@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 
 import {
 	CLIP_MARKER,
@@ -14,6 +14,8 @@ import {
 import { formatSearchError } from "../src/utils.ts";
 import { providerError } from "../src/providers/types.ts";
 import { mergeStreamResults, previewEvidence, uniqueEvidence } from "../src/providers/results.ts";
+
+const validateOutput = compile(SearchOutputSchema);
 
 function textOf(result: { content: { type: string; text?: string }[] }): string {
 	const part = result.content[0];
@@ -32,7 +34,7 @@ test("hit refs are one-based, identical in rendered text and structured data", (
 		],
 	}, undefined, { resultId, storedCount: 2, storedClipped: false });
 
-	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+	assert.equal(validateOutput.check(output.structuredContent), true);
 	const data = output.structuredContent as { text?: string; searchResults: Array<{ ref?: string; citedText?: string }> };
 	assert.equal("text" in data, false);
 	assert.deepEqual(data.searchResults.map((hit) => hit.ref), [hitRef(resultId, 0), hitRef(resultId, 1)]);
@@ -100,7 +102,7 @@ test("structured listing includes useful bounded evidence once; errors keep text
 		searchResults: [{ title: "Doc", url: "https://example.com", citedText: "x".repeat(800) }],
 	});
 	const listed = listing.structuredContent as { text?: string; searchResults: Array<{ citedText?: string; url?: string }> };
-	assert.equal(Check(SearchOutputSchema, listing.structuredContent), true);
+	assert.equal(validateOutput.check(listing.structuredContent), true);
 	assert.equal("text" in listed, false);
 	assert.equal(listed.searchResults[0].citedText, "x".repeat(EXCERPT_MAX_CHARS) + CLIP_MARKER);
 	assert.equal(listed.searchResults[0].url, "https://example.com");
@@ -110,7 +112,7 @@ test("structured listing includes useful bounded evidence once; errors keep text
 		resultCount: 0, grounded: false, sources: [], searchResults: [],
 		error: { code: "timeout", message: "web_search failed (timeout): boom" },
 	});
-	assert.equal(Check(SearchOutputSchema, failure.structuredContent), true);
+	assert.equal(validateOutput.check(failure.structuredContent), true);
 	assert.equal((failure.structuredContent as { text: string }).text, textOf(failure));
 });
 
@@ -196,7 +198,7 @@ test("source-only records and fixed fields include JSON escaping in their budget
 		{ text: "\u0001".repeat(1000), providerKind: "exa" as const, warnings: Array(6).fill("\u0001".repeat(200)) },
 	]) {
 		const output = formatWebSearchResult(input);
-		assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+		assert.equal(validateOutput.check(output.structuredContent), true);
 		assert.ok(textOf(output).length <= OUTPUT_BUDGET_CHARS);
 		assert.ok(JSON.stringify(output.structuredContent).length <= OUTPUT_BUDGET_CHARS);
 	}
@@ -207,7 +209,7 @@ test("escaped failure envelopes fit without changing error identity or shortenin
 		configPath: "\u0001".repeat(20_000),
 	});
 	const output = formatSearchError("search", error);
-	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+	assert.equal(validateOutput.check(output.structuredContent), true);
 	assert.ok(JSON.stringify(output.structuredContent).length <= OUTPUT_BUDGET_CHARS);
 	assert.equal(output.details.error?.code, "http_error");
 	assert.equal(output.details.error?.status, 503);
@@ -239,7 +241,7 @@ test("standalone citations survive structured output alongside search hits", () 
 	});
 	assert.deepEqual((output.structuredContent as { sources?: unknown }).sources, [source]);
 	assert.ok(textOf(output).includes(source.url));
-	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+	assert.equal(validateOutput.check(output.structuredContent), true);
 });
 
 test("clipping warnings describe model previews and point to local evidence", () => {

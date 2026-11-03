@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 
 import {
 	PROVIDER_TEXT_MAX_CHARS,
@@ -20,6 +20,8 @@ import { runParallelSearch, runSearch, type SearchRequest } from "../src/provide
 import { providerError, type StreamResult } from "../src/providers/types.ts";
 import { formatSearchError } from "../src/utils.ts";
 import { classifierRegistry } from "./fixtures/native-classifier.ts";
+
+const validateOutput = compile(SearchOutputSchema);
 
 const settings = applyConfig("/unused.json", { classifier: { enabled: true, provider: "typesafe", model: "jev-latest" } });
 const availability = { exa: true, parallel: true };
@@ -107,7 +109,7 @@ test("formatWebSearchResult bounds 10MB upstream evidence without losing hits or
 		})),
 	};
 	const output = formatWebSearchResult(input);
-	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+	assert.equal(validateOutput.check(output.structuredContent), true);
 	assert.equal(output.details.resultCount, 12);
 	assert.deepEqual(output.details.searchResults?.map((entry) => entry.url), input.searchResults?.map((entry) => entry.url));
 	assert.ok(output.details.searchResults?.every((entry) => (entry.citedText?.length ?? 0) <= STRUCTURED_EXCERPT_MAX_CHARS));
@@ -127,7 +129,7 @@ test("formatWebSearchResult bounds prose, metadata and warnings and preserves co
 		warnings: Array.from({ length: 200 }, () => oversized),
 		usage: [{ name: oversized, count: 1 }],
 	});
-	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+	assert.equal(validateOutput.check(output.structuredContent), true);
 	assert.equal(output.details.searchResults?.[0].url, url);
 	assert.equal(output.details.sources?.[0].url, url);
 	assert.ok(JSON.stringify(output.structuredContent).length < 100_000);
@@ -153,7 +155,7 @@ test("formatWebSearchResult removes only provably duplicate Results prose", () =
 
 test("formatSearchError bounds huge failures without losing error identity", () => {
 	const output = formatSearchError("code_search", providerError("http_error", "x".repeat(10 * 1024 * 1024), { status: 503 }));
-	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
+	assert.equal(validateOutput.check(output.structuredContent), true);
 	assert.equal(output.isError, true);
 	assert.equal(output.details.error?.code, "http_error");
 	assert.equal(output.details.error?.status, 503);

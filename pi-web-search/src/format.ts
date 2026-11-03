@@ -1,4 +1,4 @@
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { arr, bool, int, lit, nul, num, obj, opt, str, union, type StaticObject } from "@earendil-works/pi-schema";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_MAX_BYTES,
@@ -31,53 +31,53 @@ export const RESULTS_HEADING = "## Results";
 export const SOURCES_HEADING = "## Sources";
 export const WARNINGS_HEADING = "## Warnings";
 
-const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("sourcegraph"), Type.Literal("github"), Type.Literal("brave"), Type.Literal("jina")]);
+const ProviderSchema = union([lit("exa"), lit("parallel"), lit("grep"), lit("sourcegraph"), lit("github"), lit("brave"), lit("jina")]);
 
 /** One declared data contract for renderers, scripts, and failure results. */
-const DetailsSchema = Type.Object({
-	resultId: Type.Optional(Type.String()),
-	storedCount: Type.Optional(Type.Integer({ minimum: 0 })),
-	storedClipped: Type.Optional(Type.Boolean()),
-	ref: Type.Optional(Type.String()),
-	cursor: Type.Optional(Type.String()),
-	more: Type.Optional(Type.Boolean()),
-	truncated: Type.Optional(Type.Boolean()),
-	matches: Type.Optional(Type.Integer({ minimum: 0 })),
-	passage: Type.Optional(Type.Object({ index: Type.Integer(), offset: Type.Integer(), nextOffset: Type.Optional(Type.Integer()), totalChars: Type.Integer(), matches: Type.Optional(Type.Integer()) })),
-	provider: Type.Optional(ProviderSchema),
-	providers: Type.Optional(Type.Array(ProviderSchema)),
-	requestId: Type.Optional(Type.String()),
-	resultCount: Type.Optional(Type.Integer({ minimum: 0 })),
-	sources: Type.Optional(Type.Array(Type.Object({ title: Type.String(), url: Type.String() }))),
-	searchResults: Type.Optional(Type.Array(Type.Object({
-		title: Type.Optional(Type.String()), url: Type.Optional(Type.String()),
-		query: Type.Optional(Type.String()), source: Type.Optional(Type.String()),
-		pageAge: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-		citedText: Type.Optional(Type.String()), status: Type.Optional(Type.String()), type: Type.Optional(Type.String()),
-		ref: Type.Optional(Type.String()),
-	}))),
-	warnings: Type.Optional(Type.Array(Type.String())),
-	usage: Type.Optional(Type.Array(Type.Object({ name: Type.String(), count: Type.Number() }))),
-	grounded: Type.Optional(Type.Boolean()),
-	classifier: Type.Optional(Type.Object({
-		sufficient: Type.Boolean(), lowConfidence: Type.Boolean(), suppressed: Type.Integer({ minimum: 0 }),
-		suppressedUrls: Type.Array(Type.String()),
-	})),
-	scope: Type.Optional(Type.Union([Type.Literal("web"), Type.Literal("code"), Type.Literal("both")])),
-	classifierStatus: Type.Optional(Type.Union([Type.Literal("ran"), Type.Literal("disabled"), Type.Literal("unavailable"), Type.Literal("skipped")])),
-	error: Type.Optional(Type.Object({
-		code: Type.String(), message: Type.String(), status: Type.Optional(Type.Number()),
-		rpcCode: Type.Optional(Type.Number()), retryable: Type.Optional(Type.Boolean()), configPath: Type.Optional(Type.String()),
-	})),
-}, { additionalProperties: false });
+const DetailsProperties = {
+	resultId: opt(str()),
+	storedCount: opt(int({ minimum: 0 })),
+	storedClipped: opt(bool()),
+	ref: opt(str()),
+	cursor: opt(str()),
+	more: opt(bool()),
+	truncated: opt(bool()),
+	matches: opt(int({ minimum: 0 })),
+	passage: opt(obj({ index: int(), offset: int(), nextOffset: opt(int()), totalChars: int(), matches: opt(int()) }, { open: true })),
+	provider: opt(ProviderSchema),
+	providers: opt(arr(ProviderSchema)),
+	requestId: opt(str()),
+	resultCount: opt(int({ minimum: 0 })),
+	sources: opt(arr(obj({ title: str(), url: str() }, { open: true }))),
+	searchResults: opt(arr(obj({
+		title: opt(str()), url: opt(str()),
+		query: opt(str()), source: opt(str()),
+		pageAge: opt(union([str(), nul()])),
+		citedText: opt(str()), status: opt(str()), type: opt(str()),
+		ref: opt(str()),
+	}, { open: true }))),
+	warnings: opt(arr(str())),
+	usage: opt(arr(obj({ name: str(), count: num() }, { open: true }))),
+	grounded: opt(bool()),
+	classifier: opt(obj({
+		sufficient: bool(), lowConfidence: bool(), suppressed: int({ minimum: 0 }),
+		suppressedUrls: arr(str()),
+	}, { open: true })),
+	scope: opt(union([lit("web"), lit("code"), lit("both")])),
+	classifierStatus: opt(union([lit("ran"), lit("disabled"), lit("unavailable"), lit("skipped")])),
+	error: opt(obj({
+		code: str(), message: str(), status: opt(num()),
+		rpcCode: opt(num()), retryable: opt(bool()), configPath: opt(str()),
+	}, { open: true })),
+};
 
-export type WebSearchDetails = Static<typeof DetailsSchema>;
+export type WebSearchDetails = StaticObject<typeof DetailsProperties>;
 
-export const SearchOutputSchema = Type.Object({
-	status: Type.Union([Type.Literal("success"), Type.Literal("error")]),
-	text: Type.Optional(Type.String()),
-	...DetailsSchema.properties,
-}, { additionalProperties: false });
+export const SearchOutputSchema = obj({
+	status: union([lit("success"), lit("error")]),
+	text: opt(str()),
+	...DetailsProperties,
+});
 
 export interface TruncationLimits {
 	maxLines?: number;

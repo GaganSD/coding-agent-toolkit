@@ -14,17 +14,16 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		files: [...packageAllowlist],
 		keywords: ["pi-package"],
 		pi: { extensions: ["./src/index.ts"] },
+		dependencies: { "@earendil-works/pi-schema": "1.5.0" },
 		peerDependenciesMeta: {
 			"@earendil-works/pi-ai": { optional: true },
 			"@earendil-works/pi-coding-agent": { optional: true },
 			"@earendil-works/pi-tui": { optional: true },
-			typebox: { optional: true },
 		},
 		peerDependencies: {
 			"@earendil-works/pi-ai": "*",
 			"@earendil-works/pi-coding-agent": "*",
 			"@earendil-works/pi-tui": "*",
-			typebox: "*",
 		},
 	};
 	const files = new Map([
@@ -53,7 +52,7 @@ test("package-content permits future llms.txt and Markdown/text docs, not genera
 		files.set("llms.txt", "# Search\n");
 		files.set("docs/configuration.md", "# Configuration\n");
 	}));
-	for (const path of ["tests/leak.test.ts", "scripts/test.ts", "node_modules/typebox/index.js", "SPEC.md", "dist/index.js", "src/index.ts.map", "src/generated.d.ts", "src/.env", ".env", "auth.json", "docs/auth.json", "secrets.pem", "docs/node_modules/leak.md", "../README.md", "/README.md", "docs/../../secret.md", "src\\index.ts"]) {
+	for (const path of ["tests/leak.test.ts", "scripts/test.ts", "node_modules/@earendil-works/pi-schema/index.js", "SPEC.md", "dist/index.js", "src/index.ts.map", "src/generated.d.ts", "src/.env", ".env", "auth.json", "docs/auth.json", "secrets.pem", "docs/node_modules/leak.md", "../README.md", "/README.md", "docs/../../secret.md", "src\\index.ts"]) {
 		assert.equal(isAllowedPackagePath(path), false, path);
 		assert.throws(() => validate(({ files }) => files.set(path, "leak")), /Unexpected package file/);
 	}
@@ -85,14 +84,15 @@ test("package-content rejects imports outside published source and nonliteral dy
 
 test("package-content requires declared host imports and accepts their subpaths", () => {
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'import "undeclared-package";')), /undeclared external import/);
-	assert.doesNotThrow(() => validate(({ files }) => files.set("src/value.ts", 'import "typebox/value"; import "fs";')));
+	assert.doesNotThrow(() => validate(({ files }) => files.set("src/value.ts", 'import "@earendil-works/pi-schema"; import "fs";')));
 });
 
 test("package-content prevents bundling or separately version-resolving host packages", () => {
-	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /no runtime dependencies/);
+	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = {}; }), /only allowed runtime dependency/);
+	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-schema": "1.5.0", "left-pad": "1.0.0" }; }), /only allowed runtime dependency/);
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependencies["@earendil-works/pi-ai"] = ">=0.99.0"; }), /must be supplied by Pi/);
 	assert.throws(() => validate(({ manifest }) => { manifest.files.push("tests"); }));
-	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta.typebox.optional = false; }), /must not install automatically/);
+	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta["@earendil-works/pi-ai"].optional = false; }), /must not install automatically/);
 });
 
 test("package-content rejects install-time lifecycle scripts", () => {

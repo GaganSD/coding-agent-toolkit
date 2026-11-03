@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import type { InvalidConfigError } from "../src/providers/config.ts";
 import { SearchOutputSchema } from "../src/format.ts";
 import { providerError } from "../src/providers/types.ts";
 import { formatSearchError } from "../src/utils.ts";
 
+const validateOutput = compile(SearchOutputSchema);
+
 test("failed searches return isError plus schema-valid structured data", () => {
 	const result = formatSearchError("web_search", providerError("rate_limited", "Too many requests.", { status: 429 }));
 	assert.equal(result.isError, true);
-	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
+	assert.equal(validateOutput.check(result.structuredContent), true);
 	assert.equal(result.details.error?.code, "rate_limited");
 	assert.equal(result.details.error?.status, 429);
 	assert.equal(result.details.error?.message, "web_search failed (rate_limited): Too many requests.");
@@ -29,7 +31,7 @@ test("missing HTTP fields are absent from the JSON result", () => {
 	const data = result.structuredContent as { error: { status?: number; rpcCode?: number } };
 	assert.equal("status" in data.error, false);
 	assert.equal("rpcCode" in data.error, false);
-	assert.equal(Check(SearchOutputSchema, data), true);
+	assert.equal(validateOutput.check(data), true);
 });
 
 test("non-provider throws become unknown without stack or cause leakage", () => {

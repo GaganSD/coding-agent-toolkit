@@ -86,9 +86,10 @@ function recordingTransport(
 }
 
 test("the unified schema exposes retrieval and continuation modes and bounds the query", () => {
-	const urls = SearchSchema.properties.urls as { maxItems?: number };
-	const query = SearchSchema.properties.query as { maxLength?: number };
-	assert.deepEqual(Object.keys(SearchSchema.properties), ["query", "scope", "urls", "ref", "find", "cursor", "effort"]);
+	const properties = SearchSchema.properties as Record<string, { maxItems?: number; maxLength?: number }>;
+	const urls = properties.urls;
+	const query = properties.query;
+	assert.deepEqual(Object.keys(properties), ["query", "scope", "urls", "ref", "find", "cursor", "effort"]);
 	assert.equal((SearchSchema.required as string[] | undefined)?.includes("query") ?? false, false);
 	assert.equal(urls.maxItems, 20);
 	assert.equal(query.maxLength, MAX_QUERY_CHARS);

@@ -5,7 +5,7 @@ import { SyntaxKind } from "typescript/unstable/ast";
 import { createScanner } from "typescript/unstable/ast/scanner";
 
 export const packageAllowlist = ["src", "README.md", "LICENSE", "llms.txt", "docs"];
-const hostPeers = ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox"];
+const hostPeers = ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"];
 
 export interface PackageManifest {
 	name: string;
@@ -29,7 +29,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	assert.ok(manifest.keywords.includes("pi-package"));
 	assert.deepEqual(manifest.files, packageAllowlist);
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
-	assert.deepEqual(manifest.dependencies ?? {}, {}, "This source-only extension has no runtime dependencies");
+	assert.deepEqual(manifest.dependencies ?? {}, { "@earendil-works/pi-schema": "1.5.0" }, "The schema library is the only allowed runtime dependency");
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
 		assert.equal(manifest.scripts?.[hook], undefined, `Consumers must not run lifecycle hook ${hook}`);
 	}
@@ -52,7 +52,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 			}
 			if (isBuiltin(specifier)) return;
 			const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0];
-			assert.ok(Object.hasOwn(manifest.peerDependencies, name), `${path}: undeclared external import ${specifier}`);
+			assert.ok(Object.hasOwn(manifest.peerDependencies, name) || Object.hasOwn(manifest.dependencies ?? {}, name), `${path}: undeclared external import ${specifier}`);
 		};
 		const scanner = createScanner(true, undefined, contents);
 		let declaration: "import" | "export" | undefined;

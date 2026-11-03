@@ -3,7 +3,7 @@ import type {
 	AgentToolUpdateCallback,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { StringEnum, Type, type Static } from "@earendil-works/pi-ai";
+import { arr, obj, opt, str, type Schema, type Static } from "@earendil-works/pi-schema";
 import { MAX_QUERY_CHARS } from "./providers/config.ts";
 import { PARALLEL_MCP_SERVER } from "./providers/parallel.ts";
 import { executeSearch, trimQuery } from "./execute.ts";
@@ -18,37 +18,49 @@ export const SEARCH_EFFORTS = ["fast", "thorough"] as const;
 export type SearchScope = (typeof SEARCH_SCOPES)[number];
 export type SearchEffort = (typeof SEARCH_EFFORTS)[number];
 
-export const SearchSchema = Type.Object({
-	query: Type.Optional(Type.String({
+/** `{ type: "string", enum }`: Google-compatible string enum, identical JSON to pi-ai's StringEnum. */
+function stringEnum<const T extends readonly string[]>(
+	values: T,
+	options?: { description?: string; default?: T[number] },
+): Schema<T[number]> {
+	return {
+		type: "string",
+		enum: [...values],
+		...(options?.description ? { description: options.description } : {}),
+	};
+}
+
+export const SearchSchema = obj({
+	query: opt(str({
 		minLength: 1,
 		maxLength: MAX_QUERY_CHARS,
 		description: "Search terms; code scope expects literal identifiers/snippets",
 	})),
-	scope: Type.Optional(StringEnum(SEARCH_SCOPES, {
+	scope: opt(stringEnum(SEARCH_SCOPES, {
 		description: "web (default), code, or both",
 	})),
-	urls: Type.Optional(Type.Array(Type.String(), {
+	urls: opt(arr(str(), {
 		description: "Fetch HTTP(S) pages instead of searching",
 		maxItems: 20,
 	})),
-	ref: Type.Optional(Type.String({
+	ref: opt(str({
 		minLength: 1,
 		maxLength: 200,
 		description: "Read a returned evidence ref locally; no network",
 	})),
-	find: Type.Optional(Type.String({
+	find: opt(str({
 		minLength: 1,
 		maxLength: 200,
 		description: "With ref: case-insensitive literal passage match",
 	})),
-	cursor: Type.Optional(Type.String({
+	cursor: opt(str({
 		minLength: 1, maxLength: 200,
 		description: "With ref: copy the cursor from a previous read",
 	})),
-	effort: Type.Optional(StringEnum(SEARCH_EFFORTS, {
+	effort: opt(stringEnum(SEARCH_EFFORTS, {
 		description: "fast (default), or thorough (opt-in multi-source)",
 	})),
-});
+}, { open: true });
 
 export type SearchInput = Static<typeof SearchSchema>;
 
@@ -67,7 +79,7 @@ export interface UnifiedSearchOptions extends RunSearchOptions {
 	readRef?: SearchReadRef;
 }
 
-const SEARCH_PARAMS = Object.keys(SearchSchema.properties);
+const SEARCH_PARAMS = Object.keys(SearchSchema.properties as Record<string, unknown>);
 
 /** The registered unified tool. */
 const SEARCH_TOOL: SearchToolName = "search";

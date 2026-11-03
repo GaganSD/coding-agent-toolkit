@@ -37,7 +37,7 @@ function document(providerKind: StreamResult["providerKind"], url = "https://exa
 }
 
 test("unified search exposes one flat schema with documented defaults", () => {
-	assert.deepEqual(Object.keys(SearchSchema.properties).sort(), [
+	assert.deepEqual(Object.keys(SearchSchema.properties as Record<string, unknown>).sort(), [
 		"cursor", "effort", "find", "query", "ref", "scope", "urls",
 	]);
 	const schema = JSON.stringify(SearchSchema);

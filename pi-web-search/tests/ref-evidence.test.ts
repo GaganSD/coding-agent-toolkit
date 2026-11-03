@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import { SearchOutputSchema, type WebSearchDetails } from "../src/format.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { EVIDENCE_MAX_LIFETIME_MS, EVIDENCE_TTL_MS, EvidenceStore, evidenceStore } from "../src/evidence.ts";
 import { REF_LIST_PAGE, REF_OUTPUT_CHARS, REF_PASSAGE_CHARS, searchReadRef } from "../src/search_read.ts";
 import type { StreamResult } from "../src/providers/types.ts";
 
+const validateOutput = compile(SearchOutputSchema);
+
 const detailsOf = (output: { details: WebSearchDetails; structuredContent?: unknown }) => {
-	assert.equal(Check(SearchOutputSchema, output.structuredContent), true, "continuation satisfies the public output schema");
+	assert.equal(validateOutput.check(output.structuredContent), true, "continuation satisfies the public output schema");
 	return output.details;
 };
 const textOf = (output: { content: { type: string; text?: string }[] }) => output.content.map((part) => part.text ?? "").join("\n");
