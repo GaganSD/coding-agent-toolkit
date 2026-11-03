@@ -13,7 +13,8 @@ export type SidebarSkill = { name: string; path: string; source: string; loaded:
 export type SidebarCommand = { name: string; source: string; description?: string };
 export type SidebarPrompt = { name: string; source: string; description?: string };
 export type SidebarMcp = { name: string; enabled: boolean | null; source: string };
-export type SidebarResources = { skills: SidebarSkill[]; commands: SidebarCommand[]; prompts: SidebarPrompt[]; mcp: SidebarMcp[]; mcpError?: string };
+export type SidebarMcpResult = { mcp: SidebarMcp[]; mcpError?: string; mcpWarning?: string };
+export type SidebarResources = { skills: SidebarSkill[]; commands: SidebarCommand[]; prompts: SidebarPrompt[] } & SidebarMcpResult;
 export type SidebarSession = {
   id: string; name?: string; pid: number; cwd: string; model: string; thinking: string;
   tokens: number | null; percent: number | null; contextWindow: number | null;
@@ -208,7 +209,7 @@ export function sidebarMcp(
 
 function resolveMcp(
   registered: readonly { name: string; config: unknown }[], global: McpFile, project: McpFile | undefined, host: SidebarMcpHost | undefined,
-): { mcp: SidebarMcp[]; mcpError?: string } {
+): SidebarMcpResult {
   const files = new Map<string, { config: Record<string, unknown>; source: string }>();
   const invalid = new Map<string, SidebarMcp>();
   let rejected = false;
@@ -242,8 +243,10 @@ function resolveMcp(
   }
   for (const [name, server] of files) rows.set(name, { name: sidebarText(name), source: server.source, enabled: server.config.enabled !== false });
   for (const [name, row] of invalid) if (!rows.has(name)) rows.set(name, row);
+  const mcpError = rejected ? "MCP configuration has rejected entries" : undefined;
+  const mcpWarning = !host && rows.size > 0 ? "MCP configuration validation unavailable" : undefined;
   return { mcp: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name)),
-    ...(!host && rows.size > 0 ? { mcpError: "MCP configuration validation unavailable" } : rejected ? { mcpError: "MCP configuration has rejected entries" } : {}) };
+    ...(mcpError ? { mcpError } : {}), ...(mcpWarning ? { mcpWarning } : {}) };
 }
 
 /** File reads are bounded and cached outside render; never evaluate env or credential commands. */
@@ -269,12 +272,13 @@ export class SidebarMcpFiles {
       return (error as NodeJS.ErrnoException).code === "ENOENT" ? { servers: {} } : { servers: {}, error: "MCP config unreadable" };
     }
   }
-  snapshot(agentDir: string, cwd: string, trusted: boolean, registered: readonly { name: string; config: unknown }[]): { mcp: SidebarMcp[]; mcpError?: string } {
+  snapshot(agentDir: string, cwd: string, trusted: boolean, registered: readonly { name: string; config: unknown }[]): SidebarMcpResult {
     const global = this.read(join(agentDir, "mcp.json"));
     const project = trusted ? this.read(join(cwd, ".pi", "mcp.json")) : undefined;
     const result = resolveMcp(registered, global, project, this.host);
-    const error = project?.error ?? global.error ?? result.mcpError;
-    return { mcp: result.mcp, ...(error ? { mcpError: error } : {}) };
+    const mcpError = project?.error ?? global.error ?? result.mcpError;
+    // A file error outranks a missing adapter. The warning may still travel with the rows.
+    return { mcp: result.mcp, ...(mcpError ? { mcpError } : {}), ...(result.mcpWarning ? { mcpWarning: result.mcpWarning } : {}) };
   }
   clear(): void { this.cached.clear(); }
 }

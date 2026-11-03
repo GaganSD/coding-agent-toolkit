@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
-import type { SidebarResources, SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
+import { SidebarMcpFiles, type SidebarResources, type SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
 import { sessionSidebarSlots } from "../extensions/pi-slate/sidebar-layout.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts";
@@ -441,6 +444,64 @@ test("rejected MCP entries count as Errors without dumping the reason", () => {
   const lines = plain(sidebar.render(80));
   assert(lines.some(line => line.includes("MCP · 2 Enabled · 1 Error")), "enabled count stays numeric next to the error count");
   assert(!lines.some(line => line.includes("rejected entries") || line.includes("config error")));
+});
+
+test("unavailable MCP validation renders as a warning when folded or expanded", () => {
+  const { sidebar } = fixture();
+  const details: string[] = [];
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  sidebar.setResources({
+    ...resources,
+    mcp: [{ name: "unknown-server", enabled: null, source: "global" }],
+    mcpWarning: "MCP configuration validation unavailable",
+  });
+  const folded = plain(sidebar.render(80));
+  assert(folded.some(line => line.includes("› MCP · — · 1 Warning")));
+  assert(!folded.some(line => line.includes("Error") || line.includes("0 Enabled") || line.includes("validation unavailable")));
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  const expanded = plain(sidebar.render(80));
+  assert(expanded.some(line => line.includes("⌄ MCP · — · 1 Warning")));
+  assert(expanded.some(line => line.trim() === "— unknown-server"));
+  assert(!expanded.some(line => line.includes("Error") || line.includes("0 Enabled") || line.includes("validation unavailable")));
+  sidebar.setThemeProvider(() => ({ fg: (tone: string, text: string) => tone === "warning" ? `\x1b[33m${text}\x1b[0m` : tone === "error" ? `\x1b[31m${text}\x1b[0m` : text, bold: (text: string) => text }) as Theme);
+  const painted = sidebar.render(80).join("\n");
+  assert(painted.includes("\x1b[33m · 1 Warning\x1b[0m"));
+  assert(!painted.includes("\x1b[31m"));
+  sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));
+  assert.match(details[0]!, /MCP configuration validation unavailable/);
+  assert(!details[0]!.includes("SECRET"));
+});
+
+test("MCP file errors stay numeric and outrank a validation warning", () => {
+  const { sidebar } = fixture();
+  sidebar.setResources({ ...resources, mcpError: "MCP config unreadable", mcpWarning: "MCP configuration validation unavailable" });
+  const mixed = plain(sidebar.render(80));
+  assert(mixed.some(line => line.includes("MCP · 6 Enabled · 1 Error")));
+  assert(!mixed.some(line => line.includes("Warning") || line.includes("validation unavailable")));
+  sidebar.setResources({
+    skills: [], commands: [], prompts: [],
+    mcp: [{ name: "bad", enabled: null, source: "global" }],
+    mcpError: "MCP config unreadable",
+    mcpWarning: "MCP configuration validation unavailable",
+  });
+  const unknown = plain(sidebar.render(80));
+  assert(unknown.some(line => line.includes("MCP · — · 1 Error")));
+  assert(!unknown.some(line => line.includes("0 Enabled") || line.includes("Warning")));
+});
+
+test("a missing MCP host snapshot renders a warning instead of a config error", async t => {
+  const root = await mkdtemp(join(tmpdir(), "slate-mcp-warning-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { docs: { command: "server" } } }));
+  const snapshot = new SidebarMcpFiles().snapshot(root, root, false, []);
+  const { sidebar } = fixture();
+  sidebar.setResources({ skills: [], commands: [], prompts: [], ...snapshot });
+  const lines = plain(sidebar.render(80));
+  assert.equal(snapshot.mcpError, undefined);
+  assert.equal(snapshot.mcp[0]!.enabled, null);
+  assert.match(snapshot.mcpWarning!, /unavailable/);
+  assert(lines.some(line => line.includes("MCP · — · 1 Warning")));
+  assert(!lines.some(line => line.includes("Error") || line.includes("0 Enabled") || line.includes("validation unavailable")));
 });
 
 test("reset discards old titles, images, task rows and hit targets without changing fold preference", () => {
