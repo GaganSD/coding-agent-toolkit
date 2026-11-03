@@ -6,8 +6,11 @@ type ToolRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2]
 
 const names: Record<string, string> = {
   read: "Read", bash: "Bash", grep: "Grep", find: "Find", ls: "Ls",
-  write: "Write", edit: "Edit", apply_patch: "Apply patch", codemode: "Codemode", recall: "Recall",
+  write: "Write", edit: "Edit", codemode: "Codemode", recall: "Recall",
 };
+
+/** File mutations keep their diff preview instead of collapsing to a line counter. */
+const diffNames = new Set(["write", "edit"]);
 
 export const TOOL_STYLE_NAMES: readonly string[] = Object.freeze(Object.keys(names));
 
@@ -29,7 +32,6 @@ function argumentsText(name: string, args: Record<string, unknown>): string {
     case "bash": return compact(args.command);
     case "grep": case "find": return [args.pattern, path].filter((v) => v != null).map(compact).join(", ");
     case "ls": case "write": case "edit": return compact(path);
-    case "apply_patch": return "patch";
     // Keep source in the original expanded call, never in the compact heading.
     case "codemode": return compact(args.title ?? args.description ?? "script");
     case "recall": return compact(args.query ?? args.topic ?? args.input);
@@ -147,10 +149,14 @@ export function installToolStyle(pi: ExtensionAPI): void {
       },
       renderResult(result, options, theme, context) {
         const saved = originals.get(context.state);
+        const summary = summaryFor(result);
         const terminal = !options.isPartial || context.isError;
+        // A "+N -M" counter cannot show what an edit changed; the tool's own
+        // renderer self-limits its rows, so it can own the collapsed view too.
+        const preview = terminal && !context.isError && diffNames.has(name) && summary.hasDiff;
         const needsTerminalUpdate = terminal && saved
           && (saved.terminalContent !== result.content || saved.terminalDetails !== result.details);
-        if (original?.renderResult && (options.expanded || needsTerminalUpdate)) {
+        if (original?.renderResult && (options.expanded || needsTerminalUpdate || preview)) {
           // An activated native renderer may own a live clock. Deliver completion
           // even after collapse, once per result, so it can release that resource.
           const component = delegate("result", context, (ctx) => original.renderResult!(result, options, theme, ctx));
@@ -158,13 +164,12 @@ export function installToolStyle(pi: ExtensionAPI): void {
             const current = originals.get(context.state)!;
             current.terminalContent = result.content; current.terminalDetails = result.details;
           }
-          if (options.expanded) return component;
+          if (options.expanded || preview) return component;
         }
         if (options.expanded) {
           const text = result.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
           return new Padded(new Text(text.split("\n").map(clean).join("\n"), 0, 0), context.outputPad);
         }
-        const summary = summaryFor(result);
         let text: string;
         if (context.isError) text = summary.first || "Failed";
         else if (options.isPartial) text = context.executionStarted ? "Running…" : "Pending…";
@@ -173,7 +178,7 @@ export function installToolStyle(pi: ExtensionAPI): void {
         else if (name === "find" || name === "ls") text = /^(No files|No entries)/i.test(summary.first) ? summary.first
           : summary.first === "(empty directory)" ? "0 entries"
           : `${summary.dataLines} ${name === "find" ? summary.dataLines === 1 ? "file" : "files" : summary.dataLines === 1 ? "entry" : "entries"}`;
-        else if (name === "write" || name === "edit" || name === "apply_patch") text = summary.first || "Done";
+        else if (diffNames.has(name)) text = summary.first || "Done";
         else text = summary.images && !summary.lines ? `${summary.images === 1 ? "image" : `${summary.images} images`}` : `${summary.lines} line${summary.lines === 1 ? "" : "s"}`;
         let suffix = summary.limited ? " · limited" : "";
         if (summary.truncated) suffix += " · truncated";

@@ -13,6 +13,8 @@
 
 ### Changed
 
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
+
 - `/theme` is the only theme surface: `/slate theme` opens the picker and takes no arguments. `/slate theme <flavor> <palette>` and the old `/slate theme <name>` forms are now plain invalid usage instead of a second 60-name command tree.
 - `/slate style` is removed along with the theme arguments; the picker is the only theme surface. Pink is labelled `Pink` instead of its full theme name, and saved full names such as `catppuccin-latte-mauve` remain valid through Pi's `/settings`.
 - Mocha Quiet remains a saved theme and now shows as the last palette in the Mocha row.
@@ -35,6 +37,8 @@ Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer fr
 
 ### Changed
 
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
+
 - Black Metal is selectable again from `/slate theme` and the theme menu.
 - Sidebar token rate reads `~33 t/s`.
 - `/prompts` has no default shortcut. Optional `"shortcuts": { "prompts": "" }` in `pi-slate.json`; `false` / `"none"` also mean none (Thanks @EinErste for the issue)
@@ -48,6 +52,8 @@ Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer fr
 Slimmer README with fast-loading screenshots and session lifecycle stability fixes.
 
 ### Changed
+
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
 
 - The Claude Code-style tool transcript is now the default for the `tool-cards` surface. Set `"toolStyle": "default"` in `pi-slate.json` and `/reload` to restore Slate's original cards.
 
@@ -77,6 +83,8 @@ Release the current extension updates together.
 
 ### Changed
 
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
+
 - Simplified session identity to `Session <id> · PID <pid>`, reorganized usage/resource rows, aligned prompt and sidebar chrome, and made `/slate theme default` restore Pi's system theme.
 
 ### Fixed
@@ -97,6 +105,8 @@ Pick the composer's working animation instead of always getting the wave.
 
 ### Changed
 
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
+
 - The snake and cylon-scanner indicators grow to the composer border's width budget, capped at their natural size; the wave and helix keep the word-sized seven columns.
 - Indicator glyphs render upright — the animation no longer inherits the old working word's italic.
 
@@ -111,6 +121,8 @@ A cleaner, theme-consistent workbench.
 - Prompt editing: image placeholder tokens delete atomically, and select-all plus shift+backspace/delete clears the whole prompt
 
 ### Changed
+
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
 
 - Cleaner sidebar: blends into the terminal with no panel background; a one-line context meter with a shaded track replaces the old context rows; MCP and Skills rows show just a status dot and the name — redundant enabled/disabled/available labels, source columns, and scroll counters are gone; Prompts section gains a keyboard fold menu and completions.
 - New working indicator: a rolling sine wave in the composer border replaces the status word, and the host working message returns when it stops.
@@ -130,6 +142,8 @@ Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate,
 - Native MCP configuration parity verified for Pi 1.1.0; unsupported host versions still report unknown state.
 
 ### Changed
+
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
 
 - Composer shows project/branch and model on the frame. Density still restores after the host copies native padding. Native cursor, draft, paste, selection and working/thinking behavior are preserved.
 
@@ -164,6 +178,8 @@ Support stable Pi 1.x and replace diagnostic subagent navigation with human conv
 
 ### Changed
 
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
+
 - Unselected surfaces leave host setters, patches, watchers, and cleanup untouched. Theme/fullscreen are explicit preferences, not automatic install defaults.
 - Composer metadata is named `composerMetadata` in settings; the legacy `footer` key is still read and written, and `/slate footer` remains an alias. Footer-slot ownership only hides Pi's footer with the existing zero-row component.
 - Image rewrites patch only Slate's composer instance; foreign editors and `Editor.prototype` remain untouched. `/prompts` and thinking timing are editor-scoped; `/exit` is always registered.
@@ -187,6 +203,8 @@ Add a searchable prompt-template picker and optional PID display; improve compac
 
 ### Changed
 
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
+
 - Focused-mode context uses `2%/250k tokens · ↑↓42`: usage percentage, context-window size, and estimated streamed tokens per second. Skill and MCP labels are shorter.
 - Composer borders keep status and overflow indicators ahead of resource labels and fit narrow terminal widths, including with PID display enabled.
 
@@ -205,6 +223,8 @@ Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.
 - The saved `vertical` setting is not migrated; focused mode remains the default
 
 ### Changed
+
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest), and diff blocks no longer fold into grouped tool lists.
 
 - Drop the unused `@earendil-works/pi-ai` and `typebox` peers
 - Refresh dev tooling to Pi 1.0.0 and TypeScript 7.0.2
