@@ -20,7 +20,8 @@
     "release:prepare": "node scripts/release.mjs prepare",
     "release:apply": "node scripts/release.mjs apply",
     "release:check": "node scripts/release.mjs check",
-    "release:publish": "node scripts/release.mjs publish"
+    "release:publish": "node scripts/release.mjs publish",
+    "test:insights:long-worker": "node tests/herdr-insights/worker-long.integration.mjs"
   },
   "pi": {
     "extensions": [

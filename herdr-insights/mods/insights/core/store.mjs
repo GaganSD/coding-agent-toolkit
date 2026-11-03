@@ -1,4 +1,5 @@
 import { readFile, stat, unlink } from "node:fs/promises";
+import { storeRevisionFingerprint, writePresentationCache } from "./cache.mjs";
 import { defaultConfig, migrateLoadedConfig, normalizeConfig } from "./config.mjs";
 import {
   STORE_VERSION,
@@ -16,15 +17,76 @@ export function fileKey(sourceId, filePath) {
   return `${sourceId}\u0000${filePath}`;
 }
 
+const SCAN_STATUSES = new Set([
+  "idle",
+  "running",
+  "partial",
+  "complete",
+  "failed",
+  "reconfiguring",
+]);
+
+function zeroScanStats() {
+  return { files: 0, filesRead: 0, bytesRead: 0, unchangedFiles: 0, errors: 0 };
+}
+
+export function emptyScanState() {
+  return {
+    status: "idle",
+    generation: 0,
+    startedAt: null,
+    updatedAt: null,
+    completedAt: null,
+    processed: 0,
+    total: 0,
+    stats: zeroScanStats(),
+    sourceStats: {},
+    warnings: [],
+    currentFile: null,
+    pendingFile: null,
+    workerPid: null,
+    error: null,
+  };
+}
+
+/** Additive, backward-compatible store metadata for truthful scan state. */
+export function ensureStoreMeta(store) {
+  if (!Number.isInteger(store.generation) || store.generation < 0) store.generation = 0;
+  if (store.lastCompletedScanAt === undefined) store.lastCompletedScanAt = null;
+  if (!isPlainObject(store.scan)) store.scan = emptyScanState();
+  const scan = store.scan;
+  if (!SCAN_STATUSES.has(scan.status)) scan.status = "idle";
+  if (!Number.isInteger(scan.generation) || scan.generation < 0) scan.generation = 0;
+  for (const field of ["startedAt", "updatedAt", "completedAt", "currentFile", "error"]) {
+    if (scan[field] === undefined) scan[field] = null;
+  }
+  if (!isPlainObject(scan.stats)) scan.stats = zeroScanStats();
+  if (!isPlainObject(scan.sourceStats)) scan.sourceStats = {};
+  if (!Array.isArray(scan.warnings)) scan.warnings = [];
+  if (!Number.isInteger(scan.processed) || scan.processed < 0) scan.processed = 0;
+  if (!Number.isInteger(scan.total) || scan.total < 0) scan.total = 0;
+  if (scan.pendingFile !== null && !isPlainObject(scan.pendingFile)) scan.pendingFile = null;
+  if (!Number.isInteger(scan.workerPid) || scan.workerPid <= 0) scan.workerPid = null;
+  return store;
+}
+
+export function storeGeneration(store) {
+  const value = Number(store?.generation);
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
 export function emptyStore(config = defaultConfig()) {
   const store = {
     version: STORE_VERSION,
     config,
+    generation: 0,
     nextFileId: 1,
     files: {},
     dedup: {},
     tasks: {},
     lastScanAt: null,
+    lastCompletedScanAt: null,
+    scan: emptyScanState(),
   };
   prepareStore(store);
   return store;
@@ -33,7 +95,10 @@ export function emptyStore(config = defaultConfig()) {
 export function prepareStore(store) {
   const byId = new Map();
   for (const entry of Object.values(store.files ?? {})) {
-    if (entry && Number.isInteger(entry.id)) byId.set(entry.id, entry);
+    if (entry && Number.isInteger(entry.id)) {
+      byId.set(entry.id, entry);
+      attachStore(entry, store);
+    }
   }
   Object.defineProperty(store, "_byId", {
     value: byId,
@@ -44,6 +109,13 @@ export function prepareStore(store) {
   return store;
 }
 
+function attachStore(entry, store) {
+  if (entry._store === store) return;
+  Object.defineProperty(entry, "_store", {
+    value: store, enumerable: false, writable: true, configurable: true,
+  });
+}
+
 export function findFileById(store, id) {
   if (!store._byId) prepareStore(store);
   return store._byId.get(id) ?? null;
@@ -51,9 +123,183 @@ export function findFileById(store, id) {
 
 export function addFileEntry(store, entry) {
   if (!store._byId) prepareStore(store);
-  store.files[fileKey(entry.sourceId, entry.path)] = entry;
+  const key = fileKey(entry.sourceId, entry.path);
+  const tx = store._tx;
+  if (tx) {
+    const existing = store.files[key];
+    if (existing && existing !== entry) tx.trackFile(existing);
+    if (!existing) tx.createdFileKeys.add(key);
+    if (!existing || existing.id !== entry.id) tx.createdFileIds.add(entry.id);
+  }
+  store.files[key] = entry;
   store._byId.set(entry.id, entry);
+  attachStore(entry, store);
   return entry;
+}
+
+const TX_MISSING = Symbol("insights-tx-missing");
+
+function cloneAux(value, index) {
+  const aux = value[index];
+  if (!isPlainObject(aux)) return value;
+  const copy = { ...aux };
+  if (Array.isArray(aux.copies)) copy.copies = [...aux.copies];
+  if (isPlainObject(aux.meta)) copy.meta = { ...aux.meta };
+  value[index] = copy;
+  return value;
+}
+
+function cloneRecord(value, auxIndex) {
+  if (!Array.isArray(value)) return value;
+  return cloneAux([...value], auxIndex);
+}
+
+function snapshotFileEntry(entry) {
+  const fields = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (key === "rows" || key === "tasks" || key === "state" || key === "_rowIndex") continue;
+    fields[key] = value;
+  }
+  return {
+    entry,
+    fields,
+    rowsRef: Array.isArray(entry.rows) ? entry.rows : null,
+    rowsLength: Array.isArray(entry.rows) ? entry.rows.length : 0,
+    rows: new Map(),
+    tasksRef: Array.isArray(entry.tasks) ? entry.tasks : null,
+    tasks: Array.isArray(entry.tasks) ? [...entry.tasks] : [],
+    state: structuredClone(entry.state ?? {}),
+  };
+}
+
+/**
+ * Precise per-file transaction. Existing mutation helpers keep their single
+ * accounting implementation; they only announce which dedup/task/row records
+ * they are about to touch. Unchanged history is never cloned, so cost follows
+ * the records a file actually changes rather than the whole accumulated store.
+ */
+export function beginStoreTransaction(store, { fileId } = {}) {
+  if (store._tx) throw new Error("a store transaction is already active");
+  const tx = {
+    store,
+    savedFiles: new Map(),
+    savedDedup: new Map(),
+    savedTasks: new Map(),
+    createdFileKeys: new Set(),
+    createdFileIds: new Set(),
+    deletedFiles: new Map(),
+    nextFileId: store.nextFileId,
+    active: true,
+    trackFile(entry) {
+      if (!entry || !Number.isInteger(entry.id)) return null;
+      if (tx.createdFileIds.has(entry.id)) return null;
+      if (!tx.savedFiles.has(entry.id)) tx.savedFiles.set(entry.id, snapshotFileEntry(entry));
+      return tx.savedFiles.get(entry.id);
+    },
+    trackFileById(id) {
+      const entry = findFileById(store, id);
+      return tx.trackFile(entry);
+    },
+    trackRow(entry, index) {
+      if (!entry || !Number.isInteger(index) || index < 0) return;
+      const record = tx.trackFile(entry);
+      if (!record) return;
+      // When a reset replaced the rows array, rollback restores the original
+      // array wholesale; per-index snapshots of the new array would overwrite it.
+      if (record.rowsRef && entry.rows !== record.rowsRef) return;
+      // Rows created during the transaction are removed by truncating to the
+      // original length; do not re-add them from a later snapshot.
+      if (index >= record.rowsLength) return;
+      if (!record.rows.has(index)) {
+        const row = entry.rows?.[index];
+        record.rows.set(index, isPlainObject(row) ? { ...row } : row);
+      }
+    },
+    touchDedup(key) {
+      if (tx.savedDedup.has(key)) return;
+      const value = Object.hasOwn(store.dedup, key) ? store.dedup[key] : TX_MISSING;
+      tx.savedDedup.set(key, value === TX_MISSING ? TX_MISSING : cloneRecord(value, DEDUP_AUX_INDEX));
+    },
+    touchTask(key) {
+      if (tx.savedTasks.has(key)) return;
+      const value = Object.hasOwn(store.tasks, key) ? store.tasks[key] : TX_MISSING;
+      tx.savedTasks.set(key, value === TX_MISSING ? TX_MISSING : cloneRecord(value, TASK_AUX_INDEX));
+    },
+    deleteFileEntry(key, entry) {
+      tx.trackFile(entry);
+      tx.deletedFiles.set(key, entry);
+      tx.createdFileKeys.delete(key);
+    },
+  };
+  Object.defineProperty(store, "_tx", {
+    value: tx, enumerable: false, writable: true, configurable: true,
+  });
+  if (Number.isInteger(fileId)) tx.trackFileById(fileId);
+  return tx;
+}
+
+export function commitStoreTransaction(tx) {
+  if (!tx?.active) return false;
+  tx.active = false;
+  if (tx.store._tx === tx) delete tx.store._tx;
+  return true;
+}
+
+export function rollbackStoreTransaction(tx) {
+  if (!tx?.active) return false;
+  tx.active = false;
+  const store = tx.store;
+  for (const saved of tx.savedFiles.values()) {
+    const entry = saved.entry;
+    for (const key of Object.keys(entry)) {
+      if (key === "rows" || key === "tasks" || key === "state" || key === "_rowIndex") continue;
+      if (!Object.hasOwn(saved.fields, key)) delete entry[key];
+    }
+    Object.assign(entry, saved.fields);
+    if (saved.rowsRef) {
+      saved.rowsRef.length = saved.rowsLength;
+      for (const [index, row] of saved.rows) saved.rowsRef[index] = row;
+      entry.rows = saved.rowsRef;
+    } else {
+      entry.rows = [];
+    }
+    if (saved.tasksRef) {
+      saved.tasksRef.length = 0;
+      saved.tasksRef.push(...saved.tasks);
+      entry.tasks = saved.tasksRef;
+    } else {
+      entry.tasks = [];
+    }
+    entry.state = saved.state;
+    // A row mutation can invalidate the transient row index. Rebuilding it
+    // lazily after rollback is cheap relative to a rare corrupt archive.
+    delete entry._rowIndex;
+  }
+  for (const [key, value] of tx.savedDedup) {
+    if (value === TX_MISSING) delete store.dedup[key];
+    else store.dedup[key] = value;
+  }
+  for (const [key, value] of tx.savedTasks) {
+    if (value === TX_MISSING) delete store.tasks[key];
+    else store.tasks[key] = value;
+  }
+  for (const key of tx.createdFileKeys) {
+    const entry = store.files[key];
+    if (entry && tx.createdFileIds.has(entry.id)) {
+      delete store.files[key];
+      store._byId?.delete(entry.id);
+    }
+  }
+  for (const [key, entry] of tx.deletedFiles) {
+    store.files[key] = entry;
+    store._byId?.set(entry.id, entry);
+  }
+  store.nextFileId = tx.nextFileId;
+  if (store._tx === tx) delete store._tx;
+  // Rebuild the transient id index from the restored file map. Rollback is a
+  // rare recovery path, so an O(files) rebuild is preferable to a stale index.
+  prepareStore(store);
+  return true;
 }
 
 export function newFileEntry(store, values) {
@@ -73,6 +319,7 @@ export function newFileEntry(store, values) {
 export function deleteFileEntry(store, key) {
   const entry = store.files[key];
   if (!entry) return null;
+  store._tx?.deleteFileEntry(key, entry);
   removeOwnedMetadata(store, entry.id);
   delete store.files[key];
   if (store._byId) store._byId.delete(entry.id);
@@ -80,23 +327,33 @@ export function deleteFileEntry(store, key) {
 }
 
 export function removeOwnedMetadata(store, fileId) {
+  const tx = store._tx;
   for (const [key, value] of Object.entries(store.dedup)) {
     if (!Array.isArray(value)) continue;
-    dropCopyCandidate(value, DEDUP_AUX_INDEX, fileId);
+    const aux = value[DEDUP_AUX_INDEX];
+    const hasCopy = isPlainObject(aux) && Array.isArray(aux.copies) && aux.copies.includes(fileId);
+    if (hasCopy) tx?.touchDedup(key);
+    if (hasCopy) dropCopyCandidate(value, DEDUP_AUX_INDEX, fileId);
     if (value[0] !== fileId) continue;
+    tx?.touchDedup(key);
     if (transferDedupOwnership(store, value)) continue;
     delete store.dedup[key];
   }
   for (const [key, value] of Object.entries(store.tasks)) {
     if (!Array.isArray(value)) continue;
-    dropCopyCandidate(value, TASK_AUX_INDEX, fileId);
+    const aux = value[TASK_AUX_INDEX];
+    const hasCopy = isPlainObject(aux) && Array.isArray(aux.copies) && aux.copies.includes(fileId);
+    if (hasCopy) tx?.touchTask(key);
+    if (hasCopy) dropCopyCandidate(value, TASK_AUX_INDEX, fileId);
     if (value[0] !== fileId) continue;
+    tx?.touchTask(key);
     if (transferTaskOwnership(store, value)) continue;
     delete store.tasks[key];
   }
 }
 
 export function resetFileEntry(store, entry) {
+  store._tx?.trackFile(entry);
   removeOwnedMetadata(store, entry.id);
   entry.offset = 0;
   entry.lineNo = 0;
@@ -108,6 +365,7 @@ export function resetFileEntry(store, entry) {
 }
 
 export function clearCollectedData(store) {
+  if (store._tx) throw new Error("cannot clear collected data inside a transaction");
   store.files = {};
   store.dedup = {};
   store.tasks = {};
@@ -116,6 +374,7 @@ export function clearCollectedData(store) {
 }
 
 export function getOrCreateRow(file, meta) {
+  storeTrackFileForRow(file);
   // OpenCode puts the entire history in one file. A linear search here makes
   // a cold scan quadratic in the number of session/model buckets.
   if (!file._rowIndex || file._rowIndex.length !== file.rows.length) {
@@ -149,6 +408,12 @@ export function getOrCreateRow(file, meta) {
   file._rowIndex.map.set(key, index);
   file._rowIndex.length = file.rows.length;
   return index;
+}
+
+function storeTrackFileForRow(file) {
+  const store = file?._store;
+  if (!store?._tx) return;
+  store._tx.trackFile(file);
 }
 
 function addRowTokens(row, tokens) {
@@ -237,7 +502,9 @@ function transferDedupOwnership(store, entry) {
   }
   const candidate = takeCandidate(store, aux);
   if (!candidate) return false;
+  store._tx?.trackFile(candidate);
   const rowIdx = getOrCreateRow(candidate, aux.meta);
+  store._tx?.trackRow(candidate, rowIdx);
   const row = candidate.rows[rowIdx];
   addRowTokens(row, {
     input: entry[2],
@@ -259,6 +526,7 @@ function transferTaskOwnership(store, entry) {
   }
   const candidate = takeCandidate(store, aux);
   if (!candidate) return false;
+  store._tx?.trackFile(candidate);
   const rowIdx = getOrCreateRow(candidate, aux.meta);
   entry[0] = candidate.id;
   entry[1] = rowIdx;
@@ -268,11 +536,15 @@ function transferTaskOwnership(store, entry) {
 // Usage dedup is a max-upsert: Claude streams the same message.id repeatedly
 // and revises its numbers upward. One message, maximum numeric value per field.
 export function addUsage(store, file, meta, tokens, dedupKey) {
+  const tx = store._tx;
   const entry = store.dedup[dedupKey];
   if (Array.isArray(entry)) {
     const owner = findFileById(store, entry[0]);
     const row = owner?.rows?.[entry[1]];
     if (owner && row) {
+      tx?.trackFile(owner);
+      tx?.trackRow(owner, entry[1]);
+      tx?.touchDedup(dedupKey);
       let changed = refreshConcreteProvider(owner, row, entry, meta);
       const added = {
         input: 0,
@@ -303,10 +575,16 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
         added,
       };
     }
+    // Save the stale entry before removing it so a rollback restores the
+    // exact committed dedup map, including an owner that no longer exists.
+    tx?.touchDedup(dedupKey);
     delete store.dedup[dedupKey];
   }
 
+  tx?.trackFile(file);
+  tx?.touchDedup(dedupKey);
   const rowIdx = getOrCreateRow(file, meta);
+  tx?.trackRow(file, rowIdx);
   const row = file.rows[rowIdx];
   addRowTokens(row, tokens);
   row.messages = toNonNegInt(row.messages + 1);
@@ -346,11 +624,14 @@ export function addTask(
   candidateFileId = fileId,
 ) {
   const ms = toNonNegInt(durationMs);
+  const tx = store._tx;
   const owner = findFileById(store, fileId);
   const row = owner?.rows?.[rowIdx];
   if (!owner || !row) return false;
+  tx?.trackFile(owner);
   const existing = store.tasks[taskKey];
   if (Array.isArray(existing)) {
+    tx?.touchTask(taskKey);
     if (existing[0] !== candidateFileId) {
       const existingOwner = findFileById(store, existing[0]);
       const existingRow = existingOwner?.rows?.[existing[1]];
@@ -370,6 +651,7 @@ export function addTask(
     return false;
   }
   const sHash = sessionHash(session);
+  tx?.touchTask(taskKey);
   store.tasks[taskKey] = [fileId, rowIdx, ms, exact ? 1 : 0, sHash];
   if (!Array.isArray(owner.tasks)) owner.tasks = [];
   owner.tasks.push(taskKey);
@@ -383,8 +665,10 @@ export function removeLatestFallbackTaskForSession(store, session) {
     const key = keys[index];
     const entry = store.tasks[key];
     if (Array.isArray(entry) && entry[3] === 0 && entry[4] === sHash) {
+      store._tx?.touchTask(key);
       delete store.tasks[key];
       const owner = findFileById(store, entry[0]);
+      store._tx?.trackFile(owner);
       if (Array.isArray(owner?.tasks)) {
         owner.tasks = owner.tasks.filter((taskKey) => taskKey !== key);
       }
@@ -401,6 +685,7 @@ export function removeLatestFallbackTaskForSession(store, session) {
 
 export function removeFallbackTasksForSession(store, file, session) {
   if (!Array.isArray(file.tasks) || file.tasks.length === 0) return;
+  store._tx?.trackFile(file);
   const sHash = sessionHash(session);
   const keep = [];
   for (const key of file.tasks) {
@@ -411,6 +696,7 @@ export function removeFallbackTasksForSession(store, file, session) {
       entry[3] === 0 &&
       entry[4] === sHash
     ) {
+      store._tx?.touchTask(key);
       delete store.tasks[key];
     } else {
       keep.push(key);
@@ -635,6 +921,7 @@ export async function loadStore(storePath, { readOnly = false } = {}) {
   try {
     parsed = JSON.parse(text);
     const migrated = validateLoadedStore(parsed);
+    ensureStoreMeta(parsed);
     prepareStore(parsed);
     return { store: parsed, warnings, errors, exists: true, dirty: migrated };
   } catch (error) {
@@ -667,9 +954,39 @@ export async function loadStore(storePath, { readOnly = false } = {}) {
   }
 }
 
-export async function saveStore(storePath, store) {
-  store.lastScanAt = new Date().toISOString();
+export async function saveStore(
+  storePath,
+  store,
+  { completed = false, status, now = new Date() } = {},
+) {
+  const savedAt = now instanceof Date ? now.toISOString() : new Date(now).toISOString();
+  ensureStoreMeta(store);
+  store.lastScanAt = savedAt;
+  const scan = store.scan;
+  scan.updatedAt = savedAt;
+  scan.generation = storeGeneration(store);
+  if (status) scan.status = status;
+  if (completed) {
+    scan.status = "complete";
+    scan.completedAt = savedAt;
+    scan.currentFile = null;
+    scan.pendingFile = null;
+    scan.workerPid = null;
+    scan.error = null;
+    store.lastCompletedScanAt = savedAt;
+  }
   await atomicWriteJson(storePath, store);
+  // The presentation cache is derived from this exact committed store. Capture
+  // the post-rename identity while the caller still holds writer authority so
+  // an old cache can never be accepted for a newer atomic store revision. A
+  // failure here must not fail the commit; prepare falls back to the store.
+  try {
+    const fingerprint = await storeRevisionFingerprint(storePath);
+    await writePresentationCache(storePath, {
+      savedAt, store, rows: snapshotRows(store), fingerprint,
+    });
+  } catch { /* the cache is an optional read accelerator */ }
+  return savedAt;
 }
 
 export async function fileStatOrNull(file) {

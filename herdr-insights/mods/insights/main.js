@@ -51,6 +51,12 @@ const CELL_GAP = 2;
 const DAY_LABEL_WIDTH = 30;
 const TAB = { name: "Insights", mod: "insights" };
 
+function shortFileName(value) {
+  if (typeof value !== "string" || value.length === 0) return "";
+  const index = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
+  return index >= 0 ? value.slice(index + 1) : value;
+}
+
 /** One Insights tab per space: focus it if it exists, otherwise create it. */
 function showInsights() {
   const active = spaces().find((space) => space.active);
@@ -485,6 +491,7 @@ export default class Insights extends View {
     this.dashboardTimer = null;
     this.dashboardTask = null;
     this.progressTimer = null;
+    this.scanContinueTimer = null;
     this.scanProgress = null;
     this.progressTask = null;
     this.progressGeneration = 0;
@@ -548,6 +555,7 @@ export default class Insights extends View {
     try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.refreshWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.progressTimer?.cancel(); } catch { /* already gone */ }
+    this.cancelScanContinue();
     try { this.saveWatchdog?.cancel(); } catch { /* already gone */ }
     try { this.settingsTask?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
@@ -752,12 +760,35 @@ export default class Insights extends View {
         let next = null;
         try {
           const parsed = JSON.parse(await readTextFile(this.progressPath()));
-          if (parsed && Number.isFinite(Number(parsed.processed)) && Number.isFinite(Number(parsed.total))) next = parsed;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            // Merge only allowlisted display metadata into the last foreground
+            // view: a mid-file stream update must not drop discovery counters.
+            const merged = { ...(this.scanProgress ?? {}) };
+            let useful = false;
+            for (const key of ["processed", "total", "filesRead", "bytesRead", "bytes", "decodedBytes"]) {
+              const value = Number(parsed[key]);
+              if (Number.isFinite(value) && value >= 0) {
+                merged[key === "bytes" ? "decodedBytes" : key] = Math.floor(value);
+                useful = true;
+              }
+            }
+            if (typeof parsed.file === "string") {
+              merged.file = parsed.file;
+              useful = true;
+            }
+            if (typeof parsed.phase === "string") {
+              merged.phase = parsed.phase;
+              useful = true;
+            }
+            if (useful) next = merged;
+          }
         } catch { /* the progress file is best-effort */ }
         if (generation !== this.progressGeneration || !this.loading) return;
         this.progressTask = null;
         const changed = (next?.processed ?? null) !== (this.scanProgress?.processed ?? null)
-          || (next?.file ?? null) !== (this.scanProgress?.file ?? null);
+          || (next?.file ?? null) !== (this.scanProgress?.file ?? null)
+          || (next?.decodedBytes ?? null) !== (this.scanProgress?.decodedBytes ?? null)
+          || (next?.phase ?? null) !== (this.scanProgress?.phase ?? null);
         this.scanProgress = next;
         if (changed) progressCx.notify();
       });
@@ -771,6 +802,70 @@ export default class Insights extends View {
     this.progressTimer = null;
     this.progressTask = null;
     this.scanProgress = null;
+  }
+
+  // A bounded collector slice returns committed data with an explicit scan
+  // state. Continue automatically while work remains; the next request
+  // coalesces with any in-flight pane through the store lock.
+  cancelScanContinue() {
+    try { this.scanContinueTimer?.cancel(); } catch { /* already gone */ }
+    this.scanContinueTimer = null;
+  }
+
+  scheduleScanContinue(cx) {
+    const scan = this.snapshot?.scan;
+    if (!scan || this.closed) {
+      this.cancelScanContinue();
+      return;
+    }
+    const delay = scan.status === "partial" ? 250
+      : scan.status === "running" || scan.status === "starting" ? 900
+        : scan.status === "reconfiguring" ? 500
+          : null;
+    if (delay === null) {
+      this.cancelScanContinue();
+      return;
+    }
+    if (this.scanContinueTimer) return;
+    this.scanContinueTimer = cx.timer.after(delay, (timerCx) => {
+      this.scanContinueTimer = null;
+      if (this.closed) return;
+      // A tick during an in-flight load/save must not be lost: refresh is a
+      // no-op while busy, so keep the continuation armed until it can run.
+      if (this.busy()) {
+        this.scheduleScanContinue(timerCx);
+        return;
+      }
+      this.refresh(timerCx);
+    });
+  }
+
+  scanStatusLabel(scan) {
+    if (!scan || typeof scan !== "object") return "";
+    if (scan.status === "reconfiguring") return "Applying configuration…";
+    const live = scan.live && typeof scan.live === "object" ? scan.live : null;
+    const total = Number(live?.total ?? scan.total) || 0;
+    const processed = Number(live?.processed ?? scan.processed) || 0;
+    const file = shortFileName(live?.file);
+    const decodedBytes = Number(live?.decodedBytes) || 0;
+    if (scan.status === "running" || scan.status === "starting") {
+      if (live && (file || decodedBytes > 0)) {
+        const counts = total > 0
+          ? `${formatInt(processed)} of ${formatInt(total)} files`
+          : "in the background";
+        return [`Indexing ${counts}`, file, decodedBytes > 0 ? `${formatBytes(decodedBytes)} decoded` : null]
+          .filter(Boolean).join(" · ") + "…";
+      }
+      return total > 0
+        ? `Indexing ${formatInt(processed)} of ${formatInt(total)} files…`
+        : "Indexing in the background…";
+    }
+    if (scan.status === "partial") {
+      return total > 0
+        ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files…`
+        : "Scanning…";
+    }
+    return "";
   }
 
   armWatchdog(kind, cx) {
@@ -908,6 +1003,7 @@ export default class Insights extends View {
       return;
     }
     if (this.busy()) return;
+    this.cancelScanContinue();
     const generation = (this.activityGeneration ?? 0) + 1;
     this.activityGeneration = generation;
     this.loading = true;
@@ -997,6 +1093,7 @@ export default class Insights extends View {
     // Only compact metadata and the prepared dashboard are applied here. The
     // native settings controls are created or synced by a separate Task after
     // this notification, so they can never interrupt the first dashboard frame.
+    this.scheduleScanContinue(cx);
     cx.notify();
     if (this.showSettings) this.scheduleSettingsSync(cx);
   }
@@ -1342,14 +1439,18 @@ export default class Insights extends View {
   }
 
   header(c) {
-    const updated = this.snapshot ? formatTimestamp(this.snapshot.lastScanAt || this.snapshot.generatedAt) : "";
+    const scan = this.snapshot?.scan;
+    const updated = this.snapshot
+      ? formatTimestamp(this.snapshot.lastCompletedScanAt || this.snapshot.lastScanAt || this.snapshot.generatedAt)
+      : "";
     const preparing = !this.dashboard && (this.dashboardPending || this.dashboardQueued);
+    const scanning = this.scanStatusLabel(scan);
     const status = this.loading ? "Refreshing…"
       : this.saving ? "Saving…"
         : preparing ? "Preparing…"
           : this.error ? (this.snapshot ? "Showing last snapshot" : "Unavailable")
             : this.dashboardError ? "Could not prepare dashboard"
-              : updated ? `Updated ${updated}` : "";
+              : scanning || (updated ? `Updated ${updated}` : "");
     const statusError = Boolean(this.error || this.dashboardError);
     return h_flex().w_full().flex_wrap().gap(G.md).items_center().justify_between()
       .child(pageTitle(this.showSettings ? "Settings" : "Insights", c))
@@ -1393,11 +1494,15 @@ export default class Insights extends View {
     const total = Number(progress?.total) || 0;
     const processed = Number(progress?.processed) || 0;
     const file = typeof progress?.file === "string" ? progress.file : "";
+    const decodedBytes = Number(progress?.decodedBytes ?? progress?.bytes) || 0;
     return stateCard(c, {
       tone: loading ? c.accent : c.destructive,
       title: loading ? "Loading local insights" : "Insights needs its collector",
       body: loading
-        ? (total > 0 ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files` : null)
+        ? [
+          total > 0 ? `Scanning ${formatInt(processed)} of ${formatInt(total)} files` : null,
+          decodedBytes > 0 ? `${formatBytes(decodedBytes)} decoded` : null,
+        ].filter(Boolean).join(" · ") || null
         : (this.error || "The collector did not return a snapshot yet."),
       detail: loading && file ? file : null,
       action: loading || this.busy() ? null : button("insights-initial-retry", "Retry", (_event, clickCx) => this.refresh(clickCx), c, {

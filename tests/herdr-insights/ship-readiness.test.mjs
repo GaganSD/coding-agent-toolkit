@@ -5,7 +5,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { registerHooks } from "node:module";
 import test from "node:test";
-import { progressWriter } from "../../herdr-insights/mods/insights/collector.mjs";
+import { progressWriter } from "../../herdr-insights/mods/insights/core/progress.mjs";
 import { compactDashboard, deriveDashboard } from "../../herdr-insights/mods/insights/analytics.js";
 import { MAX_LINE_BYTES, withStoreLock } from "../../herdr-insights/mods/insights/core/util.mjs";
 import { normalizeConfig } from "../../herdr-insights/mods/insights/core/config.mjs";
@@ -278,6 +278,40 @@ test("a live same-host lock cannot be stolen just because it is old", async (t) 
     assert.equal(JSON.parse(await readFile(path.join(`${store}.lock`, owners[0]), "utf8")).pid, process.pid);
   });
   await assert.rejects(stat(`${store}.lock`), { code: "ENOENT" });
+});
+
+test("lock acquisition publishes one populated directory and release leaves no artifacts", async (t) => {
+  const root = await fixture(t);
+  const store = path.join(root, "store.json");
+  const lock = `${store}.lock`;
+  await withStoreLock(store, async () => {
+    assert.deepEqual(await readdir(root), [path.basename(lock)], "no staging directory survives");
+    const owners = await readdir(lock);
+    assert.equal(owners.length, 1, "the published lock directory is never empty");
+    const owner = JSON.parse(await readFile(path.join(lock, owners[0]), "utf8"));
+    assert.equal(owner.pid, process.pid);
+    assert.equal(typeof owner.token, "string");
+  });
+  assert.deepEqual(await readdir(root), [], "release quarantines the whole directory");
+  await assert.rejects(stat(lock), { code: "ENOENT" });
+});
+
+test("concurrent writers serialize through the atomically published lock", async (t) => {
+  const root = await fixture(t);
+  const store = path.join(root, "store.json");
+  let active = 0;
+  let peak = 0;
+  let completed = 0;
+  await Promise.all(Array.from({ length: 4 }, () => withStoreLock(store, async () => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active -= 1;
+    completed += 1;
+  })));
+  assert.equal(peak, 1, "exactly one writer holds the lock");
+  assert.equal(completed, 4);
+  assert.deepEqual(await readdir(root), [], "no lock, staging or quarantine remains");
 });
 
 test("concurrent dead-owner reclaimers cannot remove a newly acquired lock", async (t) => {

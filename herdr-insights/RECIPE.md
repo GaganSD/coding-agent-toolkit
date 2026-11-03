@@ -162,8 +162,15 @@ including tool-result, standalone usage, compaction, and branch-summary events.
 Task duration uses exact boundaries or conservative capped spans, never idle session
 lifetime. Use local dates, not UTC days. Append-only incremental caches may require
 explicit rebuild after same-size rewrites. Use ownership-checked store locks;
-never steal live/unknown owners' locks based on age. Preserve corrupt stores with
-a backup before rebuilding; read-only prepare must not repair or create stores.
+never steal live/unknown owners' locks based on age or evict empty/foreign locks
+automatically. Preserve corrupt stores with a backup before rebuilding; read-only
+prepare must not repair or create stores. Foreground slices are bounded and
+auto-continue; a managed local worker may finish a giant non-seekable zstd archive.
+There is no arbitrary compressed-offset resume: crash recovery replays the
+unfinished archive and uncheckpointed batch, keeping completed commits. Live
+progress is a metadata-only overlay gated by the matching live claim and writer
+lock; rows, config, and accounting stay committed. `savedAt`/`lastScanAt` is not
+`lastCompletedScanAt`. Require Node >=22.15; do not change Herdr's exec timeout.
 
 Never modify shipped layouts/mods, keys, source transcripts, or existing usage
 data. Write only the owned personal layout clone. Preserve collisions and local

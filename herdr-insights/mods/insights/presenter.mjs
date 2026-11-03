@@ -13,8 +13,7 @@ import {
   compactDashboard,
   deriveDashboard,
 } from "./analytics.js";
-import { collectSnapshot } from "./collector.mjs";
-import { loadStore, snapshotRows } from "./core/store.mjs";
+import { collectSnapshot, readCommittedSnapshot } from "./collector.mjs";
 
 function usage() {
   return [
@@ -22,6 +21,7 @@ function usage() {
     "  presenter.mjs snapshot --store <file> --home <dir> [--options <json>]",
     "  presenter.mjs configure --store <file> --home <dir> --config <json> [--options <json>]",
     "  presenter.mjs prepare --store <file> [--options <json>]",
+    "  presenter.mjs status --store <file> [--options <json>]",
   ].join("\n");
 }
 
@@ -71,15 +71,20 @@ function compactSnapshot(snapshot, rowCount = 0) {
     version = 1,
     generatedAt = null,
     lastScanAt = null,
+    lastCompletedScanAt = null,
+    savedAt = null,
     config = {},
     stats,
     sourceStats,
+    scan,
     warnings = [],
   } = snapshot ?? {};
   return {
     version,
     generatedAt,
     lastScanAt,
+    lastCompletedScanAt,
+    savedAt,
     config,
     rowCount: Array.isArray(snapshot?.rows)
       ? snapshot.rows.length
@@ -88,6 +93,7 @@ function compactSnapshot(snapshot, rowCount = 0) {
         : 0,
     stats,
     sourceStats,
+    scan: scan && typeof scan === "object" ? scan : null,
     warnings: Array.isArray(warnings) ? warnings : [],
   };
 }
@@ -104,19 +110,6 @@ function presentation(command, snapshot, options, dashboard, error) {
   };
 }
 
-function storeSnapshot(store, loaded) {
-  const rows = snapshotRows(store);
-  return {
-    version: 1,
-    generatedAt: store.lastScanAt,
-    lastScanAt: store.lastScanAt,
-    config: store.config,
-    rows,
-    stats: loaded?.errors ? { errors: loaded.errors } : undefined,
-    warnings: loaded?.warnings ?? [],
-  };
-}
-
 function derive(snapshot, options) {
   try {
     return { dashboard: deriveDashboard(snapshot, options), error: null };
@@ -130,7 +123,7 @@ export async function run(argv, environment = {}) {
   if (options.help || !command) {
     return { exitCode: 0, stdout: "", stderr: `${usage()}\n` };
   }
-  if (!["snapshot", "configure", "prepare"].includes(command)) {
+  if (!["snapshot", "configure", "prepare", "status"].includes(command)) {
     return { exitCode: 2, stdout: "", stderr: `unknown command ${command}\n${usage()}\n` };
   }
   if (!options.store) {
@@ -144,13 +137,13 @@ export async function run(argv, environment = {}) {
   const home = path.resolve(options.home ?? environment.home ?? os.homedir());
   const dashboardOptions = parseOptions(options.options);
 
-  if (command === "prepare") {
-    const loaded = await loadStore(storePath, { readOnly: true });
-    const snapshot = storeSnapshot(loaded.store, loaded);
+  if (command === "prepare" || command === "status") {
+    // Never takes the writer lock: a long indexer must not block the cached UI.
+    const snapshot = await readCommittedSnapshot(storePath);
     const derived = derive(snapshot, dashboardOptions);
     return {
       exitCode: 0,
-      stdout: `${JSON.stringify(presentation("prepare", snapshot, dashboardOptions, derived.dashboard, derived.error))}\n`,
+      stdout: `${JSON.stringify(presentation(command, snapshot, dashboardOptions, derived.dashboard, derived.error))}\n`,
       stderr: "",
     };
   }
