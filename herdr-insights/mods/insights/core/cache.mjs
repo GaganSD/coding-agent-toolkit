@@ -100,10 +100,3 @@ export async function readPresentationCache(storePath) {
     return null;
   }
 }
-
-export async function removePresentationCache(storePath) {
-  const { unlink } = await import("node:fs/promises");
-  await unlink(presentationCachePath(storePath)).catch((error) => {
-    if (error?.code !== "ENOENT") throw error;
-  });
-}

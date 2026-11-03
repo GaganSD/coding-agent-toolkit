@@ -5,7 +5,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { registerHooks } from "node:module";
 import test from "node:test";
-import { progressWriter } from "../../herdr-insights/mods/insights/collector.mjs";
+import { progressWriter } from "../../herdr-insights/mods/insights/core/progress.mjs";
 import { compactDashboard, deriveDashboard } from "../../herdr-insights/mods/insights/analytics.js";
 import { MAX_LINE_BYTES, withStoreLock } from "../../herdr-insights/mods/insights/core/util.mjs";
 import { normalizeConfig } from "../../herdr-insights/mods/insights/core/config.mjs";

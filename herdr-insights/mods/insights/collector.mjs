@@ -37,8 +37,6 @@ import {
   withStoreLock,
 } from "./core/util.mjs";
 
-export { progressWriter };
-
 // Leave room for startup, store load, save, and presentation derivation inside
 // Herdr's fixed 30s exec budget. A partial slice returns committed data and the
 // UI continues automatically.

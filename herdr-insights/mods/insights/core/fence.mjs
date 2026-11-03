@@ -27,11 +27,6 @@ export function workerClaimPath(storePath) {
   return `${storePath}.worker.json`;
 }
 
-export function storeGeneration(store) {
-  const value = Number(store?.generation);
-  return Number.isInteger(value) && value >= 0 ? value : 0;
-}
-
 export function nextGeneration(...values) {
   let highest = 0;
   for (const value of values) {
@@ -195,11 +190,6 @@ export function claimPidRecord(currentText, next) {
   return `${body}${" ".repeat(pad)}\n`;
 }
 
-export async function writeWorkerClaim(storePath, claim) {
-  await atomicWriteJson(workerClaimPath(storePath), claim);
-  return claim;
-}
-
 /**
  * Exclusive claim creation (O_CREAT|O_EXCL); never last-write-wins. Concurrent
  * launchers either create the claim or observe EEXIST and coalesce.
@@ -254,7 +244,7 @@ export async function updateWorkerClaimPid(storePath, token, pid) {
  * claim that was replaced between observation and rename is restored with an
  * exclusive link so it is never destroyed by a stale reaper.
  */
-async function reapWorkerClaim(storePath, token) {
+export async function clearWorkerClaim(storePath, token) {
   const file = workerClaimPath(storePath);
   const quarantine = `${file}.${process.pid}-${randomBytes(6).toString("hex")}.reap`;
   try {
@@ -274,10 +264,6 @@ async function reapWorkerClaim(storePath, token) {
   }
   await unlink(quarantine).catch(() => {});
   return true;
-}
-
-export async function clearWorkerClaim(storePath, token) {
-  return reapWorkerClaim(storePath, token);
 }
 
 /**

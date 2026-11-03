@@ -17,7 +17,6 @@ import {
   readEffectiveFence,
   readFenceStrict,
   readWorkerClaimResult,
-  storeGeneration,
 } from "./core/fence.mjs";
 import { progressWriter } from "./core/progress.mjs";
 import { scanSources } from "./core/scan.mjs";
@@ -26,6 +25,7 @@ import {
   ensureStoreMeta,
   loadStore,
   saveStore,
+  storeGeneration,
 } from "./core/store.mjs";
 import { isLockBusyError, withStoreLock } from "./core/util.mjs";
 

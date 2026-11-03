@@ -6,7 +6,6 @@ import {
   clearWorkerClaim,
   readEffectiveFence,
   readWorkerClaim,
-  storeGeneration,
   tryCreateWorkerClaim,
   updateWorkerClaimPid,
   workerClaimActive,
@@ -136,20 +135,4 @@ export async function waitForIndexerAck(storePath, claim, { timeoutMs = DEFAULT_
     }
     await sleep(40);
   }
-}
-
-export async function indexerGeneration(storePath) {
-  const fence = await readEffectiveFence(storePath);
-  return {
-    fence,
-    generation: fence && !fence.stale ? fence.generation : null,
-  };
-}
-
-export function indexerScriptPath() {
-  return indexerPath();
-}
-
-export function storeGenerationOrZero(store) {
-  return storeGeneration(store);
 }

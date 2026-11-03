@@ -588,19 +588,6 @@ async function parseBuffers(
   return { offset: consumer.offset, lineNo: consumer.lineNo, bytes };
 }
 
-async function processStringChunks(
-  store,
-  entry,
-  source,
-  chunks,
-  startOffset,
-  endOffset,
-  sink,
-  options = {},
-) {
-  return parseBuffers(store, entry, source, chunks, startOffset, endOffset, sink, options);
-}
-
 async function scanPlainFile(
   store,
   entry,
@@ -622,24 +609,7 @@ async function scanPlainFile(
     return { dirty: false, pending: false };
   }
 
-  const context = lineContext(store, entry, source, sink);
-  const consumer = createLineConsumer((record, info) => {
-    if (info.parseError) {
-      sink.warn(
-        `${adapter} ${entry.path}: line ${info.lineNo} is not valid JSON; skipped.`,
-      );
-      return;
-    }
-    if (!isPlainObject(record)) return;
-    context.lineHash = info.hash;
-    try {
-      parseAdapterRecord(adapter, record, context);
-    } catch (error) {
-      sink.warn(
-        `${adapter} ${entry.path}: line ${info.lineNo} could not be parsed: ${error.message}`,
-      );
-    }
-  });
+  const consumer = createRecordConsumer(store, entry, source, sink);
   consumer.offset = start;
   consumer.lineNo = entry.lineNo ?? 0;
   consumer.discarding = entry.state.discardingLargeLine;
@@ -1386,9 +1356,3 @@ export async function scanSources(store, {
     total: discovered.length,
   };
 }
-
-export async function rebuildScan(store, options = {}) {
-  return scanSources(store, options);
-}
-
-export { createLineConsumer, processStringChunks, scanOneFile, walkRoot };
