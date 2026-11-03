@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Value } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import { registerAnswerCommands } from "../src/answer-commands.ts";
 import { collectExtractionBusinessIssues } from "../src/answer-extraction.ts";
 import { registerAskSettingsCommand } from "../src/ask-settings-command.ts";
@@ -18,6 +18,8 @@ import {
 	toggleCurrentMultiOption,
 } from "../src/state/transitions.ts";
 import type { AskParams } from "../src/types.ts";
+
+const checkAskParams = compile(AskParamsSchema);
 
 function registerMockTool() {
 	const tools: Record<string, unknown>[] = [];
@@ -37,12 +39,12 @@ function registerMockTool() {
 test("registers ask_user", () => {
 	const tool = registerMockTool();
 	assert.equal(tool.name, "ask_user");
-	assert.equal(Value.Check(AskParamsSchema, { questions: [] }), true);
+	assert.equal(checkAskParams.check({ questions: [] }), true);
 });
 
 test("schema accepts text questions and rejects preview and required", () => {
 	assert.equal(
-		Value.Check(AskParamsSchema, {
+		checkAskParams.check({
 			questions: [{ id: "dir", prompt: "Which directory?", type: "text" }],
 		}),
 		true

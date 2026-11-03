@@ -1,94 +1,135 @@
-import { type Static, Type } from "typebox";
-import { Compile } from "typebox/compile";
+import {
+	arr,
+	bool,
+	compile,
+	lit,
+	num,
+	obj,
+	opt,
+	str,
+	union,
+	type Static,
+} from "@earendil-works/pi-schema";
 
-const AskAnswerModelPreferenceSchema = Type.Object({
-	id: Type.String(),
-	provider: Type.String(),
-});
+const AskAnswerModelPreferenceSchema = obj(
+	{
+		id: str(),
+		provider: str(),
+	},
+	{ open: true }
+);
 
-const AskNotificationChannelSchema = Type.Union([
-	Type.Literal("bell"),
-	Type.Literal("osc9"),
-	Type.Literal("osc777"),
-	Type.Object({
-		command: Type.String(),
-		type: Type.Literal("command"),
-	}),
+const AskNotificationChannelSchema = union([
+	lit("bell"),
+	lit("osc9"),
+	lit("osc777"),
+	obj(
+		{
+			command: str(),
+			type: lit("command"),
+		},
+		{ open: true }
+	),
 ]);
 
-const AskKeyBindingSchema = Type.Union([
-	Type.String(),
-	Type.Array(Type.String()),
-]);
+const AskKeyBindingSchema = union([str(), arr(str())]);
 
-const AskConfigKeymapsSchema = Type.Object({
-	global: Type.Object({
-		dismiss: Type.Optional(AskKeyBindingSchema),
-		settings: Type.Optional(AskKeyBindingSchema),
-	}),
-	main: Type.Object({
-		cancel: Type.Optional(AskKeyBindingSchema),
-		changeQuestionType: Type.Optional(AskKeyBindingSchema),
-		confirm: Type.Optional(AskKeyBindingSchema),
-		nextOption: Type.Optional(AskKeyBindingSchema),
-		nextTab: Type.Optional(AskKeyBindingSchema),
-		optionNote: Type.Optional(AskKeyBindingSchema),
-		previousOption: Type.Optional(AskKeyBindingSchema),
-		previousTab: Type.Optional(AskKeyBindingSchema),
-		questionNote: Type.Optional(AskKeyBindingSchema),
-		toggle: Type.Optional(AskKeyBindingSchema),
-	}),
-	editor: Type.Object({
-		close: Type.Optional(AskKeyBindingSchema),
-		nextOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		nextTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		previousOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		previousTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		submit: Type.Optional(AskKeyBindingSchema),
-	}),
-	noteEditor: Type.Object({
-		close: Type.Optional(AskKeyBindingSchema),
-		nextOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		nextTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		previousOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		previousTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		save: Type.Optional(AskKeyBindingSchema),
-	}),
-	settingsModal: Type.Object({
-		close: Type.Optional(AskKeyBindingSchema),
-		nextOption: Type.Optional(AskKeyBindingSchema),
-		previousOption: Type.Optional(AskKeyBindingSchema),
-		toggle: Type.Optional(AskKeyBindingSchema),
-	}),
-});
+const AskConfigKeymapsSchema = obj(
+	{
+		global: obj(
+			{
+				dismiss: opt(AskKeyBindingSchema),
+				settings: opt(AskKeyBindingSchema),
+			},
+			{ open: true }
+		),
+		main: obj(
+			{
+				cancel: opt(AskKeyBindingSchema),
+				changeQuestionType: opt(AskKeyBindingSchema),
+				confirm: opt(AskKeyBindingSchema),
+				nextOption: opt(AskKeyBindingSchema),
+				nextTab: opt(AskKeyBindingSchema),
+				optionNote: opt(AskKeyBindingSchema),
+				previousOption: opt(AskKeyBindingSchema),
+				previousTab: opt(AskKeyBindingSchema),
+				questionNote: opt(AskKeyBindingSchema),
+				toggle: opt(AskKeyBindingSchema),
+			},
+			{ open: true }
+		),
+		editor: obj(
+			{
+				close: opt(AskKeyBindingSchema),
+				nextOptionWhenEmpty: opt(AskKeyBindingSchema),
+				nextTabWhenEmpty: opt(AskKeyBindingSchema),
+				previousOptionWhenEmpty: opt(AskKeyBindingSchema),
+				previousTabWhenEmpty: opt(AskKeyBindingSchema),
+				submit: opt(AskKeyBindingSchema),
+			},
+			{ open: true }
+		),
+		noteEditor: obj(
+			{
+				close: opt(AskKeyBindingSchema),
+				nextOptionWhenEmpty: opt(AskKeyBindingSchema),
+				nextTabWhenEmpty: opt(AskKeyBindingSchema),
+				previousOptionWhenEmpty: opt(AskKeyBindingSchema),
+				previousTabWhenEmpty: opt(AskKeyBindingSchema),
+				save: opt(AskKeyBindingSchema),
+			},
+			{ open: true }
+		),
+		settingsModal: obj(
+			{
+				close: opt(AskKeyBindingSchema),
+				nextOption: opt(AskKeyBindingSchema),
+				previousOption: opt(AskKeyBindingSchema),
+				toggle: opt(AskKeyBindingSchema),
+			},
+			{ open: true }
+		),
+	},
+	{ open: true }
+);
 
-export const AskConfigFileSchema = Type.Object({
-	schemaVersion: Type.Optional(Type.Number()),
-	answer: Type.Optional(
-		Type.Object({
-			extractionModels: Type.Optional(
-				Type.Array(AskAnswerModelPreferenceSchema)
-			),
-			extractionRetries: Type.Optional(Type.Number()),
-			extractionTimeoutMs: Type.Optional(Type.Number()),
-		})
-	),
-	behaviour: Type.Optional(
-		Type.Object({
-			autoSubmitWhenAnsweredWithoutNotes: Type.Optional(Type.Boolean()),
-			confirmDismissWhenDirty: Type.Optional(Type.Boolean()),
-			doublePressReviewShortcuts: Type.Optional(Type.Boolean()),
-			showFooterHints: Type.Optional(Type.Boolean()),
-		})
-	),
-	keymaps: Type.Optional(AskConfigKeymapsSchema),
-	notifications: Type.Optional(
-		Type.Object({
-			channels: Type.Optional(Type.Array(AskNotificationChannelSchema)),
-			enabled: Type.Optional(Type.Boolean()),
-		})
-	),
-});
+export const AskConfigFileSchema = obj(
+	{
+		schemaVersion: opt(num()),
+		answer: opt(
+			obj(
+				{
+					extractionModels: opt(arr(AskAnswerModelPreferenceSchema)),
+					extractionRetries: opt(num()),
+					extractionTimeoutMs: opt(num()),
+				},
+				{ open: true }
+			)
+		),
+		behaviour: opt(
+			obj(
+				{
+					autoSubmitWhenAnsweredWithoutNotes: opt(bool()),
+					confirmDismissWhenDirty: opt(bool()),
+					doublePressReviewShortcuts: opt(bool()),
+					showFooterHints: opt(bool()),
+				},
+				{ open: true }
+			)
+		),
+		keymaps: opt(AskConfigKeymapsSchema),
+		notifications: opt(
+			obj(
+				{
+					channels: opt(arr(AskNotificationChannelSchema)),
+					enabled: opt(bool()),
+				},
+				{ open: true }
+			)
+		),
+	},
+	{ open: true }
+);
 
 export type AskConfigFile = Static<typeof AskConfigFileSchema>;
 export type AskAnswerModelPreference = Static<
@@ -156,4 +197,4 @@ export interface AskConfig {
 	};
 }
 
-export const validateAskConfigFile = Compile(AskConfigFileSchema);
+export const validateAskConfigFile = compile(AskConfigFileSchema);

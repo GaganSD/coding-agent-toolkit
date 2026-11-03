@@ -88,7 +88,7 @@ export class AskConfigStore {
 		}
 
 		const parsed = parseJson(content);
-		if (!parsed.ok || !validateAskConfigFile.Check(parsed.value)) {
+		if (!parsed.ok || !validateAskConfigFile.check(parsed.value)) {
 			return this.loadDefaultsWithNotice(INVALID_CONFIG_NOTICE);
 		}
 

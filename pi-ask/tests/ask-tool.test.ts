@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { Value } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import { registerAskTool } from "../src/ask-tool.ts";
 import { AskOptionSchema, AskParamsSchema } from "../src/schema.ts";
+
+const checkAskOption = compile(AskOptionSchema);
+const checkAskParams = compile(AskParamsSchema);
 
 const NON_INTERACTIVE_MESSAGE_RE =
 	/Needs user input: ask_user requires interactive TUI mode\./;
@@ -106,7 +109,7 @@ test("ask option schema and tool guidance support grounded recommendations", () 
 	const { tool } = registerMockTool();
 
 	assert.equal(
-		Value.Check(AskOptionSchema, {
+		checkAskOption.check({
 			value: "small",
 			label: "Small",
 			description: "Lowest implementation risk",
@@ -139,7 +142,7 @@ test("registered schema strips prose but keeps the description field", () => {
 
 test("ask params schema constrains question types", () => {
 	assert.equal(
-		Value.Check(AskParamsSchema, {
+		checkAskParams.check({
 			questions: [
 				{
 					id: "layout",
@@ -152,7 +155,7 @@ test("ask params schema constrains question types", () => {
 		false
 	);
 	assert.equal(
-		Value.Check(AskParamsSchema, {
+		checkAskParams.check({
 			questions: [
 				{
 					id: "dir",
@@ -167,10 +170,10 @@ test("ask params schema constrains question types", () => {
 
 test("public schema requires semantic identifiers and labels", () => {
 	assert.equal(
-		Value.Check(AskOptionSchema, { value: "fast", label: "Fast" }),
+		checkAskOption.check({ value: "fast", label: "Fast" }),
 		true
 	);
-	assert.equal(Value.Check(AskOptionSchema, { value: "fast" }), false);
+	assert.equal(checkAskOption.check({ value: "fast" }), false);
 });
 
 test("ask tool returns pending questions in non-interactive mode", async () => {

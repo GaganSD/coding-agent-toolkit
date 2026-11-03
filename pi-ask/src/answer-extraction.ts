@@ -8,13 +8,15 @@ import {
 	type UserMessage,
 } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Value } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import type { AskConfig } from "./config/schema.ts";
 import { AnswerExtractionParamsSchema } from "./schema.ts";
 import { collectValidationIssues } from "./state/normalize.ts";
 import type { AskParams } from "./types.ts";
 
 const ANSWER_EXTRACTION_TOOL_NAME = "ask_user";
+
+const validateAnswerExtractionParams = compile(AnswerExtractionParamsSchema);
 
 const ANSWER_EXTRACTION_TOOL = {
 	name: ANSWER_EXTRACTION_TOOL_NAME,
@@ -223,11 +225,11 @@ export function parseExtractionCandidate(
 }
 
 function parseExtractionValue(value: unknown): ParsedExtraction {
-	const [shapeIssue] = Value.Errors(AnswerExtractionParamsSchema, value);
+	const [shapeIssue] = validateAnswerExtractionParams.errors(value);
 	if (shapeIssue) {
 		return {
 			ok: false,
-			error: `${shapeIssue.instancePath || "root"} ${shapeIssue.message}`,
+			error: `${shapeIssue.path || "root"} ${shapeIssue.message}`,
 		};
 	}
 	const params = value as AskParams;
