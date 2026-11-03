@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0
+
+Four Catppuccin flavors behind a single /theme picker, and edits and writes that keep their diffs visible in collapsed tool cards.
+
 ### Added
 
 - New `/theme` picker: Light/Dark sections, 15 palettes per flavor, live preview, Enter saves, Escape restores, responsive two-column/stacked/tiny layouts. `/theme slate` stays an alias and `/slate theme` opens the same picker.

@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "b3e52951be69acc54c658bf0d9dc2e65f46ec33f",
-  "notes": "Support extension-provided models through the owning Pi registry, tighten admission and resume validation, and clarify workspace isolation.",
+  "sourceSha": "f816c4c30eda3e7ebfcfdc4b99bc1e081a6b833e",
+  "notes": "Four Catppuccin flavors behind a single /theme picker, and edits and writes that keep their diffs visible in collapsed tool cards.",
   "packages": [
     {
-      "path": "pi-subagents",
-      "name": "@gagansd/pi-subagents",
-      "from": "0.0.7",
-      "to": "0.1.0",
+      "path": "pi-slate",
+      "name": "pi-slate",
+      "from": "0.1.18",
+      "to": "0.2.0",
       "bump": "minor"
     }
   ]
