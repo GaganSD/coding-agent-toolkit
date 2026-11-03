@@ -10,7 +10,7 @@ import {
 /** `{ type: "string", enum }`: Google-compatible string enum, identical JSON to pi-ai's StringEnum. */
 export function stringEnum<const T extends readonly string[]>(
 	values: T,
-	options?: { description?: string; default?: T[number] },
+	options?: { description?: string },
 ): Schema<T[number]> {
 	return {
 		type: "string",
