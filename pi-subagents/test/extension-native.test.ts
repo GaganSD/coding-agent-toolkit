@@ -4,11 +4,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import { ModelRegistry, ModelRuntime, SessionManager, type ExtensionAPI, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import register from "../index.ts";
 import { OutputSchema } from "../src/tool.ts";
 import type { RunRecord } from "../src/types.ts";
 import { temp, until } from "./helpers.ts";
+
+const checkOutput = compile(OutputSchema);
 
 test("public tool: native launch/question/reply/completion stay compact while exact details retain evidence", async t => {
   const root = await temp(t), agentDir = path.join(root, "agent"), cwd = path.join(root, "repo");
@@ -63,14 +65,14 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     } as unknown as ExtensionToolContext;
     const execute = (input: unknown) => tool.execute("public-call", input, undefined, undefined, ctx);
     const launch = await execute({ action: "run", tasks: [{ agent: "reviewer", task: "PRIVATE_TASK_BRIEF" }] });
-    assert(Check(OutputSchema, launch.structuredContent));
+    assert(checkOutput.check(launch.structuredContent));
     const { runs: [receipt] } = launch.structuredContent as { runs: { id: string; cwd: string; workspace: string; model: string; thinking: string }[] };
     assert.deepEqual(Object.keys(receipt!).sort(), ["cwd", "id", "model", "thinking", "workspace"]);
     assert.equal(receipt!.model, "fixture/test");
     assert.equal(receipt!.thinking, "off");
     await until(() => notices.some(message => message.startsWith("Sub-agent question")));
     const waiting = await execute({ action: "status", id: receipt!.id });
-    assert(Check(OutputSchema, waiting.structuredContent));
+    assert(checkOutput.check(waiting.structuredContent));
     assert(snapshots.some(snapshot => snapshot.sessionId === ctx.sessionManager.getSessionId() && snapshot.tasks.some(task => task.id === receipt!.id && task.state === "waiting")));
     const countBeforeRequest = snapshots.length;
     bus.get("pi:background-tasks:request")?.({ version: 1, sessionId: "foreign" });
@@ -92,7 +94,7 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     assert(!JSON.stringify(final.structuredContent).includes("PRIVATE_TASK_BRIEF"));
     const finished = notices.find(message => message.startsWith("Sub-agent finished"))!;
     const payload = JSON.parse(finished.slice(finished.indexOf("{")));
-    assert(Check(OutputSchema, payload));
+    assert(checkOutput.check(payload));
     assert.deepEqual(Object.keys(payload).sort(), ["agent", "id", "reportPath", "state", "taskPreview"]);
     assert.equal((payload as { agent: string }).agent, "reviewer");
     assert.equal(calls, 2);
@@ -156,12 +158,12 @@ test("public tool: a transient native failure resumes through the tool on the sa
     assert.equal(failedRecord.state, "failed");
     assert.equal(failedRecord.resume?.eligible, true);
     assert.equal(failedRecord.resume?.kind, "transient_provider");
-    assert(Check(OutputSchema, failed.structuredContent));
+    assert(checkOutput.check(failed.structuredContent));
     const failedView = failed.structuredContent as { resume: { eligible: boolean; attempts: number; maxAttempts: number; kind: string } };
     assert.deepEqual(failedView.resume, { eligible: true, attempts: 0, maxAttempts: 3, kind: "transient_provider" });
     await assert.rejects(execute({ action: "resume", id: "foreign-run" }), /Unknown run ID/);
     const resumed = await execute({ action: "resume", id: receipt!.id });
-    assert(Check(OutputSchema, resumed.structuredContent));
+    assert(checkOutput.check(resumed.structuredContent));
     await until(() => notices.some(message => message.includes('"state":"completed"')));
     const final = await execute({ action: "status", id: receipt!.id });
     const record = final.details as RunRecord;

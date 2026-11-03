@@ -53,8 +53,7 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "^1.0.0",
     "@earendil-works/pi-coding-agent": "^1.0.0",
-    "@earendil-works/pi-tui": "^1.0.0",
-    "typebox": "~1.3.27"
+    "@earendil-works/pi-tui": "^1.0.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-ai": {
@@ -65,12 +64,10 @@
     },
     "@earendil-works/pi-tui": {
       "optional": true
-    },
-    "typebox": {
-      "optional": true
     }
   },
   "dependencies": {
+    "@earendil-works/pi-schema": "1.5.0",
     "yaml": "2.9.1"
   },
   "overrides": {
@@ -80,7 +77,6 @@
     "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@types/node": "26.6.5",
-    "typescript": "7.0.2",
-    "typebox": "1.3.37"
+    "typescript": "7.0.2"
   }
 }

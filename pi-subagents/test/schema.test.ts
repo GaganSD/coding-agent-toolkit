@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import { normalizeContext, type Model } from "@earendil-works/pi-ai";
 import { stream } from "@earendil-works/pi-ai/api/openai-completions";
 import { DESCRIPTION, OutputSchema, Parameters, parseRequest } from "../src/tool.ts";
 import { THINKING_LEVELS } from "../src/types.ts";
+
+const checkParameters = compile(Parameters);
+const checkOutput = compile(OutputSchema);
 
 const task = { agent: "worker", task: "Implement the approved change" };
 const valid = [
@@ -66,27 +69,27 @@ test("input parameters retain an object root and eight closed action branches; o
   assert(schema.anyOf.every((branch: { type: string; additionalProperties: boolean }) => branch.type === "object" && branch.additionalProperties === false));
   assert.equal(schema.anyOf[0].properties.tasks.items.additionalProperties, false);
   assert.equal(JSON.parse(JSON.stringify(OutputSchema)).type, undefined);
-  assert(Check(OutputSchema, []), "profile-list output must still allow arrays");
-  assert(Check(OutputSchema, { id: "r", state: "waiting_for_agent" }));
+  assert(checkOutput.check([]), "profile-list output must still allow arrays");
+  assert(checkOutput.check({ id: "r", state: "waiting_for_agent" }));
 });
 
 test("schema and runtime guards agree on all actions, optional fields, bounds and closed field combinations", () => {
   for (const input of valid) {
-    assert(Check(Parameters, input), JSON.stringify(input));
+    assert(checkParameters.check(input), JSON.stringify(input));
     assert.deepEqual(parseRequest(input), input);
   }
   const boundary = { action: "run", tasks: [{ agent: "a".repeat(64), task: "x".repeat(32768), cwd: "x".repeat(4096), model: "p/" + "x".repeat(510) }] };
-  assert(Check(Parameters, boundary));
+  assert(checkParameters.check(boundary));
   assert.deepEqual(parseRequest(boundary), boundary);
   for (const input of invalid) {
-    assert(!Check(Parameters, input), "schema accepted invalid input");
+    assert(!checkParameters.check(input), "schema accepted invalid input");
     assert.throws(() => parseRequest(input));
   }
   // Existing runtime text/model policy is deliberately stricter than JSON string lengths.
   for (const field of ["agent", "task", "cwd", "model"]) {
     for (const value of ["   ", "a\0b"]) {
       const input = { action: "run", tasks: [{ ...task, [field]: value }] };
-      assert(Check(Parameters, input));
+      assert(checkParameters.check(input));
       assert.throws(() => parseRequest(input));
     }
   }

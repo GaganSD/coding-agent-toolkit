@@ -23,18 +23,21 @@ test("packed package is public, contains no retired runtime, and loads with host
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.name, "@gagansd/pi-subagents");
   assert.deepEqual(Object.keys(manifest.exports), ["."]);
-  assert.deepEqual(Object.keys(manifest.dependencies), ["yaml"]);
+  assert.deepEqual(Object.keys(manifest.dependencies).sort(), ["@earendil-works/pi-schema", "yaml"]);
   assert.equal(manifest.bin, undefined);
   for (const peer of ["pi-ai", "pi-coding-agent", "pi-tui"]) {
     assert.equal(manifest.peerDependencies[`@earendil-works/${peer}`], "^1.0.0", "Pi minor/patch upgrades must remain installable");
     assert.deepEqual(manifest.peerDependenciesMeta[`@earendil-works/${peer}`], { optional: true });
   }
+  assert.equal(manifest.peerDependencies["@earendil-works/pi-schema"], undefined, "pi-schema ships as a runtime dependency");
+  assert.deepEqual(manifest.peerDependenciesMeta["@earendil-works/pi-schema"], undefined);
   const lock = JSON.parse(await readFile(path.join(repo, "package-lock.json"), "utf8"));
   assert.deepEqual(lock.packages[""].peerDependencies, manifest.peerDependencies);
   // Local dependencies are supplied explicitly, just as required for a local Pi
   // package. No SDK is placed beside it: Pi must resolve host peers itself.
-  await mkdir(path.join(packaged, "node_modules"));
+  await mkdir(path.join(packaged, "node_modules", "@earendil-works"), { recursive: true });
   await symlink(path.join(repo, "node_modules", "yaml"), path.join(packaged, "node_modules", "yaml"));
+  await symlink(path.join(repo, "node_modules", "@earendil-works", "pi-schema"), path.join(packaged, "node_modules", "@earendil-works", "pi-schema"));
   const agentDir = path.join(root, "agent"), cwd = path.join(root, "workspace");
   await mkdir(agentDir); await mkdir(cwd);
   const loader = new DefaultResourceLoader({

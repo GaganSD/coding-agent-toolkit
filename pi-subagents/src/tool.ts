@@ -1,26 +1,41 @@
-import { Type } from "typebox";
+import { arr, bool, lit, nul, num, obj, opt, str, union, type Schema } from "@earendil-works/pi-schema";
 import { THINKING_LEVELS, type RunRecord, type Task } from "./types.ts";
 import { keys, modelName, object, text, thinkingLevel } from "./validation.ts";
 
-const ThinkingSchema = Type.String({ enum: [...THINKING_LEVELS] });
-const TaskSchema = Type.Object({
-  agent: Type.String({ minLength: 1, maxLength: 64 }),
-  task: Type.String({ minLength: 1, maxLength: 32768 }),
-  cwd: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
-  model: Type.Optional(Type.String({ minLength: 3, maxLength: 512 })),
-  thinking: Type.Optional(ThinkingSchema),
-}, { additionalProperties: false });
-/** Object-root tool input with seven closed per-action branches; no cross-action field mixes. */
-export const Parameters = Type.Union([
-  Type.Object({ action: Type.Literal("run"), tasks: Type.Array(TaskSchema, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("list"), cwd: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Profile discovery directory for list" })) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("status"), id: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("stop"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("resume"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("steer"), id: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("followUp"), id: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("reply"), id: Type.String({ minLength: 1, maxLength: 64 }), requestId: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
-], { type: "object" });
+/** `{ type: "string", enum }`: Google-compatible string enum, identical JSON to pi-ai's StringEnum. */
+function stringEnum<const T extends readonly string[]>(
+  values: T,
+  options?: { description?: string; default?: T[number] },
+): Schema<T[number]> {
+  return {
+    type: "string",
+    enum: [...values],
+    ...(options?.description ? { description: options.description } : {}),
+  };
+}
+
+const ThinkingSchema = stringEnum(THINKING_LEVELS);
+const TaskSchema = obj({
+  agent: str({ minLength: 1, maxLength: 64 }),
+  task: str({ minLength: 1, maxLength: 32768 }),
+  cwd: opt(str({ minLength: 1, maxLength: 4096 })),
+  model: opt(str({ minLength: 3, maxLength: 512 })),
+  thinking: opt(ThinkingSchema),
+});
+/** Object-root tool input with eight closed per-action branches; no cross-action field mixes. */
+export const Parameters = {
+  ...union([
+    obj({ action: lit("run"), tasks: arr(TaskSchema, { minItems: 1, maxItems: 4 }) }),
+    obj({ action: lit("list"), cwd: opt(str({ minLength: 1, maxLength: 4096, description: "Profile discovery directory for list" })) }),
+    obj({ action: lit("status"), id: opt(str({ minLength: 1, maxLength: 64 })) }),
+    obj({ action: lit("stop"), id: str({ minLength: 1, maxLength: 64 }) }),
+    obj({ action: lit("resume"), id: str({ minLength: 1, maxLength: 64 }) }),
+    obj({ action: lit("steer"), id: str({ minLength: 1, maxLength: 64 }), message: str({ minLength: 1, maxLength: 8192 }) }),
+    obj({ action: lit("followUp"), id: str({ minLength: 1, maxLength: 64 }), message: str({ minLength: 1, maxLength: 8192 }) }),
+    obj({ action: lit("reply"), id: str({ minLength: 1, maxLength: 64 }), requestId: str({ minLength: 1, maxLength: 64 }), message: str({ minLength: 1, maxLength: 8192 }) }),
+  ]),
+  type: "object",
+};
 
 export type Request =
   | { action: "run"; tasks: Task[] }
@@ -163,46 +178,45 @@ export function resultPreview(result: unknown): string {
   return serialize({ ...summary, truncated: true, message: "Fields omitted. Full result is in details/structuredContent; for runs, use status by exact ID and read metadata before acting." });
 }
 
-const closed = { additionalProperties: false };
-const ModeSchema = Type.String({ enum: ["inspect", "edit"] });
-const StateSchema = Type.String({ enum: ["starting", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"] });
-const ResumeSchema = Type.Object({
-  eligible: Type.Boolean(), attempts: Type.Number(), maxAttempts: Type.Number(),
-  kind: Type.Optional(Type.String({ enum: ["transient_provider", "provider", "cancelled", "unknown"] })),
-}, closed);
-const RunSchema = Type.Object({
-  id: Type.String(), state: StateSchema,
-  agent: Type.Optional(Type.String()), taskPreview: Type.Optional(Type.String()),
-  model: Type.Optional(Type.String()), thinking: Type.Optional(ThinkingSchema),
-  currentTool: Type.Optional(Type.String()),
-  contextUsage: Type.Optional(Type.Object({
-    tokens: Type.Union([Type.Number(), Type.Null()]),
-    contextWindow: Type.Union([Type.Number(), Type.Null()]),
-    percent: Type.Union([Type.Number(), Type.Null()]),
-  }, closed)),
-  question: Type.Optional(Type.Object({ id: Type.String(), message: Type.String() }, closed)),
-  reportPath: Type.Optional(Type.String()), metadataPath: Type.Optional(Type.String()),
-  error: Type.Optional(Type.String()), notificationError: Type.Optional(Type.String()),
-  resume: Type.Optional(ResumeSchema),
-  truncated: Type.Optional(Type.Literal(true)),
-}, closed);
+const ModeSchema = stringEnum(["inspect", "edit"]);
+const StateSchema = stringEnum(["starting", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"]);
+const ResumeSchema = obj({
+  eligible: bool(), attempts: num(), maxAttempts: num(),
+  kind: opt(stringEnum(["transient_provider", "provider", "cancelled", "unknown"])),
+});
+const RunSchema = obj({
+  id: str(), state: StateSchema,
+  agent: opt(str()), taskPreview: opt(str()),
+  model: opt(str()), thinking: opt(ThinkingSchema),
+  currentTool: opt(str()),
+  contextUsage: opt(obj({
+    tokens: union([num(), nul()]),
+    contextWindow: union([num(), nul()]),
+    percent: union([num(), nul()]),
+  })),
+  question: opt(obj({ id: str(), message: str() })),
+  reportPath: opt(str()), metadataPath: opt(str()),
+  error: opt(str()), notificationError: opt(str()),
+  resume: opt(ResumeSchema),
+  truncated: opt(lit(true)),
+});
 /** The same compact contract reaches the model and native/codemode callers. */
-export const OutputSchema = Type.Union([
-  Type.Object({
-    runs: Type.Array(Type.Union([
-      Type.Object({ id: Type.String(), cwd: Type.String(), workspace: Type.String(), model: Type.String(), thinking: ThinkingSchema }, closed),
-      Type.Object({ id: Type.String(), agent: Type.String(), state: StateSchema, taskPreview: Type.String(),
-        resume: Type.Optional(Type.Object({ eligible: Type.Literal(true), attempts: Type.Number(), maxAttempts: Type.Number() }, closed)),
-      }, closed),
+export const OutputSchema = union([
+  obj({
+    runs: arr(union([
+      obj({ id: str(), cwd: str(), workspace: str(), model: str(), thinking: ThinkingSchema }),
+      obj({ id: str(), agent: str(), state: StateSchema, taskPreview: str(),
+        resume: opt(obj({ eligible: lit(true), attempts: num(), maxAttempts: num() })),
+      }),
     ])),
-    blocked: Type.Optional(Type.Union([Type.Literal(true), Type.Object({ id: Type.String(), metadataPath: Type.String() }, closed)])),
-  }, closed),
-  Type.Array(Type.Object({
-    name: Type.String(), description: Type.String(), mode: ModeSchema,
-    model: Type.Optional(Type.String()), thinking: Type.Optional(Type.String()),
-  }, closed)),
+    blocked: opt(union([lit(true), obj({ id: str(), metadataPath: str() })])),
+  }),
+  arr(obj({
+    name: str(), description: str(), mode: ModeSchema,
+    model: opt(str()), thinking: opt(str()),
+  })),
   RunSchema,
-  Type.Object({ ok: Type.Literal(true) }, closed),
+  obj({ ok: lit(true) }),
 ]);
 
 export const DESCRIPTION = `Delegate only when requested by the operator or applicable instructions.

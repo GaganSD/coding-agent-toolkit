@@ -1,13 +1,14 @@
 import path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { bool, obj, opt, str, type Static } from "@earendil-works/pi-schema";
 import { git } from "./workspace.ts";
 
 const MAX_CHARS = 24000;
-const Params = Type.Object({
-  path: Type.Optional(Type.String({ minLength: 1, maxLength: 2048 })),
-  stat: Type.Optional(Type.Boolean()),
-}, { additionalProperties: false });
+const Params = obj({
+  path: opt(str({ minLength: 1, maxLength: 2048 })),
+  stat: opt(bool()),
+});
+type DiffArguments = Static<typeof Params>;
 
 export function diffPath(value?: string): string[] {
   if (value === undefined) return [];
@@ -32,7 +33,7 @@ export function diffTool(root: string, head?: string): ToolDefinition<typeof Par
     description: "Read a bounded staged/unstaged diff against launch HEAD and untracked paths. No committed-range review. Use read for untracked contents.",
     parameters: Params,
     annotations: { readOnlyHint: true, openWorldHint: false },
-    async execute(_id, args, signal) {
+    async execute(_id, args: DiffArguments, signal) {
       const filter = diffPath(args.path);
       if (!head) throw new Error("No Git HEAD at launch. Supply a diff artifact or inspect files; do not claim this diff was reviewed.");
       // head sits in option position; only a full object id captured at launch is accepted.

@@ -4,10 +4,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import register from "../index.ts";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import { DESCRIPTION, OutputSchema, Parameters, presentFinished, presentLaunch, presentNotice, presentRun, presentSummary, resultPreview } from "../src/tool.ts";
 import type { RunRecord } from "../src/types.ts";
 import { temp } from "./helpers.ts";
+
+const checkOutput = compile(OutputSchema);
 
 test("extension registers one tool/command; rejects unknown/headless/untrusted/foreign actions; unloads cleanly", async t => {
   const root = await temp(t);
@@ -46,7 +48,7 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
   const result = await run({ action: "list" });
   assert.deepEqual((result.details as { name: string }[]).map(profile => profile.name), ["reviewer", "worker"]);
   assert.deepEqual(result.structuredContent, result.details);
-  assert(Check(OutputSchema, result.structuredContent));
+  assert(checkOutput.check(result.structuredContent));
   const target = path.join(root, "target");
   await mkdir(path.join(target, ".pi", "agents"), { recursive: true });
   await writeFile(path.join(target, ".pi", "agents", "reviewer.md"), "---\nname: reviewer\ndescription: Target-specific role\nmode: edit\n---\nTarget role\n");
@@ -74,7 +76,7 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
     register(api); // New extension instance, not restored execution authority.
     const reloaded = await tools[1]!.execute("test-reload", { action: "status" }, undefined, undefined, ctx);
     assert.deepEqual(reloaded.structuredContent, { runs: [], blocked: cause });
-    assert(Check(OutputSchema, reloaded.structuredContent));
+    assert(checkOutput.check(reloaded.structuredContent));
     await assert.rejects(tools[1]!.execute("test-block", { action: "run", tasks: [{ agent: "worker", task: "Must not start" }] }, undefined, undefined, ctx), /old-run\/run.json/);
     await hooks.get("session_shutdown")!();
   } finally {
@@ -102,11 +104,11 @@ test("action views are allowlisted and match the closed output schema", () => {
     resume: { eligible: true, attempts: 0, maxAttempts: 3 } });
   assert.deepEqual(presentSummary({ ...failed, resume: { ...failed.resume, eligible: false } }), { id: "id", agent: "worker", state: "failed", taskPreview: "Add feature A" });
   for (const result of [receipt, presentRun(enriched), finished, { runs: [presentSummary(record)] }, { runs: [presentSummary(failed)] }, { ok: true }]) {
-    assert(Check(OutputSchema, result));
+    assert(checkOutput.check(result));
     assert(!resultPreview(result).includes("futureInternalField"));
     assert(resultPreview(result).length < 300);
   }
-  assert(!Check(OutputSchema, { ...finished, owner: "p" }));
+  assert(!checkOutput.check({ ...finished, owner: "p" }));
   assert(DESCRIPTION.length < 1200);
   assert(JSON.stringify(OutputSchema).length < 3000);
 });

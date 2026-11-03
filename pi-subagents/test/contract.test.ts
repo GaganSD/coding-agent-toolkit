@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import { loadProfiles, parseProfile } from "../src/agents.ts";
 import { DEFAULT_CONFIG, parseConfig } from "../src/config.ts";
 import { parseCommand, resolveRun } from "../src/inspect.ts";
@@ -11,6 +11,8 @@ import { OutputSchema, parseRequest, presentLaunch, presentRun } from "../src/to
 import type { RunRecord } from "../src/types.ts";
 import { formatElapsed, nextLive, plain, rows } from "../src/ui.ts";
 import { temp } from "./helpers.ts";
+
+const checkOutput = compile(OutputSchema);
 
 test("requests reject invalid action/field combinations", () => {
   assert.deepEqual(parseRequest({ action: "run", tasks: [{ agent: "worker", task: "Implement" }] }), { action: "run", tasks: [{ agent: "worker", task: "Implement" }] });
@@ -42,11 +44,11 @@ test("exact-ID status presents cached context and current tool inside the closed
   const view = presentRun(base);
   assert.equal(view.currentTool, "bash");
   assert.deepEqual(view.contextUsage, { tokens: 10, contextWindow: 100, percent: 10 });
-  assert(Check(OutputSchema, view));
+  assert(checkOutput.check(view));
   const unknown = presentRun({ ...base, currentTool: undefined, contextUsage: { tokens: null, percent: null, contextWindow: 64000 } });
   assert(!("currentTool" in unknown));
   assert.deepEqual(unknown.contextUsage, { tokens: null, percent: null, contextWindow: 64000 }, "unknown stays unknown, never zero");
-  assert(Check(OutputSchema, unknown));
+  assert(checkOutput.check(unknown));
 });
 
 test("config is bounded and rejects unknown or unsafe limits", () => {

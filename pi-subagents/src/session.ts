@@ -5,7 +5,7 @@ import {
   createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager,
   type AgentSession, type ContextUsage, type ModelRuntime, type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { obj, str, type Static } from "@earendil-works/pi-schema";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
 import type { ContextEstimate, FailureKind, SubAgent, PreparedTask, Profile, ResumeFrom, RunContext, Task, Telemetry, Thinking } from "./types.ts";
@@ -25,7 +25,8 @@ function publishTelemetry(context: RunContext, snapshot: Telemetry): void {
 
 export const INSPECT_TOOLS = ["read", "grep", "find", "ls", "diff", "contact_agent"];
 export const EDIT_TOOLS = [...INSPECT_TOOLS, "bash", "edit", "write"];
-const QuestionParams = Type.Object({ message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false });
+const QuestionParams = obj({ message: str({ minLength: 1, maxLength: 8192 }) });
+type QuestionArguments = Static<typeof QuestionParams>;
 const BOUNDARY = `You are a sub-agent, not the agent. Perform only your task. You cannot delegate or resume other agents.
 Use contact_agent for missing decisions; do not improvise around missing required safety policy or tools.
 Your tools run with the host's OS permissions, not in a sandbox. Stay in your assigned workspace and scope.
@@ -43,7 +44,7 @@ export function contactAgentTool(context: RunContext): ToolDefinition<typeof Que
     name: "contact_agent", label: "Ask agent",
     description: "Ask the owning agent one material question and wait for its reply. Not for routine progress or completion. Cancellation/deadline ends the wait.",
     parameters: QuestionParams,
-    async execute(_id, args, signal) {
+    async execute(_id, args: QuestionArguments, signal) {
       return { content: [{ type: "text", text: await context.ask(args.message, signal) }], details: undefined };
     },
   };
