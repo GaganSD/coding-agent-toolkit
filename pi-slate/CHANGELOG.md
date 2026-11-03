@@ -5,10 +5,16 @@
 ### Added
 
 - `/theme` opens a larger centered live-preview selector with fixed geometry, scrolling theme and color-swatch palette lists, selection/overflow cues, and responsive two-column, stacked, or tiny-screen layouts. Up/down changes themes, left/right changes palettes, Enter saves, and Escape/Ctrl+C restores the original visible theme without writing settings. `/theme slate` and `/slate theme [name]` remain supported; Pi's `/settings` is unchanged.
-- Catppuccin Mocha Red (`#f38ba8`) and Lavender (`#b4befe`) variants alongside existing Pink; variant choices survive navigation within the selector.
+- The selector groups Catppuccin under **Light** (Latte, Frappé) and **Dark** (Macchiato, Mocha) sections; Tokyo Night and Black Metal sit under Dark.
+- Catppuccin Latte (light), Frappé, and Macchiato flavors alongside Mocha, all taken from the official palette (https://catppuccin.com/palette).
+- Each flavor ships the same 15 palettes: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default. Palette choices survive navigation within the selector.
 - On Pi 1.4, cancelling after preview restores the original palette but automatic terminal-appearance following resumes only after `/reload` (public theme-instance API limitation). Saved theme and light/dark settings are untouched.
 
-- `catppuccin-mocha-pink` theme, selected by its full name with `/slate theme catppuccin-mocha-pink` or `/slate style catppuccin-mocha-pink`.
+### Changed
+
+- `/slate theme <palette>` and `/slate style <palette>` accept bare palette names; `catppuccin-mocha-pink` and every full `catppuccin-<flavor>-<palette>` name still resolve. Pink is now labelled `Pink` instead of its full theme name.
+- `/slate theme <flavor> [palette]` switches flavor without losing the current palette. Mocha Quiet remains available as a legacy palette.
+- Effort ramps follow each flavor: dark flavors brighten toward the accent, light flavors deepen toward it.
 
 ### Fixed
 

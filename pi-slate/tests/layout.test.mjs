@@ -264,6 +264,7 @@ test("/slate args route density, footer, and width", () => {
   ]);
   assert.deepEqual(slateArgumentCompletions("theme b"), [
     { value: "theme black-metal", label: "theme black-metal" },
+    { value: "theme blue", label: "theme blue" },
   ]);
   assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
   assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
@@ -292,11 +293,21 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("theme catppuccin-mocha-pink"), { ok: true, kind: "theme", style: "pink" });
   assert.deepEqual(parseSlateArgs("theme mocha catppuccin-mocha-pink"), { ok: true, kind: "theme", flavor: "mocha", style: "pink" });
   assert.deepEqual(parseSlateArgs("style catppuccin-mocha-pink"), { ok: true, kind: "style", value: "pink" });
-  assert.deepEqual(parseSlateArgs("theme pink"), { ok: false });
-  assert.deepEqual(slateArgumentCompletions("theme cat"), [
-    { value: "theme catppuccin-mocha-pink", label: "theme catppuccin-mocha-pink" },
+  assert.deepEqual(parseSlateArgs("theme pink"), { ok: true, kind: "theme", style: "pink" });
+  assert.deepEqual(parseSlateArgs("theme latte"), { ok: true, kind: "theme", flavor: "latte" });
+  assert.deepEqual(parseSlateArgs("theme frappe rosewater"), { ok: true, kind: "theme", flavor: "frappe", style: "rosewater" });
+  assert.deepEqual(parseSlateArgs("theme frappé maroon"), { ok: true, kind: "theme", flavor: "frappe", style: "maroon" });
+  assert.deepEqual(parseSlateArgs("theme macchiato default"), { ok: true, kind: "theme", flavor: "macchiato", style: "default" });
+  assert.deepEqual(parseSlateArgs("theme mocha quiet"), { ok: true, kind: "theme", flavor: "mocha", style: "quiet" });
+  assert.deepEqual(parseSlateArgs("theme latte blue"), { ok: true, kind: "theme", flavor: "latte", style: "blue" });
+  assert.deepEqual(slateArgumentCompletions("theme lat").map(({ value }) => value), [
+    "theme latte",
+    "theme latte rosewater", "theme latte flamingo", "theme latte pink", "theme latte mauve",
+    "theme latte red", "theme latte maroon", "theme latte peach", "theme latte yellow",
+    "theme latte green", "theme latte teal", "theme latte sky", "theme latte sapphire",
+    "theme latte blue", "theme latte lavender", "theme latte default",
   ]);
-  assert.deepEqual(slateArgumentCompletions("theme p"), [{ value: "theme peach", label: "theme peach" }]);
+  assert.deepEqual(slateArgumentCompletions("theme p").map(({ value }) => value), ["theme pink", "theme peach"]);
   assert.deepEqual(parseSlateArgs("theme nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("theme mocha mauve extra"), { ok: false });
   assert.deepEqual(parseSlateArgs("bug nope"), { ok: false });

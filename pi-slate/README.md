@@ -69,30 +69,35 @@ Other extensions can publish detached terminals or jobs to the sidebar's task sh
 Open `/theme` for a larger, centered theme selector with live preview (`/theme slate` remains an alias):
 
 - **↑ / ↓** selects and immediately applies a theme; **← / →** changes its palette. Dedicated theme and color-swatch lists show selection, position, and overflow counts; both scroll without changing the dialog's shape.
+- Themes are grouped into **Light** and **Dark** sections. Light holds Catppuccin Latte and Frappé; Dark holds Macchiato, Mocha, Tokyo Night, and Black Metal.
 - Wide terminals use two columns; narrow terminals stack the lists, and very small screens keep the selected identity and essential controls. The dialog resizes to fit the terminal, not the selected theme or palette.
-- The Catppuccin picker cycles through **Pink** → **Red** (`#f38ba8`) → **Lavender** (`#b4befe`). Each theme remembers its variant while the selector is open. Existing styles remain available through legacy commands; opening from one preserves it in a separate current-palette row.
+- Every Catppuccin flavor carries the same **15 palettes**: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default (a neutral frame that reuses the flavor's lavender accent). Each flavor remembers its palette while the selector is open. The legacy Mocha Quiet style stays selectable and opens in a separate current-palette row.
 - **Enter** confirms and saves; **Escape** (or **Ctrl+C**) restores the original visible theme without changing saved theme settings or Slate configuration.
+
+All colors come from the official Catppuccin palette (https://catppuccin.com/palette). Every bundled theme is generated from one registry, so `npm run themes` reproduces `themes/*.json` exactly.
 
 The selector requires interactive terminal mode. Pi 1.4 has no built-in `/theme` command; core theme selection remains in `/settings`. After previewing and cancelling, Pi's public theme-instance API restores the original palette but pauses automatic terminal-appearance following (including `system` and light/dark pairs) until `/reload`. Merely opening and cancelling without previewing does not affect appearance following.
 
 Direct selection with `/slate theme <name>` remains supported:
 
-| Themes | Accent |
+| Command | Result |
 | --- | --- |
-| `tokyo-night` | 🟦 |
-| `black-metal` | ⬛ |
-| `quiet` | ⬜ |
-| `mauve` | 🟪 |
-| `catppuccin-mocha-pink` | 🩷 |
-| `red` / `lavender` | `#f38ba8` / `#b4befe` |
-| `sapphire` | 🟦 |
-| `peach` | 🟧 |
-| `teal` | 🟩 |
-| `default` | Pi's system theme |
+| `/slate theme system` (or `default`) | Pi's system theme |
+| `/slate theme tokyo-night` | Tokyo Night (dark) |
+| `/slate theme black-metal` | Black Metal (dark) |
+| `/slate theme latte` | Catppuccin Latte (light) |
+| `/slate theme frappe` (or `frappé`) | Catppuccin Frappé (light) |
+| `/slate theme macchiato` | Catppuccin Macchiato (dark) |
+| `/slate theme mocha` | Catppuccin Mocha (dark) |
+| `/slate theme <flavor> <palette>` | e.g. `latte rosewater`, `mocha mauve`, `frappe teal` |
+| `/slate theme <palette>` | Sets that palette on the current flavor |
+| `/slate style <palette>` | Retained Catppuccin alias |
+
+The palette names are `rosewater`, `flamingo`, `pink`, `mauve`, `red`, `maroon`, `peach`, `yellow`, `green`, `teal`, `sky`, `sapphire`, `blue`, `lavender`, and `default`; `quiet` stays a legacy Mocha alias. Full theme names such as `catppuccin-latte-mauve` are accepted too.
 
 Black Metal is an optional bundled theme, not an install default: pick it with `/slate theme black-metal` or `/theme` (`/slate theme` also opens the menu). Confirmed selections are saved and also appear in `/settings`.
 
-With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin style, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; the effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
+With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin palette, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; on light flavors the ramp deepens toward the accent instead of brightening. The effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
 
 ### Prompt Templates
 

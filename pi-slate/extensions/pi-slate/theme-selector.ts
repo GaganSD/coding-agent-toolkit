@@ -1,27 +1,54 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, parseColor, truncateToWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { buildCatppuccinTheme, catppuccinThemeName, parseCatppuccinTheme, STYLE_LABELS } from "./catppuccin.ts";
+import {
+  buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTIONS,
+  PALETTE_STYLES, parseCatppuccinTheme, STYLE_LABELS,
+} from "./catppuccin.ts";
 
 export type ThemeVariant = { name: string; label: string; color?: string };
-export type ThemeChoice = { label: string; variants: ThemeVariant[] };
+export type ThemeChoice = { label: string; variants: ThemeVariant[]; section?: string };
 
-// Keep the picker cycle independent of styles retained for legacy commands.
-const PICKER_STYLES = ["pink", "red", "lavender"] as const;
+/** Catppuccin flavor rows: one theme per flavor, 15 palettes each. */
+function flavorChoices(): ThemeChoice[] {
+  return FLAVOR_SECTIONS.flatMap(({ label: section, flavors }) => flavors.map((flavor) => ({
+    label: `Catppuccin ${FLAVOR_LABELS[flavor]}`,
+    section,
+    variants: PALETTE_STYLES.map((style) => ({
+      name: catppuccinThemeName(flavor, style),
+      label: STYLE_LABELS[style],
+      color: buildCatppuccinTheme(flavor, style).vars.accent,
+    })),
+  })));
+}
 
 export function slateThemeChoices(initial?: string): ThemeChoice[] {
   const choices: ThemeChoice[] = [
     { label: "System default", variants: [{ name: "system", label: "Terminal palette" }] },
-    { label: "Tokyo Night", variants: [{ name: "tokyo-night", label: "Default", color: "#7aa2f7" }] },
-    { label: "Black Metal", variants: [{ name: "black-metal", label: "Default", color: "#dd9999" }] },
-    { label: "catppuccin-mocha", variants: PICKER_STYLES.map(style => ({
-      name: catppuccinThemeName("mocha", style), label: style === "pink" ? "Pink" : STYLE_LABELS[style],
-      color: buildCatppuccinTheme("mocha", style).vars.accent,
-    })) },
+    ...flavorChoices(),
+    { label: "Tokyo Night", section: "Dark", variants: [{ name: "tokyo-night", label: "Default", color: "#7aa2f7" }] },
+    { label: "Black Metal", section: "Dark", variants: [{ name: "black-metal", label: "Default", color: "#dd9999" }] },
   ];
+  // Legacy selections outside the shipped palettes stay visible and re-selectable.
   if (initial && !choices.some(choice => choice.variants.some(variant => variant.name === initial))) {
     choices.unshift({ label: `${initial} (current)`, variants: [{ name: initial, label: "Current palette" }] });
   }
   return choices;
+}
+
+/** One navigable row of the themes list: a section header or a theme. */
+type ThemeRow = { kind: "header"; label: string } | { kind: "choice"; index: number };
+
+function themeRows(choices: ThemeChoice[]): ThemeRow[] {
+  const rows: ThemeRow[] = [];
+  let section: string | undefined;
+  choices.forEach((choice, index) => {
+    if (choice.section && choice.section !== section) {
+      rows.push({ kind: "header", label: choice.section });
+      section = choice.section;
+    }
+    rows.push({ kind: "choice", index });
+  });
+  return rows;
 }
 
 /** A single interaction; variant choices survive theme navigation without writing settings. */
@@ -32,6 +59,7 @@ export class ThemeSelector implements Component {
   private closed = false;
 
   private choices: ThemeChoice[];
+  private rows: ThemeRow[];
   private tui: Pick<TUI, "requestRender" | "terminal">;
   private theme: () => Theme;
   private keys: Pick<KeybindingsManager, "matches">;
@@ -47,12 +75,13 @@ export class ThemeSelector implements Component {
   ) {
     this.choices = choices; this.tui = tui; this.theme = theme; this.keys = keys;
     this.preview = preview; this.done = done;
+    this.rows = themeRows(choices);
     this.variants = choices.map(choice => Math.max(0, choice.variants.findIndex(variant => variant.name === initial)));
     this.selected = Math.max(0, choices.findIndex(choice => choice.variants.some(variant => variant.name === initial)));
-    // Prefer the existing Pink palette for a new visit to Catppuccin.
-    if (!parseCatppuccinTheme(initial)) {
-      const index = choices.findIndex(choice => choice.label === "catppuccin-mocha");
-      if (index >= 0) this.variants[index] = Math.max(0, choices[index]!.variants.findIndex(variant => variant.label === "Pink"));
+    // A Catppuccin theme outside the shipped palettes (legacy Mocha Quiet) keeps its own row.
+    const current = parseCatppuccinTheme(initial);
+    if (current && !PALETTE_STYLES.includes(current.style)) {
+      this.variants[this.selected] = Math.max(0, choices[this.selected]!.variants.findIndex(variant => variant.name === initial));
     }
   }
 
@@ -109,19 +138,26 @@ export class ThemeSelector implements Component {
     };
     // Both viewports are bounded and center their selected row, including on
     // resize. Headers carry position and hidden-row counts instead of wrapping.
-    const viewport = (title: string, count: number, selected: number, columns: number, rows: number,
-      row: (index: number) => string): string[] => {
+    const viewport = (title: string, position: number, total: number, selectedRowIndex: number,
+      rowCount: number, columns: number, rows: number, row: (index: number) => string): string[] => {
       const slots = Math.max(1, rows - 1);
-      const start = Math.max(0, Math.min(selected - Math.floor(slots / 2), count - slots));
-      const end = Math.min(count, start + slots);
-      const overflow = `${start ? ` ↑${start}` : ""}${end < count ? ` ↓${count - end}` : ""}`;
-      return [th.fg("muted", fit(`${title} ${count ? selected + 1 : 0}/${count}${overflow}`, columns)),
+      const start = Math.max(0, Math.min(selectedRowIndex - Math.floor(slots / 2), rowCount - slots));
+      const end = Math.min(rowCount, start + slots);
+      const overflow = `${start ? ` ↑${start}` : ""}${end < rowCount ? ` ↓${rowCount - end}` : ""}`;
+      return [th.fg("muted", fit(`${title} ${total ? position + 1 : 0}/${total}${overflow}`, columns)),
         ...Array.from({ length: rows - 1 }, (_, i) => start + i < end ? fit(row(start + i), columns) : fit("", columns))];
     };
-    const themeRows = (columns: number, rows: number) => viewport("Themes", this.choices.length, this.selected, columns, rows,
-      i => selectedRow(this.choices[i]!.label, i === this.selected, columns));
-    const paletteRows = (columns: number, rows: number) => viewport("Palettes", choice?.variants.length ?? 0,
-      this.variants[this.selected] ?? 0, columns, rows, i => {
+    const themeRowsViewport = (columns: number, rows: number) => {
+      const selectedRowIndex = Math.max(0, this.rows.findIndex(row => row.kind === "choice" && row.index === this.selected));
+      return viewport("Themes", this.selected, this.choices.length, selectedRowIndex, this.rows.length, columns, rows,
+        (i) => {
+          const row = this.rows[i]!;
+          if (row.kind === "header") return th.fg("muted", `── ${row.label}`);
+          return selectedRow(this.choices[row.index]!.label, row.index === this.selected, columns);
+        });
+    };
+    const paletteRows = (columns: number, rows: number) => viewport("Palettes", this.variants[this.selected] ?? 0,
+      choice?.variants.length ?? 0, this.variants[this.selected] ?? 0, choice?.variants.length ?? 0, columns, rows, i => {
         const variant = choice!.variants[i]!;
         const swatch = variant.color ? th.style("████", { fg: parseColor(variant.color) }) : th.fg("muted", "▒▒▒▒");
         const label = `${swatch} ${variant.label}${columns >= 34 && variant.color ? `  ${th.fg("dim", variant.color)}` : ""}`;
@@ -130,11 +166,11 @@ export class ThemeSelector implements Component {
     let body: string[];
     if (width >= 68) {
       const left = Math.floor((inner - 3) * 0.48), right = inner - 3 - left;
-      const themes = themeRows(left, bodyHeight), palettes = paletteRows(right, bodyHeight);
+      const themes = themeRowsViewport(left, bodyHeight), palettes = paletteRows(right, bodyHeight);
       body = themes.map((line, i) => line + border(" │ ") + palettes[i]!);
     } else {
       const top = Math.ceil(bodyHeight / 2);
-      body = [...themeRows(inner, top), ...paletteRows(inner, bodyHeight - top)];
+      body = [...themeRowsViewport(inner, top), ...paletteRows(inner, bodyHeight - top)];
     }
     const content = [th.bold("Slate themes"), "", ...body, th.fg("error", status),
       th.fg("dim", "↑↓ theme ←→ palette"), th.fg("dim", width < 44 ? "Enter save/Esc undo" : "Enter save · Esc restore · Ctrl+C cancel")];

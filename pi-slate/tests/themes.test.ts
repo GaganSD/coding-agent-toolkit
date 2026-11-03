@@ -50,6 +50,9 @@ test("diff colors derive from each theme's roles, never a name-matched hardcode"
 
 test("shiki mapping follows the theme family", () => {
   assert.equal(slateShikiTheme("catppuccin-mocha-mauve"), "catppuccin-mocha");
+  assert.equal(slateShikiTheme("catppuccin-latte-rosewater"), "catppuccin-latte");
+  assert.equal(slateShikiTheme("catppuccin-frappe-pink"), "catppuccin-frappe");
+  assert.equal(slateShikiTheme("catppuccin-macchiato-teal"), "catppuccin-macchiato");
   assert.equal(slateShikiTheme("black-metal"), "github-dark");
   assert.equal(slateShikiTheme("tokyo-night"), "tokyo-night");
   assert.equal(slateShikiTheme(undefined), "tokyo-night");
@@ -57,7 +60,7 @@ test("shiki mapping follows the theme family", () => {
 
 test("unregistered themes use the same fallback for diff colors and syntax", () => {
   const fallback = diffAppearance("tokyo-night");
-  for (const name of [undefined, "unknown", "catppuccin-latte-default", "catppuccin-mocha", "catppuccin-mocha-custom"]) {
+  for (const name of [undefined, "unknown", "catppuccin-latte-nope", "catppuccin-mocha", "catppuccin-mocha-custom", "catppuccin-latte-quiet"]) {
     assert.equal(slateShikiTheme(name), fallback.theme, name ?? "unnamed");
     assert.deepEqual(diffAppearance(name), fallback, name ?? "unnamed");
   }
@@ -74,16 +77,9 @@ const EFFORT = [
   ["medium", "thinkingMedium"], ["high", "thinkingHigh"], ["xhigh", "thinkingXhigh"], ["max", "thinkingMax"],
 ] as const;
 
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map(start => {
-    const c = parseInt(hex.slice(start, start + 2), 16) / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
-}
 
 test("bundled effort ramps start neutral and brighten toward each theme's border accent", () => {
-  const expectedMax: Record<string, string> = {
+  const approvedMax: Record<string, string> = {
     "tokyo-night": "#6785ca", "black-metal": "#8a8a8a",
     "catppuccin-mocha-default": "#9ea7da", "catppuccin-mocha-quiet": "#9da3bd",
     "catppuccin-mocha-mauve": "#af96d5", "catppuccin-mocha-pink": "#cca9ca",
@@ -93,14 +89,19 @@ test("bundled effort ramps start neutral and brighten toward each theme's border
   };
   for (const theme of allSlateThemes()) {
     const ramp = EFFORT.map(([, token]) => role(theme, token));
-    assert.equal(ramp[0], role(theme, "border"), `${theme.name}: off matches the neutral frame`);
-    assert.equal(ramp.at(-1), expectedMax[theme.name], `${theme.name}: approved max tint`);
+    const border = role(theme, "border"), accent = role(theme, "borderAccent");
+    const stops = [0, 0.10, 0.20, 0.32, 0.44, 0.57, 0.70];
+    assert.equal(ramp[0], border, `${theme.name}: off matches the neutral frame`);
+    ramp.forEach((value, index) => assert.equal(value, mixHex(accent, border, stops[index]!), `${theme.name}: stop ${index}`));
+    assert.equal(ramp.at(-1), mixHex(accent, border, 0.70), `${theme.name}: approved max tint`);
+    if (approvedMax[theme.name]) assert.equal(ramp.at(-1), approvedMax[theme.name], `${theme.name}: pinned tint`);
     assert.equal(new Set(ramp).size, 7, `${theme.name}: distinct truecolor stops`);
-    const brightness = ramp.map(luminance);
-    for (let i = 1; i < brightness.length; i++) {
-      assert.ok(brightness[i]! > brightness[i - 1]!, `${theme.name}: effort brightness increases`);
-    }
-    assert.ok(brightness.at(-1)! < luminance(role(theme, "borderAccent")), "max remains restrained");
+    // Every stop is a bounded blend: 70% of the way to the accent at most, so the
+    // ramp never becomes the accent color, on light or dark flavors.
+    const rgb = (hex: string) => [1, 3, 5].map(start => parseInt(hex.slice(start, start + 2), 16));
+    const distance = (from: number[], to: number[]) => Math.hypot(...from.map((value, index) => value - to[index]!));
+    const full = distance(rgb(border), rgb(accent));
+    for (const stop of ramp) assert.ok(distance(rgb(stop), rgb(border)) < full, `${theme.name}: restrained stop`);
     assert.equal(role(theme, "bashMode"), role(theme, "success"), "bash keeps its separate mode color");
   }
 });

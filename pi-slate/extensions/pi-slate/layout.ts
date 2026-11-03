@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { parseFlavor, parseStyle, type Flavor, type Style } from "./catppuccin.ts";
+import { FLAVORS, parseFlavor, parseStyle, STYLES, stylesFor, type Flavor, type Style } from "./catppuccin.ts";
 import { parseSurfaces, SURFACES, type Surface } from "./surfaces.ts";
 import { isProgressStyle, type ProgressStyle } from "./working-wave.ts";
 
@@ -303,7 +303,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|black-metal|quiet|mauve|catppuccin-mocha-pink|red|lavender|sapphire|peach|teal] | style [default|quiet|mauve|catppuccin-mocha-pink|red|lavender|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [system|tokyo-night|black-metal|<flavor> [style]|<style>] | style [<style>] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -313,7 +313,7 @@ export function withoutCurrent(label: string): string {
   return label.endsWith(" (current)") ? label.slice(0, -" (current)".length) : label;
 }
 
-const THEME_STYLES = ["default", "quiet", "mauve", "catppuccin-mocha-pink", "red", "lavender", "sapphire", "peach", "teal"] as const;
+const THEME_STYLES = [...FLAVORS, ...STYLES] as const;
 const SLATE_COMPLETIONS = [
   "session", "session mcp", "session skills", "session prompts", "session commands", "session tasks", "session image",
   "surfaces",
@@ -353,9 +353,11 @@ const SLATE_COMPLETIONS = [
   "message-length default",
   "message-length all",
   "theme",
+  "theme system",
   "theme tokyo-night",
   "theme black-metal",
   ...THEME_STYLES.map((style) => `theme ${style}`),
+  ...FLAVORS.flatMap((flavor) => stylesFor(flavor).map((style) => `theme ${flavor} ${style}`)),
   "style",
   ...THEME_STYLES.map((style) => `style ${style}`),
   "bug",
@@ -409,13 +411,14 @@ export function parseSlateArgs(raw: string): SlateArgs {
     if (words.length > 3) return { ok: false };
     if (!tail) return { ok: true, kind: "theme-menu" };
     if (tail === "default" && !extra) return { ok: true, kind: "named-theme", name: "system" };
+    if (tail === "system" && !extra) return { ok: true, kind: "named-theme", name: "system" };
     if ((tail === "tokyo-night" || tail === "tokyonight") && !extra) return { ok: true, kind: "named-theme", name: "tokyo-night" };
     if ((tail === "black-metal" || tail === "blackmetal") && !extra) return { ok: true, kind: "named-theme", name: "black-metal" };
     const flavor = parseFlavor(tail);
     if (flavor) {
       if (!extra) return { ok: true, kind: "theme", flavor };
       const style = parseStyle(extra);
-      return style ? { ok: true, kind: "theme", flavor, style } : { ok: false };
+      return style && stylesFor(flavor).includes(style) ? { ok: true, kind: "theme", flavor, style } : { ok: false };
     }
     const style = parseStyle(tail);
     if (style && !extra) return { ok: true, kind: "theme", style };

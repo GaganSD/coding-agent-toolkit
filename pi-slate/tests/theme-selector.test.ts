@@ -3,7 +3,7 @@ import test from "node:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { parseColor, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
-import { STYLES, catppuccinThemeName } from "../extensions/pi-slate/catppuccin.ts";
+import { FLAVOR_LABELS, PALETTE_STYLES, catppuccinThemeName } from "../extensions/pi-slate/catppuccin.ts";
 import { selectSlateTheme, slateThemeChoices, ThemeSelector, type ThemeChoice } from "../extensions/pi-slate/theme-selector.ts";
 import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js";
 import { initTheme, setThemeInstance } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
@@ -24,32 +24,52 @@ function fixture(initial = "catppuccin-mocha-pink") {
   return { selector, previews, done, terminal, renders: () => renders };
 }
 
-test("theme navigation previews immediately and remembers each theme's variant", () => {
+test("theme navigation previews immediately and keeps each flavor's palette", () => {
   const f = fixture();
   assert.deepEqual(f.previews, [], "opening preserves original theme");
+  const opened = f.selector.render(88).join("\n");
+  assert.match(opened, /── Light/);
+  assert.match(opened, /── Dark/);
+  assert.match(opened, /Catppuccin Latte/);
+  assert.match(opened, /Themes 5\/7/);
+  assert.match(opened, /Palettes 3\/15/);
   f.selector.handleInput(right);
-  assert.deepEqual(f.previews, ["catppuccin-mocha-red"]);
-  assert.match(f.selector.render(58).join("\n"), /› ████ Red/);
+  assert.deepEqual(f.previews, ["catppuccin-mocha-mauve"]);
   f.selector.handleInput(right);
-  assert.equal(f.previews.at(-1), "catppuccin-mocha-lavender");
-  f.selector.handleInput(up);
-  assert.equal(f.previews.at(-1), "black-metal");
-  f.selector.handleInput(right);
-  assert.equal(f.previews.length, 3, "single-palette themes ignore horizontal navigation");
-  f.selector.handleInput(down);
-  assert.equal(f.previews.at(-1), "catppuccin-mocha-lavender");
-  f.selector.handleInput(left);
   assert.equal(f.previews.at(-1), "catppuccin-mocha-red");
+  assert.match(f.selector.render(58).join("\n"), /› ████ Red/);
+  f.selector.handleInput(up);
+  assert.equal(f.previews.at(-1), "catppuccin-macchiato-rosewater");
+  f.selector.handleInput(right);
+  assert.equal(f.previews.at(-1), "catppuccin-macchiato-flamingo");
+  f.selector.handleInput(up);
+  assert.equal(f.previews.at(-1), "catppuccin-frappe-rosewater");
+  f.selector.handleInput(up);
+  assert.equal(f.previews.at(-1), "catppuccin-latte-rosewater");
+  f.selector.handleInput(left);
+  assert.equal(f.previews.at(-1), "catppuccin-latte-default");
   f.selector.handleInput("\r");
+  assert.deepEqual(f.done, ["catppuccin-latte-default"]);
   f.selector.handleInput(down);
-  assert.deepEqual(f.done, ["catppuccin-mocha-red"]);
-  assert.equal(f.renders(), 5);
+  assert.deepEqual(f.done, ["catppuccin-latte-default"], "a closed selector ignores input");
+});
+
+test("single-palette themes ignore horizontal navigation", () => {
+  const f = fixture("tokyo-night");
+  const before = f.previews.length;
+  f.selector.handleInput(right);
+  f.selector.handleInput(left);
+  assert.equal(f.previews.length, before);
+  f.selector.handleInput("\r");
+  assert.deepEqual(f.done, ["tokyo-night"]);
 });
 
 test("selector wraps, cancels, and keeps labels and controls bounded after resizing", () => {
   const f = fixture("system");
   f.selector.handleInput(up);
-  assert.equal(f.previews.at(-1), "catppuccin-mocha-pink");
+  assert.equal(f.previews.at(-1), "black-metal");
+  f.selector.handleInput(down);
+  assert.equal(f.previews.at(-1), "system");
   for (const width of [100, 58, 32, 20, 4, 3, 1]) {
     for (const rows of [40, 16, 8, 3]) {
       f.terminal.rows = rows;
@@ -59,10 +79,13 @@ test("selector wraps, cancels, and keeps labels and controls bounded after resiz
     }
   }
   f.terminal.rows = 8;
-  assert.match(f.selector.render(58).join("\n"), /catppuccin-mocha\s*\n1\/3 · Pink/);
+  f.selector.handleInput(down);
+  assert.equal(f.previews.at(-1), "catppuccin-latte-rosewater");
+  assert.match(f.selector.render(58).join("\n"), /Catppuccin Latte\s*\n1\/15 · Rosewater/);
   assert.match(f.selector.render(58).join("\n"), /Esc restore/);
   assert.match(f.selector.render(18).join("\n"), /↵ save Esc undo/);
-  assert.match(f.selector.render(18).join("\n"), /1\/3 · Pink/);
+  assert.match(f.selector.render(18).join("\n"), /1\/15 · Rosewater/);
+  f.selector.handleInput(up);
   f.selector.handleInput("\x1b");
   assert.deepEqual(f.done, [undefined]);
 });
@@ -76,42 +99,64 @@ test("an external original theme stays visibly selected until navigation", () =>
   assert.match(selector.render(58).join("\n"), /› external \(current\)/);
 });
 
-test("picker palettes are exactly Pink, Red, Lavender in order with exact accents", () => {
-  assert.deepEqual(slateThemeChoices().at(-1)!.variants, [
-    { name: "catppuccin-mocha-pink", label: "Pink", color: "#f5c2e7" },
-    { name: "catppuccin-mocha-red", label: "Red", color: "#f38ba8" },
-    { name: "catppuccin-mocha-lavender", label: "Lavender", color: "#b4befe" },
+test("picker lists Light and Dark sections with 15 palettes per flavor", () => {
+  const choices = slateThemeChoices();
+  assert.deepEqual(choices.map(choice => choice.label), [
+    "System default", "Catppuccin Latte", "Catppuccin Frappé", "Catppuccin Macchiato",
+    "Catppuccin Mocha", "Tokyo Night", "Black Metal",
   ]);
+  assert.deepEqual(choices.map(choice => choice.section), [
+    undefined, "Light", "Light", "Dark", "Dark", "Dark", "Dark",
+  ]);
+  for (const choice of choices.slice(1, 5)) assert.equal(choice.variants.length, 15, choice.label);
+  assert.deepEqual(choices[1]!.variants.map(variant => variant.label), [
+    "Rosewater", "Flamingo", "Pink", "Mauve", "Red", "Maroon", "Peach", "Yellow",
+    "Green", "Teal", "Sky", "Sapphire", "Blue", "Lavender", "Default",
+  ]);
+  const accents = (index: number) => Object.fromEntries(choices[index]!.variants.map(variant => [variant.label, variant.color]));
+  assert.equal(accents(1).Mauve, "#8839ef");
+  assert.equal(accents(2).Pink, "#f4b8e4");
+  assert.equal(accents(3).Teal, "#8bd5ca");
+  assert.equal(accents(4).Lavender, "#b4befe");
+  for (const index of [1, 2, 3, 4]) {
+    assert.equal(new Set(Object.values(accents(index))).size, 14, "hues are distinct; Default reuses lavender");
+  }
 });
 
-test("three-palette cycle wraps in both directions without legacy styles", () => {
-  const f = fixture();
-  for (const key of [right, right, right, left, left, left]) f.selector.handleInput(key);
-  assert.deepEqual(f.previews, [
-    "catppuccin-mocha-red", "catppuccin-mocha-lavender", "catppuccin-mocha-pink",
-    "catppuccin-mocha-lavender", "catppuccin-mocha-red", "catppuccin-mocha-pink",
-  ]);
+test("fifteen-palette cycle wraps in both directions", () => {
+  const f = fixture("catppuccin-mocha-rosewater");
+  f.selector.handleInput(left);
+  assert.equal(f.previews.at(-1), "catppuccin-mocha-default");
+  f.selector.handleInput(right);
+  assert.equal(f.previews.at(-1), "catppuccin-mocha-rosewater");
+  for (let i = 0; i < 15; i++) f.selector.handleInput(right);
+  assert.equal(f.previews.at(-1), "catppuccin-mocha-rosewater");
+  assert.equal(f.previews.length, 17);
 });
 
-for (const style of STYLES.filter(style => !["pink", "red", "lavender"].includes(style))) {
-  test(`legacy ${style} stays current outside the normal picker cycle`, () => {
-    const initial = catppuccinThemeName("mocha", style);
-    const f = fixture(initial);
-    assert.deepEqual(f.previews, []);
-    assert.match(f.selector.render(58).join("\n"), new RegExp(`› ${initial} \\(current\\)`));
-    f.selector.handleInput(right);
-    f.selector.handleInput(left);
-    assert.deepEqual(f.previews, [], "current row does not cycle");
-    f.selector.handleInput(up);
-    assert.equal(f.previews.at(-1), "catppuccin-mocha-pink");
-    for (let i = 0; i < 3; i++) f.selector.handleInput(right);
-    assert.equal(f.previews.at(-1), "catppuccin-mocha-pink");
-    f.selector.handleInput(down);
-    assert.equal(f.previews.at(-1), initial);
-    f.selector.handleInput("\r");
-    assert.deepEqual(f.done, [initial]);
+for (const flavor of ["latte", "frappe", "macchiato", "mocha"] as const) {
+  test(`${flavor} keeps every shipped palette reachable from the picker`, () => {
+    for (const style of PALETTE_STYLES) {
+      const initial = catppuccinThemeName(flavor, style);
+      const f = fixture(initial);
+      assert.deepEqual(f.previews, [], `${initial} opens selected`);
+      assert.match(f.selector.render(88).join("\n"), new RegExp(`› Catppuccin ${FLAVOR_LABELS[flavor]}`));
+      f.selector.handleInput("\r");
+      assert.deepEqual(f.done, [initial]);
+    }
   });
 }
+
+test("legacy mocha quiet keeps its own current row outside the shipped palettes", () => {
+  const f = fixture("catppuccin-mocha-quiet");
+  assert.deepEqual(f.previews, []);
+  assert.match(f.selector.render(88).join("\n"), /› catppuccin-mocha-quiet \(current\)/);
+  f.selector.handleInput(right);
+  f.selector.handleInput(left);
+  assert.deepEqual(f.previews, [], "current row does not cycle");
+  f.selector.handleInput("\r");
+  assert.deepEqual(f.done, ["catppuccin-mocha-quiet"]);
+});
 
 for (const action of ["save", "cancel", "ctrl-c", "throw", "failed-save", "failed-preview"] as const) {
   test(`selector transaction: ${action}`, async () => {
@@ -305,14 +350,13 @@ test("palette swatches retain their concrete colors and selected rows have a ful
   const create = Reflect.get(InteractiveMode.prototype, "createExtensionUIContext");
   const ui = create.call({}) as ExtensionContext["ui"];
   const live = ui.getTheme("dark")!;
-  const selector = new ThemeSelector(slateThemeChoices(), "catppuccin-mocha-pink", {
+  const selector = new ThemeSelector(slateThemeChoices(), "catppuccin-latte-mauve", {
     terminal: { rows: 40 } as TUI["terminal"], requestRender() {},
   }, () => live, keys, () => undefined, () => {});
   const text = selector.render(88).join("\n");
-  for (const color of ["#f5c2e7", "#f38ba8", "#b4befe"]) {
-    assert(text.includes(live.style("████", { fg: parseColor(color) })));
-  }
-  assert(text.includes(live.style("› catppuccin-mocha".padEnd(38), { fg: "accent", bg: "selectedBg", bold: true })));
+  assert(text.includes(live.style("████", { fg: parseColor("#8839ef") })), "Latte mauve swatch");
+  assert(text.includes(live.style("████", { fg: parseColor("#7287fd") })), "Latte lavender swatch");
+  assert(text.includes(live.style("› Catppuccin Latte".padEnd(38), { fg: "accent", bg: "selectedBg", bold: true })));
 });
 
 test("non-terminal modes do not start a selector or change themes", async () => {
