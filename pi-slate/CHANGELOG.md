@@ -14,7 +14,6 @@
 ### Changed
 
 - `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest); diffs still fold into the usual grouped tool runs.
-
 - `/theme` is the only theme surface: `/slate theme` opens the picker and takes no arguments. `/slate theme <flavor> <palette>` and the old `/slate theme <name>` forms are now plain invalid usage instead of a second 60-name command tree.
 - `/slate style` is removed along with the theme arguments; the picker is the only theme surface. Pink is labelled `Pink` instead of its full theme name, and saved full names such as `catppuccin-latte-mauve` remain valid through Pi's `/settings`.
 - Mocha Quiet remains a saved theme and now shows as the last palette in the Mocha row.
