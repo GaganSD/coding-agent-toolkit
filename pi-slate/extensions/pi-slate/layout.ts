@@ -73,39 +73,9 @@ export function modelStatusLabel(
   return base;
 }
 
-const INTEGERS = new Intl.NumberFormat("en");
-
-export function formatInteger(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return INTEGERS.format(Math.round(value));
-}
-
-export function formatTokenCount(tokens: number | null | undefined): string {
-  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "— tokens";
-  return `${formatInteger(tokens)} tokens`;
-}
-
-export function formatTokenRate(rate: number | null | undefined): string {
-  if (rate === null || rate === undefined || !Number.isFinite(rate)) return "— tokens/sec";
-  return `${formatInteger(Math.max(0, rate))} tokens/sec`;
-}
-
 export function formatPercent(percent: number | null | undefined): string {
   if (percent === null || percent === undefined || !Number.isFinite(percent)) return "—%";
   return `${Math.round(percent)}%`;
-}
-
-export function formatSpend(cost: number | null | undefined): string {
-  if (cost === null || cost === undefined || !Number.isFinite(cost)) return "$0.00";
-  return `$${Math.max(0, cost).toFixed(2)}`;
-}
-
-export function formatContextTokens(
-  tokens: number | null | undefined,
-  percent: number | null | undefined,
-  rate: number | null | undefined,
-): string {
-  return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
 /** Compact thousands: 845 -> "845", 16005 -> "16k", 47349 -> "47.3k", 1000000 -> "1M". */
@@ -133,24 +103,6 @@ export function formatFocusedContextTokens(
   return `${formatPercent(percent)}/${formatCompactTokenCount(contextWindow)} tokens · ↑↓${formatCompactTokenCount(rate)}`;
 }
 
-export function formatMcpEnabled(count: number): string {
-  const servers = Math.max(0, Math.round(count));
-  return `${servers} MCPs enabled`;
-}
-
-export function formatSkillsLoaded(count: number): string {
-  const skills = Math.max(0, Math.round(count));
-  return `${skills} skills loaded`;
-}
-
-export function formatContextResources(
-  spend: number | null | undefined,
-  skills: number,
-  mcpCount: number | null,
-): string {
-  return `${formatSpend(spend)} · ${formatSkillsLoaded(skills)} · ${formatMcpEnabled(mcpCount ?? 0)}`;
-}
-
 export function formatFocusedContextResources(
   percent: number | null | undefined,
   estimated: boolean,
@@ -161,31 +113,6 @@ export function formatFocusedContextResources(
   const parts = [`ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`];
   if (serverCount > 0) parts.push(`${serverCount} mcp`);
   return parts.join(" · ");
-}
-
-/** Later sources override the same server name (project over global). */
-export function mergeMcpServerMaps(...sources: unknown[]): Record<string, unknown> {
-  const servers: Record<string, unknown> = {};
-  for (const data of sources) {
-    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
-    const next = (data as { mcpServers?: unknown }).mcpServers;
-    if (!next || typeof next !== "object" || Array.isArray(next)) continue;
-    Object.assign(servers, next);
-  }
-  return servers;
-}
-
-export function parseMcpEnabledCount(data: unknown): number | null {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const servers = (data as { mcpServers?: unknown }).mcpServers;
-  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return null;
-  return Object.values(servers).filter(isEnabledMcpServer).length;
-}
-
-function isEnabledMcpServer(server: unknown): boolean {
-  if (!server || typeof server !== "object" || Array.isArray(server)) return false;
-  const entry = server as { enabled?: unknown; disabled?: unknown };
-  return entry.enabled !== false && entry.disabled !== true;
 }
 
 export function footerVisibility(width: number): {

@@ -11,7 +11,7 @@ function renderedPlain(component: Component, width = SAMPLE_WIDTH): string {
   }
 }
 
-export function isBlankSpacer(component: Component): boolean {
+function isBlankSpacer(component: Component): boolean {
   const plain = renderedPlain(component, 10);
   return plain.trim() === "";
 }
