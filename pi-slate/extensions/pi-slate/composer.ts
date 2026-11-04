@@ -462,11 +462,13 @@ export class ComposerEditor extends CustomEditor {
         }
       : undefined;
     const pidLabel = src.showPid === true ? src.theme.fg("dim", `PID-${AGENT_PID}`) : "";
-    const resources = src.context
-      ? src.context.resources.split(" · ")
-          .map((part) => src.theme.fg("dim", part))
-          .join(metadataSeparator(src.theme, "dim"))
-      : "";
+    const resourceParts = src.context ? src.context.resources.split(" · ") : [];
+    if (src.dashboardVisible === false && src.context && src.footer === "standard" && width >= 80 && src.thinking) {
+      resourceParts.push(src.thinking);
+    }
+    const resources = resourceParts
+      .map((part) => src.theme.fg("dim", part))
+      .join(metadataSeparator(src.theme, "dim"));
     return composerStatusContextEdge(
       resources,
       width,
@@ -497,7 +499,6 @@ export class ComposerEditor extends CustomEditor {
       const rightParts: string[] = [];
       if (src.footer === "standard" && width >= 66) {
         rightParts.push(modelStatusLabel(src.model, src.modelDisplay));
-        if (width >= 80 && src.thinking) rightParts.push(src.thinking);
       }
       const right = rightParts.length
         ? ` ${rightParts.map((part) => src.theme.fg("muted", part)).join(metadataSeparator(src.theme))} `
