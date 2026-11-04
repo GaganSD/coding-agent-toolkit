@@ -4,7 +4,7 @@ import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { piLogoLines, piMinimalLogoLines, piWordmark, renderSlateHeader, supportsPiLogo } from "../extensions/pi-slate/header.ts";
-import { parseSlateArgs } from "../extensions/pi-slate/layout.ts";
+import { logoArgumentCompletions, parseLogoArgs } from "../extensions/pi-slate/layout.ts";
 
 const theme = { fg: (_name: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
 
@@ -68,12 +68,18 @@ test("minimal is the default logo style", () => {
   assert.match(plain[0]!, /^█▀█/);
 });
 
-test("logo style parses through /slate logo", () => {
-  assert.deepEqual(parseSlateArgs("logo"), { ok: true, kind: "logo" });
-  assert.deepEqual(parseSlateArgs("logo minimal"), { ok: true, kind: "logo", value: "minimal" });
-  assert.deepEqual(parseSlateArgs("logo original"), { ok: true, kind: "logo", value: "original" });
-  assert.deepEqual(parseSlateArgs("logo retro"), { ok: false });
-  assert.deepEqual(parseSlateArgs("logo minimal extra"), { ok: false });
+test("logo command parses original, minimal, and the picker", () => {
+  assert.deepEqual(parseLogoArgs(""), { ok: true });
+  assert.deepEqual(parseLogoArgs("minimal"), { ok: true, value: "minimal" });
+  assert.deepEqual(parseLogoArgs(" ORIGINAL "), { ok: true, value: "original" });
+  assert.deepEqual(parseLogoArgs("retro"), { ok: false });
+  assert.deepEqual(parseLogoArgs("minimal extra"), { ok: false });
+  assert.deepEqual(logoArgumentCompletions("m"), [{ value: "minimal", label: "minimal" }]);
+  assert.deepEqual(logoArgumentCompletions(" "), [
+    { value: "original", label: "original" },
+    { value: "minimal", label: "minimal" },
+  ]);
+  assert.equal(logoArgumentCompletions("retro"), null);
 });
 
 test("logo helpers share the same 4×2 grid", () => {

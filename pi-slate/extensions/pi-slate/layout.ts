@@ -282,7 +282,9 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+
+export const LOGO_USAGE = "Usage: /logo [original|minimal]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -319,9 +321,6 @@ const SLATE_COMPLETIONS = [
   "effort-border",
   "effort-border on",
   "effort-border off",
-  "logo",
-  "logo original",
-  "logo minimal",
   "progress",
   "progress waves",
   "progress dna-helix",
@@ -347,7 +346,6 @@ export type SlateArgs =
   | { ok: true; kind: "focused"; value?: boolean }
   | { ok: true; kind: "pid"; value?: boolean }
   | { ok: true; kind: "effort-border"; value?: boolean }
-  | { ok: true; kind: "logo"; value?: LogoStyle }
   | { ok: true; kind: "progress"; value?: ProgressStyle }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
@@ -413,11 +411,6 @@ export function parseSlateArgs(raw: string): SlateArgs {
     if (tail === "on" || tail === "off") return { ok: true, kind: "effort-border", value: tail === "on" };
     return { ok: false };
   }
-  if (head === "logo") {
-    if (!tail) return { ok: true, kind: "logo" };
-    if (tail === "original" || tail === "minimal") return { ok: true, kind: "logo", value: tail };
-    return { ok: false };
-  }
   if (head === "progress") {
     if (!tail) return { ok: true, kind: "progress" };
     if (isProgressStyle(tail)) return { ok: true, kind: "progress", value: tail };
@@ -449,6 +442,20 @@ export function slateArgumentCompletions(prefix: string): { value: string; label
   const matches = candidates.filter((value) => value.startsWith(normalized))
     .map((value) => ({ value, label: value }));
   return matches.length ? matches : null;
+}
+
+export function logoArgumentCompletions(prefix: string): { value: string; label: string }[] | null {
+  const normalized = prefix.trimStart().toLowerCase();
+  const matches = LOGO_STYLES.filter((value) => value.startsWith(normalized))
+    .map((value) => ({ value, label: value }));
+  return matches.length ? matches : null;
+}
+
+export function parseLogoArgs(raw: string): { ok: true; value?: LogoStyle } | { ok: false } {
+  const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { ok: true };
+  const value = LOGO_STYLES.find((style) => style === words[0]);
+  return words.length === 1 && value ? { ok: true, value } : { ok: false };
 }
 
 export function clampSidebarColumns(totalWidth: number, columns: number): number {

@@ -407,6 +407,20 @@ test("/theme opens directly, retains aliases, and rejects unknown arguments", as
   assert.equal(f.commands.has("settings"), false, "core settings remain untouched");
 });
 
+test("/logo saves styles, opens the picker, and rejects unknown arguments", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["header"], logo: "minimal" }));
+  const command = f.commands.get("logo")!;
+  const saved = async () => JSON.parse(await readFile(f.path, "utf8"));
+  await command.handler("original", f.ctx);
+  assert.equal((await saved()).logo, "original");
+  f.choices.push("Minimal (classic white Pi)");
+  await command.handler("", f.ctx);
+  assert.equal((await saved()).logo, "minimal");
+  await command.handler("retro", f.ctx);
+  assert.equal((await saved()).logo, "minimal");
+  assert.ok(f.notices.includes("Usage: /logo [original|minimal]"));
+});
+
 test("a picker choice is persisted as the saved theme", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   const settingsPath = join(dirname(f.path), "settings.json");

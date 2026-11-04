@@ -46,8 +46,11 @@ import {
   type LogoStyle,
   formatFocusedContextResources,
   formatFocusedContextTokens,
+  logoArgumentCompletions,
+  LOGO_USAGE,
   modelStatusLabel,
   parseMessageLength,
+  parseLogoArgs,
   parseMessageLengthArg,
   parseSidebarPercent,
   parseSidebarWidthArg,
@@ -1074,8 +1077,23 @@ export default function piSlate(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("logo", {
+    description: "Choose the header logo style",
+    getArgumentCompletions: logoArgumentCompletions,
+    handler: async (args, ctx) => {
+      const parsed = parseLogoArgs(args);
+      if (!parsed.ok) {
+        ctx.ui.notify(LOGO_USAGE, "error");
+        return;
+      }
+      const logo = parsed.value ?? await pickLogo(ctx);
+      if (!logo) return;
+      apply({ ...config, logo }, logo === "minimal" ? "Header logo set to minimal (classic white Pi)" : "Header logo set to original", ctx);
+    },
+  });
+
   pi.registerCommand("slate", {
-    description: "Session dashboard, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, header logo, progress indicator, message length, theme, or file a bug",
+    description: "Session dashboard, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1086,7 +1104,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Header logo", "Progress indicator", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "File a bug"]);
         if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
@@ -1102,7 +1120,6 @@ export default function piSlate(pi: ExtensionAPI): void {
         else if (setting === "Sidebar width") kind = "width-menu";
         else if (setting === "Focused") kind = "focused";
         else if (setting === "PID display") kind = "pid";
-        else if (setting === "Header logo") kind = "logo";
         else if (setting === "Progress indicator") kind = "progress";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
@@ -1160,13 +1177,6 @@ export default function piSlate(pi: ExtensionAPI): void {
           on ? "Effort border color on" : "Effort border color off",
           ctx,
         );
-        return;
-      }
-
-      if (kind === "logo") {
-        const logo = (parsed.kind === "logo" ? parsed.value : undefined) ?? await pickLogo(ctx);
-        if (!logo) return;
-        apply({ ...config, logo }, logo === "minimal" ? "Header logo set to minimal (classic white Pi)" : "Header logo set to original", ctx);
         return;
       }
 
