@@ -326,14 +326,12 @@ test("MCP and skill counts share the Context resource line", () => {
   assert.equal(parseMcpEnabledCount(null), null);
 });
 
-test("focused context resources keep cost and omit zero skill and MCP counts", () => {
-  assert.equal(formatFocusedContextResources(1.234, 0, 0), "$1.23");
-  assert.equal(formatFocusedContextResources(1.234, 0, null), "$1.23");
-  assert.equal(formatFocusedContextResources(null, 0, 0), "$0.00");
-  assert.equal(formatFocusedContextResources(1.234, 3, 0), "$1.23 · 3 skills");
-  assert.equal(formatFocusedContextResources(1.234, 0, 2), "$1.23 · 2 MCPs");
-  assert.equal(formatFocusedContextResources(1.234, 1, 1), "$1.23 · 1 skill · 1 MCP");
-  assert.equal(formatContextResources(null, 0, null), "$0.00 · 0 skills loaded · 0 MCPs enabled");
+test("focused context resources omit zero skill and MCP counts", () => {
+  assert.equal(formatFocusedContextResources(0, 0), "");
+  assert.equal(formatFocusedContextResources(0, null), "");
+  assert.equal(formatFocusedContextResources(3, 0), "3 skills");
+  assert.equal(formatFocusedContextResources(0, 2), "2 MCPs");
+  assert.equal(formatFocusedContextResources(1, 1), "1 skill · 1 MCP");
 });
 
 test("MCP enabled count reads mcp.json and lets project override global", () => {

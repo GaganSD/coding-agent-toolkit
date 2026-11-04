@@ -188,7 +188,7 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
   });
 }
 
-test("focused composer keeps cost only on top and places context before model", async (t) => {
+test("focused composer shows resources on top and places context before model", async (t) => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "header"], focused: true }));
   Object.assign(f.ctx, { getContextUsage: () => ({ tokens: 10000, percent: 10, contextWindow: 100000 }) });
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
@@ -197,10 +197,8 @@ test("focused composer keeps cost only on top and places context before model", 
   await new Promise(resolve => setImmediate(resolve));
 
   const lines = f.composer!.render(100).map(stripVTControlCharacters);
-  const text = lines.join("\n");
   const bottom = lines.at(-1)!;
-  assert.equal((text.match(/\$0\.35/g) ?? []).length, 1, "top resource edge owns cost");
-  assert.match(lines[0]!, /\$0\.35 · 1 skill/);
+  assert.match(lines[0]!, /1 skill/);
   assert.match(bottom, new RegExp(`${basename(f.ctx.cwd)} / test-branch`));
   assert.match(bottom, /ctx 10%/);
   assert.ok(bottom.indexOf("ctx 10%") > bottom.indexOf("test-branch"));

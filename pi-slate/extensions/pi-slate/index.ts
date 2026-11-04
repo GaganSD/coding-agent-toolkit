@@ -279,7 +279,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
   let contextEdge = {
     tokens: formatFocusedContextTokens(null, null, null),
-    resources: formatFocusedContextResources(null, 0, 0),
+    resources: formatFocusedContextResources(0, 0),
     summary: "ctx —",
   };
   let requestRender = (_force = false) => {};
@@ -316,7 +316,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       const entries = ctx.sessionManager.getBranch();
       branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries) };
     }
-    const spend = branchFacts.usage.cost;
     const skillCount = owns("sidebar") ? resources.skills.filter(skill => skill.loaded).length : countSkillCommands(pi.getCommands());
     const mcpCount = resources.mcp.filter(server => server.enabled === true).length;
     if (owns("sidebar") && !sidebarYielded) {
@@ -331,7 +330,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     contextEdge = {
       tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
-      resources: formatFocusedContextResources(spend, skillCount, mcpCount),
+      resources: formatFocusedContextResources(skillCount, mcpCount),
       summary: `ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`,
     };
   };

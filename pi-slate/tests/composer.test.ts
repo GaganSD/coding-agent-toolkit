@@ -116,28 +116,30 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
 
 test("focused context sits on the composer top edge", () => {
   const line = composerContextEdge(
-    "$7.47 · 14 skills · 2 MCPs",
+    "14 skills · 2 MCPs",
     80,
     (text) => text,
   );
   assert.equal(line[0], "┌");
   assert.equal(line.at(-1), "┐");
   assert.doesNotMatch(line, /tokens/);
-  assert.match(line, /\$7\.47/);
-  const squeezed = composerContextEdge("$7.47 · 14 skills", 28, (text) => text, 3);
+  assert.match(line, /14 skills · 2 MCPs/);
+  const squeezed = composerContextEdge("14 skills · 2 MCPs", 28, (text) => text, 3);
   assert.equal(visibleWidth(squeezed), 28);
   assert.match(squeezed, /↑ 3 more/);
 });
 
-test("focused prompt edge keeps cost, hides empty resource counts, and shows loaded skills", () => {
-  const empty = composerContextEdge(formatFocusedContextResources(1.234, 0, 0), 40, (text) => text);
+test("focused prompt edge hides empty resource counts and shows loaded skills and MCP", () => {
+  const empty = composerContextEdge(formatFocusedContextResources(0, 0), 40, (text) => text);
   assert.equal(visibleWidth(empty), 40);
-  assert.match(empty, /\$1\.23/);
   assert.doesNotMatch(empty, /0 skills|0 MCP/);
 
-  const withSkill = composerContextEdge(formatFocusedContextResources(1.234, 1, 0), 80, (text) => text);
-  assert.match(withSkill, /\$1\.23 · 1 skill/);
+  const withSkill = composerContextEdge(formatFocusedContextResources(1, 0), 80, (text) => text);
+  assert.match(withSkill, /1 skill/);
   assert.doesNotMatch(withSkill, /loaded|enabled|0 MCP|0 skills/);
+
+  const withMcp = composerContextEdge(formatFocusedContextResources(0, 2), 80, (text) => text);
+  assert.match(withMcp, /2 MCPs/);
 });
 
 test("focused composer token label uses compact percent placement", () => {
