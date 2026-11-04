@@ -407,14 +407,18 @@ test("/theme opens directly, retains aliases, and rejects unknown arguments", as
   assert.equal(f.commands.has("settings"), false, "core settings remain untouched");
 });
 
-test("/logo saves styles, opens the picker, and rejects unknown arguments", async t => {
+test("/logo toggles without a picker, saves explicit styles, and rejects unknown arguments", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["header"], logo: "minimal" }));
   const command = f.commands.get("logo")!;
   const saved = async () => JSON.parse(await readFile(f.path, "utf8"));
+  t.mock.method(f.ctx.ui, "select", async () => { assert.fail("/logo must not open a picker"); });
+  await command.handler("", f.ctx);
+  assert.equal((await saved()).logo, "original");
+  await command.handler("  ", f.ctx);
+  assert.equal((await saved()).logo, "minimal");
   await command.handler("original", f.ctx);
   assert.equal((await saved()).logo, "original");
-  f.choices.push("Minimal (classic white Pi)");
-  await command.handler("", f.ctx);
+  await command.handler("minimal", f.ctx);
   assert.equal((await saved()).logo, "minimal");
   await command.handler("retro", f.ctx);
   assert.equal((await saved()).logo, "minimal");

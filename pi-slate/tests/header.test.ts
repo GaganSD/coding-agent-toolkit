@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { CombinedAutocompleteProvider, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { piLogoLines, piMinimalLogoLines, piWordmark, renderSlateHeader, supportsPiLogo } from "../extensions/pi-slate/header.ts";
 import { logoArgumentCompletions, parseLogoArgs } from "../extensions/pi-slate/layout.ts";
@@ -68,7 +68,7 @@ test("minimal is the default logo style", () => {
   assert.match(plain[0]!, /^█▀█/);
 });
 
-test("logo command parses original, minimal, and the picker", () => {
+test("logo command parses original, minimal, and the toggle", () => {
   assert.deepEqual(parseLogoArgs(""), { ok: true });
   assert.deepEqual(parseLogoArgs("minimal"), { ok: true, value: "minimal" });
   assert.deepEqual(parseLogoArgs(" ORIGINAL "), { ok: true, value: "original" });
@@ -80,6 +80,20 @@ test("logo command parses original, minimal, and the picker", () => {
     { value: "minimal", label: "minimal" },
   ]);
   assert.equal(logoArgumentCompletions("retro"), null);
+});
+
+test("logo argument completion keeps the command separator", async () => {
+  const provider = new CombinedAutocompleteProvider([
+    { name: "logo", getArgumentCompletions: logoArgumentCompletions },
+  ], process.cwd());
+  for (const text of ["/logo ", "/logo m", "/logo  m"]) {
+    const suggestions = await provider.getSuggestions([text], 0, text.length, { force: false, signal: new AbortController().signal });
+    assert.ok(suggestions);
+    const item = suggestions.items.find(item => item.value === "minimal")!;
+    const result = provider.applyCompletion([text], 0, text.length, item, suggestions.prefix);
+    assert.match(result.lines[0]!, /^\/logo +minimal$/);
+    assert.deepEqual(parseLogoArgs(result.lines[0]!.slice(5)), { ok: true, value: "minimal" });
+  }
 });
 
 test("logo helpers share the same 4×2 grid", () => {

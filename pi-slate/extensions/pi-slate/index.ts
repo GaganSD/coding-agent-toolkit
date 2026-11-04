@@ -42,7 +42,6 @@ import { createWordPicker } from "./working-words.ts";
 import { advanceWave, isProgressStyle, isWaveActive, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
-  LOGO_STYLES,
   type LogoStyle,
   formatFocusedContextResources,
   formatFocusedContextTokens,
@@ -816,15 +815,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     return PROGRESS_STYLES.find((s) => PROGRESS_LABELS[s] === key);
   };
 
-  const pickLogo = async (ctx: ExtensionContext): Promise<LogoStyle | undefined> => {
-    const value = await ctx.ui.select("Header logo", LOGO_STYLES.map((style) =>
-      withCurrent(style === "minimal" ? "Minimal (classic white Pi)" : "Original", (config.logo ?? "minimal") === style)));
-    const key = value ? withoutCurrent(value) : undefined;
-    if (key === "Original") return "original";
-    if (key === "Minimal (classic white Pi)") return "minimal";
-    return undefined;
-  };
-
   const pickDensity = async (ctx: ExtensionContext): Promise<SlateConfig["density"] | undefined> => {
     const value = await ctx.ui.select("Density", [
       withCurrent("Comfortable", config.density === "comfortable"),
@@ -1078,7 +1068,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("logo", {
-    description: "Choose the header logo style",
+    description: "Toggle the header logo, or set original/minimal",
     getArgumentCompletions: logoArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseLogoArgs(args);
@@ -1086,8 +1076,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         ctx.ui.notify(LOGO_USAGE, "error");
         return;
       }
-      const logo = parsed.value ?? await pickLogo(ctx);
-      if (!logo) return;
+      const logo = parsed.value ?? ((config.logo ?? "minimal") === "minimal" ? "original" : "minimal");
       apply({ ...config, logo }, logo === "minimal" ? "Header logo set to minimal (classic white Pi)" : "Header logo set to original", ctx);
     },
   });
