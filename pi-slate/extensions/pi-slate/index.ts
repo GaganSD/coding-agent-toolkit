@@ -69,7 +69,6 @@ import {
   type ModelDisplay,
 } from "./layout.ts";
 import { SlateHeader } from "./header.ts";
-import { UpdateWatcher } from "./updates.ts";
 import {
   formatBugReport,
   issueTemplate,
@@ -273,7 +272,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
-  const updates = new UpdateWatcher();
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
   let contextEdge = {
     tokens: formatFocusedContextTokens(null, null, null),
@@ -510,8 +508,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       }, { placement: "belowEditor" });
     }
     if (owns("header")) {
-      updates.setOnChange(() => requestRender());
-      updates.start(ctx.cwd);
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
         // Header factory runs inside setHeader, before /new appends the stock chat copy.
@@ -525,7 +521,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         if (!noticeFilterActive) queueMicrotask(() => {
           if (mountedContext()) attachFilter(findChatContainer(layoutRootOf(tui)));
         });
-        return new SlateHeader(theme, liveContext, columnWidth, () => updates.notice, () => {
+        return new SlateHeader(theme, liveContext, columnWidth, () => {
           const ctx = liveContext();
           return {
             version: VERSION,
@@ -769,7 +765,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     mcpFiles.clear();
     background.reset("");
     branch.dispose();
-    updates.dispose();
     toolGroups?.dispose();
     toolGroups = undefined;
     messageWindow?.dispose();

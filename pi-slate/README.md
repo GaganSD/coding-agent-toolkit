@@ -137,7 +137,7 @@ Changes are saved and require `/reload`; appearance settings stay live. A fresh 
 
 | Surface | Owns |
 | --- | --- |
-| `header` | Compact workspace identity and update hairline |
+| `header` | Compact workspace identity |
 | `footer` | Zero-row footer (hides Pi's native footer) |
 | `editor` | Composer, keys, paste/images, working/thinking status |
 | `sidebar` | Session dashboard, resources, tasks and images |

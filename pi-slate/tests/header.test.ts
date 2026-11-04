@@ -26,18 +26,6 @@ test("header uses the stock Pi mark and the product stack, not a greeting", () =
   assert(plain.every(line => visibleWidth(line) <= 72));
 });
 
-test("optional update hairline remains bounded and no session chip is rendered", () => {
-  const lines = renderSlateHeader({
-    width: 72, path: "/tmp/project", notice: "update available · pi update --extensions",
-    identity: { version: "1.1.0" }, logo: false, theme,
-  });
-  const plain = lines.map(stripVTControlCharacters);
-  assert.match(plain.join("\n"), /update available/);
-  assert.doesNotMatch(plain.join("\n"), /New session started/);
-  assert.doesNotMatch(plain.join("\n"), /Ask a question/);
-  assert(plain.every(line => visibleWidth(line) <= 72));
-});
-
 test("wordmark fallback stays compact", () => {
   const started = renderSlateHeader({ width: 40, path: "/tmp/project", identity: { version: "1.0.4" }, logo: false, theme });
   assert.doesNotMatch(started.join("\n"), /New session started|Ready when/);

@@ -3,10 +3,8 @@ import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
   backgroundAnsi, foregroundAnsi, rgbColor, truncateToWidth, visibleWidth, type Component, type TerminalColorMode,
 } from "@earendil-works/pi-tui";
-import { hairlineTextWidth, wrapHairlineText, symmetricHairline } from "./hairline.ts";
 import { paintLogo, PI_LOGO, type LogoStyle } from "./layout.ts";
 import { sidebarText } from "./sidebar-data.ts";
-import { formatUpdateNotice, type UpdateNotice } from "./updates.ts";
 
 const CORAL = rgbColor(228, 138, 122);
 const BLUE = rgbColor(79, 142, 179);
@@ -43,12 +41,6 @@ export function piWordmark(theme: Theme): string {
   return `${foregroundAnsi(CORAL, mode)}P${RESET}${foregroundAnsi(YELLOW, mode)}i${RESET}`;
 }
 
-export function renderUpdateHairlines(
-  notice: string, width: number, paintDash: (text: string) => string, paintText: (text: string) => string,
-): string[] {
-  return wrapHairlineText(notice, hairlineTextWidth(width)).map(line => symmetricHairline(paintText(line), width, paintDash));
-}
-
 function padLine(text: string, width: number): string {
   const gap = Math.max(0, width - visibleWidth(text));
   return `${text}${" ".repeat(gap)}`;
@@ -65,9 +57,9 @@ function indentedLine(text: string, width: number, cells: number): string {
 
 export type HeaderIdentity = { version: string; model?: string; thinking?: string };
 
-/** Official mark + product stack. No hairline without a notice. */
+/** Official mark + product stack. */
 export function renderSlateHeader(input: {
-  width: number; path: string; identity?: HeaderIdentity; notice?: string;
+  width: number; path: string; identity?: HeaderIdentity;
   logo?: boolean; logoStyle?: LogoStyle; theme: Theme;
 }): string[] {
   const width = Math.max(0, input.width);
@@ -103,8 +95,6 @@ export function renderSlateHeader(input: {
     if (modelLine) rows.push(padLine(truncateToWidth(input.theme.fg("muted", modelLine), width, "…"), width));
     if (path) rows.push(padLine(truncateToWidth(input.theme.fg("dim", path), width, "…"), width));
   }
-  if (input.notice) rows.push(...renderUpdateHairlines(input.notice, width,
-    text => input.theme.fg("border", text), text => input.theme.fg("accent", text)));
   return rows;
 }
 
@@ -112,26 +102,23 @@ export class SlateHeader implements Component {
   private readonly theme: Theme;
   private readonly getContext: () => ExtensionContext | undefined;
   private readonly columnWidth: (width: number) => number;
-  private readonly getNotice: () => UpdateNotice;
   private readonly getIdentity: () => HeaderIdentity;
   private readonly getLogoStyle: () => LogoStyle;
   constructor(theme: Theme, getContext: () => ExtensionContext | undefined,
-    columnWidth: (width: number) => number, getNotice: () => UpdateNotice,
+    columnWidth: (width: number) => number,
     getIdentity: () => HeaderIdentity, getLogoStyle: () => LogoStyle = () => "minimal") {
     this.theme = theme; this.getContext = getContext; this.columnWidth = columnWidth;
-    this.getNotice = getNotice; this.getIdentity = getIdentity;
+    this.getIdentity = getIdentity;
     this.getLogoStyle = getLogoStyle;
   }
   invalidate(): void {}
   render(width: number): string[] {
     const ctx = this.getContext();
     if (!ctx) return [];
-    const notice = formatUpdateNotice(this.getNotice());
     const identity = this.getIdentity();
     return renderSlateHeader({
       width: this.columnWidth(width), path: ctx.cwd, identity,
       theme: ctx.ui.theme ?? this.theme, logoStyle: this.getLogoStyle(),
-      ...(notice ? { notice } : {}),
     });
   }
 }
