@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { CombinedAutocompleteProvider, visibleWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { piLogoLines, piMinimalLogoLines, piWordmark, renderSlateHeader, supportsPiLogo } from "../extensions/pi-slate/header.ts";
-import { parseSlateArgs } from "../extensions/pi-slate/layout.ts";
+import { logoArgumentCompletions, parseLogoArgs } from "../extensions/pi-slate/layout.ts";
 
 const theme = { fg: (_name: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
 
@@ -26,18 +26,6 @@ test("header uses the stock Pi mark and the product stack, not a greeting", () =
   assert(plain.every(line => visibleWidth(line) <= 72));
 });
 
-test("optional update hairline remains bounded and no session chip is rendered", () => {
-  const lines = renderSlateHeader({
-    width: 72, path: "/tmp/project", notice: "update available · pi update --extensions",
-    identity: { version: "1.1.0" }, logo: false, theme,
-  });
-  const plain = lines.map(stripVTControlCharacters);
-  assert.match(plain.join("\n"), /update available/);
-  assert.doesNotMatch(plain.join("\n"), /New session started/);
-  assert.doesNotMatch(plain.join("\n"), /Ask a question/);
-  assert(plain.every(line => visibleWidth(line) <= 72));
-});
-
 test("wordmark fallback stays compact", () => {
   const started = renderSlateHeader({ width: 40, path: "/tmp/project", identity: { version: "1.0.4" }, logo: false, theme });
   assert.doesNotMatch(started.join("\n"), /New session started|Ready when/);
@@ -56,19 +44,18 @@ test("identity truncates safely and strips untrusted terminal controls", () => {
   }
 });
 
-test("minimal logo renders the classic white Pi mark beside the product stack", () => {
+test("minimal logo matches the stock mark's 4×2 geometry in white", () => {
   const lines = renderSlateHeader({
     width: 72, path: "/Users/operator/GitHub/pi-extensions",
     identity: { version: "1.0.4", model: "grok-4.6 (bedrock)", thinking: "medium" },
     logo: true, logoStyle: "minimal", theme,
   });
   const plain = lines.map(stripVTControlCharacters);
-  assert.equal(plain.length, 4);
-  assert.match(plain[0]!, /^██████\s+Pi Agent v1\.0\.4/);
-  assert.match(plain[1]!, /^██ {2}██\s+grok-4\.6 \(bedrock\) · medium/);
-  assert.match(plain[2]!, /^████ {2}██ ~\/pi-extensions/);
-  assert.match(plain[3]!, /^██ {4}██/);
-  assert(lines.every(line => line.includes("\x1b[")), "mark stays painted white");
+  assert.equal(plain.length, 3);
+  assert.match(plain[0]!, /^█▀█\s+Pi Agent v1\.0\.4/);
+  assert.match(plain[1]!, /^█▀ █\s+grok-4\.6 \(bedrock\) · medium/);
+  assert.match(plain[2]!, /^ {5}~\/pi-extensions/);
+  assert(lines.slice(0, 2).every(line => line.includes("\x1b[")), "mark stays painted white");
   assert(plain.every(line => visibleWidth(line) <= 72));
 });
 
@@ -77,22 +64,46 @@ test("minimal is the default logo style", () => {
     width: 72, path: "/tmp/project", identity: { version: "1.0.4" }, logo: true, theme,
   });
   const plain = lines.map(stripVTControlCharacters);
-  assert.equal(plain.length, 4);
-  assert.match(plain[0]!, /^██████/);
+  assert.equal(plain.length, 3);
+  assert.match(plain[0]!, /^█▀█/);
 });
 
-test("logo style parses through /slate logo", () => {
-  assert.deepEqual(parseSlateArgs("logo"), { ok: true, kind: "logo" });
-  assert.deepEqual(parseSlateArgs("logo minimal"), { ok: true, kind: "logo", value: "minimal" });
-  assert.deepEqual(parseSlateArgs("logo original"), { ok: true, kind: "logo", value: "original" });
-  assert.deepEqual(parseSlateArgs("logo retro"), { ok: false });
-  assert.deepEqual(parseSlateArgs("logo minimal extra"), { ok: false });
+test("logo command parses original, minimal, and the toggle", () => {
+  assert.deepEqual(parseLogoArgs(""), { ok: true });
+  assert.deepEqual(parseLogoArgs("minimal"), { ok: true, value: "minimal" });
+  assert.deepEqual(parseLogoArgs(" ORIGINAL "), { ok: true, value: "original" });
+  assert.deepEqual(parseLogoArgs("retro"), { ok: false });
+  assert.deepEqual(parseLogoArgs("minimal extra"), { ok: false });
+  assert.deepEqual(logoArgumentCompletions("m"), [{ value: "minimal", label: "minimal" }]);
+  assert.deepEqual(logoArgumentCompletions(" "), [
+    { value: "original", label: "original" },
+    { value: "minimal", label: "minimal" },
+  ]);
+  assert.equal(logoArgumentCompletions("retro"), null);
 });
 
-test("minimal logo helpers match the classic bitmap", () => {
-  const lines = piMinimalLogoLines(theme);
-  assert.equal(lines.length, 4);
-  assert(lines.every(line => visibleWidth(line) === 8));
+test("logo argument completion keeps the command separator", async () => {
+  const provider = new CombinedAutocompleteProvider([
+    { name: "logo", getArgumentCompletions: logoArgumentCompletions },
+  ], process.cwd());
+  for (const text of ["/logo ", "/logo m", "/logo  m"]) {
+    const suggestions = await provider.getSuggestions([text], 0, text.length, { force: false, signal: new AbortController().signal });
+    assert.ok(suggestions);
+    const item = suggestions.items.find(item => item.value === "minimal")!;
+    const result = provider.applyCompletion([text], 0, text.length, item, suggestions.prefix);
+    assert.match(result.lines[0]!, /^\/logo +minimal$/);
+    assert.deepEqual(parseLogoArgs(result.lines[0]!.slice(5)), { ok: true, value: "minimal" });
+  }
+});
+
+test("logo helpers share the same 4×2 grid", () => {
+  const minimal = piMinimalLogoLines(theme);
+  const stock = piLogoLines(theme);
+  assert.equal(minimal.length, 2);
+  assert(minimal.every(line => visibleWidth(line) === 4));
+  assert.equal(stock.length, 2);
+  assert(stock.every(line => visibleWidth(line) === 4));
+  assert.deepEqual(minimal.map(stripVTControlCharacters), ["█▀█ ", "█▀ █"]);
 });
 
 test("logo helpers keep the official bitmap and skip Apple Terminal", () => {

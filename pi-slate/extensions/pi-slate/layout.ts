@@ -2,14 +2,7 @@ import { readFileSync } from "node:fs";
 import { parseSurfaces, SURFACES, type Surface } from "./surfaces.ts";
 import { isProgressStyle, type ProgressStyle } from "./working-wave.ts";
 
-// The source SVG is a 4×4 square grid. Terminal cells are approximately twice
-// as tall as they are wide, so every source square occupies two columns.
-// Keep the empty fourth column on the first two rows. The header centers this
-// fixed-width canvas as a whole; trimming those spaces distorts the mark.
-export const PI_LOGO = ["██████  ", "██  ██  ", "████  ██", "██    ██"];
-export const PI_LOGO_ASCII = ["######  ", "##  ##  ", "####  ##", "##    ##"];
-
-/** Header mark variants: the classic white Pi or the stock brand mark. */
+/** Header mark variants: the classic monochrome Pi or the stock brand mark. */
 export const LOGO_STYLES = ["original", "minimal"] as const;
 export type LogoStyle = typeof LOGO_STYLES[number];
 
@@ -80,39 +73,9 @@ export function modelStatusLabel(
   return base;
 }
 
-const INTEGERS = new Intl.NumberFormat("en");
-
-export function formatInteger(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return INTEGERS.format(Math.round(value));
-}
-
-export function formatTokenCount(tokens: number | null | undefined): string {
-  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "— tokens";
-  return `${formatInteger(tokens)} tokens`;
-}
-
-export function formatTokenRate(rate: number | null | undefined): string {
-  if (rate === null || rate === undefined || !Number.isFinite(rate)) return "— tokens/sec";
-  return `${formatInteger(Math.max(0, rate))} tokens/sec`;
-}
-
 export function formatPercent(percent: number | null | undefined): string {
   if (percent === null || percent === undefined || !Number.isFinite(percent)) return "—%";
   return `${Math.round(percent)}%`;
-}
-
-export function formatSpend(cost: number | null | undefined): string {
-  if (cost === null || cost === undefined || !Number.isFinite(cost)) return "$0.00";
-  return `$${Math.max(0, cost).toFixed(2)}`;
-}
-
-export function formatContextTokens(
-  tokens: number | null | undefined,
-  percent: number | null | undefined,
-  rate: number | null | undefined,
-): string {
-  return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
 /** Compact thousands: 845 -> "845", 16005 -> "16k", 47349 -> "47.3k", 1000000 -> "1M". */
@@ -140,72 +103,16 @@ export function formatFocusedContextTokens(
   return `${formatPercent(percent)}/${formatCompactTokenCount(contextWindow)} tokens · ↑↓${formatCompactTokenCount(rate)}`;
 }
 
-export function formatMcpEnabled(count: number): string {
-  const servers = Math.max(0, Math.round(count));
-  return `${servers} MCPs enabled`;
-}
-
-export function formatSkillsLoaded(count: number): string {
-  const skills = Math.max(0, Math.round(count));
-  return `${skills} skills loaded`;
-}
-
-export function formatContextResources(
-  spend: number | null | undefined,
-  skills: number,
-  mcpCount: number | null,
-): string {
-  return `${formatSpend(spend)} · ${formatSkillsLoaded(skills)} · ${formatMcpEnabled(mcpCount ?? 0)}`;
-}
-
 export function formatFocusedContextResources(
-  spend: number | null | undefined,
-  skills: number,
+  percent: number | null | undefined,
+  estimated: boolean,
   mcpCount: number | null,
 ): string {
-  const skillCount = Math.max(0, Math.round(skills));
   const serverCount = mcpCount === null ? 0 : Math.max(0, Math.round(mcpCount));
 
-  // Focused mode owns the only inline cost readout; keep it even when no
-  // skills or MCP servers are loaded.
-  const parts = [formatSpend(spend)];
-  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"}`);
-  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"}`);
+  const parts = [`ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`];
+  if (serverCount > 0) parts.push(`${serverCount} mcp`);
   return parts.join(" · ");
-}
-
-export function countSkillCommands(commands: readonly { source?: string; sourceInfo?: { path?: string }; name?: string }[]): number {
-  const seen = new Set<string>();
-  for (const command of commands) {
-    if (command.source !== "skill") continue;
-    seen.add(command.sourceInfo?.path || command.name || "skill");
-  }
-  return seen.size;
-}
-
-/** Later sources override the same server name (project over global). */
-export function mergeMcpServerMaps(...sources: unknown[]): Record<string, unknown> {
-  const servers: Record<string, unknown> = {};
-  for (const data of sources) {
-    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
-    const next = (data as { mcpServers?: unknown }).mcpServers;
-    if (!next || typeof next !== "object" || Array.isArray(next)) continue;
-    Object.assign(servers, next);
-  }
-  return servers;
-}
-
-export function parseMcpEnabledCount(data: unknown): number | null {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const servers = (data as { mcpServers?: unknown }).mcpServers;
-  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return null;
-  return Object.values(servers).filter(isEnabledMcpServer).length;
-}
-
-function isEnabledMcpServer(server: unknown): boolean {
-  if (!server || typeof server !== "object" || Array.isArray(server)) return false;
-  const entry = server as { enabled?: unknown; disabled?: unknown };
-  return entry.enabled !== false && entry.disabled !== true;
 }
 
 export function footerVisibility(width: number): {
@@ -302,7 +209,9 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+
+export const LOGO_USAGE = "Usage: /logo [original|minimal]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -339,9 +248,6 @@ const SLATE_COMPLETIONS = [
   "effort-border",
   "effort-border on",
   "effort-border off",
-  "logo",
-  "logo original",
-  "logo minimal",
   "progress",
   "progress waves",
   "progress dna-helix",
@@ -367,7 +273,6 @@ export type SlateArgs =
   | { ok: true; kind: "focused"; value?: boolean }
   | { ok: true; kind: "pid"; value?: boolean }
   | { ok: true; kind: "effort-border"; value?: boolean }
-  | { ok: true; kind: "logo"; value?: LogoStyle }
   | { ok: true; kind: "progress"; value?: ProgressStyle }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
@@ -433,11 +338,6 @@ export function parseSlateArgs(raw: string): SlateArgs {
     if (tail === "on" || tail === "off") return { ok: true, kind: "effort-border", value: tail === "on" };
     return { ok: false };
   }
-  if (head === "logo") {
-    if (!tail) return { ok: true, kind: "logo" };
-    if (tail === "original" || tail === "minimal") return { ok: true, kind: "logo", value: tail };
-    return { ok: false };
-  }
   if (head === "progress") {
     if (!tail) return { ok: true, kind: "progress" };
     if (isProgressStyle(tail)) return { ok: true, kind: "progress", value: tail };
@@ -469,6 +369,20 @@ export function slateArgumentCompletions(prefix: string): { value: string; label
   const matches = candidates.filter((value) => value.startsWith(normalized))
     .map((value) => ({ value, label: value }));
   return matches.length ? matches : null;
+}
+
+export function logoArgumentCompletions(prefix: string): { value: string; label: string }[] | null {
+  const normalized = prefix.trimStart().toLowerCase();
+  const matches = LOGO_STYLES.filter((value) => value.startsWith(normalized))
+    .map((value) => ({ value, label: value }));
+  return matches.length ? matches : null;
+}
+
+export function parseLogoArgs(raw: string): { ok: true; value?: LogoStyle } | { ok: false } {
+  const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { ok: true };
+  const value = LOGO_STYLES.find((style) => style === words[0]);
+  return words.length === 1 && value ? { ok: true, value } : { ok: false };
 }
 
 export function clampSidebarColumns(totalWidth: number, columns: number): number {

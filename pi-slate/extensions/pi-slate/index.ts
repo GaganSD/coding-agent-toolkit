@@ -42,14 +42,14 @@ import { createWordPicker } from "./working-words.ts";
 import { advanceWave, isProgressStyle, isWaveActive, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
-  countSkillCommands,
-  LOGO_STYLES,
   type LogoStyle,
   formatFocusedContextResources,
   formatFocusedContextTokens,
-  formatPercent,
+  logoArgumentCompletions,
+  LOGO_USAGE,
   modelStatusLabel,
   parseMessageLength,
+  parseLogoArgs,
   parseMessageLengthArg,
   parseSidebarPercent,
   parseSidebarWidthArg,
@@ -71,7 +71,6 @@ import {
   type ModelDisplay,
 } from "./layout.ts";
 import { SlateHeader } from "./header.ts";
-import { UpdateWatcher } from "./updates.ts";
 import {
   formatBugReport,
   issueTemplate,
@@ -275,12 +274,10 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
-  const updates = new UpdateWatcher();
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
   let contextEdge = {
     tokens: formatFocusedContextTokens(null, null, null),
-    resources: formatFocusedContextResources(null, 0, 0),
-    summary: "ctx —",
+    resources: formatFocusedContextResources(null, false, 0),
   };
   let requestRender = (_force = false) => {};
 
@@ -316,8 +313,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       const entries = ctx.sessionManager.getBranch();
       branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries) };
     }
-    const spend = branchFacts.usage.cost;
-    const skillCount = owns("sidebar") ? resources.skills.filter(skill => skill.loaded).length : countSkillCommands(pi.getCommands());
     const mcpCount = resources.mcp.filter(server => server.enabled === true).length;
     if (owns("sidebar") && !sidebarYielded) {
       sidebar.setSession({
@@ -331,8 +326,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     contextEdge = {
       tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
-      resources: formatFocusedContextResources(spend, skillCount, mcpCount),
-      summary: `ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`,
+      resources: formatFocusedContextResources(percent, estimated, mcpCount),
     };
   };
   const refreshResources = (ctx: ExtensionContext): void => {
@@ -516,8 +510,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       }, { placement: "belowEditor" });
     }
     if (owns("header")) {
-      updates.setOnChange(() => requestRender());
-      updates.start(ctx.cwd);
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
         // Header factory runs inside setHeader, before /new appends the stock chat copy.
@@ -531,7 +523,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         if (!noticeFilterActive) queueMicrotask(() => {
           if (mountedContext()) attachFilter(findChatContainer(layoutRootOf(tui)));
         });
-        return new SlateHeader(theme, liveContext, columnWidth, () => updates.notice, () => {
+        return new SlateHeader(theme, liveContext, columnWidth, () => {
           const ctx = liveContext();
           return {
             version: VERSION,
@@ -775,7 +767,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     mcpFiles.clear();
     background.reset("");
     branch.dispose();
-    updates.dispose();
     toolGroups?.dispose();
     toolGroups = undefined;
     messageWindow?.dispose();
@@ -822,15 +813,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (!value) return undefined;
     const key = withoutCurrent(value);
     return PROGRESS_STYLES.find((s) => PROGRESS_LABELS[s] === key);
-  };
-
-  const pickLogo = async (ctx: ExtensionContext): Promise<LogoStyle | undefined> => {
-    const value = await ctx.ui.select("Header logo", LOGO_STYLES.map((style) =>
-      withCurrent(style === "minimal" ? "Minimal (classic white Pi)" : "Original", (config.logo ?? "minimal") === style)));
-    const key = value ? withoutCurrent(value) : undefined;
-    if (key === "Original") return "original";
-    if (key === "Minimal (classic white Pi)") return "minimal";
-    return undefined;
   };
 
   const pickDensity = async (ctx: ExtensionContext): Promise<SlateConfig["density"] | undefined> => {
@@ -1085,8 +1067,22 @@ export default function piSlate(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("logo", {
+    description: "Toggle the header logo, or set original/minimal",
+    getArgumentCompletions: logoArgumentCompletions,
+    handler: async (args, ctx) => {
+      const parsed = parseLogoArgs(args);
+      if (!parsed.ok) {
+        ctx.ui.notify(LOGO_USAGE, "error");
+        return;
+      }
+      const logo = parsed.value ?? ((config.logo ?? "minimal") === "minimal" ? "original" : "minimal");
+      apply({ ...config, logo }, logo === "minimal" ? "Header logo set to minimal (classic white Pi)" : "Header logo set to original", ctx);
+    },
+  });
+
   pi.registerCommand("slate", {
-    description: "Session dashboard, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, header logo, progress indicator, message length, theme, or file a bug",
+    description: "Session dashboard, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1097,7 +1093,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Header logo", "Progress indicator", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "File a bug"]);
         if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
@@ -1113,7 +1109,6 @@ export default function piSlate(pi: ExtensionAPI): void {
         else if (setting === "Sidebar width") kind = "width-menu";
         else if (setting === "Focused") kind = "focused";
         else if (setting === "PID display") kind = "pid";
-        else if (setting === "Header logo") kind = "logo";
         else if (setting === "Progress indicator") kind = "progress";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
@@ -1171,13 +1166,6 @@ export default function piSlate(pi: ExtensionAPI): void {
           on ? "Effort border color on" : "Effort border color off",
           ctx,
         );
-        return;
-      }
-
-      if (kind === "logo") {
-        const logo = (parsed.kind === "logo" ? parsed.value : undefined) ?? await pickLogo(ctx);
-        if (!logo) return;
-        apply({ ...config, logo }, logo === "minimal" ? "Header logo set to minimal (classic white Pi)" : "Header logo set to original", ctx);
         return;
       }
 
