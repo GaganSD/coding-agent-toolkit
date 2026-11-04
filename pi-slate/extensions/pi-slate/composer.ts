@@ -21,9 +21,9 @@ export function chromePaint(theme: Theme): (text: string) => string {
   return (text) => theme.fg("border", text);
 }
 
-/** Readable separator for composer metadata; border tones are too dark on dark themes. */
-function metadataSeparator(theme: Theme): string {
-  return theme.fg("text", " · ");
+/** Separators inherit their line's metadata tone so they never stand out from nearby text. */
+function metadataSeparator(theme: Theme, tone: "muted" | "dim" = "muted"): string {
+  return theme.fg(tone, " · ");
 }
 
 const ESCAPE_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|_[^\x07]*(?:\x07|$)|\][^\x07]*(?:\x07|\x1b\\|$))/y;
@@ -465,7 +465,7 @@ export class ComposerEditor extends CustomEditor {
     const resources = src.context
       ? src.context.resources.split(" · ")
           .map((part) => src.theme.fg("dim", part))
-          .join(metadataSeparator(src.theme))
+          .join(metadataSeparator(src.theme, "dim"))
       : "";
     return composerStatusContextEdge(
       resources,

@@ -153,7 +153,7 @@ test("focused composer token label uses compact percent placement", () => {
   assert.doesNotMatch(labels.right, /t\/s|5% used/);
 });
 
-test("composer metadata separators use the text tone instead of a dark border tone", () => {
+test("composer metadata separators match the surrounding metadata tone", () => {
   const labels = composerLabels(
     {
       project: "pi-configs",
@@ -166,7 +166,7 @@ test("composer metadata separators use the text tone instead of a dark border to
     labelTheme,
     140,
   );
-  assert.match(labels.right, /\[text\] · /);
+  assert.match(labels.right, /\[muted\] · /);
   assert.doesNotMatch(labels.right, /\[borderMuted\]/);
 });
 
@@ -187,10 +187,10 @@ test("focused composer bottom edge drops ctx and uses readable separators", () =
     }),
   );
   const lines = editor.render(100);
-  assert.match(lines[0]!, /\[dim\]ctx 10%\[text\] · \[dim\]2 mcp/);
+  assert.match(lines[0]!, /\[dim\]ctx 10%\[dim\] · \[dim\]2 mcp/);
   const bottom = lines.at(-1)!;
   assert.doesNotMatch(bottom, /ctx 10%/);
-  assert.match(bottom, /\[text\] · /);
+  assert.match(bottom, /\[muted\] · /);
   assert.match(bottom, /sample/);
   assert.doesNotMatch(bottom, /borderMuted/);
 });
