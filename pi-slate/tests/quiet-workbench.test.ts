@@ -148,5 +148,8 @@ test("quiet editor avoids duplicate identity/model and restores compact facts wi
     }
   }
   assert.equal(editor.getText(), "Preserve this draft");
-  assert.match(editor.render(100).map(stripVTControlCharacters).join("\n"), /sample-model · medium/);
+  const focused = editor.render(100).map(stripVTControlCharacters);
+  assert.match(focused[0]!, /ctx 11% · 2 mcp · medium/);
+  assert.match(focused.at(-1)!, /sample-model/);
+  assert.doesNotMatch(focused.at(-1)!, /medium/);
 });
