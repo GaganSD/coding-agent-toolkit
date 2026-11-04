@@ -463,7 +463,7 @@ export class ComposerEditor extends CustomEditor {
       : undefined;
     const pidLabel = src.showPid === true ? src.theme.fg("dim", `PID-${AGENT_PID}`) : "";
     const resourceParts = src.context ? src.context.resources.split(" · ") : [];
-    if (src.dashboardVisible === false && src.context && src.footer === "standard" && width >= 80 && src.thinking) {
+    if (src.dashboardVisible === false && src.context && src.footer === "standard" && src.thinking) {
       resourceParts.push(src.thinking);
     }
     const resources = resourceParts

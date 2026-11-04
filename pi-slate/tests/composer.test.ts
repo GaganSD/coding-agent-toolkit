@@ -197,7 +197,7 @@ test("focused composer puts thinking after MCP on the top edge, leaving the mode
 test("top-edge thinking respects minimal metadata, narrow widths, and missing levels", () => {
   for (const footer of ["standard", "minimal"] as const) {
     for (const thinking of [undefined, "medium"]) {
-      for (const width of [20, 65, 79, 80, 100]) {
+      for (const width of [12, 20, 32, 40, 65, 79, 80, 100]) {
         const editor = new ComposerEditor(
           { terminal: { rows: 24, columns: width }, requestRender() {} } as TUI,
           { borderColor: (text) => text } as EditorTheme,
@@ -205,16 +205,17 @@ test("top-edge thinking respects minimal metadata, narrow widths, and missing le
           () => ({
             project: "slate", branch: null, model: { id: "sample" }, thinking, footer, theme,
             dashboardVisible: false,
-            context: { tokens: "10%/100k tokens", resources: "ctx 10%" },
+            context: { tokens: "10%/100k tokens", resources: "ctx 10% · 1 mcp" },
           }),
         );
         const lines = editor.render(width).map(stripVTControlCharacters);
         assert.ok(lines.every(line => visibleWidth(line) <= width));
-        if (footer === "standard" && thinking && width >= 80) {
-          assert.match(lines[0]!, /ctx 10% · medium/);
+        if (footer === "standard" && thinking) {
+          if (width >= 32) assert.match(lines[0]!, /ctx 10% · 1 mcp · medium/);
         } else {
-          assert.doesNotMatch(lines[0]!, /medium|undefined/);
+          assert.doesNotMatch(lines[0]!, /medium/);
         }
+        assert.doesNotMatch(lines[0]!, /undefined/);
         assert.doesNotMatch(lines.at(-1)!, /medium/);
       }
     }
