@@ -159,25 +159,15 @@ export function formatContextResources(
 }
 
 export function formatFocusedContextResources(
-  skills: number,
+  percent: number | null | undefined,
+  estimated: boolean,
   mcpCount: number | null,
 ): string {
-  const skillCount = Math.max(0, Math.round(skills));
   const serverCount = mcpCount === null ? 0 : Math.max(0, Math.round(mcpCount));
 
-  const parts: string[] = [];
-  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"}`);
-  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"}`);
+  const parts = [`ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`];
+  if (serverCount > 0) parts.push(`${serverCount} mcp`);
   return parts.join(" · ");
-}
-
-export function countSkillCommands(commands: readonly { source?: string; sourceInfo?: { path?: string }; name?: string }[]): number {
-  const seen = new Set<string>();
-  for (const command of commands) {
-    if (command.source !== "skill") continue;
-    seen.add(command.sourceInfo?.path || command.name || "skill");
-  }
-  return seen.size;
 }
 
 /** Later sources override the same server name (project over global). */

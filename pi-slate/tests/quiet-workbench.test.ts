@@ -120,7 +120,7 @@ test("context meter keeps a thin track and dim separator with the real theme", (
 test("quiet editor avoids duplicate identity/model and restores compact facts without losing its draft", () => {
   const source: ComposerSource = { project: "project", branch: "feat/workbench", model: { id: "sample-model", provider: "sample" },
     thinking: "medium", footer: "standard", theme, paddingX: 4, workspaceHeader: true, dashboardVisible: true,
-    context: { tokens: "11%/500k tokens", resources: "2 skills · 2 MCPs", summary: "ctx 11%" } };
+    context: { tokens: "11%/500k tokens", resources: "ctx 11% · 2 mcp" } };
   const editor = new ComposerEditor({ terminal: { rows: 40, columns: 140 }, requestRender() {} } as unknown as TUI,
     { borderColor: text => text } as EditorTheme, new KeybindingsManager(), () => source, { paddingX: 4 });
   editor.setPaddingX(0); // Native host copies its own padding after the factory returns.
@@ -138,12 +138,13 @@ test("quiet editor avoids duplicate identity/model and restores compact facts wi
     assert(lines.every(line => visibleWidth(line) <= width));
     text = lines.map(stripVTControlCharacters).join("\n");
     assert.match(text, /ctx 11%/);
+    assert.doesNotMatch(stripVTControlCharacters(lines.at(-1)!), /ctx 11%/);
     assert.match(text, /project/);
     if (width >= 42) assert.match(text, /project \/ feat\/workbench/);
     if (width >= 66) {
       const bottom = stripVTControlCharacters(lines.at(-1)!);
-      assert.match(bottom, /ctx 11% · sample-model/);
-      assert.ok(bottom.indexOf("ctx 11%") < bottom.indexOf("sample-model"));
+      assert.match(bottom, /sample-model/);
+      assert.doesNotMatch(bottom, /ctx 11%/);
     }
   }
   assert.equal(editor.getText(), "Preserve this draft");

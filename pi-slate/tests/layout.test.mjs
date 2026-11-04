@@ -8,7 +8,6 @@ import {
   compactDisplayText,
   compactPath,
   footerVisibility,
-  countSkillCommands,
   formatContextResources,
   formatContextTokens,
   formatCompactTokenCount,
@@ -314,11 +313,6 @@ test("MCP and skill counts share the Context resource line", () => {
   assert.equal(formatSkillsLoaded(3), "3 skills loaded");
   assert.equal(formatContextResources(1.234, 3, 2), "$1.23 · 3 skills loaded · 2 MCPs enabled");
   assert.equal(formatContextResources(null, 0, null), "$0.00 · 0 skills loaded · 0 MCPs enabled");
-  assert.equal(countSkillCommands([
-    { source: "skill", sourceInfo: { path: "/skills/a/SKILL.md" }, name: "a" },
-    { source: "skill", sourceInfo: { path: "/skills/a/SKILL.md" }, name: "a:1" },
-    { source: "extension", sourceInfo: { path: "/ext.ts" }, name: "slate" },
-  ]), 1);
   assert.equal(parseMcpEnabledCount({
     mcpServers: { a: {}, b: {} },
   }), 2);
@@ -326,12 +320,12 @@ test("MCP and skill counts share the Context resource line", () => {
   assert.equal(parseMcpEnabledCount(null), null);
 });
 
-test("focused context resources omit zero skill and MCP counts", () => {
-  assert.equal(formatFocusedContextResources(0, 0), "");
-  assert.equal(formatFocusedContextResources(0, null), "");
-  assert.equal(formatFocusedContextResources(3, 0), "3 skills");
-  assert.equal(formatFocusedContextResources(0, 2), "2 MCPs");
-  assert.equal(formatFocusedContextResources(1, 1), "1 skill · 1 MCP");
+test("focused context resources lead with ctx and use lowercase mcp", () => {
+  assert.equal(formatFocusedContextResources(null, false, 0), "ctx —%");
+  assert.equal(formatFocusedContextResources(10, false, 0), "ctx 10%");
+  assert.equal(formatFocusedContextResources(10, true, 0), "ctx ~10%");
+  assert.equal(formatFocusedContextResources(10, false, 1), "ctx 10% · 1 mcp");
+  assert.equal(formatFocusedContextResources(10, false, 2), "ctx 10% · 2 mcp");
 });
 
 test("MCP enabled count reads mcp.json and lets project override global", () => {

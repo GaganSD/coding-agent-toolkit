@@ -21,6 +21,11 @@ export function chromePaint(theme: Theme): (text: string) => string {
   return (text) => theme.fg("border", text);
 }
 
+/** Readable separator for composer metadata; border tones are too dark on dark themes. */
+function metadataSeparator(theme: Theme): string {
+  return theme.fg("text", " · ");
+}
+
 const ESCAPE_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|_[^\x07]*(?:\x07|$)|\][^\x07]*(?:\x07|\x1b\\|$))/y;
 const REVERSE_ON = "\x1b[7m";
 const REVERSE_OFF = "\x1b[27m";
@@ -216,7 +221,7 @@ export function composerLabels(
   if (visible.showTokens && input.tokens) parts.push(theme.fg("muted", input.tokens));
   if (visible.showModel) parts.push(theme.fg("muted", input.model));
   if (visible.showThinking && input.thinking) parts.push(theme.fg("dim", input.thinking));
-  const modelLabelText = parts.length ? ` ${parts.join(theme.fg("borderMuted", " · "))} ` : "";
+  const modelLabelText = parts.length ? ` ${parts.join(metadataSeparator(theme))} ` : "";
   return { left: projectLabel, right: modelLabelText };
 }
 
@@ -268,7 +273,7 @@ export type ComposerSource = {
   thinking?: string;
   footer: "standard" | "minimal";
   theme: Theme;
-  context?: { tokens: string; resources: string; summary?: string };
+  context?: { tokens: string; resources: string };
   working?: boolean;
   showPid?: boolean;
   effortBorderColor?: boolean;
@@ -457,8 +462,13 @@ export class ComposerEditor extends CustomEditor {
         }
       : undefined;
     const pidLabel = src.showPid === true ? src.theme.fg("dim", `PID-${AGENT_PID}`) : "";
+    const resources = src.context
+      ? src.context.resources.split(" · ")
+          .map((part) => src.theme.fg("dim", part))
+          .join(metadataSeparator(src.theme))
+      : "";
     return composerStatusContextEdge(
-      src.context ? src.theme.fg("dim", src.context.resources) : "",
+      resources,
       width,
       paint,
       hiddenLineCount,
@@ -484,12 +494,14 @@ export class ComposerEditor extends CustomEditor {
       width,
     );
     if (src.dashboardVisible === false && src.context) {
-      const rightParts = [src.context.summary ?? src.context.tokens];
+      const rightParts: string[] = [];
       if (src.footer === "standard" && width >= 66) {
         rightParts.push(modelStatusLabel(src.model, src.modelDisplay));
         if (width >= 80 && src.thinking) rightParts.push(src.thinking);
       }
-      const right = src.theme.fg("muted", ` ${rightParts.join(src.theme.fg("borderMuted", " · "))} `);
+      const right = rightParts.length
+        ? ` ${rightParts.map((part) => src.theme.fg("muted", part)).join(metadataSeparator(src.theme))} `
+        : "";
       return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "└", "┘");
     }
     if (src.dashboardVisible) return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "└", "┘");

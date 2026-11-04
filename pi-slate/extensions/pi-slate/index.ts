@@ -42,12 +42,10 @@ import { createWordPicker } from "./working-words.ts";
 import { advanceWave, isProgressStyle, isWaveActive, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
-  countSkillCommands,
   LOGO_STYLES,
   type LogoStyle,
   formatFocusedContextResources,
   formatFocusedContextTokens,
-  formatPercent,
   modelStatusLabel,
   parseMessageLength,
   parseMessageLengthArg,
@@ -279,8 +277,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
   let contextEdge = {
     tokens: formatFocusedContextTokens(null, null, null),
-    resources: formatFocusedContextResources(0, 0),
-    summary: "ctx —",
+    resources: formatFocusedContextResources(null, false, 0),
   };
   let requestRender = (_force = false) => {};
 
@@ -316,7 +313,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       const entries = ctx.sessionManager.getBranch();
       branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries) };
     }
-    const skillCount = owns("sidebar") ? resources.skills.filter(skill => skill.loaded).length : countSkillCommands(pi.getCommands());
     const mcpCount = resources.mcp.filter(server => server.enabled === true).length;
     if (owns("sidebar") && !sidebarYielded) {
       sidebar.setSession({
@@ -330,8 +326,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     contextEdge = {
       tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
-      resources: formatFocusedContextResources(skillCount, mcpCount),
-      summary: `ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`,
+      resources: formatFocusedContextResources(percent, estimated, mcpCount),
     };
   };
   const refreshResources = (ctx: ExtensionContext): void => {

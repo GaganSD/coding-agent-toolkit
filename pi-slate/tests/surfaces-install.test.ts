@@ -188,21 +188,19 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
   });
 }
 
-test("focused composer shows resources on top and places context before model", async (t) => {
+test("focused composer shows ctx and resources on top without duplicating them below", async (t) => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "header"], focused: true }));
   Object.assign(f.ctx, { getContextUsage: () => ({ tokens: 10000, percent: 10, contextWindow: 100000 }) });
-  f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   f.manager.appendMessage({ role: "assistant", api: "anthropic-messages", provider: "anthropic", model: "fixture", timestamp: 1, stopReason: "stop", content: [{ type: "text", text: "done" }], usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120, cost: { input: .1, output: .2, cacheRead: 0, cacheWrite: .05, total: .35 } } });
   await f.emit("agent_settled");
   await new Promise(resolve => setImmediate(resolve));
 
   const lines = f.composer!.render(100).map(stripVTControlCharacters);
   const bottom = lines.at(-1)!;
-  assert.match(lines[0]!, /1 skill/);
+  assert.match(lines[0]!, /ctx 10%/);
   assert.match(bottom, new RegExp(`${basename(f.ctx.cwd)} / test-branch`));
-  assert.match(bottom, /ctx 10%/);
-  assert.ok(bottom.indexOf("ctx 10%") > bottom.indexOf("test-branch"));
-  assert.ok(bottom.indexOf("ctx 10%") < bottom.indexOf("no model"));
+  assert.match(bottom, /no model/);
+  assert.doesNotMatch(bottom, /ctx 10%/);
 });
 
 test("Claude tool style is the default for tool-cards and skips legacy read grouping", async (t) => {
