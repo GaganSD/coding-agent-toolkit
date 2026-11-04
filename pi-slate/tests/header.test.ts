@@ -44,19 +44,18 @@ test("identity truncates safely and strips untrusted terminal controls", () => {
   }
 });
 
-test("minimal logo renders the classic white Pi mark beside the product stack", () => {
+test("minimal logo matches the stock mark's 4×2 geometry in white", () => {
   const lines = renderSlateHeader({
     width: 72, path: "/Users/operator/GitHub/pi-extensions",
     identity: { version: "1.0.4", model: "grok-4.6 (bedrock)", thinking: "medium" },
     logo: true, logoStyle: "minimal", theme,
   });
   const plain = lines.map(stripVTControlCharacters);
-  assert.equal(plain.length, 4);
-  assert.match(plain[0]!, /^██████\s+Pi Agent v1\.0\.4/);
-  assert.match(plain[1]!, /^██ {2}██\s+grok-4\.6 \(bedrock\) · medium/);
-  assert.match(plain[2]!, /^████ {2}██ ~\/pi-extensions/);
-  assert.match(plain[3]!, /^██ {4}██/);
-  assert(lines.every(line => line.includes("\x1b[")), "mark stays painted white");
+  assert.equal(plain.length, 3);
+  assert.match(plain[0]!, /^█▀█\s+Pi Agent v1\.0\.4/);
+  assert.match(plain[1]!, /^█▀ █\s+grok-4\.6 \(bedrock\) · medium/);
+  assert.match(plain[2]!, /^ {5}~\/pi-extensions/);
+  assert(lines.slice(0, 2).every(line => line.includes("\x1b[")), "mark stays painted white");
   assert(plain.every(line => visibleWidth(line) <= 72));
 });
 
@@ -65,8 +64,8 @@ test("minimal is the default logo style", () => {
     width: 72, path: "/tmp/project", identity: { version: "1.0.4" }, logo: true, theme,
   });
   const plain = lines.map(stripVTControlCharacters);
-  assert.equal(plain.length, 4);
-  assert.match(plain[0]!, /^██████/);
+  assert.equal(plain.length, 3);
+  assert.match(plain[0]!, /^█▀█/);
 });
 
 test("logo style parses through /slate logo", () => {
@@ -77,10 +76,14 @@ test("logo style parses through /slate logo", () => {
   assert.deepEqual(parseSlateArgs("logo minimal extra"), { ok: false });
 });
 
-test("minimal logo helpers match the classic bitmap", () => {
-  const lines = piMinimalLogoLines(theme);
-  assert.equal(lines.length, 4);
-  assert(lines.every(line => visibleWidth(line) === 8));
+test("logo helpers share the same 4×2 grid", () => {
+  const minimal = piMinimalLogoLines(theme);
+  const stock = piLogoLines(theme);
+  assert.equal(minimal.length, 2);
+  assert(minimal.every(line => visibleWidth(line) === 4));
+  assert.equal(stock.length, 2);
+  assert(stock.every(line => visibleWidth(line) === 4));
+  assert.deepEqual(minimal.map(stripVTControlCharacters), ["█▀█ ", "█▀ █"]);
 });
 
 test("logo helpers keep the official bitmap and skip Apple Terminal", () => {

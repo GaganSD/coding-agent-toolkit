@@ -2,14 +2,7 @@ import { readFileSync } from "node:fs";
 import { parseSurfaces, SURFACES, type Surface } from "./surfaces.ts";
 import { isProgressStyle, type ProgressStyle } from "./working-wave.ts";
 
-// The source SVG is a 4×4 square grid. Terminal cells are approximately twice
-// as tall as they are wide, so every source square occupies two columns.
-// Keep the empty fourth column on the first two rows. The header centers this
-// fixed-width canvas as a whole; trimming those spaces distorts the mark.
-export const PI_LOGO = ["██████  ", "██  ██  ", "████  ██", "██    ██"];
-export const PI_LOGO_ASCII = ["######  ", "##  ##  ", "####  ##", "##    ##"];
-
-/** Header mark variants: the classic white Pi or the stock brand mark. */
+/** Header mark variants: the classic monochrome Pi or the stock brand mark. */
 export const LOGO_STYLES = ["original", "minimal"] as const;
 export type LogoStyle = typeof LOGO_STYLES[number];
 

@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  PI_LOGO,
-  PI_LOGO_ASCII,
   paintLogo,
   centerOffset,
   compactDisplayText,
@@ -59,12 +57,7 @@ import {
   workspacePaneSlots,
 } from "../extensions/pi-slate/workspace-layout.ts";
 
-test("logo preserves the official four-row geometry and terminal aspect ratio", () => {
-  assert.deepEqual(PI_LOGO, ["██████  ", "██  ██  ", "████  ██", "██    ██"]);
-  assert.deepEqual(PI_LOGO_ASCII, ["######  ", "##  ##  ", "####  ##", "##    ##"]);
-  assert.ok(PI_LOGO.every((line) => line.length === 8));
-  assert.ok(PI_LOGO_ASCII.every((line) => line.length === 8));
-  assert.ok(PI_LOGO_ASCII.every((line) => /^[ #]+$/.test(line)));
+test("logo paint stays white in every theme", () => {
   assert.equal(paintLogo("π"), "\x1b[38;2;255;255;255mπ\x1b[39m");
   assert.equal(paintLogo("π", false), "\x1b[97mπ\x1b[39m");
 });
