@@ -94,6 +94,36 @@ test("Shiki colors are composited with diff and character backgrounds", async (t
   for (const token of added.tokens ?? []) if (token.color) assert.ok(output.includes(ansiColor(token.color)));
 });
 
+test("diff paints every visible cell, including split dividers and clipped ellipses", async (t) => {
+  const diff = view(t, "unchanged\n\n" + "old ".repeat(80) + "\nremoved\n", "unchanged\n\n" + "new ".repeat(80) + "\n");
+  const assertPainted = () => {
+    for (const width of [1, 2, 20, 80, 100, 101, 120]) {
+      for (const line of diff.render(width)) {
+        let background: string | undefined;
+        for (const match of line.matchAll(/\x1b\[([\d;]*)m|([^\x1b]+)/g)) {
+          if (match[1] !== undefined) {
+            const codes = match[1].split(";").map(Number);
+            for (let i = 0; i < codes.length; i++) {
+              if (codes[i] === 0 || codes[i] === 49) background = undefined;
+              if (codes[i] === 38 || codes[i] === 48) {
+                if (codes[i + 1] === 2) {
+                  if (codes[i] === 48) background = codes.slice(i + 2, i + 5).join(",");
+                  i += 4;
+                }
+              }
+            }
+          } else {
+            assert.ok(background, `unpainted ${JSON.stringify(match[2])} at width ${width}`);
+          }
+        }
+      }
+    }
+  };
+  assertPainted();
+  await diff.ready;
+  assertPainted();
+});
+
 test("edit is responsive to actual pane width; write is always unified", async (t) => {
   const edit = view(t, "old\n", "new\n");
   const write = view(t, "old\n", "new\n", { kind: "write" });
