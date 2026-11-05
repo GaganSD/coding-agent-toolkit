@@ -62,6 +62,14 @@ async function run(context, configure = false) {
 }
 const total = (snapshot) => snapshot.rows.reduce((n, r) => n + r.tokens.total, 0);
 
+test("Antigravity decodes the independently encoded protobuf wire vector", async () => {
+  const hex = await readFile(new URL("./fixtures/antigravity-generation.hex", import.meta.url), "utf8");
+  assert.deepEqual(decodeAntigravityGeneration(Buffer.from(hex.trim(), "hex")), [{
+    step: null, model: "gemini-3-flash-a", responseId: "resp-1",
+    tokens: { input: 1632, output: 340, cacheRead: 16000, cacheWrite: 0, reasoning: 40 },
+  }]);
+});
+
 test("Antigravity protobuf decoder validates accounting, bounds and uint64", () => {
   const [g] = decodeAntigravityGeneration(generation().data);
   assert.equal(g.model, "gemini-test"); assert.equal(g.responseId, "response-one");
@@ -77,7 +85,7 @@ test("Antigravity protobuf decoder validates accounting, bounds and uint64", () 
   assert.throws(() => decodeAntigravityGeneration(msg(1, msg(4, num(1, 9007199254740992n)))), /unsafe/);
 });
 
-test("Antigravity SQLite: actual model, system input, reasoning subset, verified step day, read-only and privacy", async (t) => {
+test("Antigravity SQLite: model attribution, token accounting, step day, read-only and privacy", async (t) => {
   const context = await env(t); const { db, file } = database(context); db.close();
   const digest = async () => createHash("sha256").update(await readFile(file)).digest("hex");
   const before = await digest();
@@ -94,7 +102,7 @@ test("Antigravity SQLite: actual model, system input, reasoning subset, verified
   assert.equal(warm.stats.filesRead, 0); assert.equal(warm.stats.unchangedFiles, 1); assert.equal(total(warm), 40);
 });
 
-test("Antigravity SQLite supersedes cached transcript without duplicate totals, with or without source reconfiguration", async (t) => {
+test("Antigravity SQLite supersedes a cached transcript without duplicate totals", async (t) => {
   const context = await env(t); await transcript(context);
   assert.equal(total(await run(context, true)), 1004);
   const { db } = database(context); db.close();
@@ -368,6 +376,10 @@ test("Antigravity handles databases disappearing during discovery and unreadable
 
 for (const interruption of ["SIGTERM", "generation fence"]) {
   test(`Antigravity worker rolls back a database scan on ${interruption} and resumes`, async (t) => {
+    if (interruption === "SIGTERM" && process.platform === "win32") {
+      t.skip("requires POSIX signal delivery");
+      return;
+    }
     const context = await env(t);
     const original = database(context);
     original.db.close();

@@ -85,8 +85,7 @@ function warningSink(warnings, stats, sourceState) {
 }
 
 function isEligible(adapter, filePath) {
-  // Compact transcripts carry the same usage as full logs. Never scan both,
-  // chunks, workflow artifacts, or arbitrary JSONL files in a brain directory.
+  // Exclude full logs and artifacts; only the canonical compact export is a fallback.
   if (adapter === "antigravity") {
     if (filePath.endsWith(".db")) return path.basename(path.dirname(filePath)) === "conversations";
     return path.basename(filePath) === "transcript.jsonl" &&
@@ -194,8 +193,7 @@ export async function discoverFiles(config, home, sink, sourceState) {
       a.rootIndex - b.rootIndex ||
       a.file.localeCompare(b.file),
   );
-  // One authoritative file per Antigravity conversation. SQLite wins over
-  // exports; configured root order resolves copied/divergent databases.
+  // SQLite wins over exports; configured root order breaks ties between copies.
   const preferred = new Map();
   for (const found of discovered) {
     if (found.source.adapter !== "antigravity") continue;
@@ -1195,8 +1193,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       stats,
       options,
     );
-    // Match SQLite's atomic reads: an unfinished fallback must not add rows
-    // alongside the conversation's previously accepted usage.
+    // A partial fallback must not replace the conversation's last complete snapshot.
     if (source.adapter === "antigravity" && plain.pending) {
       rollbackStoreTransaction(tx);
       return { dirty: false, aborted: true, reason: stopRequested(options) ? "stop" : "budget" };

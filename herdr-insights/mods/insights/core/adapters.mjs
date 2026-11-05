@@ -934,9 +934,7 @@ function parseCodex(record, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// Antigravity compact transcripts (CLI and current IDE/desktop surfaces).
-// Counts are per model step; input_tokens excludes cache_read_tokens. Missing
-// model/provider/workspace fields remain unknown: artifacts are not usage evidence.
+// Antigravity compact transcript fallback; counts are per model step.
 function parseAntigravity(record, ctx) {
   if (!isPlainObject(record) || record.source !== "MODEL") return;
   if (!Number.isSafeInteger(record.step_index) || record.step_index < 0) return;
@@ -952,8 +950,6 @@ function parseAntigravity(record, ctx) {
     cacheRead: record.cache_read_tokens,
   });
   if (!tokens.nonzero) return;
-  // Path-independent identity deduplicates copied sessions across product roots
-  // and repeated revisions of one step; separate conversations stay separate.
   const session = `antigravity:${conversation}`;
   ctx.addUsage(
     metaFor("antigravity", session, timestamp, record.workspace, record.provider, record.model),

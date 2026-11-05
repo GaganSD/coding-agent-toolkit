@@ -1,28 +1,9 @@
 /**
- * Antigravity CLI usage from conversations/<id>.db (read-only SQLite).
- * Canonical brain/<id>/.system_generated/logs/transcript.jsonl exports are a
- * fallback in adapters.mjs. Discovery selects one file per conversation: SQLite
- * first, then configured root order. Cached alternatives are removed only after
- * a replacement is accepted. Unreadable databases retain accepted history.
- *
- * Reverse-engineered protobuf mapping (not an official stable API):
- *   gen_metadata.data #1.#19: response model; #1.#4: usage.
- *   Usage #1 + #2: system + uncached input; #5: cache read; #3: total output;
- *   #9: text output; #10: thinking (a subset of output); #11: response ID.
- *   Envelope #2: packed step indexes. steps.metadata #1: creation timestamp,
- *   used only when #9.#11 matches the generation's response ID. Otherwise use
- *   trajectory_metadata_blob creation time, then database mtime, with a note.
- *   Trajectory metadata also supplies the workspace URI.
- * Reject inconsistent output totals; skip prefilled system-only records without
- * measured usage. Response IDs deduplicate copies; missing IDs use conversation
- * and generation index. Provider denotes model publisher, not billing gateway.
- *
- * DB/WAL fingerprints invalidate cached usage. Blobs are read one row at a time,
- * capped at 16 MiB; malformed/oversized records warn. Only usage metadata is
- * persisted, never prompt/output/thinking text. No RPC, credentials or uploads.
- * Retired Gemini CLI history and Antigravity IDE .pb stores are not decoded.
- * See also: https://github.com/junhoyeo/tokscale/pull/713
- *           https://github.com/robinebers/openusage/pull/1139
+ * Reverse-engineered CLI schema, not a vendor API: gen_metadata #1.#19 is the
+ * model and #1.#4 is usage. Usage #1+#2 is uncached input, #3 is total output
+ * (including #10 reasoning), #5 is cache read, #9 is text output, #11 is response ID.
+ * References: https://github.com/junhoyeo/tokscale/pull/713
+ *             https://github.com/robinebers/openusage/pull/1139
  */
 import path from "node:path";
 import { stat } from "node:fs/promises";
@@ -51,9 +32,7 @@ export function antigravityConversation(file) {
     : path.basename(path.dirname(path.dirname(path.dirname(file))));
 }
 
-// Read only selected protobuf fields. Unknown fields (including prompt payloads)
-// are bounded byte slices, never decoded to text or persisted. uint64 uses BigInt
-// so unrelated signed/sentinel fields cannot silently overflow JS numbers.
+// Keep uint64 fields exact, including unrelated sentinel values outside JS's safe range.
 function varint(bytes, cursor) {
   let value = 0n;
   for (let shift = 0; shift < 70; shift += 7) {
@@ -139,12 +118,10 @@ export function decodeAntigravityGeneration(bytes) {
     const reasoning = integer(usage, 10), outputText = integer(usage, 9);
     if (!Number.isSafeInteger(system + input + output + cacheRead)) throw new Error("unsafe token total");
     if (outputText + reasoning !== output) throw new Error("inconsistent output accounting");
-    // A fixed system-prompt count is prefilled even on abandoned/failed
-    // requests with no measured usage. It is not a completed generation.
+    // A system-prompt estimate alone is not measured request usage.
     if (input + output + cacheRead === 0) continue;
     generations.push({
       step, model: text(blob(inner, 19)) || "unknown", responseId: responseId(usage),
-      // Output includes thinking; reasoning is a subset, never added to total.
       tokens: { input: system + input, output, cacheRead, cacheWrite: 0, reasoning },
     });
   }
@@ -167,8 +144,7 @@ function stepTimestamp(bytes, id) {
   if (!bytes || !id) return null;
   const fields = protobufFields(bytes);
   const usage = blob(fields, 9);
-  // Packed step references were validated against response IDs on real stores.
-  // Do not attribute a timestamp if a future schema points at a different step.
+  // Trust a step timestamp only when it identifies the same response.
   if (!usage || responseId(protobufFields(usage)) !== id) return null;
   return timestamp(blob(fields, 1));
 }
@@ -269,6 +245,7 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
           : makeDedupKey("antigravity", "generation", conversation, record.idx, index));
       }
     }
+    // An undecodable snapshot is not evidence that previously measured usage vanished.
     if (rows > 0 && decodedRows === 0) {
       rollbackStoreTransaction(tx);
       sink.warn(`Antigravity ${path.basename(file)}: no decodable generation records; previous accepted data retained.`);
