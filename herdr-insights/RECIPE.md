@@ -1,7 +1,7 @@
 # Insights
 
-A native Herdr dashboard for token usage across Pi, Codex, Claude Code, and
-OpenCode. It reads existing local session data, shows model rankings and activity,
+A native Herdr dashboard for token usage across Pi, Codex, Claude Code, OpenCode,
+and Antigravity. It reads existing local session data, shows model rankings and activity,
 and opens in its own tab from an Insights button beside the native tabs. One mod
 provides both the button and the dashboard; no built-in Herdr code, terminals, or
 keys are changed.
@@ -122,10 +122,14 @@ Keep raw rows and analytics work in Node, not QuickJS rendering. Return a versio
 and error. Coalesce filter requests and reject stale results. Send diagnostics to
 stderr and surface nonzero exits. Settings controls are initialized lazily.
 
-`collector.mjs` and `core/{config,adapters,scan,store,util}.mjs` implement collection.
+`collector.mjs` and `core/{config,adapters,antigravity,scan,store,util}.mjs` implement collection.
 Default roots are `~/.pi/agent/sessions`, `~/.codex/sessions`,
-`~/.codex/archived_sessions`, `~/.claude/projects`, and `~/.local/share/opencode`.
-Read JSONL/zstd transcripts and OpenCode SQLite in read-only mode. The metadata-only
+`~/.codex/archived_sessions`, `~/.claude/projects`, `~/.local/share/opencode`,
+`~/.gemini/antigravity-cli/conversations`, and `~/.gemini/antigravity-cli/brain`.
+Read JSONL/zstd transcripts and OpenCode/Antigravity SQLite in read-only mode.
+For Antigravity, prefer generation metadata over compact transcript exports for
+one conversation; decoding and accounting notes live in `core/antigravity.mjs`.
+The metadata-only
 store is `<HERDR_APP_HOME>/data/insights/insights.json`; never save prompt/response
 text. Use source-tagged status/warnings for missing, disabled, empty, and failed
 sources. Preserve historical rows from removed files until explicit rebuild.

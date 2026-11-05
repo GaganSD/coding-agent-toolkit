@@ -585,6 +585,60 @@ test("Custom declarative mapping: role filter, max revisions, harness/provider/m
   assert.equal(snapshot.stats.errors, 0);
 });
 
+test("Antigravity: compact-only, per-step accounting, copied sessions, unknown metadata and privacy", async () => {
+  const context = await env();
+  const logs = ".system_generated/logs";
+  const step = {
+    source: "MODEL", type: "PLANNER_RESPONSE", status: "DONE", step_index: 1,
+    created_at: "2026-03-04T04:00:00Z", input_tokens: 10,
+    output_tokens: 5, cache_read_tokens: 20,
+    content: "private agy output", thinking: "private agy reasoning",
+  };
+  async function put(relative, records, tail = "") {
+    const target = path.join(context.home, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, records.map((r) => JSON.stringify(r)).join("\n") + "\n" + tail);
+    return target;
+  }
+  const compact = [
+    { ...step, source: "USER_EXPLICIT", step_index: 0 },
+    step,
+    { ...step, output_tokens: 8 }, // revision, not another billable step
+    { ...step, step_index: 3, input_tokens: 2, output_tokens: 4, cache_read_tokens: 6 },
+    { ...step, step_index: 5, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0 },
+    { ...step, step_index: 7, created_at: "bad-time" },
+    { ...step, step_index: -1 },
+  ];
+  const file = await put(`cli/conv-a/${logs}/transcript.jsonl`, compact, '{"source":');
+  await put(`desktop/conv-a/${logs}/transcript.jsonl`, compact);
+  await put(`cli/conv-a/${logs}/transcript_full.jsonl`, [{ ...step, step_index: 99, input_tokens: 9999 }]);
+  await put(`cli/conv-a/${logs}/chunks/chunk.jsonl`, [{ ...step, input_tokens: 9999 }]);
+  await put(`cli/conv-a/transcript.jsonl`, [step]); // not a canonical logs directory
+  await put(`cli/conv-b/${logs}/transcript.jsonl`, [step]);
+  const snapshot = await configure(context, [{
+    id: "agy", label: "Antigravity", adapter: "antigravity", roots: ["~/cli", "~/desktop"],
+  }]);
+  const a = snapshot.rows.find((r) => r.session === "antigravity:conv-a");
+  const b = snapshot.rows.find((r) => r.session === "antigravity:conv-b");
+  assert.equal(snapshot.rows.length, 2);
+  assert.deepEqual(a.tokens, { input: 12, output: 12, cacheRead: 26, cacheWrite: 0, reasoning: 0, total: 50 });
+  assert.equal(a.messages, 2);
+  assert.equal(b.tokens.total, 35);
+  assert.equal(a.harness, "antigravity");
+  assert.equal(a.model, "unknown");
+  assert.equal(a.provider, "unknown");
+  assert.equal(a.project, "unknown");
+  assert.ok(snapshot.warnings.some((w) => w.includes("timestamp")));
+  assert.equal((await readFile(context.store, "utf8")).includes("private agy"), false);
+  // The incomplete tail is completed on a later scan and counted exactly once.
+  await writeFile(file, compact.map((r) => JSON.stringify(r)).join("\n") + "\n" +
+    JSON.stringify({ ...step, step_index: 9 }) + "\n");
+  const next = await run(["snapshot", "--store", context.store, "--home", context.home]);
+  assert.equal(next.code, 0, next.stderr);
+  const updated = JSON.parse(next.stdout);
+  assert.equal(updated.rows.find((r) => r.session === "antigravity:conv-a").tokens.total, 85);
+});
+
 test("Snapshot rows never include transcript bodies", async () => {
   const context = await env();
   await placeFixture(

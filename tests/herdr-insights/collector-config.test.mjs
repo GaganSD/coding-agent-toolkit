@@ -18,6 +18,7 @@ import test from "node:test";
 import {
   DEFAULT_CONFIG,
   defaultConfig,
+  migrateLoadedConfig,
   normalizeConfig,
 } from "../../herdr-insights/mods/insights/core/config.mjs";
 import { emptyStore, newFileEntry, saveStore } from "../../herdr-insights/mods/insights/core/store.mjs";
@@ -392,7 +393,7 @@ test("sourceStats distinguishes disabled, missing, empty, ok, and error sources"
   assert.ok(result.warnings.some((warning) => warning.startsWith("[bad]")));
 });
 
-test("default config and empty input include Pi, Codex, OpenCode and Claude Code sources", () => {
+test("default config and empty input include Pi, Codex, OpenCode, Claude Code and Antigravity sources", () => {
   const expectedSources = [
     {
       id: "pi",
@@ -421,6 +422,13 @@ test("default config and empty input include Pi, Codex, OpenCode and Claude Code
       adapter: "claude",
       enabled: true,
       roots: ["~/.claude/projects"],
+    },
+    {
+      id: "antigravity",
+      label: "Antigravity",
+      adapter: "antigravity",
+      enabled: true,
+      roots: ["~/.gemini/antigravity-cli/conversations", "~/.gemini/antigravity-cli/brain"],
     },
   ];
   assert.deepEqual(DEFAULT_CONFIG.sources, expectedSources);
@@ -466,7 +474,7 @@ test("untouched pre-Claude default stores gain Claude Code and scan local sessio
   const result = await snapshot(context);
   assert.deepEqual(
     result.config.sources.map((source) => source.id),
-    ["pi", "codex", "opencode", "claude"],
+    ["pi", "codex", "opencode", "claude", "antigravity"],
   );
   assert.equal(result.sourceStats.claude.status, "ok");
   assert.equal(result.rows.some((row) => row.harness === "claude"), true);
@@ -515,13 +523,53 @@ test("configure with untouched legacy defaults keeps Claude and cached history",
   const result = await configure(context, { sources: legacyConfig.sources });
   assert.deepEqual(
     result.config.sources.map((source) => source.id),
-    ["pi", "codex", "opencode", "claude"],
+    ["pi", "codex", "opencode", "claude", "antigravity"],
   );
   assert.equal(
     result.rows.some((row) => row.session === "pi:removed" && row.model === "gpt-old"),
     true,
     "legacy-default configure must not undo the migration and clear cached rows",
   );
+});
+
+test("pre-Antigravity default stores discover compact transcripts at the new default root", async () => {
+  const context = await env();
+  const logs = path.join(context.home, ".gemini/antigravity-cli/brain/conversation/.system_generated/logs");
+  await mkdir(logs, { recursive: true });
+  await writeFile(path.join(logs, "transcript.jsonl"), JSON.stringify({
+    source: "MODEL", step_index: 1, created_at: "2026-03-04T04:00:00Z",
+    input_tokens: 10, output_tokens: 5, cache_read_tokens: 20,
+  }) + "\n");
+  const previous = normalizeConfig({ sources: DEFAULT_CONFIG.sources.slice(0, 4) });
+  await saveStore(context.store, emptyStore(previous));
+  const result = await snapshot(context);
+  assert.deepEqual(result.config.sources, defaultConfig().sources);
+  assert.equal(result.sourceStats.antigravity.status, "ok");
+  assert.equal(result.rows.find((row) => row.harness === "antigravity").tokens.total, 35);
+  const persisted = JSON.parse(await readFile(context.store, "utf8"));
+  assert.deepEqual(persisted.config.sources, defaultConfig().sources);
+  assert.equal((await snapshot(context)).stats.unchangedFiles, 1);
+});
+
+test("untouched pre-Antigravity defaults migrate once and customized sources stay unchanged", () => {
+  const previous = normalizeConfig({ sources: DEFAULT_CONFIG.sources.slice(0, 4) });
+  const upgraded = migrateLoadedConfig(previous);
+  assert.equal(upgraded.migrated, true);
+  assert.deepEqual(upgraded.config.sources, defaultConfig().sources);
+  assert.equal(migrateLoadedConfig(upgraded.config).migrated, false);
+  assert.equal(previous.sources.length, 4, "migration must not mutate its input");
+
+  for (const change of [
+    (sources) => { sources[0].enabled = false; },
+    (sources) => { sources[0].roots = ["~/custom-pi"]; },
+    (sources) => { sources[0].label = "My Pi"; },
+    (sources) => { sources.reverse(); },
+    (sources) => { sources.length = 0; },
+  ]) {
+    const custom = normalizeConfig({ sources: DEFAULT_CONFIG.sources.slice(0, 4) });
+    change(custom.sources);
+    assert.deepEqual(migrateLoadedConfig(custom), { config: custom, migrated: false });
+  }
 });
 
 test("customized pre-Claude stores are not rewritten by the default-source migration", async () => {

@@ -33,6 +33,13 @@ export const DEFAULT_SOURCES = [
     enabled: true,
     roots: ["~/.claude/projects"],
   },
+  {
+    id: "antigravity",
+    label: "Antigravity",
+    adapter: "antigravity",
+    enabled: true,
+    roots: ["~/.gemini/antigravity-cli/conversations", "~/.gemini/antigravity-cli/brain"],
+  },
 ];
 export const PALETTES = ["blue", "green", "purple"];
 export const DEFAULT_REFRESH_SECONDS = 60;

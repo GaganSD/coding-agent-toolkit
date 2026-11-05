@@ -400,7 +400,7 @@ test("config and year helpers are defensive", () => {
   assert.deepEqual(availableYears([row({ day: "2023-01-01" }), row({ day: "2024-01-01" })], "2025-01-01"), [2025, 2024, 2023]);
 
   const defaults = normalizeConfig({});
-  assert.deepEqual(defaults.sources.map((source) => source.adapter), ["pi", "codex", "opencode", "claude"]);
+  assert.deepEqual(defaults.sources.map((source) => source.adapter), ["pi", "codex", "opencode", "claude", "antigravity"]);
   assert.equal(defaults.sources.some((source) => source.adapter === "claude"), true);
   assert.deepEqual(normalizeConfig({ sources: [] }).sources, [], "an explicit empty source list is preserved");
   const claude = normalizeConfig({ sources: [{ id: "claude", label: "Claude Code", adapter: "claude", enabled: true, roots: ["~/.claude/projects"] }] });

@@ -45,12 +45,21 @@ const CLAUDE_SOURCE = Object.freeze({
   roots: Object.freeze(["~/.claude/projects"]),
 });
 
-// Stores written before Claude Code became a default source get the same
-// upgrade, but only when they still contain the untouched previous defaults.
-const LEGACY_DEFAULT_SOURCES = Object.freeze([
-  PI_SOURCE,
-  CODEX_SOURCE,
-  OPENCODE_SOURCE,
+const ANTIGRAVITY_SOURCE = Object.freeze({
+  id: "antigravity",
+  label: "Antigravity",
+  adapter: "antigravity",
+  enabled: true,
+  roots: Object.freeze([
+    "~/.gemini/antigravity-cli/conversations",
+    "~/.gemini/antigravity-cli/brain",
+  ]),
+});
+
+// Upgrade only untouched previous defaults; customized sources stay as saved.
+const LEGACY_DEFAULT_SOURCE_SETS = Object.freeze([
+  [PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE],
+  [PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE, CLAUDE_SOURCE],
 ]);
 
 export const DEFAULT_CONFIG = Object.freeze({
@@ -59,10 +68,10 @@ export const DEFAULT_CONFIG = Object.freeze({
   includeCache: true,
   weekStartsOn: 0,
   refreshSeconds: 60,
-  sources: Object.freeze([PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE, CLAUDE_SOURCE]),
+  sources: Object.freeze([PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE, CLAUDE_SOURCE, ANTIGRAVITY_SOURCE]),
 });
 
-export const BUILTIN_ADAPTERS = new Set(["pi", "claude", "codex", "opencode"]);
+export const BUILTIN_ADAPTERS = new Set(["pi", "claude", "codex", "opencode", "antigravity"]);
 export const ADAPTERS = new Set([...BUILTIN_ADAPTERS, "custom"]);
 
 const TOP_KEYS = new Set([
@@ -368,16 +377,17 @@ function sameSource(left, right) {
 }
 
 export function migrateLoadedConfig(config) {
-  if (
-    config.sources.length !== LEGACY_DEFAULT_SOURCES.length ||
-    !config.sources.every((source, index) => sameSource(source, LEGACY_DEFAULT_SOURCES[index]))
-  ) {
+  const untouchedDefaults = LEGACY_DEFAULT_SOURCE_SETS.some((sources) =>
+    config.sources.length === sources.length &&
+    config.sources.every((source, index) => sameSource(source, sources[index]))
+  );
+  if (!untouchedDefaults) {
     return { config, migrated: false };
   }
   return {
     config: {
       ...config,
-      sources: [...config.sources, { ...CLAUDE_SOURCE, roots: [...CLAUDE_SOURCE.roots] }],
+      sources: DEFAULT_CONFIG.sources.map((source) => ({ ...source, roots: [...source.roots] })),
     },
     migrated: true,
   };

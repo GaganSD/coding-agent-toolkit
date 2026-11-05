@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as zlib from "node:zlib";
 import { parseAdapterRecord } from "./adapters.mjs";
+import { antigravityConversation, scanAntigravityDb } from "./antigravity.mjs";
 import {
   MAX_LINE_BYTES,
   expandHome,
@@ -19,6 +20,7 @@ import {
   beginStoreTransaction,
   commitStoreTransaction,
   dedupKeyFor,
+  deleteFileEntry,
   fileKey,
   newFileEntry,
   removeLatestFallbackTaskForSession,
@@ -30,7 +32,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2 };
+const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2, antigravity: 1 };
 const PROGRESS_CHUNK_INTERVAL = 64;
 
 export class ScanStopError extends Error {
@@ -83,6 +85,14 @@ function warningSink(warnings, stats, sourceState) {
 }
 
 function isEligible(adapter, filePath) {
+  // Compact transcripts carry the same usage as full logs. Never scan both,
+  // chunks, workflow artifacts, or arbitrary JSONL files in a brain directory.
+  if (adapter === "antigravity") {
+    if (filePath.endsWith(".db")) return path.basename(path.dirname(filePath)) === "conversations";
+    return path.basename(filePath) === "transcript.jsonl" &&
+      path.basename(path.dirname(filePath)) === "logs" &&
+      path.basename(path.dirname(path.dirname(filePath))) === ".system_generated";
+  }
   if (adapter === "opencode") return path.basename(filePath) === "opencode.db";
   if (adapter === "codex") {
     return filePath.endsWith(".jsonl") || filePath.endsWith(".jsonl.zst");
@@ -128,7 +138,7 @@ async function walkRoot(root, adapter) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         stack.push(full);
-      } else if (entry.isFile() && isEligible(adapter, entry.name)) {
+      } else if (entry.isFile() && isEligible(adapter, full)) {
         files.push(full);
       } else if (entry.isSymbolicLink()) {
         // Do not follow directory symlinks (loops); a symlinked file is harmless.
@@ -184,7 +194,17 @@ export async function discoverFiles(config, home, sink, sourceState) {
       a.rootIndex - b.rootIndex ||
       a.file.localeCompare(b.file),
   );
-  return discovered;
+  // One authoritative file per Antigravity conversation. SQLite wins over
+  // exports; configured root order resolves copied/divergent databases.
+  const preferred = new Map();
+  for (const found of discovered) {
+    if (found.source.adapter !== "antigravity") continue;
+    const id = antigravityConversation(found.file);
+    const previous = preferred.get(id);
+    if (!previous || (!previous.file.endsWith(".db") && found.file.endsWith(".db"))) preferred.set(id, found);
+  }
+  return discovered.filter((found) => found.source.adapter !== "antigravity" ||
+    preferred.get(antigravityConversation(found.file)) === found);
 }
 
 function hashBytes(buffer) {
@@ -638,6 +658,7 @@ async function scanPlainFile(
     if (!stopped) consumer.finish(start + bytes);
     if (!stopped) delete entry.state.readFailed;
   } catch (error) {
+    if (adapter === "antigravity") throw error;
     // Keep the accepted complete prefix and its parser state together. The
     // unfinished suffix is retried even if the file metadata is unchanged.
     entry.state.readFailed = true;
@@ -987,6 +1008,9 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   if (source.adapter === "opencode") {
     return scanOpenCodeDb(store, source, filePath, sourceSink, stats, options);
   }
+  if (source.adapter === "antigravity" && filePath.endsWith(".db")) {
+    return scanAntigravityDb(store, source, filePath, sourceSink, stats, options);
+  }
   let fileStat;
   try {
     fileStat = await stat(filePath);
@@ -1018,7 +1042,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     && existing.mtimeMs === fileStat.mtimeMs
   ) {
     stats.unchangedFiles += 1;
-    return { dirty: false, aborted: false };
+    return { dirty: false, aborted: false, accepted: true };
   }
 
   // Every changed file gets a precise transaction. The previous committed
@@ -1164,6 +1188,12 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       stats,
       options,
     );
+    // Match SQLite's atomic reads: an unfinished fallback must not add rows
+    // alongside the conversation's previously accepted usage.
+    if (source.adapter === "antigravity" && plain.pending) {
+      rollbackStoreTransaction(tx);
+      return { dirty: false, aborted: true, reason: stopRequested(options) ? "stop" : "budget" };
+    }
     dirty = plain.dirty || dirty;
     commitStoreTransaction(tx);
     entry.path = filePath;
@@ -1173,7 +1203,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       entry.mtimeMs = fileStat.mtimeMs;
       delete entry.state.scanPending;
     }
-    return { dirty, aborted: false, pending: plain.pending };
+    return { dirty, aborted: false, pending: plain.pending, accepted: !entry.state.readFailed && !plain.pending };
   } catch (error) {
     rollbackStoreTransaction(tx);
     sourceSink.warn(`${source.adapter} ${filePath}: scan failed: ${error.message}`);
@@ -1295,6 +1325,19 @@ export async function scanSources(store, {
     sourceState[found.source.id].bytesRead +=
       stats.bytesRead - beforeBytes;
     dirty = Boolean(result?.dirty) || dirty;
+    if (found.source.adapter === "antigravity" && result?.accepted) {
+      // Superseded cached exports must disappear too, not just be excluded
+      // from discovery. Keep prior accepted data until its replacement succeeds.
+      const conversation = antigravityConversation(found.file);
+      const selectedKey = fileKey(found.source.id, found.file);
+      for (const [key, entry] of Object.entries(store.files)) {
+        if (key !== selectedKey && entry.adapter === "antigravity" &&
+          antigravityConversation(entry.path) === conversation) {
+          deleteFileEntry(store, key);
+          dirty = true;
+        }
+      }
+    }
     if (result?.aborted) {
       stopReason = result.reason ?? "budget";
       abortedFile = result.abortedFile ?? {
