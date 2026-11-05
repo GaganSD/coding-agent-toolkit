@@ -31,6 +31,18 @@ jobs:
       - id: plan
         run: node scripts/release.mjs check "$(git rev-parse HEAD^1)" "$(git rev-parse HEAD)"
 
+  # Wait for publication when applicable, but skip expensive downloads for
+  # Herdr/docs-only pushes. Scheduled/manual Quickstart CI remains independent.
+  quickstart:
+    needs: [validate, eligible, publish]
+    if: >-
+      always() && !cancelled() &&
+      needs.validate.result == 'success' &&
+      needs.eligible.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped') &&
+      needs.validate.outputs.run_quickstart == 'true'
+    uses: ./.github/workflows/quickstart.yml
+
   publish:
     needs: eligible
     if: needs.eligible.outputs.release == 'true'
