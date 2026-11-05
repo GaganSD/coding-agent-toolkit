@@ -199,7 +199,9 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
       try { session = sessionMetadata(meta.data); } catch { counts.malformed += 1; }
     } else if (meta) counts.oversized += 1;
     const stepQuery = db.prepare(`SELECT CASE WHEN length(metadata) <= ${MAX_BLOB} THEN metadata ELSE NULL END AS data FROM steps WHERE idx = ?`);
-    const records = db.prepare(`SELECT idx, ${limited} AS data FROM gen_metadata ORDER BY idx`).iterate();
+    // Node 22.15 iterators do not retain their prepared statement across garbage collection.
+    const query = db.prepare(`SELECT idx, ${limited} AS data FROM gen_metadata ORDER BY idx`);
+    const records = Object.assign(query.iterate(), { statementOwner: query });
     if (!entry) entry = newFileEntry(store, {
       sourceId: source.id, adapter: source.adapter, path: file,
       dev: String(info.dev), ino: String(info.ino), size: 0, mtimeMs: 0, compressed: false,

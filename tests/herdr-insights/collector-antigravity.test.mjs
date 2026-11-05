@@ -374,6 +374,29 @@ test("Antigravity handles databases disappearing during discovery and unreadable
   assert.match(warnings.join(" "), /cannot stat database WAL/);
 });
 
+test("Antigravity keeps the SQLite statement alive when GC runs during iteration", async (t) => {
+  const context = await env(t);
+  const { db, file } = database(context);
+  db.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 256)
+    INSERT INTO gen_metadata SELECT i, (SELECT data FROM gen_metadata WHERE idx = 0) FROM n`);
+  db.close();
+  const core = new URL("../../herdr-insights/mods/insights/core/", import.meta.url);
+  const script = `
+    import assert from "node:assert/strict";
+    import { scanAntigravityDb } from ${JSON.stringify(new URL("antigravity.mjs", core).href)};
+    import { emptyStore, snapshotRows } from ${JSON.stringify(new URL("store.mjs", core).href)};
+    const store = emptyStore();
+    const warnings = [];
+    const result = await scanAntigravityDb(store, { id: "agy", adapter: "antigravity" },
+      process.argv[1], { warn: (w) => warnings.push(w), note() {} },
+      { filesRead: 0, bytesRead: 0, unchangedFiles: 0 }, { onStreamProgress: () => globalThis.gc() });
+    assert.equal(result.dirty, true, warnings.join(" "));
+    assert.equal(snapshotRows(store)[0].tokens.total, 40);
+    assert.equal(snapshotRows(store)[0].messages, 1);
+  `;
+  await promisify(execFile)(process.execPath, ["--expose-gc", "--input-type=module", "-e", script, file]);
+});
+
 for (const interruption of ["SIGTERM", "generation fence"]) {
   test(`Antigravity worker rolls back a database scan on ${interruption} and resumes`, async (t) => {
     if (interruption === "SIGTERM" && process.platform === "win32") {
@@ -409,7 +432,10 @@ for (const interruption of ["SIGTERM", "generation fence"]) {
         if (live?.pid === worker.pid && live.decodedBytes > 0) return live;
         return (await readWorkerClaim(context.store)) === null ? { finished: true } : null;
       });
-      assert.ok(progress.decodedBytes > 0, "interruption must occur inside the database scan");
+      if (!(progress.decodedBytes > 0)) {
+        const failed = JSON.parse(await readFile(context.store, "utf8"));
+        assert.fail(`worker finished before interruption: ${JSON.stringify(failed.scan)}`);
+      }
       if (interruption === "SIGTERM") process.kill(worker.pid, "SIGTERM");
       else await writeFence(context.store, before.generation + 1);
       await waitFor(async () => (await readWorkerClaim(context.store)) === null);
