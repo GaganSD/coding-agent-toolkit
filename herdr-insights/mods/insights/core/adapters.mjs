@@ -1,3 +1,4 @@
+import { antigravityConversation } from "./antigravity.mjs";
 import {
   MAX_TURN_MS,
   asString,
@@ -933,6 +934,31 @@ function parseCodex(record, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Antigravity compact transcript fallback; counts are per model step.
+function parseAntigravity(record, ctx) {
+  if (!isPlainObject(record) || record.source !== "MODEL") return;
+  if (!Number.isSafeInteger(record.step_index) || record.step_index < 0) return;
+  const conversation = antigravityConversation(ctx.file.path);
+  const timestamp = parseTimestamp(record.created_at);
+  if (timestamp === null) {
+    ctx.warn("Antigravity model step has no usable timestamp; skipped");
+    return;
+  }
+  const tokens = normalizeTokens({
+    input: record.input_tokens,
+    output: record.output_tokens,
+    cacheRead: record.cache_read_tokens,
+  });
+  if (!tokens.nonzero) return;
+  const session = `antigravity:${conversation}`;
+  ctx.addUsage(
+    metaFor("antigravity", session, timestamp, record.workspace, record.provider, record.model),
+    tokens,
+    makeDedupKey("antigravity", conversation, record.step_index),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Declarative custom JSONL
 
 export function getPath(object, path) {
@@ -1050,6 +1076,7 @@ export const ADAPTER_PARSERS = {
   pi: parsePi,
   claude: parseClaude,
   codex: parseCodex,
+  antigravity: parseAntigravity,
   custom: parseCustom,
 };
 

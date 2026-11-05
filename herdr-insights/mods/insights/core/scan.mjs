@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as zlib from "node:zlib";
 import { parseAdapterRecord } from "./adapters.mjs";
+import { antigravityConversation, scanAntigravityDb } from "./antigravity.mjs";
 import {
   MAX_LINE_BYTES,
   expandHome,
@@ -19,6 +20,7 @@ import {
   beginStoreTransaction,
   commitStoreTransaction,
   dedupKeyFor,
+  deleteFileEntry,
   fileKey,
   newFileEntry,
   removeLatestFallbackTaskForSession,
@@ -30,7 +32,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2 };
+const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2, antigravity: 2 };
 const PROGRESS_CHUNK_INTERVAL = 64;
 
 export class ScanStopError extends Error {
@@ -83,6 +85,13 @@ function warningSink(warnings, stats, sourceState) {
 }
 
 function isEligible(adapter, filePath) {
+  // Exclude full logs and artifacts; only the canonical compact export is a fallback.
+  if (adapter === "antigravity") {
+    if (filePath.endsWith(".db")) return path.basename(path.dirname(filePath)) === "conversations";
+    return path.basename(filePath) === "transcript.jsonl" &&
+      path.basename(path.dirname(filePath)) === "logs" &&
+      path.basename(path.dirname(path.dirname(filePath))) === ".system_generated";
+  }
   if (adapter === "opencode") return path.basename(filePath) === "opencode.db";
   if (adapter === "codex") {
     return filePath.endsWith(".jsonl") || filePath.endsWith(".jsonl.zst");
@@ -128,7 +137,7 @@ async function walkRoot(root, adapter) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         stack.push(full);
-      } else if (entry.isFile() && isEligible(adapter, entry.name)) {
+      } else if (entry.isFile() && isEligible(adapter, full)) {
         files.push(full);
       } else if (entry.isSymbolicLink()) {
         // Do not follow directory symlinks (loops); a symlinked file is harmless.
@@ -184,7 +193,16 @@ export async function discoverFiles(config, home, sink, sourceState) {
       a.rootIndex - b.rootIndex ||
       a.file.localeCompare(b.file),
   );
-  return discovered;
+  // SQLite wins over exports; configured root order breaks ties between copies.
+  const preferred = new Map();
+  for (const found of discovered) {
+    if (found.source.adapter !== "antigravity") continue;
+    const id = antigravityConversation(found.file);
+    const previous = preferred.get(id);
+    if (!previous || (!previous.file.endsWith(".db") && found.file.endsWith(".db"))) preferred.set(id, found);
+  }
+  return discovered.filter((found) => found.source.adapter !== "antigravity" ||
+    preferred.get(antigravityConversation(found.file)) === found);
 }
 
 function hashBytes(buffer) {
@@ -638,6 +656,7 @@ async function scanPlainFile(
     if (!stopped) consumer.finish(start + bytes);
     if (!stopped) delete entry.state.readFailed;
   } catch (error) {
+    if (adapter === "antigravity") throw error;
     // Keep the accepted complete prefix and its parser state together. The
     // unfinished suffix is retried even if the file metadata is unchanged.
     entry.state.readFailed = true;
@@ -987,6 +1006,9 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   if (source.adapter === "opencode") {
     return scanOpenCodeDb(store, source, filePath, sourceSink, stats, options);
   }
+  if (source.adapter === "antigravity" && filePath.endsWith(".db")) {
+    return scanAntigravityDb(store, source, filePath, sourceSink, stats, options);
+  }
   let fileStat;
   try {
     fileStat = await stat(filePath);
@@ -1002,6 +1024,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   const ino = String(fileStat.ino);
   const key = fileKey(source.id, filePath);
   const existing = store.files[key];
+  const supersededKeys = options.supersededKeys ?? [];
   const isNew = !existing;
   const parserVersion = PARSER_VERSIONS[existing?.adapter ?? source.adapter];
   const parserKey = `${existing?.adapter ?? source.adapter}ParserVersion`;
@@ -1009,6 +1032,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     && !(existing?.state.unsupported === "zstd" && hasZstdSupport());
   if (
     existing
+    && supersededKeys.length === 0
     && parserCurrent
     && !existing.state.readFailed
     && !existing.state.scanPending
@@ -1028,6 +1052,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   let entry = existing;
   let dirty = false;
   try {
+    for (const superseded of supersededKeys) deleteFileEntry(store, superseded);
     if (!entry) {
       entry = newFileEntry(store, {
         sourceId: source.id,
@@ -1042,7 +1067,11 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       dirty = true;
     }
 
-    let forceRead = false;
+    let forceRead = supersededKeys.length > 0;
+    if (forceRead) {
+      resetFileEntry(store, entry);
+      dirty = true;
+    }
     if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
       // Migrate existing history once for accounting fixes. New files own no
       // metadata and must never trigger a global ownership cleanup scan.
@@ -1164,6 +1193,11 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       stats,
       options,
     );
+    // A partial fallback must not replace the conversation's last complete snapshot.
+    if (source.adapter === "antigravity" && plain.pending) {
+      rollbackStoreTransaction(tx);
+      return { dirty: false, aborted: true, reason: stopRequested(options) ? "stop" : "budget" };
+    }
     dirty = plain.dirty || dirty;
     commitStoreTransaction(tx);
     entry.path = filePath;
@@ -1215,6 +1249,13 @@ export async function scanSources(store, {
   }
   const sink = warningSink(warnings, stats, sourceState);
   const discovered = await discoverFiles(store.config, home, sink, sourceState);
+  const antigravityFiles = new Map();
+  for (const [key, entry] of Object.entries(store.files)) {
+    if (entry.adapter !== "antigravity") continue;
+    const conversation = antigravityConversation(entry.path);
+    if (!antigravityFiles.has(conversation)) antigravityFiles.set(conversation, []);
+    antigravityFiles.get(conversation).push(key);
+  }
   const seenInodes = new Set();
   const seenPaths = new Set();
   const options = {
@@ -1276,13 +1317,18 @@ export async function scanSources(store, {
     sourceState[found.source.id].files += 1;
     const beforeRead = stats.filesRead;
     const beforeBytes = stats.bytesRead;
+    // Remove old owners inside the file transaction, before max-upsert can inherit their values.
+    const supersededKeys = found.source.adapter === "antigravity"
+      ? (antigravityFiles.get(antigravityConversation(found.file)) ?? [])
+        .filter((key) => key !== fileKey(found.source.id, found.file))
+      : [];
     const result = await scanOneFile(
       store,
       found.source,
       found.file,
       sink,
       stats,
-      options,
+      { ...options, supersededKeys },
     ).catch((error) => {
       sink.warn(
         `[${found.source.id}] ${found.source.adapter} ${found.file}: scan failed: ${error.message}`,

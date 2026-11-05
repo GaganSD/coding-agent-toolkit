@@ -2,7 +2,7 @@
 
 A native [Herdr](https://herdr.dev) dashboard for coding-agent token usage.
 See which models you use, how usage changes over time, and your daily activity.
-Reads local sessions from **Pi, Codex, Claude Code, and OpenCode**.
+Reads local sessions from **Pi, Codex, Claude Code, OpenCode, and Antigravity**.
 
 <img width="1204" height="538" alt="Tokens history" src="preview-history.png" />
 
@@ -40,7 +40,7 @@ click-state rules. Set `HERDR_APP_HOME` to use a different app home.
 ## Privacy
 
 No network requests or uploads. The mod runs a local Node helper, reads session
-files and OpenCode's SQLite database, and writes usage metadata to
+files and OpenCode/Antigravity SQLite databases, and writes usage metadata to
 `~/.config/herdr-app/data/insights/insights.json`. It does not store prompt or
 response text or modify source transcripts.
 
