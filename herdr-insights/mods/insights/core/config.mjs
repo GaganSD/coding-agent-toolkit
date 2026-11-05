@@ -56,12 +56,6 @@ const ANTIGRAVITY_SOURCE = Object.freeze({
   ]),
 });
 
-// Upgrade only untouched previous defaults; customized sources stay as saved.
-const LEGACY_DEFAULT_SOURCE_SETS = Object.freeze([
-  [PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE],
-  [PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE, CLAUDE_SOURCE],
-]);
-
 export const DEFAULT_CONFIG = Object.freeze({
   profile: { name: "Developer", handle: "", avatar: "" },
   palette: "blue",
@@ -377,10 +371,9 @@ function sameSource(left, right) {
 }
 
 export function migrateLoadedConfig(config) {
-  const untouchedDefaults = LEGACY_DEFAULT_SOURCE_SETS.some((sources) =>
-    config.sources.length === sources.length &&
-    config.sources.every((source, index) => sameSource(source, sources[index]))
-  );
+  // Upgrade only untouched previous defaults; customized sources stay as saved.
+  const untouchedDefaults = [3, 4].includes(config.sources.length) &&
+    config.sources.every((source, index) => sameSource(source, DEFAULT_CONFIG.sources[index]));
   if (!untouchedDefaults) {
     return { config, migrated: false };
   }

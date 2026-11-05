@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, open, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { promisify } from "node:util";
 import { decodeAntigravityGeneration, protobufFields, scanAntigravityDb } from "../../herdr-insights/mods/insights/core/antigravity.mjs";
 import { emptyStore, snapshotRows } from "../../herdr-insights/mods/insights/core/store.mjs";
 import { scanSources } from "../../herdr-insights/mods/insights/core/scan.mjs";
@@ -52,11 +53,7 @@ async function transcript(context, name = "conv") {
 async function run(context, configure = false) {
   const args = [collector.pathname, configure ? "configure" : "snapshot", "--store", context.store, "--home", context.home];
   if (configure) args.push("--config", JSON.stringify({ sources: context.sources }));
-  const child = spawn(process.execPath, args, { env: { ...process.env, TZ: "UTC" }, stdio: ["ignore", "pipe", "pipe"] });
-  let stdout = "", stderr = "";
-  child.stdout.on("data", (x) => stdout += x); child.stderr.on("data", (x) => stderr += x);
-  const code = await new Promise((resolve, reject) => { child.on("close", resolve); child.on("error", reject); });
-  assert.equal(code, 0, stderr);
+  const { stdout } = await promisify(execFile)(process.execPath, args, { env: { ...process.env, TZ: "UTC" } });
   return JSON.parse(stdout);
 }
 const total = (snapshot) => snapshot.rows.reduce((n, r) => n + r.tokens.total, 0);
