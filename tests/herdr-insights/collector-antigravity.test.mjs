@@ -10,6 +10,10 @@ import { promisify } from "node:util";
 import { decodeAntigravityGeneration, protobufFields, scanAntigravityDb } from "../../herdr-insights/mods/insights/core/antigravity.mjs";
 import { emptyStore, snapshotRows } from "../../herdr-insights/mods/insights/core/store.mjs";
 import { scanSources } from "../../herdr-insights/mods/insights/core/scan.mjs";
+import { readWorkerClaim, writeFence } from "../../herdr-insights/mods/insights/core/fence.mjs";
+import { ensureIndexer } from "../../herdr-insights/mods/insights/core/indexer-control.mjs";
+import { readLiveProgress } from "../../herdr-insights/mods/insights/core/progress.mjs";
+import { isProcessAlive, sleep } from "../../herdr-insights/mods/insights/core/util.mjs";
 
 const collector = new URL("../../herdr-insights/mods/insights/collector.mjs", import.meta.url);
 function vi(value) {
@@ -352,27 +356,75 @@ test("Antigravity handles databases disappearing during discovery and unreadable
   const warnings = [];
   const sink = { warn: (message) => warnings.push(message), note: (message) => warnings.push(message) };
   const stats = { filesRead: 0, bytesRead: 0, unchangedFiles: 0 };
-  const missing = await scanAntigravityDb(store, store.config.sources[0], `${file}.removed`, sink, stats);
-  assert.equal(missing.accepted, undefined);
+  await scanAntigravityDb(store, store.config.sources[0], `${file}.removed`, sink, stats);
   assert.equal(JSON.stringify(store), before);
   assert.equal(warnings.length, 0);
   if (process.platform === "win32") return;
   await symlink(`${file}-wal`, `${file}-wal`); // stat reports ELOOP, not a missing WAL
-  const unreadable = await scanAntigravityDb(store, store.config.sources[0], file, sink, stats);
-  assert.equal(unreadable.accepted, undefined);
+  await scanAntigravityDb(store, store.config.sources[0], file, sink, stats);
   assert.equal(JSON.stringify(store), before);
   assert.match(warnings.join(" "), /cannot stat database WAL/);
 });
 
-test("Antigravity SQLite abort rolls back all file contributions and resumes on next scan", async (t) => {
-  const context = await env(t);
-  const second = generation({ id: "two", step: 3 });
-  const { db } = database(context, "conv", [{ idx: 0, ...generation() }, { idx: 1, ...second, step: 3 }]); db.close();
-  const store = emptyStore({ sources: context.sources.map((s) => ({ ...s, enabled: true })) });
-  let checks = 0;
-  const stopped = await scanSources(store, { home: context.home, shouldStop: () => ++checks >= 3 });
-  assert.equal(stopped.complete, false); assert.equal(Object.keys(store.files).length, 0); assert.equal(Object.keys(store.dedup).length, 0);
-  const complete = await scanSources(store, { home: context.home });
-  assert.equal(complete.complete, true);
-  assert.equal(Object.keys(store.dedup).length, 2);
-});
+for (const interruption of ["SIGTERM", "generation fence"]) {
+  test(`Antigravity worker rolls back a database scan on ${interruption} and resumes`, async (t) => {
+    const context = await env(t);
+    const original = database(context);
+    original.db.close();
+    const first = await run(context, true);
+    const before = JSON.parse(await readFile(context.store, "utf8"));
+    const db = new DatabaseSync(original.file);
+    db.prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000)
+      INSERT INTO gen_metadata SELECT i, ? FROM n`).run(generation({ id: "appended", input: 11, step: 2 }).data);
+    db.close();
+
+    async function waitFor(predicate) {
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline) {
+        const result = await predicate();
+        if (result) return result;
+        await sleep(10);
+      }
+      throw new Error("Antigravity worker did not settle");
+    }
+
+    let worker;
+    try {
+      worker = await ensureIndexer(context.store, context.home, { generation: before.generation });
+      assert.equal(worker.spawned, true);
+      const progress = await waitFor(async () => {
+        const live = await readLiveProgress(context.store);
+        if (live?.pid === worker.pid && live.decodedBytes > 0) return live;
+        return (await readWorkerClaim(context.store)) === null ? { finished: true } : null;
+      });
+      assert.ok(progress.decodedBytes > 0, "interruption must occur inside the database scan");
+      if (interruption === "SIGTERM") process.kill(worker.pid, "SIGTERM");
+      else await writeFence(context.store, before.generation + 1);
+      await waitFor(async () => (await readWorkerClaim(context.store)) === null);
+      const stopped = JSON.parse(await readFile(context.store, "utf8"));
+      assert.deepEqual(snapshotRows(stopped), first.rows);
+      assert.deepEqual(stopped.files, before.files);
+      assert.deepEqual(stopped.dedup, before.dedup);
+      assert.notEqual(stopped.scan.status, "complete");
+      if (interruption === "SIGTERM") {
+        assert.equal(stopped.scan.status, "partial");
+        assert.equal(stopped.scan.pendingFile.path, await realpath(original.file));
+      } else {
+        await writeFence(context.store, before.generation);
+      }
+
+      worker = await ensureIndexer(context.store, context.home, { generation: before.generation });
+      assert.equal(worker.spawned, true);
+      await waitFor(async () => (await readWorkerClaim(context.store)) === null);
+      const completed = JSON.parse(await readFile(context.store, "utf8"));
+      assert.equal(completed.scan.status, "complete");
+      assert.equal(total({ rows: snapshotRows(completed) }), 81);
+      assert.equal(snapshotRows(completed).reduce((n, row) => n + row.messages, 0), 2);
+    } finally {
+      if (worker?.pid && isProcessAlive(worker.pid)) {
+        process.kill(worker.pid, "SIGTERM");
+        await waitFor(() => !isProcessAlive(worker.pid));
+      }
+    }
+  });
+}

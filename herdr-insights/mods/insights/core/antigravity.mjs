@@ -27,6 +27,7 @@
 import path from "node:path";
 import { stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { setImmediate } from "node:timers/promises";
 import {
   addUsage,
   beginStoreTransaction,
@@ -209,6 +210,7 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
   const counts = { oversized: 0, malformed: 0, approximateTime: 0, missingId: 0 };
   let rows = 0;
   let decodedRows = 0;
+  let bytes = 0;
   try {
     for (const key of supersededKeys) deleteFileEntry(store, key);
     db = new sqlite.DatabaseSync(file, { readOnly: true });
@@ -229,6 +231,11 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
     else resetFileEntry(store, entry);
     const conversation = antigravityConversation(file);
     for (const record of records) {
+      if (rows > 0 && rows % 128 === 0) {
+        options.onStreamProgress?.({ file, bytes, phase: "scan" });
+        // Let signal handlers and generation-fence polling run between batches.
+        await setImmediate();
+      }
       const stopped = options.shouldStop?.();
       const expired = rows > 0 && Number.isFinite(options.deadline) &&
         (options.now ?? Date.now)() >= options.deadline;
@@ -237,6 +244,7 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
         return { dirty: false, aborted: true, reason: stopped ? "stop" : "budget" };
       }
       rows += 1;
+      bytes += record.data?.length ?? 0;
       if (!record.data) { counts.oversized += 1; continue; }
       let generations;
       try { generations = decodeAntigravityGeneration(record.data); } catch { counts.malformed += 1; continue; }
@@ -244,7 +252,7 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
       for (let index = 0; index < generations.length; index += 1) {
         const generation = generations[index];
         let created = null;
-        if (generation.step !== null) {
+        if (generation.step !== null && generation.responseId) {
           const step = stepQuery.get(generation.step);
           try { created = stepTimestamp(step?.data, generation.responseId); } catch { /* use documented fallback */ }
         }
