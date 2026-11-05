@@ -102,6 +102,119 @@ test("Antigravity SQLite supersedes cached transcript without duplicate totals, 
   assert.equal(total(await run(context)), 40);
 });
 
+test("Antigravity database handoff replaces token maxima and attribution, but rolls back an unusable replacement", async (t) => {
+  const context = await env(t);
+  context.sources[0].roots.push("~/second/conversations");
+  const original = database(context);
+  original.db.close();
+  await mkdir(path.join(context.home, "second/conversations"), { recursive: true });
+  const replacement = database({ home: path.join(context.home, "second") }, "conv", [
+    { idx: 0, data: Buffer.from([10, 255]) },
+  ]);
+  replacement.db.close();
+  const first = await run(context, true);
+  assert.equal(total(first), 40);
+  const before = JSON.parse(await readFile(context.store, "utf8"));
+  await rm(original.file);
+
+  const failed = await run(context);
+  assert.equal(total(failed), 40);
+  const retained = JSON.parse(await readFile(context.store, "utf8"));
+  assert.deepEqual(retained.files, before.files);
+  assert.deepEqual(retained.dedup, before.dedup);
+  assert.equal(retained.nextFileId, before.nextFileId);
+
+  const g = generation({ model: "claude-new", system: 0, input: 10, output: 0, thinking: 0, cache: 0 });
+  const db = new DatabaseSync(replacement.file);
+  db.prepare("UPDATE gen_metadata SET data = ?").run(g.data);
+  db.prepare("INSERT INTO steps VALUES (1, ?)").run(join(msg(1, ts(1790572800)), msg(9, g.usage)));
+  db.close();
+  const next = await run(context);
+  assert.equal(next.rows.length, 1);
+  assert.equal(total(next), 10);
+  assert.equal(next.rows[0].model, "claude-new");
+  assert.equal(next.rows[0].provider, "anthropic");
+  assert.equal(next.rows[0].day, "2026-09-28");
+  const warm = await run(context);
+  assert.deepEqual(warm.rows, next.rows);
+  assert.equal(warm.stats.filesRead, 0);
+  const saved = JSON.parse(await readFile(context.store, "utf8"));
+  assert.deepEqual(Object.values(saved.files).map((entry) => entry.path), [await realpath(replacement.file)]);
+});
+
+test("Antigravity transcript handoff replaces revisions from the superseded copy", async (t) => {
+  const context = await env(t);
+  const original = await transcript(context);
+  context.sources[0].roots.push("~/second/brain");
+  const replacement = await transcript({ home: path.join(context.home, "second") });
+  await writeFile(replacement, JSON.stringify({
+    source: "MODEL", step_index: 1, created_at: "2026-09-28T00:00:00Z",
+    input_tokens: 10, model: "claude-new", provider: "anthropic",
+  }) + "\n");
+  assert.equal(total(await run(context, true)), 1004);
+  await rm(original);
+  const next = await run(context);
+  assert.equal(total(next), 10);
+  assert.equal(next.rows[0].model, "claude-new");
+  assert.equal(next.rows[0].day, "2026-09-28");
+  assert.deepEqual((await run(context)).rows, next.rows);
+});
+
+for (const invalid of ["malformed", "oversized", "unrecognized"]) {
+  test(`Antigravity retains accepted database history when all generation records are ${invalid}`, async (t) => {
+    const context = await env(t);
+    const { db, file } = database(context);
+    db.close();
+    const first = await run(context, true);
+    const before = JSON.parse(await readFile(context.store, "utf8"));
+    const bad = invalid === "malformed" ? Buffer.from([10, 255])
+      : invalid === "oversized" ? Buffer.alloc(16 * 1024 * 1024 + 1)
+      : num(7, 1);
+    const changed = new DatabaseSync(file);
+    changed.prepare("UPDATE gen_metadata SET data = ?").run(bad);
+    changed.close();
+    const failed = await run(context);
+    assert.deepEqual(failed.rows, first.rows);
+    assert.match(failed.warnings.join(" "), /previous accepted data retained/);
+    const retained = JSON.parse(await readFile(context.store, "utf8"));
+    assert.deepEqual(retained.files, before.files);
+    assert.deepEqual(retained.dedup, before.dedup);
+    const repaired = new DatabaseSync(file);
+    repaired.prepare("UPDATE gen_metadata SET data = ?").run(generation().data);
+    repaired.close();
+    assert.deepEqual((await run(context)).rows, first.rows);
+  });
+}
+
+test("Antigravity keeps a transcript until the preferred database has decodable metadata", async (t) => {
+  const context = await env(t);
+  await transcript(context);
+  const first = await run(context, true);
+  const { db } = database(context, "conv", [{ idx: 0, data: Buffer.from([10, 255]) }]);
+  db.close();
+  const failed = await run(context);
+  assert.deepEqual(failed.rows, first.rows);
+  assert.match(failed.warnings.join(" "), /previous accepted data retained/);
+  const saved = JSON.parse(await readFile(context.store, "utf8"));
+  assert.equal(Object.values(saved.files)[0].path.endsWith("transcript.jsonl"), true);
+});
+
+test("Antigravity accepts genuinely empty and system-only databases", async (t) => {
+  const context = await env(t);
+  await transcript(context);
+  assert.equal(total(await run(context, true)), 1004);
+  const { db } = database(context, "conv", []);
+  db.close();
+  assert.equal(total(await run(context)), 0);
+  const systemOnly = database(context, "system-only", [
+    { idx: 0, ...generation({ input: 0, output: 0, thinking: 0, cache: 0 }) },
+  ]);
+  systemOnly.db.close();
+  const next = await run(context);
+  assert.equal(next.rows.length, 0);
+  assert.equal(next.stats.errors, 0);
+});
+
 test("Antigravity SQLite handles WAL append and response-ID dedup across sessions and copied roots", async (t) => {
   const context = await env(t); const { db, file } = database(context);
   db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0");

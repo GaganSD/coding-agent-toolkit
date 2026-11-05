@@ -32,7 +32,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2, antigravity: 1 };
+const PARSER_VERSIONS = { pi: 3, codex: 5, claude: 2, antigravity: 2 };
 const PROGRESS_CHUNK_INTERVAL = 64;
 
 export class ScanStopError extends Error {
@@ -1026,6 +1026,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   const ino = String(fileStat.ino);
   const key = fileKey(source.id, filePath);
   const existing = store.files[key];
+  const supersededKeys = options.supersededKeys ?? [];
   const isNew = !existing;
   const parserVersion = PARSER_VERSIONS[existing?.adapter ?? source.adapter];
   const parserKey = `${existing?.adapter ?? source.adapter}ParserVersion`;
@@ -1033,6 +1034,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     && !(existing?.state.unsupported === "zstd" && hasZstdSupport());
   if (
     existing
+    && supersededKeys.length === 0
     && parserCurrent
     && !existing.state.readFailed
     && !existing.state.scanPending
@@ -1042,7 +1044,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     && existing.mtimeMs === fileStat.mtimeMs
   ) {
     stats.unchangedFiles += 1;
-    return { dirty: false, aborted: false, accepted: true };
+    return { dirty: false, aborted: false };
   }
 
   // Every changed file gets a precise transaction. The previous committed
@@ -1052,6 +1054,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   let entry = existing;
   let dirty = false;
   try {
+    for (const superseded of supersededKeys) deleteFileEntry(store, superseded);
     if (!entry) {
       entry = newFileEntry(store, {
         sourceId: source.id,
@@ -1066,7 +1069,11 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       dirty = true;
     }
 
-    let forceRead = false;
+    let forceRead = supersededKeys.length > 0;
+    if (forceRead) {
+      resetFileEntry(store, entry);
+      dirty = true;
+    }
     if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
       // Migrate existing history once for accounting fixes. New files own no
       // metadata and must never trigger a global ownership cleanup scan.
@@ -1203,7 +1210,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       entry.mtimeMs = fileStat.mtimeMs;
       delete entry.state.scanPending;
     }
-    return { dirty, aborted: false, pending: plain.pending, accepted: !entry.state.readFailed && !plain.pending };
+    return { dirty, aborted: false, pending: plain.pending };
   } catch (error) {
     rollbackStoreTransaction(tx);
     sourceSink.warn(`${source.adapter} ${filePath}: scan failed: ${error.message}`);
@@ -1245,6 +1252,13 @@ export async function scanSources(store, {
   }
   const sink = warningSink(warnings, stats, sourceState);
   const discovered = await discoverFiles(store.config, home, sink, sourceState);
+  const antigravityFiles = new Map();
+  for (const [key, entry] of Object.entries(store.files)) {
+    if (entry.adapter !== "antigravity") continue;
+    const conversation = antigravityConversation(entry.path);
+    if (!antigravityFiles.has(conversation)) antigravityFiles.set(conversation, []);
+    antigravityFiles.get(conversation).push(key);
+  }
   const seenInodes = new Set();
   const seenPaths = new Set();
   const options = {
@@ -1306,13 +1320,18 @@ export async function scanSources(store, {
     sourceState[found.source.id].files += 1;
     const beforeRead = stats.filesRead;
     const beforeBytes = stats.bytesRead;
+    // Remove old owners inside the file transaction, before max-upsert can inherit their values.
+    const supersededKeys = found.source.adapter === "antigravity"
+      ? (antigravityFiles.get(antigravityConversation(found.file)) ?? [])
+        .filter((key) => key !== fileKey(found.source.id, found.file))
+      : [];
     const result = await scanOneFile(
       store,
       found.source,
       found.file,
       sink,
       stats,
-      options,
+      { ...options, supersededKeys },
     ).catch((error) => {
       sink.warn(
         `[${found.source.id}] ${found.source.adapter} ${found.file}: scan failed: ${error.message}`,
@@ -1325,19 +1344,6 @@ export async function scanSources(store, {
     sourceState[found.source.id].bytesRead +=
       stats.bytesRead - beforeBytes;
     dirty = Boolean(result?.dirty) || dirty;
-    if (found.source.adapter === "antigravity" && result?.accepted) {
-      // Superseded cached exports must disappear too, not just be excluded
-      // from discovery. Keep prior accepted data until its replacement succeeds.
-      const conversation = antigravityConversation(found.file);
-      const selectedKey = fileKey(found.source.id, found.file);
-      for (const [key, entry] of Object.entries(store.files)) {
-        if (key !== selectedKey && entry.adapter === "antigravity" &&
-          antigravityConversation(entry.path) === conversation) {
-          deleteFileEntry(store, key);
-          dirty = true;
-        }
-      }
-    }
     if (result?.aborted) {
       stopReason = result.reason ?? "budget";
       abortedFile = result.abortedFile ?? {

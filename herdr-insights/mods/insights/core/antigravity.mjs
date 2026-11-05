@@ -32,6 +32,7 @@ import {
   beginStoreTransaction,
   commitStoreTransaction,
   rollbackStoreTransaction,
+  deleteFileEntry,
   fileKey,
   newFileEntry,
   resetFileEntry,
@@ -39,7 +40,7 @@ import {
 } from "./store.mjs";
 import { localDay } from "./util.mjs";
 
-const VERSION = 1;
+const VERSION = 2;
 const MAX_BLOB = 16 * 1024 * 1024;
 const MAX_FIELDS = 100_000;
 
@@ -124,12 +125,14 @@ export function decodeAntigravityGeneration(bytes) {
     if (value <= BigInt(Number.MAX_SAFE_INTEGER)) step = Number(value);
   }
   const generations = [];
+  let recognizedUsage = false;
   for (const field of outer) {
     if (field.number !== 1 || field.wire !== 2) continue;
     const inner = protobufFields(field.value);
     const usageBytes = blob(inner, 4);
     if (!usageBytes) continue;
     const usage = protobufFields(usageBytes);
+    recognizedUsage = true;
     const system = integer(usage, 1), input = integer(usage, 2);
     const output = integer(usage, 3), cacheRead = integer(usage, 5);
     const reasoning = integer(usage, 10), outputText = integer(usage, 9);
@@ -144,6 +147,7 @@ export function decodeAntigravityGeneration(bytes) {
       tokens: { input: system + input, output, cacheRead, cacheWrite: 0, reasoning },
     });
   }
+  if (!recognizedUsage) throw new Error("unrecognized generation metadata");
   return generations;
 }
 
@@ -188,11 +192,12 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
   }
   const fingerprint = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${wal?.size ?? 0}:${wal?.mtimeMs ?? 0}`;
   let entry = store.files[fileKey(source.id, file)];
-  if (entry?.state.agyDbVersion === VERSION && entry.state.agyDbFingerprint === fingerprint) {
+  const supersededKeys = options.supersededKeys ?? [];
+  if (supersededKeys.length === 0 && entry?.state.agyDbVersion === VERSION && entry.state.agyDbFingerprint === fingerprint) {
     for (const warning of entry.state.agyWarnings ?? []) sink.warn(warning);
     for (const note of entry.state.agyNotes ?? []) sink.note(note);
     stats.unchangedFiles += 1;
-    return { dirty: false, aborted: false, accepted: true };
+    return { dirty: false, aborted: false };
   }
   let sqlite;
   try { sqlite = await import("node:sqlite"); } catch {
@@ -203,7 +208,9 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
   let db;
   const counts = { oversized: 0, malformed: 0, approximateTime: 0, missingId: 0 };
   let rows = 0;
+  let decodedRows = 0;
   try {
+    for (const key of supersededKeys) deleteFileEntry(store, key);
     db = new sqlite.DatabaseSync(file, { readOnly: true });
     db.exec("BEGIN");
     // SQLite limits the returned blob before it crosses into JS memory.
@@ -233,6 +240,7 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
       if (!record.data) { counts.oversized += 1; continue; }
       let generations;
       try { generations = decodeAntigravityGeneration(record.data); } catch { counts.malformed += 1; continue; }
+      decodedRows += 1;
       for (let index = 0; index < generations.length; index += 1) {
         const generation = generations[index];
         let created = null;
@@ -253,6 +261,11 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
           : makeDedupKey("antigravity", "generation", conversation, record.idx, index));
       }
     }
+    if (rows > 0 && decodedRows === 0) {
+      rollbackStoreTransaction(tx);
+      sink.warn(`Antigravity ${path.basename(file)}: no decodable generation records; previous accepted data retained.`);
+      return { dirty: false, aborted: false };
+    }
     db.exec("COMMIT");
     const warnings = [];
     const notes = [];
@@ -272,7 +285,7 @@ export async function scanAntigravityDb(store, source, file, sink, stats, option
     for (const note of notes) sink.note(note);
     stats.filesRead += 1;
     stats.bytesRead += info.size + (wal?.size ?? 0);
-    return { dirty: true, aborted: false, accepted: true };
+    return { dirty: true, aborted: false };
   } catch {
     rollbackStoreTransaction(tx);
     // Do not leak strings from SQLite or protobuf source payloads in diagnostics.
