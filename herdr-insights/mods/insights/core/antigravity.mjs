@@ -61,7 +61,6 @@ function varint(bytes, cursor) {
     value |= BigInt(byte & 127) << BigInt(shift);
     if (byte < 128) return value;
   }
-  throw new Error("protobuf varint overflow");
 }
 
 export function protobufFields(bytes) {
@@ -76,7 +75,7 @@ export function protobufFields(bytes) {
     if (wire === 0) value = varint(bytes, cursor);
     else if (wire === 1 || wire === 2 || wire === 5) {
       const size = wire === 2 ? Number(varint(bytes, cursor)) : wire === 1 ? 8 : 4;
-      if (!Number.isSafeInteger(size) || size > bytes.length - cursor.pos) {
+      if (size > bytes.length - cursor.pos) {
         throw new Error("invalid protobuf length");
       }
       value = bytes.subarray(cursor.pos, cursor.pos + size);
@@ -149,7 +148,6 @@ export function decodeAntigravityGeneration(bytes) {
 }
 
 function sessionMetadata(bytes) {
-  if (!bytes) return {};
   const fields = protobufFields(bytes);
   let project = "unknown";
   const workspace = blob(fields, 1);
