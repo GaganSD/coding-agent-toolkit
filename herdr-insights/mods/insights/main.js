@@ -1,10 +1,11 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Button, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
-import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, spaces } from "herdr";
+import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, writeTextFile, pickFolder, notify, spaces } from "herdr";
 import {
   PALETTES,
   clampRefreshSeconds,
+  dashboardMarkdown,
   dayLabel,
   formatBytes,
   formatCompact,
@@ -55,6 +56,13 @@ function shortFileName(value) {
   if (typeof value !== "string" || value.length === 0) return "";
   const index = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
   return index >= 0 ? value.slice(index + 1) : value;
+}
+
+/** Local-time filename stamp, so two exports never reuse a path. */
+function exportStamp(date) {
+  const two = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
+    + `-${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`;
 }
 
 /** One Insights tab per space: focus it if it exists, otherwise create it. */
@@ -468,6 +476,10 @@ export default class Insights extends View {
     this.rootsDirty = false;
     this.refreshDirty = false;
     this.saving = false;
+    this.exporting = false;
+    this.exportError = null;
+    this.exportTask = null;
+    this.exportMenuOpen = false;
     this.saveError = null;
     this.saveMessage = null;
     this.syncingInputs = false;
@@ -557,6 +569,8 @@ export default class Insights extends View {
     try { this.progressTimer?.cancel(); } catch { /* already gone */ }
     this.cancelScanContinue();
     try { this.saveWatchdog?.cancel(); } catch { /* already gone */ }
+    try { this.exportTask?.cancel(); } catch { /* already gone */ }
+    this.exportTask = null;
     try { this.settingsTask?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
     try { this.runtimeTask?.cancel(); } catch { /* already gone */ }
@@ -1055,6 +1069,82 @@ export default class Insights extends View {
     });
   }
 
+  exportMenu(c) {
+    const disabled = !this.dashboard || this.exporting || this.busy();
+    const trigger = Button.new("insights-export-trigger").h(H.control).px(G.sm).gap(G.xs).items_center().rounded(R.control)
+      .border_1().border_color(c.border).bg(c.card)
+      .when(disabled, (el) => el.opacity(0.5))
+      .when(!disabled, (el) => el.cursor_pointer().hover((style) => style.bg(c.subtle)))
+      .focus((style) => style.border_color(c.ring))
+      .disabled(disabled)
+      .accessibility_label("Export")
+      .child(div().text_size(T.body).font_medium().text_color(c.text).child(this.exporting ? "Exporting…" : "Export"))
+      .child(div().text_size(T.small).text_color(c.dim).child("⌄"));
+
+    const open = this.exportMenuOpen && !disabled;
+    const menu = Popover.new("insights-export-menu").trigger(trigger)
+      .open(open)
+      .on_open_change((next, changeCx) => {
+        this.exportMenuOpen = next;
+        changeCx.notify();
+      });
+    if (open) {
+      menu.content(v_flex().min_w(0).p(G.xs).gap(0).rounded(R.control)
+        .bg(c.popover).border_1().border_color(c.border)
+        .child(Button.new("insights-export-markdown")
+          .h(H.compact).px(G.sm).justify_start().rounded(R.control)
+          .set_position(1, 1)
+          .cursor_pointer()
+          .hover((style) => style.bg(c.subtle))
+          .focus((style) => style.bg(c.selected))
+          .accessibility_label("As Markdown")
+          .on_click((_event, clickCx) => {
+            this.exportMenuOpen = false;
+            this.exportMarkdown(clickCx);
+            clickCx.notify();
+          })
+          .child(div().text_size(T.body).text_color(c.text).child("As Markdown"))));
+    }
+    return menu;
+  }
+
+  exportMarkdown(cx) {
+    if (this.closed || !this.dashboard || this.exporting || this.busy()) return;
+    this.exportMenuOpen = false;
+    const now = new Date();
+    const markdown = dashboardMarkdown(this.dashboard, { now });
+    this.exporting = true;
+    this.exportError = null;
+    cx.notify();
+    let task = null;
+    task = cx.spawn(async (exportCx) => {
+      let failure = null;
+      let savedPath = null;
+      try {
+        const folder = await pickFolder({ prompt: "Export" });
+        if (!folder) return;
+        const base = String(folder).replace(/[\\/]+$/, "");
+        savedPath = `${base}/insights-${exportStamp(now)}.md`;
+        await writeTextFile(savedPath, markdown, null);
+      } catch (error) {
+        failure = error;
+      } finally {
+        if (!this.closed) {
+          this.exporting = false;
+          if (this.exportTask === task) this.exportTask = null;
+          if (failure) {
+            this.exportError = sanitizeError(failure);
+            notify({ title: "Could not export Insights", body: this.exportError, level: "error" });
+          } else if (savedPath) {
+            notify({ title: "Insights exported", body: savedPath, level: "success" });
+          }
+          exportCx.notify();
+        }
+      }
+    });
+    this.exportTask = task;
+  }
+
   applySnapshot(payload, cx) {
     if (!isPresentation(payload)) throw new Error("The presentation helper returned an unexpected dashboard payload.");
     const snapshot = payload.snapshot;
@@ -1461,6 +1551,7 @@ export default class Insights extends View {
           disabled: this.busy(),
           variant: "outline",
         }))
+        .child(this.exportMenu(c))
         .when(Boolean(this.snapshot), (el) => el.child(button(
           "insights-settings",
           this.showSettings ? "Dashboard" : "Settings",
