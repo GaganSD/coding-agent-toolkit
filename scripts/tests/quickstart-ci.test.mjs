@@ -19,10 +19,36 @@ test("quickstart smoke uses the pinned Pi CLI and the dedicated workflow is rele
   assert.equal(piCliVersion(), manifest.devDependencies["@earendil-works/pi-coding-agent"]);
 
   const workflow = readFileSync(new URL("../../.github/workflows/quickstart.yml", import.meta.url), "utf8");
-  assert.match(workflow, /workflow_run:/);
-  assert.match(workflow, /workflows: \["Main CI and releases"\]/);
+  assert.match(workflow, /workflow_call:/);
+  assert.doesNotMatch(workflow, /workflow_run:/);
+  assert.doesNotMatch(workflow, /\bref:/);
   assert.match(workflow, /schedule:/);
   assert.match(workflow, /node scripts\/quickstart-ci\.mjs/);
+});
+
+test("post-main quickstart runs only for selected changes after successful validation/publication", () => {
+  const workflow = readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8");
+  const job = workflow.split("  quickstart:\n")[1].split("\n  publish:")[0];
+  assert.match(job, /needs: \[validate, eligible, publish\]/);
+  assert.match(job, /uses: .\/\.github\/workflows\/quickstart.yml/);
+  const condition = job.match(/if: >-\n([\s\S]*?)\n {4}uses:/)[1].trim();
+  const selected = new Function("needs", "always", "cancelled", `return (${condition});`);
+  const needs = {
+    validate: { result: "success", outputs: { run_quickstart: "true" } },
+    eligible: { result: "success" }, publish: { result: "skipped" },
+  };
+  const run = (jobs, cancelled = false) => selected(jobs, () => true, () => cancelled);
+  assert.equal(run(needs), true);
+  assert.equal(run({ ...needs, publish: { result: "success" } }), true);
+  assert.equal(run(needs, true), false);
+  for (const name of Object.keys(needs)) {
+    for (const result of ["failure", "cancelled"]) {
+      assert.equal(run({ ...needs, [name]: { ...needs[name], result } }), false);
+    }
+  }
+  for (const value of ["false", "", undefined]) {
+    assert.equal(run({ ...needs, validate: { result: "success", outputs: { run_quickstart: value } } }), false);
+  }
 });
 
 test("quickstart waits through npm's post-publish processing delay", () => {
