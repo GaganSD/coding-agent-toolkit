@@ -14,8 +14,10 @@ const {
   availableYears,
   buildHeatmap,
   buildModelSeries,
+  compactDashboard,
   compareChange,
   createDashboardCache,
+  dashboardMarkdown,
   dayKey,
   dayLabel,
   deriveDashboard,
@@ -102,6 +104,68 @@ test("local calendar arithmetic handles leap days and DST", () => {
   assert.equal(startOfWeek("2024-01-03", 1), "2024-01-01");
   assert.deepEqual(weekdayLabels(1).slice(0, 2), ["Mon", ""]);
   assert.equal(dayLabel("2024-01-03", { year: false }), "Jan 3");
+});
+
+test("dashboardMarkdown exports exact compact values without re-deriving", () => {
+  const snapshot = {
+    config: { includeCache: true, weekStartsOn: 0, sources: [] },
+    rows: [
+      row({ day: "2024-01-09", session: "s1", tokens: { input: 1000, output: 200, cacheRead: 5000, cacheWrite: 100 }, messages: 2, longestTaskMs: 3600000 }),
+      row({ day: "2024-01-10", session: "s1", tokens: { input: 500, output: 100, cacheRead: 2000, cacheWrite: 0 }, messages: 1, longestTaskMs: 7200000 }),
+      row({ day: "2024-01-10", session: "s2", model: "claude-test", provider: "anthropic", tokens: { input: 300, output: 50, cacheRead: 100, cacheWrite: 0 }, messages: 1, longestTaskMs: 1800000 }),
+    ],
+  };
+  const options = { today: "2024-01-10", period: "month", selectedDay: "2024-01-10" };
+  const markdown = dashboardMarkdown(compactDashboard(deriveDashboard(snapshot, options)), {
+    now: new Date(2024, 0, 10, 19, 7),
+  });
+
+  assert.match(markdown, /^# Insights — January 2024/m);
+  assert.match(markdown, /- Generated: 2024-01-10 19:07 \(local\)/);
+  assert.match(markdown, /- Tokens: input \+ output \+ cache reads \+ cache writes/);
+  assert.match(markdown, /\| Tokens \| 9,350 \|/);
+  assert.match(markdown, /\| Sessions \| 2 \|/);
+  assert.match(markdown, /\| Peak day \| 6,300 tokens on Jan 9, 2024 \|/);
+  assert.match(markdown, /\| Input \| 800 \|/);
+  assert.match(markdown, /\| Output \| 150 \|/);
+  assert.match(markdown, /\| Cache reads \| 2,100 \|/);
+  assert.match(markdown, /\| Cache hit rate \| 72.4% \|/);
+  assert.match(markdown, /\| Top model \| gpt-test \(2,600 tokens\) \|/);
+  assert.match(markdown, /\| 1 \| gpt-test \| openai \| 8,900 \| 95.2% \| 1 \| New \|/);
+  assert.match(markdown, /\| Jan 7, 2024 \| 9,350 \| 2 \|/);
+  assert.match(markdown, /Weeks without usage are omitted\./);
+
+  const excluded = dashboardMarkdown(compactDashboard(deriveDashboard({
+    ...snapshot,
+    config: { ...snapshot.config, includeCache: false },
+  }, options)), { now: new Date(2024, 0, 10, 19, 7) });
+  assert.match(excluded, /- Tokens: input \+ output \(cache excluded\)/);
+  assert.match(excluded, /\| Tokens \| 2,150 \|/);
+});
+
+test("dashboardMarkdown handles an empty dashboard and escapes table cells", () => {
+  const empty = dashboardMarkdown(compactDashboard(deriveDashboard({
+    config: { includeCache: true, weekStartsOn: 0, sources: [] },
+    rows: [],
+  }, { today: "2024-01-10" })), { now: new Date(2024, 0, 10, 19, 7) });
+  assert.match(empty, /_No usage in this period\._/);
+  assert.doesNotMatch(empty, /## Token history/);
+
+  const escaped = dashboardMarkdown({
+    includeCache: true,
+    today: "2024-01-10",
+    range: { label: "All time", start: null, end: "2024-01-10" },
+    filters: { provider: "all", model: "all" },
+    lifetime: { total: 10, sessions: 1, days: 1, messages: 1, longestTaskMs: 0 },
+    peak: { day: null, tokens: 0 },
+    streaks: { current: 0, longest: 0 },
+    selectedDay: "2024-01-10",
+    selectedTotals: { total: 10, input: 10, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, sessions: 1, messages: 1 },
+    selectedTop: { name: "model|with|pipes", tokens: 10 },
+    leaders: { entries: [{ rank: 1, name: "model|with|pipes", sublabel: "provider|one", tokens: 10, sharePct: 100, sessions: 1, previous: 0, change: { kind: "new", label: "New" } }], totalTokens: 10, totalSessions: 1, totalGroups: 1 },
+    heatmap: { windowTotal: 10, weeks: [] },
+  }, { now: new Date(2024, 0, 10, 19, 7) });
+  assert.match(escaped, /model\\\|with\\\|pipes/);
 });
 
 test("heatmap is 53 local weeks of 7 consecutive days", () => {
