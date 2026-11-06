@@ -4,18 +4,18 @@ import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { affectedChecks, affectedPackages, checkOutputs, ciMatrix, detectChecks } from "../ci.mjs";
+import { affectedChecks, checkOutputs, ciMatrix, detectChecks } from "../ci.mjs";
 import { isolatedEnvironment, root } from "../lib.mjs";
 import { packages } from "../packages.mjs";
 import { validateContents } from "../package.mjs";
 import { selectTests, testFiles } from "../test-package.mjs";
 
 test("package changes select only their packages; shared changes select all", () => {
-  assert.deepEqual(affectedPackages(["pi-ask/src/index.ts"]), ["pi-ask"]);
-  assert.deepEqual(affectedPackages(["pi-slate/package.json", "pi-ask/tests/example.test.ts"]), ["pi-ask", "pi-slate"]);
-  assert.deepEqual(affectedPackages(["README.md", "docs/releases.md"]), []);
-  for (const file of ["package-lock.json", ".github/workflows/ci.yml", "scripts/packages.mjs", ".release/plan.json"]) {
-    assert.deepEqual(affectedPackages([file]), Object.keys(packages));
+  assert.deepEqual(affectedChecks(["pi-ask/src/index.ts"]).packages, ["pi-ask"]);
+  assert.deepEqual(affectedChecks(["pi-slate/package.json", "pi-ask/tests/example.test.ts"]).packages, ["pi-ask", "pi-slate"]);
+  assert.deepEqual(affectedChecks(["README.md", "docs/releases.md"]).packages, []);
+  for (const file of ["package-lock.json", ".github/workflows/ci.yml", "scripts/packages.mjs"]) {
+    assert.deepEqual(affectedChecks([file]).packages, Object.keys(packages));
   }
 });
 

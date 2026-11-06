@@ -35,10 +35,7 @@ export function affectedChecks(files, { releasePackages } = {}) {
       allPackages();
       tooling = quickstart = true;
     } else if (file === planPath) {
-      // Release validation runs separately on every change. A missing plan
-      // context (e.g. a caller doing path-only analysis) must not omit artifacts.
-      if (releasePackages === undefined) allPackages();
-      else for (const name of releasePackages) {
+      for (const name of releasePackages) {
         if (!Object.hasOwn(packages, name)) throw new Error(`Unknown release package: ${name}`);
         selected.add(name);
       }
@@ -60,10 +57,6 @@ export function affectedChecks(files, { releasePackages } = {}) {
     }
   }
   return { packages: packageNames.filter(name => selected.has(name)), insights, tooling, quickstart, unknown };
-}
-
-export function affectedPackages(files) {
-  return affectedChecks(files).packages;
 }
 
 // One combined leg per package keeps check names and the release gate simple.

@@ -21,7 +21,7 @@ test("quickstart smoke uses the pinned Pi CLI and the dedicated workflow is rele
   const workflow = readFileSync(new URL("../../.github/workflows/quickstart.yml", import.meta.url), "utf8");
   assert.match(workflow, /workflow_call:/);
   assert.doesNotMatch(workflow, /workflow_run:/);
-  assert.match(workflow, /ref: \$\{\{ github.sha \}\}/);
+  assert.doesNotMatch(workflow, /\bref:/);
   assert.match(workflow, /schedule:/);
   assert.match(workflow, /node scripts\/quickstart-ci\.mjs/);
 });
