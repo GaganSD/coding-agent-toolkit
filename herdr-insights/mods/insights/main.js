@@ -265,7 +265,7 @@ function parseSnapshot(stdout) {
   return parsed;
 }
 
-function presentationKey(snapshot, options = {}) {
+export function presentationKey(snapshot, options = {}) {
   return JSON.stringify({
     generatedAt: snapshot?.generatedAt ?? null,
     lastScanAt: snapshot?.lastScanAt ?? null,
@@ -684,6 +684,16 @@ export default class Insights extends View {
     return this.loading || this.saving;
   }
 
+  dashboardCurrent() {
+    return Boolean(this.dashboard)
+      && this.dashboardKey === presentationKey(this.snapshot, this.dashboardOptions());
+  }
+
+  exportReady() {
+    return !this.closed && this.dashboardCurrent() && !this.exporting && !this.busy()
+      && !this.dashboardPending && !this.dashboardQueued;
+  }
+
   resolveRuntime(cx) {
     if (this.closed || (this.runtimeTask && !this.runtimeReady)) return;
     this.runtimeReady = false;
@@ -1068,7 +1078,7 @@ export default class Insights extends View {
   }
 
   exportMarkdown(cx) {
-    if (this.closed || !this.dashboard || this.exporting || this.busy()) return;
+    if (!this.exportReady()) return;
     const now = new Date();
     const markdown = dashboardMarkdown(this.dashboard, { now });
     this.exporting = true;
@@ -1506,7 +1516,7 @@ export default class Insights extends View {
           variant: "outline",
         }))
         .child(button("insights-export", this.exporting ? "Exporting…" : "Export", (_event, clickCx) => this.exportMarkdown(clickCx), c, {
-          disabled: !this.dashboard || this.exporting || this.busy(),
+          disabled: !this.exportReady(),
           variant: "outline",
         }))
         .when(Boolean(this.snapshot), (el) => el.child(button(

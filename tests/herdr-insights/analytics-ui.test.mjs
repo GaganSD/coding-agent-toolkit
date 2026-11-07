@@ -157,7 +157,7 @@ const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
     /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
     `const { ${uiNames} } = await import("${uiUrl}");`,
   );
-const { default: Insights, heatmapMetrics, modelLogo, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
+const { default: Insights, heatmapMetrics, modelLogo, presentationKey, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
 
 function optionArgument(args) {
   const index = args.indexOf("--options");
@@ -403,6 +403,7 @@ test("export writes the current dashboard as Markdown without running the collec
     selectedDay: "2024-01-10",
     today: "2024-01-10",
   }));
+  instance.dashboardKey = presentationKey(instance.snapshot, instance.dashboardOptions());
   const { cx } = liveCx();
 
   instance.exportMarkdown(cx);
@@ -427,11 +428,17 @@ test("export writes the current dashboard as Markdown without running the collec
   assert.equal(state.exportWrites.length, 1, "cancelling the picker writes nothing");
   assert.equal(state.notifications.length, 1, "cancelling the picker is silent");
   assert.equal(instance.exporting, false);
+
+  instance.filters.provider = "stale";
+  instance.exportMarkdown(cx);
+  await flush();
+  assert.equal(state.exportWrites.length, 1, "a stale dashboard is never exported");
+  assert.equal(instance.exporting, false);
 });
 
 test("export is a single toolbar button that starts a Markdown export", () => {
   const instance = blankInstance();
-  instance.dashboard = { today: "2024-01-10" };
+  instance.dashboardCurrent = () => true;
   let exported = false;
   instance.exportMarkdown = () => { exported = true; };
 
