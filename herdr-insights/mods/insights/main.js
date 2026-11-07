@@ -1,10 +1,12 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Button, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
-import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, spaces } from "herdr";
+import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, writeTextFile, pickFolder, notify, spaces } from "herdr";
 import {
   PALETTES,
   clampRefreshSeconds,
+  dashboardMarkdown,
+  dayKey,
   dayLabel,
   formatBytes,
   formatCompact,
@@ -55,6 +57,12 @@ function shortFileName(value) {
   if (typeof value !== "string" || value.length === 0) return "";
   const index = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
   return index >= 0 ? value.slice(index + 1) : value;
+}
+
+/** Local-time filename stamp, so two exports never reuse a path. */
+function exportStamp(date) {
+  const two = (value) => String(value).padStart(2, "0");
+  return `${dayKey(date)}-${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`;
 }
 
 /** One Insights tab per space: focus it if it exists, otherwise create it. */
@@ -257,7 +265,7 @@ function parseSnapshot(stdout) {
   return parsed;
 }
 
-function presentationKey(snapshot, options = {}) {
+export function presentationKey(snapshot, options = {}) {
   return JSON.stringify({
     generatedAt: snapshot?.generatedAt ?? null,
     lastScanAt: snapshot?.lastScanAt ?? null,
@@ -468,6 +476,8 @@ export default class Insights extends View {
     this.rootsDirty = false;
     this.refreshDirty = false;
     this.saving = false;
+    this.exporting = false;
+    this.exportTask = null;
     this.saveError = null;
     this.saveMessage = null;
     this.syncingInputs = false;
@@ -557,6 +567,8 @@ export default class Insights extends View {
     try { this.progressTimer?.cancel(); } catch { /* already gone */ }
     this.cancelScanContinue();
     try { this.saveWatchdog?.cancel(); } catch { /* already gone */ }
+    try { this.exportTask?.cancel(); } catch { /* already gone */ }
+    this.exportTask = null;
     try { this.settingsTask?.cancel(); } catch { /* already gone */ }
     try { this.commandTask?.cancel(); } catch { /* already gone */ }
     try { this.runtimeTask?.cancel(); } catch { /* already gone */ }
@@ -670,6 +682,16 @@ export default class Insights extends View {
 
   busy() {
     return this.loading || this.saving;
+  }
+
+  dashboardCurrent() {
+    return Boolean(this.dashboard)
+      && this.dashboardKey === presentationKey(this.snapshot, this.dashboardOptions());
+  }
+
+  exportReady() {
+    return !this.closed && this.dashboardCurrent() && !this.exporting && !this.busy()
+      && !this.dashboardPending && !this.dashboardQueued;
   }
 
   resolveRuntime(cx) {
@@ -1051,6 +1073,38 @@ export default class Insights extends View {
       } catch (error) {
         this.error = sanitizeError(error);
         refreshCx.notify();
+      }
+    });
+  }
+
+  exportMarkdown(cx) {
+    if (!this.exportReady()) return;
+    const now = new Date();
+    const markdown = dashboardMarkdown(this.dashboard, { now });
+    this.exporting = true;
+    cx.notify();
+    this.exportTask = cx.spawn(async (exportCx) => {
+      let failure = null;
+      let savedPath = null;
+      try {
+        const folder = await pickFolder({ prompt: "Export" });
+        if (!folder) return;
+        const base = String(folder).replace(/[\\/]+$/, "");
+        savedPath = `${base}/insights-${exportStamp(now)}.md`;
+        await writeTextFile(savedPath, markdown, null);
+      } catch (error) {
+        failure = error;
+      } finally {
+        if (!this.closed) {
+          this.exporting = false;
+          this.exportTask = null;
+          if (failure) {
+            notify({ title: "Could not export Insights", body: sanitizeError(failure), level: "error" });
+          } else if (savedPath) {
+            notify({ title: "Insights exported", body: savedPath, level: "success" });
+          }
+          exportCx.notify();
+        }
       }
     });
   }
@@ -1459,6 +1513,10 @@ export default class Insights extends View {
           .text_color(statusError ? c.destructive : c.dim).child(status)))
         .child(button("insights-refresh", "↻ Refresh", (_event, clickCx) => this.refresh(clickCx), c, {
           disabled: this.busy(),
+          variant: "outline",
+        }))
+        .child(button("insights-export", this.exporting ? "Exporting…" : "Export", (_event, clickCx) => this.exportMarkdown(clickCx), c, {
+          disabled: !this.exportReady(),
           variant: "outline",
         }))
         .when(Boolean(this.snapshot), (el) => el.child(button(

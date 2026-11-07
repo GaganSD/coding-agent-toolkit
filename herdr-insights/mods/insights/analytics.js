@@ -132,11 +132,6 @@ export function startOfWeek(day, weekStartsOn = 0) {
   return addDays(day, -offset);
 }
 
-export function endOfWeek(day, weekStartsOn = 0) {
-  const start = startOfWeek(day, weekStartsOn);
-  return start ? addDays(start, 6) : null;
-}
-
 export function weekdayLabels(weekStartsOn = 0) {
   const names = weekStartsOn === 1
     ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -286,18 +281,6 @@ export function normalizeConfig(config) {
   };
 }
 
-export function isSnapshot(value) {
-  return Boolean(
-    value
-      && typeof value === "object"
-      && value.version === 1
-      && Array.isArray(value.rows)
-      && value.config
-      && typeof value.config === "object"
-      && !Array.isArray(value.config),
-  );
-}
-
 export function normalizeTokens(tokens) {
   const value = tokens && typeof tokens === "object" ? tokens : {};
   const hasParts = ["input", "output", "cacheRead", "cacheWrite"].some((key) => Object.prototype.hasOwnProperty.call(value, key));
@@ -395,10 +378,6 @@ function matchesCompiled(row, filters) {
   if (filters.model && row.model !== filters.model) return false;
   if (filters.project && row.project !== filters.project) return false;
   return true;
-}
-
-export function matchesFilters(row, filters = {}) {
-  return matchesCompiled(row, compileFilters(filters));
 }
 
 export function filterRows(rows, filters = {}) {
@@ -569,15 +548,6 @@ export function streakStats(rows, options = {}) {
     if (last === today || last === addDays(today, -1)) current = lastRun;
   }
   return { current, longest, activeDays: days.length, lastActive: previous };
-}
-
-export function dailyTotals(rows, includeCache = true) {
-  const totals = new Map();
-  for (const row of rows ?? []) {
-    if (!isDay(row?.day)) continue;
-    totals.set(row.day, (totals.get(row.day) ?? 0) + rowTokenTotal(row, includeCache));
-  }
-  return totals;
 }
 
 export function peakDay(rows, includeCache = true) {
@@ -1158,6 +1128,114 @@ export function compactDashboard(derived) {
       limit: leaders.limit ?? 0,
     },
   };
+}
+
+/** Escapes one value for a Markdown table cell. */
+function markdownCell(value) {
+  return String(value ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+}
+
+function markdownChange(entry) {
+  const change = entry?.change;
+  if (!change || change.kind === "none") return "—";
+  if (change.kind === "new") return "New";
+  const previous = Number(entry?.previous);
+  return Number.isFinite(previous)
+    ? `${change.label} (${formatInt(previous)} before)`
+    : String(change.label ?? "—");
+}
+
+/**
+ * A portable Markdown report of one prepared dashboard. Pure: it reads only the
+ * compact presentation already held by the view, so exporting never rescans,
+ * re-derives analytics, or runs the collector. Token counts stay exact; the
+ * dashboard's compact K/M/B labels are intentionally not reused.
+ */
+export function dashboardMarkdown(dashboard, options = {}) {
+  const now = options.now instanceof Date ? options.now : new Date(options.now ?? Date.now());
+  const generated = Number.isNaN(now.getTime()) ? "" : `${dayKey(now)} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  const includeCache = dashboard.includeCache !== false;
+  const range = dashboard.range ?? {};
+  const lifetime = dashboard.lifetime ?? {};
+  const selectedTotals = dashboard.selectedTotals ?? {};
+  const selectedTop = dashboard.selectedTop ?? null;
+  const leaders = dashboard.leaders ?? {};
+  const heatmap = dashboard.heatmap ?? {};
+  const filters = dashboard.filters ?? {};
+  const rangeLabel = range.label ?? (dashboard.period === "all" ? "All time" : "Selected period");
+  const filterLabel = (value) => (!value || value === "all" ? "All" : markdownCell(value));
+  const dataThrough = dashboard.today ?? range.end ?? "";
+  const selectedDay = isDay(dashboard.selectedDay) ? dashboard.selectedDay : dataThrough;
+  const lines = [];
+
+  lines.push(`# Insights — ${rangeLabel}`, "");
+  lines.push(`- Generated: ${generated || "unknown"} (local)`);
+  lines.push(`- Data through: ${dayLabel(dataThrough) || "unknown"}`);
+  lines.push(`- Period: ${rangeLabel}${range.start && range.end ? ` (${range.start} to ${range.end})` : ""}`);
+  lines.push(`- Filters: Provider: ${filterLabel(filters.provider)} · Model: ${filterLabel(filters.model)}`);
+  lines.push(`- Tokens: input + output${includeCache ? " + cache reads + cache writes" : " (cache excluded)"}`);
+  lines.push("", "Lifetime and token history cover every session. Model usage follows the selected period and filters.", "");
+
+  lines.push("## Lifetime", "");
+  lines.push("| Metric | Value |", "| --- | ---: |");
+  lines.push(`| Tokens | ${formatInt(lifetime.total)} |`);
+  lines.push(`| Sessions | ${formatInt(lifetime.sessions)} |`);
+  lines.push(`| Active days | ${formatInt(lifetime.days)} |`);
+  lines.push(`| Messages | ${formatInt(lifetime.messages)} |`);
+  lines.push(`| Peak day | ${dashboard.peak?.day ? `${formatInt(dashboard.peak.tokens)} tokens on ${dayLabel(dashboard.peak.day)}` : "—"} |`);
+  lines.push(`| Longest task (observed) | ${formatDuration(lifetime.longestTaskMs)} |`);
+  lines.push(`| Longest streak | ${formatInt(dashboard.streaks?.longest)} days |`);
+  lines.push(`| Current streak | ${formatInt(dashboard.streaks?.current)} days |`, "");
+
+  lines.push(`## ${selectedDay === dashboard.today ? "Today" : "Selected day"} — ${dayLabel(selectedDay, { weekday: true })}`, "");
+  lines.push("| Metric | Value |", "| --- | ---: |");
+  lines.push(`| Tokens | ${formatInt(selectedTotals.total)} |`);
+  lines.push(`| Input | ${formatInt(selectedTotals.input)} |`);
+  lines.push(`| Output | ${formatInt(selectedTotals.output)} |`);
+  lines.push(`| Reasoning (inside output) | ${formatInt(selectedTotals.reasoning)} |`);
+  lines.push(`| Cache reads | ${formatInt(selectedTotals.cacheRead)} |`);
+  lines.push(`| Cache writes | ${formatInt(selectedTotals.cacheWrite)} |`);
+  lines.push(`| Cache hit rate | ${formatHitRate(selectedTotals.input, selectedTotals.cacheRead)} |`);
+  lines.push(`| Sessions | ${formatInt(selectedTotals.sessions)} |`);
+  lines.push(`| Messages | ${formatInt(selectedTotals.messages)} |`);
+  lines.push(`| Top model | ${selectedTop ? `${markdownCell(selectedTop.name)} (${formatInt(selectedTop.tokens)} tokens)` : "—"} |`, "");
+
+  lines.push(`## ${rangeLabel} model usage`, "");
+  if (!Array.isArray(leaders.entries) || leaders.entries.length === 0) {
+    lines.push("_No usage in this period._", "");
+  } else {
+    lines.push(`${formatInt(leaders.totalTokens)} tokens · ${formatInt(leaders.totalSessions)} sessions · ${formatInt(leaders.totalGroups)} models`, "");
+    lines.push(leaders.groupBy === "provider"
+      ? "| # | Provider | Models | Tokens | Share | Sessions | vs previous |"
+      : "| # | Model | Provider(s) | Tokens | Share | Sessions | vs previous |");
+    lines.push("| ---: | --- | --- | ---: | ---: | ---: | --- |");
+    for (const entry of leaders.entries) {
+      lines.push(`| ${formatInt(entry.rank)} | ${markdownCell(entry.name)} | ${markdownCell(entry.sublabel)} | ${formatInt(entry.tokens)} | ${round1(Number(entry.sharePct) || 0)}% | ${formatInt(entry.sessions)} | ${markdownChange(entry)} |`);
+    }
+    if (leaders.totalGroups > leaders.entries.length) {
+      lines.push("", `Showing top ${leaders.entries.length} of ${leaders.totalGroups} by tokens.`);
+    }
+    lines.push("");
+  }
+
+  const weeks = Array.isArray(heatmap.weeks) ? heatmap.weeks : [];
+  const activeWeeks = weeks.filter((week) => {
+    const first = week?.days?.[0];
+    return Number(first?.weekTotal) > 0 || Number(first?.weekSessions) > 0;
+  });
+  if (activeWeeks.length > 0) {
+    lines.push(`## Token history — ${formatInt(heatmap.windowTotal)} tokens in window`, "");
+    lines.push("| Week of | Tokens | Sessions |");
+    lines.push("| --- | ---: | ---: |");
+    for (const week of activeWeeks) {
+      const first = week?.days?.[0];
+      lines.push(`| ${dayLabel(week.start)} | ${formatInt(first?.weekTotal)} | ${formatInt(first?.weekSessions)} |`);
+    }
+    if (activeWeeks.length < weeks.length) lines.push("", "Weeks without usage are omitted.");
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}\n`;
 }
 
 function isDashboard(value) {

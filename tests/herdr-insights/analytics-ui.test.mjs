@@ -82,7 +82,23 @@ const transformedUi = uiSource
     `const v_flex = () => globalThis.__insightsTestNative.create("v_flex");
 const h_flex = () => globalThis.__insightsTestNative.create("h_flex");
 const Button = { new: (id) => globalThis.__insightsTestNative.create("Button") };
-const Toggle = { new: (id) => globalThis.__insightsTestNative.create("Toggle") };`,
+const Toggle = { new: (id) => globalThis.__insightsTestNative.create("Toggle") };
+const Popover = {
+  new(id) {
+    const node = globalThis.__insightsTestNative.create("Popover");
+    node.id = id;
+    const builder = {
+      get openState() { return node.openState; },
+      get contentEl() { return node.contentEl; },
+      get triggerEl() { return node.triggerEl; },
+      trigger(element) { node.triggerEl = element; return builder; },
+      open(value) { node.openState = value; return builder; },
+      on_open_change(handler) { node.onOpenChange = handler; return builder; },
+      content(element) { node.contentEl = element; return builder; },
+    };
+    return builder;
+  },
+};`,
   );
 const uiUrl = dataUrl(transformedUi);
 const ui = await import(uiUrl);
@@ -98,7 +114,23 @@ const svg = () => globalThis.__insightsTestNative.create("svg");`)
 const EditorState = globalThis.__insightsTestEditorState;
 const v_flex = () => globalThis.__insightsTestNative.create("v_flex");
 const h_flex = () => globalThis.__insightsTestNative.create("h_flex");
-const Button = { new: (id) => globalThis.__insightsTestNative.create("Button") };`,
+const Button = { new: (id) => globalThis.__insightsTestNative.create("Button") };
+const Popover = {
+  new(id) {
+    const node = globalThis.__insightsTestNative.create("Popover");
+    node.id = id;
+    const builder = {
+      get openState() { return node.openState; },
+      get contentEl() { return node.contentEl; },
+      get triggerEl() { return node.triggerEl; },
+      trigger(element) { node.triggerEl = element; return builder; },
+      open(value) { node.openState = value; return builder; },
+      on_open_change(handler) { node.onOpenChange = handler; return builder; },
+      content(element) { node.contentEl = element; return builder; },
+    };
+    return builder;
+  },
+};`,
   )
   .replace(
     /^import \{[^}]*\} from "herdr";$/m,
@@ -109,6 +141,9 @@ const settings = () => ({});
 const nextCommand = () => globalThis.__insightsTestHerdr.nextCommand();
 const exec = (...args) => globalThis.__insightsTestHerdr.exec(...args);
 const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(...args);
+const writeTextFile = (...args) => globalThis.__insightsTestHerdr.writeTextFile(...args);
+const pickFolder = (...args) => globalThis.__insightsTestHerdr.pickFolder(...args);
+const notify = (...args) => globalThis.__insightsTestHerdr.notify(...args);
 const panes = () => globalThis.__insightsTestHerdr.panes();
 const props = () => globalThis.__insightsTestHerdr.props();
 const run = (...args) => globalThis.__insightsTestHerdr.run(...args);
@@ -122,7 +157,7 @@ const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
     /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
     `const { ${uiNames} } = await import("${uiUrl}");`,
   );
-const { default: Insights, heatmapMetrics, modelLogo, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
+const { default: Insights, heatmapMetrics, modelLogo, presentationKey, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
 
 function optionArgument(args) {
   const index = args.indexOf("--options");
@@ -147,7 +182,10 @@ function presentationFor(snapshot, options, command = "snapshot") {
 }
 
 function useHerdr({ readTextFile, execResult } = {}) {
-  const state = { commands: [], execCalls: [], panes: [], props: {}, runtimeReads: [], spaces: [] };
+  const state = {
+    commands: [], execCalls: [], panes: [], props: {}, runtimeReads: [], spaces: [],
+    exportFolder: "/exports", exportWrites: [], notifications: [],
+  };
   state.herdr = {
     appHome: () => "/app",
     home: () => "/home",
@@ -161,6 +199,15 @@ function useHerdr({ readTextFile, execResult } = {}) {
     readTextFile: async (path) => {
       state.runtimeReads.push(path);
       return readTextFile ? readTextFile(path) : null;
+    },
+    writeTextFile: async (path, text, expected) => {
+      state.exportWrites.push({ path, text, expected });
+      return null;
+    },
+    pickFolder: async () => state.exportFolder,
+    notify: (notification) => {
+      state.notifications.push(notification);
+      return "toast-1";
     },
     exec: async (command, args) => {
       state.execCalls.push({ command, args });
@@ -249,6 +296,9 @@ function blankInstance() {
   instance.years = [2024];
   instance.dashboard = null;
   instance.dashboardKey = null;
+  instance.exporting = false;
+  instance.exportTask = null;
+  instance.closed = false;
   instance.dashboardPending = null;
   instance.dashboardError = null;
   instance.dashboardTimer = null;
@@ -326,6 +376,90 @@ test("native mod keeps timers and shell use inside the Herdr contract", () => {
   assert.match(mainSource, /from "\.\/ui\.js"/);
   assert.doesNotMatch(mainSource, /smallButton|detailStat|togglePill|shadow_md/);
   assert.doesNotMatch(mainSource, /rounded\([12][0-9]\)/);
+});
+
+test("export writes the current dashboard as Markdown without running the collector", async () => {
+  const state = useHerdr();
+  const instance = blankInstance();
+  const snapshot = savedSnapshot();
+  const rows = [{
+    day: "2024-01-10",
+    session: "s1",
+    harness: "pi",
+    provider: "openai",
+    model: "gpt-test",
+    project: "/repo/insights",
+    tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+    messages: 1,
+    activeMs: 1000,
+    longestTaskMs: 1000,
+  }];
+  instance.snapshot = { ...snapshot, rows, rowCount: rows.length };
+  instance.dashboard = compactDashboard(deriveDashboard({ ...snapshot, rows }, {
+    filters: instance.filters,
+    period: "all",
+    year: 2024,
+    heatmapMode: "daily",
+    selectedDay: "2024-01-10",
+    today: "2024-01-10",
+  }));
+  instance.dashboardKey = presentationKey(instance.snapshot, instance.dashboardOptions());
+  const { cx } = liveCx();
+
+  instance.exportMarkdown(cx);
+  assert.equal(instance.exporting, true, "the button disables while the picker is open");
+  await flush();
+  await flush();
+
+  assert.equal(state.exportWrites.length, 1);
+  assert.match(state.exportWrites[0].path, /^\/exports\/insights-\d{4}-\d{2}-\d{2}-\d{6}\.md$/);
+  assert.equal(state.exportWrites[0].expected, null);
+  assert.match(state.exportWrites[0].text, /^# Insights — All time/m);
+  assert.match(state.exportWrites[0].text, /\| Tokens \| 15 \|/);
+  assert.deepEqual(state.execCalls, [], "export must reuse the prepared dashboard, not rescan");
+  assert.equal(state.notifications.length, 1);
+  assert.equal(state.notifications[0].level, "success");
+  assert.equal(instance.exporting, false);
+
+  state.exportFolder = null;
+  instance.exportMarkdown(cx);
+  await flush();
+  await flush();
+  assert.equal(state.exportWrites.length, 1, "cancelling the picker writes nothing");
+  assert.equal(state.notifications.length, 1, "cancelling the picker is silent");
+  assert.equal(instance.exporting, false);
+
+  instance.filters.provider = "stale";
+  instance.exportMarkdown(cx);
+  await flush();
+  assert.equal(state.exportWrites.length, 1, "a stale dashboard is never exported");
+  assert.equal(instance.exporting, false);
+});
+
+test("export is a single toolbar button that starts a Markdown export", () => {
+  const instance = blankInstance();
+  instance.dashboardCurrent = () => true;
+  let exported = false;
+  instance.exportMarkdown = () => { exported = true; };
+
+  const findExportButton = (node) => {
+    if (!node || typeof node !== "object") return null;
+    const label = Array.isArray(node.calls)
+      ? node.calls.find(([name]) => name === "accessibility_label")
+      : null;
+    if (label?.[1]?.[0] === "Export") return node;
+    for (const child of node.childNodes ?? []) {
+      const found = findExportButton(child);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  const exportButton = findExportButton(instance.header({}));
+  assert.ok(exportButton, "the header renders an Export button");
+  const click = exportButton.calls.find(([name]) => name === "on_click")[1][0];
+  click({}, { notify() {} });
+  assert.equal(exported, true);
 });
 
 test("analytics stays host-free and the UI keeps configuration JSON editable", () => {
@@ -548,6 +682,12 @@ test("refresh and configure share one single-flight guard", () => {
   instance.saving = false;
   assert.equal(instance.busy(), false);
   assert.match(mainSource, /button\("insights-refresh",[^;]*?disabled: this\.busy\(\)/);
+  const headerAt = mainSource.indexOf("  header(c) {");
+  const refreshAt = mainSource.indexOf('"insights-refresh"', headerAt);
+  const exportAt = mainSource.indexOf('"insights-export"', headerAt);
+  const settingsAt = mainSource.indexOf('"insights-settings"', headerAt);
+  assert.ok(headerAt > 0 && refreshAt > headerAt && exportAt > refreshAt && settingsAt > exportAt,
+    "the Export button sits between Refresh and Settings");
   assert.match(mainSource, /button\("ins-config-save",[\s\S]*?disabled: this\.busy\(\)/);
   assert.doesNotMatch(mainSource, /insights-save-profile|profileDirty|AvatarImage|nameInput|handleInput|avatarInput/);
 });
