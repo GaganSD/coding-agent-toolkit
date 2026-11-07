@@ -1,4 +1,4 @@
-import { readFile, stat, unlink } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { storeRevisionFingerprint, writePresentationCache } from "./cache.mjs";
 import { defaultConfig, migrateLoadedConfig, normalizeConfig } from "./config.mjs";
 import {
@@ -683,28 +683,6 @@ export function removeLatestFallbackTaskForSession(store, session) {
   return null;
 }
 
-export function removeFallbackTasksForSession(store, file, session) {
-  if (!Array.isArray(file.tasks) || file.tasks.length === 0) return;
-  store._tx?.trackFile(file);
-  const sHash = sessionHash(session);
-  const keep = [];
-  for (const key of file.tasks) {
-    const entry = store.tasks[key];
-    if (
-      Array.isArray(entry) &&
-      entry[0] === file.id &&
-      entry[3] === 0 &&
-      entry[4] === sHash
-    ) {
-      store._tx?.touchTask(key);
-      delete store.tasks[key];
-    } else {
-      keep.push(key);
-    }
-  }
-  file.tasks = keep;
-}
-
 function emptyAggregate(meta) {
   return {
     day: meta.day,
@@ -987,21 +965,6 @@ export async function saveStore(
     });
   } catch { /* the cache is an optional read accelerator */ }
   return savedAt;
-}
-
-export async function fileStatOrNull(file) {
-  try {
-    return await stat(file);
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-export async function removeStoreFile(storePath) {
-  await unlink(storePath).catch((error) => {
-    if (error?.code !== "ENOENT") throw error;
-  });
 }
 
 export function dedupKeyFor(harness, ...parts) {

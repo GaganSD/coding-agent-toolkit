@@ -58,10 +58,6 @@ export function pageTitle(text, c) {
   return div().text_size(T.page).font_semibold().text_color(c.text).child(text);
 }
 
-export function pageSubtitle(text, c) {
-  return div().text_size(T.small).text_color(c.mutedForeground).child(text);
-}
-
 export function cardTitle(text, c) {
   return div().text_size(T.card).font_semibold().text_color(c.text).child(text);
 }

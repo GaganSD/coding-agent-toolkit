@@ -401,7 +401,3 @@ export function sourcesSignature(config) {
 export function defaultConfig() {
   return normalizeConfig(DEFAULT_CONFIG);
 }
-
-export function adapterForSource(source) {
-  return source.adapter;
-}

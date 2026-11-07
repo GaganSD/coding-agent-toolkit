@@ -561,51 +561,6 @@ function createRecordConsumer(store, entry, source, sink) {
   });
 }
 
-async function parseBuffers(
-  store,
-  entry,
-  source,
-  chunks,
-  startOffset,
-  endOffset,
-  sink,
-  options = {},
-) {
-  const consumer = createRecordConsumer(store, entry, source, sink);
-  consumer.offset = startOffset;
-  consumer.lineNo = entry.lineNo ?? 0;
-  const now = nowFn(options);
-  const delay = pausableDelay(options.streamDelayMs);
-  let chunkStart = startOffset;
-  let chunksSeen = 0;
-  let bytes = 0;
-  for await (const chunk of chunks) {
-    if (chunksSeen > 0) {
-      if (stopRequested(options)) throw new ScanStopError("stop");
-      if (deadlineReached(options, now())) throw new ScanStopError("budget");
-    }
-    if (delay) await delay();
-    consumer.feedAt(chunk, chunkStart);
-    chunkStart += chunk.length;
-    bytes += chunk.length;
-    chunksSeen += 1;
-    if (chunksSeen % PROGRESS_CHUNK_INTERVAL === 0) {
-      options.onStreamProgress?.({
-        file: entry.path,
-        bytes,
-        phase: "decompress",
-      });
-    }
-  }
-  consumer.finish(endOffset ?? chunkStart);
-  if (consumer.skippedLargeLine) {
-    sink.warn(
-      `${source.adapter} ${entry.path}: a line larger than ${MAX_LINE_BYTES} bytes was skipped.`,
-    );
-  }
-  return { offset: consumer.offset, lineNo: consumer.lineNo, bytes };
-}
-
 async function scanPlainFile(
   store,
   entry,

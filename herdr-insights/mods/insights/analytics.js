@@ -132,11 +132,6 @@ export function startOfWeek(day, weekStartsOn = 0) {
   return addDays(day, -offset);
 }
 
-export function endOfWeek(day, weekStartsOn = 0) {
-  const start = startOfWeek(day, weekStartsOn);
-  return start ? addDays(start, 6) : null;
-}
-
 export function weekdayLabels(weekStartsOn = 0) {
   const names = weekStartsOn === 1
     ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -286,18 +281,6 @@ export function normalizeConfig(config) {
   };
 }
 
-export function isSnapshot(value) {
-  return Boolean(
-    value
-      && typeof value === "object"
-      && value.version === 1
-      && Array.isArray(value.rows)
-      && value.config
-      && typeof value.config === "object"
-      && !Array.isArray(value.config),
-  );
-}
-
 export function normalizeTokens(tokens) {
   const value = tokens && typeof tokens === "object" ? tokens : {};
   const hasParts = ["input", "output", "cacheRead", "cacheWrite"].some((key) => Object.prototype.hasOwnProperty.call(value, key));
@@ -395,10 +378,6 @@ function matchesCompiled(row, filters) {
   if (filters.model && row.model !== filters.model) return false;
   if (filters.project && row.project !== filters.project) return false;
   return true;
-}
-
-export function matchesFilters(row, filters = {}) {
-  return matchesCompiled(row, compileFilters(filters));
 }
 
 export function filterRows(rows, filters = {}) {
@@ -569,15 +548,6 @@ export function streakStats(rows, options = {}) {
     if (last === today || last === addDays(today, -1)) current = lastRun;
   }
   return { current, longest, activeDays: days.length, lastActive: previous };
-}
-
-export function dailyTotals(rows, includeCache = true) {
-  const totals = new Map();
-  for (const row of rows ?? []) {
-    if (!isDay(row?.day)) continue;
-    totals.set(row.day, (totals.get(row.day) ?? 0) + rowTokenTotal(row, includeCache));
-  }
-  return totals;
 }
 
 export function peakDay(rows, includeCache = true) {
