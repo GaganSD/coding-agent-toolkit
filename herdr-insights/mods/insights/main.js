@@ -6,6 +6,7 @@ import {
   PALETTES,
   clampRefreshSeconds,
   dashboardMarkdown,
+  dayKey,
   dayLabel,
   formatBytes,
   formatCompact,
@@ -61,8 +62,7 @@ function shortFileName(value) {
 /** Local-time filename stamp, so two exports never reuse a path. */
 function exportStamp(date) {
   const two = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
-    + `-${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`;
+  return `${dayKey(date)}-${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`;
 }
 
 /** One Insights tab per space: focus it if it exists, otherwise create it. */
@@ -477,9 +477,7 @@ export default class Insights extends View {
     this.refreshDirty = false;
     this.saving = false;
     this.exporting = false;
-    this.exportError = null;
     this.exportTask = null;
-    this.exportMenuOpen = false;
     this.saveError = null;
     this.saveMessage = null;
     this.syncingInputs = false;
@@ -1069,55 +1067,13 @@ export default class Insights extends View {
     });
   }
 
-  exportMenu(c) {
-    const disabled = !this.dashboard || this.exporting || this.busy();
-    const trigger = Button.new("insights-export-trigger").h(H.control).px(G.sm).gap(G.xs).items_center().rounded(R.control)
-      .border_1().border_color(c.border).bg(c.card)
-      .when(disabled, (el) => el.opacity(0.5))
-      .when(!disabled, (el) => el.cursor_pointer().hover((style) => style.bg(c.subtle)))
-      .focus((style) => style.border_color(c.ring))
-      .disabled(disabled)
-      .accessibility_label("Export")
-      .child(div().text_size(T.body).font_medium().text_color(c.text).child(this.exporting ? "Exporting…" : "Export"))
-      .child(div().text_size(T.small).text_color(c.dim).child("⌄"));
-
-    const open = this.exportMenuOpen && !disabled;
-    const menu = Popover.new("insights-export-menu").trigger(trigger)
-      .open(open)
-      .on_open_change((next, changeCx) => {
-        this.exportMenuOpen = next;
-        changeCx.notify();
-      });
-    if (open) {
-      menu.content(v_flex().min_w(0).p(G.xs).gap(0).rounded(R.control)
-        .bg(c.popover).border_1().border_color(c.border)
-        .child(Button.new("insights-export-markdown")
-          .h(H.compact).px(G.sm).justify_start().rounded(R.control)
-          .set_position(1, 1)
-          .cursor_pointer()
-          .hover((style) => style.bg(c.subtle))
-          .focus((style) => style.bg(c.selected))
-          .accessibility_label("As Markdown")
-          .on_click((_event, clickCx) => {
-            this.exportMenuOpen = false;
-            this.exportMarkdown(clickCx);
-            clickCx.notify();
-          })
-          .child(div().text_size(T.body).text_color(c.text).child("As Markdown"))));
-    }
-    return menu;
-  }
-
   exportMarkdown(cx) {
     if (this.closed || !this.dashboard || this.exporting || this.busy()) return;
-    this.exportMenuOpen = false;
     const now = new Date();
     const markdown = dashboardMarkdown(this.dashboard, { now });
     this.exporting = true;
-    this.exportError = null;
     cx.notify();
-    let task = null;
-    task = cx.spawn(async (exportCx) => {
+    this.exportTask = cx.spawn(async (exportCx) => {
       let failure = null;
       let savedPath = null;
       try {
@@ -1131,10 +1087,9 @@ export default class Insights extends View {
       } finally {
         if (!this.closed) {
           this.exporting = false;
-          if (this.exportTask === task) this.exportTask = null;
+          this.exportTask = null;
           if (failure) {
-            this.exportError = sanitizeError(failure);
-            notify({ title: "Could not export Insights", body: this.exportError, level: "error" });
+            notify({ title: "Could not export Insights", body: sanitizeError(failure), level: "error" });
           } else if (savedPath) {
             notify({ title: "Insights exported", body: savedPath, level: "success" });
           }
@@ -1142,7 +1097,6 @@ export default class Insights extends View {
         }
       }
     });
-    this.exportTask = task;
   }
 
   applySnapshot(payload, cx) {
@@ -1551,7 +1505,10 @@ export default class Insights extends View {
           disabled: this.busy(),
           variant: "outline",
         }))
-        .child(this.exportMenu(c))
+        .child(button("insights-export", this.exporting ? "Exporting…" : "Export", (_event, clickCx) => this.exportMarkdown(clickCx), c, {
+          disabled: !this.dashboard || this.exporting || this.busy(),
+          variant: "outline",
+        }))
         .when(Boolean(this.snapshot), (el) => el.child(button(
           "insights-settings",
           this.showSettings ? "Dashboard" : "Settings",

@@ -1165,11 +1165,6 @@ function markdownCell(value) {
   return String(value ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
 }
 
-function markdownDateTime(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
-  return `${dayKey(date)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-}
-
 function markdownChange(entry) {
   const change = entry?.change;
   if (!change || change.kind === "none") return "—";
@@ -1187,9 +1182,8 @@ function markdownChange(entry) {
  * dashboard's compact K/M/B labels are intentionally not reused.
  */
 export function dashboardMarkdown(dashboard, options = {}) {
-  if (!dashboard || typeof dashboard !== "object") return "";
   const now = options.now instanceof Date ? options.now : new Date(options.now ?? Date.now());
-  const generated = markdownDateTime(now);
+  const generated = Number.isNaN(now.getTime()) ? "" : `${dayKey(now)} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
   const includeCache = dashboard.includeCache !== false;
   const range = dashboard.range ?? {};
   const lifetime = dashboard.lifetime ?? {};

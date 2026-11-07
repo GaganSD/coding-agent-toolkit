@@ -297,9 +297,7 @@ function blankInstance() {
   instance.dashboard = null;
   instance.dashboardKey = null;
   instance.exporting = false;
-  instance.exportError = null;
   instance.exportTask = null;
-  instance.exportMenuOpen = false;
   instance.closed = false;
   instance.dashboardPending = null;
   instance.dashboardError = null;
@@ -431,27 +429,30 @@ test("export writes the current dashboard as Markdown without running the collec
   assert.equal(instance.exporting, false);
 });
 
-test("export is a dropdown with Markdown as its first action", () => {
+test("export is a single toolbar button that starts a Markdown export", () => {
   const instance = blankInstance();
   instance.dashboard = { today: "2024-01-10" };
-  instance.exportMenuOpen = true;
-  const menu = instance.exportMenu({});
-
-  assert.equal(menu.openState, true);
-  assert.ok(menu.contentEl, "the open menu renders its actions");
-  const item = menu.contentEl.childNodes[0];
-  assert.match(item.calls.find(([name]) => name === "accessibility_label")[1][0], /As Markdown/);
-  assert.deepEqual(item.childNodes[0].childNodes, ["As Markdown"], "the action has no subtext");
-
   let exported = false;
-  let notified = false;
   instance.exportMarkdown = () => { exported = true; };
-  const click = item.calls.find(([name]) => name === "on_click")[1][0];
-  click({}, { notify() { notified = true; } });
 
+  const findExportButton = (node) => {
+    if (!node || typeof node !== "object") return null;
+    const label = Array.isArray(node.calls)
+      ? node.calls.find(([name]) => name === "accessibility_label")
+      : null;
+    if (label?.[1]?.[0] === "Export") return node;
+    for (const child of node.childNodes ?? []) {
+      const found = findExportButton(child);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  const exportButton = findExportButton(instance.header({}));
+  assert.ok(exportButton, "the header renders an Export button");
+  const click = exportButton.calls.find(([name]) => name === "on_click")[1][0];
+  click({}, { notify() {} });
   assert.equal(exported, true);
-  assert.equal(instance.exportMenuOpen, false, "choosing an action closes the menu");
-  assert.equal(notified, true);
 });
 
 test("analytics stays host-free and the UI keeps configuration JSON editable", () => {
@@ -676,10 +677,10 @@ test("refresh and configure share one single-flight guard", () => {
   assert.match(mainSource, /button\("insights-refresh",[^;]*?disabled: this\.busy\(\)/);
   const headerAt = mainSource.indexOf("  header(c) {");
   const refreshAt = mainSource.indexOf('"insights-refresh"', headerAt);
-  const exportAt = mainSource.indexOf("this.exportMenu(c)", headerAt);
+  const exportAt = mainSource.indexOf('"insights-export"', headerAt);
   const settingsAt = mainSource.indexOf('"insights-settings"', headerAt);
   assert.ok(headerAt > 0 && refreshAt > headerAt && exportAt > refreshAt && settingsAt > exportAt,
-    "the Export dropdown sits between Refresh and Settings");
+    "the Export button sits between Refresh and Settings");
   assert.match(mainSource, /button\("ins-config-save",[\s\S]*?disabled: this\.busy\(\)/);
   assert.doesNotMatch(mainSource, /insights-save-profile|profileDirty|AvatarImage|nameInput|handleInput|avatarInput/);
 });
