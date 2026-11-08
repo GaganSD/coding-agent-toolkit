@@ -24,8 +24,12 @@ npm run install:local --prefix herdr-insights
 ```
 
 With Herdr running, the installer checks the `insights` mod and adds an
-**Insights** button beside the native tabs; clicking it reuses the current
-space's dashboard tab, opening one only when absent. It installs `mods/insights/`
+**Insights** button to the tab bar row; clicking it reuses the current
+space's dashboard tab, opening one only when absent. On Windows and Linux the
+button comes before the tab bar, because that bar draws minimize/maximize/close
+at its own end and those stay last; on macOS it follows the bar, clear of the
+traffic lights. The bar can be Herdr's `tabs` or a personal clone of it
+(`tabs-graph`, ...): both are wrapped, never edited. It installs `mods/insights/`
 and records ownership in `data/insights/`. Shipped files, tabs, keys, terminals,
 and usage data are unchanged. See [INSTALL.md](INSTALL.md) for the layout and
 click-state rules. Set `HERDR_APP_HOME` to use a different app home.
@@ -50,8 +54,9 @@ One native mod, `mods/insights`, provides both views. A pane whose content is
 `{mod: "insights", props: {mode: "toolbar"}}` renders only the button; any other
 pane shows the dashboard. Toolbar mode starts no Node helper, scans, tasks,
 timers, or editors. No layouts or key bindings ship; the button lives in a
-personal layout clone composed by the installer, which wraps the native tabs
-without modifying them (see [INSTALL.md](INSTALL.md)).
+personal layout clone composed by the installer, which wraps the tab-bar block —
+Herdr's `tabs` or a personal clone such as `tabs-graph` — without modifying it
+(see [INSTALL.md](INSTALL.md)).
 
 [RECIPE.md](RECIPE.md) is the self-contained rebuild brief required by Herdr.
 Developer tests, fixtures, and release validation live outside this distribution;

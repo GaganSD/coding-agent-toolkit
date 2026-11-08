@@ -55,8 +55,12 @@ async function command(appHome, args) {
   return result.stdout;
 }
 
-/** Preserve the original tabs mod and its updates; compose one native button beside it. */
-export function withInsightsToolbar(layout) {
+/**
+ * Preserve the original tab bar and its updates; compose one native button beside it.
+ * The bar may be Herdr's `tabs` or a personal clone of it: both are mod blocks, and
+ * neither is patched. `platform` is injectable so tests cover both placements.
+ */
+export function withInsightsToolbar(layout, { platform = process.platform } = {}) {
   const copy = structuredClone(layout);
   const nodes = [];
   function walk(node) {
@@ -67,19 +71,22 @@ export function withInsightsToolbar(layout) {
   if (nodes.some((node) => node.id === BUTTON_ID || node.id === "insights-original-tabs")) {
     throw new Error("This layout already contains Insights toolbar blocks.");
   }
-  const matches = nodes.filter((node) => node.id === "tabs" && node.type === "block" && node.content?.mod === "tabs");
+  const matches = nodes.filter((node) => node.id === "tabs" && node.type === "block" && typeof node.content?.mod === "string");
   if (matches.length !== 1) {
-    throw new Error('Expected one native "tabs" block. This layout cannot be integrated safely.');
+    throw new Error('Expected one "tabs" block showing a tab bar. This layout cannot be integrated safely.');
   }
   const tabs = matches[0];
   const content = tabs.content;
   delete tabs.content;
   tabs.type = "row";
   tabs.resizable = false;
-  tabs.children = [
-    { id: "insights-original-tabs", type: "block", size: { weight: 1 }, content },
-    { id: BUTTON_ID, type: "block", size: { px: 104 }, content: { mod: "insights", props: { mode: "toolbar" } } },
-  ];
+  const bar = { id: "insights-original-tabs", type: "block", size: { weight: 1 }, content };
+  const button = { id: BUTTON_ID, type: "block", size: { px: 104 }, content: { mod: "insights", props: { mode: "toolbar" } } };
+  // Windows and Linux have no system window buttons: the tab bar draws
+  // minimize/maximize/close at its own end (window().buttons), so the Insights
+  // button goes first and those stay last. macOS keeps its traffic lights on the
+  // left, where a leading button would collide with them, so the button follows.
+  tabs.children = platform === "darwin" ? [bar, button] : [button, bar];
   return copy;
 }
 
@@ -139,7 +146,7 @@ export async function applyToolbar(plan) {
     try { await command(appHome, ["do", "layout.switch", JSON.stringify({ name: source })]); } catch { /* retain original failure */ }
     throw error;
   }
-  console.log(`Added Insights beside Files/Changes in personal layout ${layout}; Herdr's tabs mod is unchanged.`);
+  console.log(`Added the Insights button to personal layout ${layout}; the tab bar and Herdr's tabs mod are unchanged.`);
 }
 
 export async function prepareToolbarRemoval(appHome) {

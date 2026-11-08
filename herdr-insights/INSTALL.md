@@ -14,9 +14,15 @@ npm run install:local --prefix herdr-insights
 
 The installer checks `mods/insights` before copying it to the app home, which
 defaults to `$HERDR_APP_HOME` or `~/.config/herdr-app`. First install creates and
-selects a personal layout whose **Insights** button sits beside the native tabs.
-Reinstall updates owned files without rewriting layouts. Shipped tabs, keys, and
-usage data are preserved.
+selects a personal layout whose **Insights** button sits in the tab bar row.
+The tab bar may be Herdr's `tabs` or a personal clone of it (`tabs-graph`, ...);
+the clone is wrapped, never edited. Windows and Linux have no system window
+buttons, so the tab bar draws minimize/maximize/close at its own end: there the
+button is placed before the bar so those stay last. On macOS the button follows
+the bar, clear of the traffic lights. Reinstall updates owned files without
+rewriting layouts, so an existing install keeps its original placement: uninstall
+and install again to move the button. Shipped tabs, keys, and usage data are
+preserved.
 
 Success requires one `herdr-app check passed` message **and exit code 0**.
 Do not run developer tests or change tabs during installation. Open the dashboard
