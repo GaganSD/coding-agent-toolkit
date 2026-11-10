@@ -8,18 +8,15 @@
 
 ### Changed
 
-- With the dashboard hidden, the composer top edge shows context, MCP count, then thinking. The model stays on the next line and is not repeated.
-- Metadata separators follow the surrounding theme. Slate no longer checks for updates or draws its own header hairline; Pi's update notice stays.
-- Sidebar MCP is requested configuration only. `/mcp` owns validation, auth, and connection health. Unreadable files still show; unknown state stays neutral.
-- Optional UI gaps fall back to native behavior with no startup warning. `/slate diagnostics` lists them. Settings errors and failed user actions still show.
-- One chat surface paints grouped or native rows. A grouping failure keeps the visible window instead of dropping or double-painting it.
+- Improved Fallback handling when Pi updates break the TUI.
+- Improved misc. UX & UI & removed redundant UI in a new session.
+- Sidebar MCP is a requested configuration now. `/mcp` owns validation, auth, and connection health only.
 
 ### Fixed
 
 - Edit-preview dividers and truncation marks keep the diff background, so tool and terminal colors no longer bleed in.
 - The sidebar follows the live layout root, including Pi's forwarding proxy, without intercepting `setLayoutRoot`.
 - Disposed image and selection wrappers edit natively again. Paste-to-reveal needs undo and will not collapse text edited after the paste.
-- Conversation text that looks like Pi's new-session notice is no longer removed.
 
 ### Security
 
