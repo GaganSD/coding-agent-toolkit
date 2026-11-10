@@ -373,6 +373,12 @@ test("promotion spawns one worker that waits out the launcher lock handoff", asy
     assert.equal(again.pid, worker.pid);
     assert.equal((await readWorkerClaim(ctx.store))?.token, worker.claim.token);
 
+    // Lock acknowledgement precedes the worker’s first committed status.
+    const published = await waitFor(async () => {
+      const status = await collectSnapshot("status", { store: ctx.store });
+      return status.scan.workerPid === worker.pid ? status : null;
+    });
+    assert.ok(published, "the worker publishes its running status");
     const started = Date.now();
     const status = await collectSnapshot("status", { store: ctx.store });
     assert.ok(Date.now() - started < 1_000, "status stays non-blocking during the worker lock");
