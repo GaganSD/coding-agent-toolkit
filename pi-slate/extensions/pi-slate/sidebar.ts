@@ -2,6 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type OverlayOptions, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
 import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
+import { mcpDetails } from "./sidebar-mcp.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
@@ -41,7 +42,7 @@ export class Sidebar implements Component {
   private resizeStartWidth = 0;
   private _preferredWidth?: number;
   hidden = false;
-  splitActive = false;
+  get splitActive(): boolean { return this.splitDispose?.active() === true; }
   private session: SidebarSession = EMPTY_SESSION;
   private resources: SidebarResources = EMPTY_RESOURCES;
   private tasks: BackgroundTask[] = [];
@@ -74,13 +75,12 @@ export class Sidebar implements Component {
   setThemeProvider(provider: () => Theme | undefined): void { this.themeProvider = provider; this.invalidate(); }
   attach(tui: TUI, theme: Theme, onYield?: () => void): void {
     this.tui = tui; this.theme = theme;
-    if (this.splitDispose) return;
+    if (this.splitActive) return;
     this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth, () => {
-      this.splitActive = false; this.splitDispose = undefined;
+      this.splitDispose = undefined;
       this.hideResizeGuide(); this.resizing = false; this.hits = []; this.listRows = [];
       onYield?.();
     });
-    this.splitActive = Boolean(this.splitDispose);
     this.invalidate();
   }
   isVisible(columns: number, rows: number): boolean { return this.splitActive && !this.hidden && dashboardColumnWidth(columns, rows, this._preferredWidth) > 0; }
@@ -276,18 +276,14 @@ export class Sidebar implements Component {
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
     const unknownCount = this.resources.mcp.filter(x => x.enabled === null).length;
-    const errors = this.resources.mcpError
-      ? (this.resources.mcpError === "MCP configuration has rejected entries" && unknownCount > 0 ? unknownCount : 1)
-      : 0;
+    const errors = this.resources.mcpError ? 1 : 0;
     const allUnknown = unknownCount > 0 && unknownCount === this.resources.mcp.length;
-    const warning = !errors && Boolean(this.resources.mcpWarning);
     const loaded = this.resources.skills.filter(x => x.loaded).length;
-    const resourceHeading = (label: string, count: string, failed = 0, warned = false): string =>
+    const resourceHeading = (label: string, count: string, failed = 0): string =>
       this.heading(label) + this.paint("muted", ` · ${count}`)
-      + (failed ? this.paint("error", ` · ${failed} ${failed === 1 ? "Error" : "Errors"}`) : "")
-      + (warned ? this.paint("warning", " · 1 Warning") : "");
+      + (failed ? this.paint("error", ` · ${failed} ${failed === 1 ? "Error" : "Errors"}`) : "");
     const rows: Row[] = [{ text: "" }, {
-      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors, warning),
+      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors),
       action: () => this.toggleSection("mcp"),
     }];
     if (this.folds.mcp) rows.push(...this.resourceRows("mcp"));
@@ -307,10 +303,8 @@ export class Sidebar implements Component {
     for (let i = start; i < Math.min(items.length, start + visible); i++) {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
-        const state = server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled";
-        const validationWarning = !this.resources.mcpError && server.enabled === null ? this.resources.mcpWarning : undefined;
-        rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
-          action: () => this.actions?.inspect?.(server.name, `${state} (configuration, not connection status)\nSource: ${server.source}${validationWarning ? `\n${validationWarning}` : ""}\nUse /mcp to manage this server.`) });
+        rows.push({ text: this.paint(server.enabled === true ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
+          action: () => this.actions?.inspect?.(server.name, mcpDetails(server)) });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;
         rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", `${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`), list, item: i,
@@ -391,7 +385,7 @@ export class Sidebar implements Component {
   }
   dispose(): void {
     this.hideResizeGuide(); this.resizing = false;
-    this.splitDispose?.(); this.splitDispose = undefined; this.splitActive = false;
+    this.splitDispose?.(); this.splitDispose = undefined;
     this.reset(); this.tui = undefined; this.theme = undefined; this.themeProvider = undefined; this.actions = undefined;
   }
 

@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import {
   copyToClipboard,
   getAgentDir,
-  getPackageDir,
   VERSION,
   type ExtensionAPI,
   type ExtensionContext,
@@ -34,7 +33,8 @@ import { BackgroundTasks, BACKGROUND_TASKS_EVENT, BACKGROUND_TASKS_REQUEST } fro
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
 import { inspectSidebarText } from "./sidebar-inspector.ts";
 import { pickSidebarItem } from "./sidebar-picker.ts";
-import { loadSidebarMcpHost } from "./sidebar-mcp.ts";
+import { mcpDetails } from "./sidebar-mcp.ts";
+import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
 import { resolveContextTokens } from "./context-usage.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
@@ -77,8 +77,7 @@ import {
   openExternalArgs,
   SLATE_ISSUES_URL,
 } from "./bug.ts";
-import { findChatContainer, layoutRootOf, syncMessageWindow, type MessageWindow } from "./message-window.ts";
-import { installNewSessionNoticeFilter } from "./stock-notices.ts";
+import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
@@ -206,12 +205,15 @@ export default function piSlate(pi: ExtensionAPI): void {
   // Runtime ownership is fixed until /reload, even when a command saves a new set.
   const selected = [...config.surfaces];
   const owns = (surface: typeof selected[number]): boolean => has(selected, surface);
+  const diagnostics = new SlateDiagnostics();
   const requestedClaudeTools = owns("tool-cards") && config.toolStyle !== "default";
-  const claudeTools = requestedClaudeTools && typeof pi.registerToolRenderer === "function";
+  let claudeTools = false;
   if (owns("tool-cards")) {
     installDiff(pi);
-    if (claudeTools) installToolStyle(pi);
-    else installRead(pi);
+    if (requestedClaudeTools && typeof pi.registerToolRenderer === "function") {
+      claudeTools = diagnostics.attempt("tool-style", "Slate default cards retained; the optional renderer hook failed.", () => { installToolStyle(pi); return true; }, () => false);
+    }
+    if (!claudeTools) installRead(pi);
   }
   if (owns("editor")) installPromptPicker(pi, promptShortcutKey(config.shortcuts));
   installExitCommand(pi);
@@ -220,7 +222,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   const selection = new ComposerSelectionController();
   const skills = new SidebarSkills();
   const mcpFiles = new SidebarMcpFiles();
-  const mcpHost = loadSidebarMcpHost(getPackageDir(), VERSION);
   const background = new BackgroundTasks();
   let resources: SidebarResources = { skills: [], commands: [], prompts: [], mcp: [] };
   let sessionStartedAt = 0;
@@ -229,8 +230,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
   const dashboardSubscriptions: Array<() => void> = [];
   let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage> } | undefined;
-  let noticeFilterDispose: (() => void) | undefined;
-  let noticeFilterActive = false;
   let inspectingSidebar = false;
   let sidebarYielded = false;
   let sessionEpoch = 0;
@@ -263,15 +262,8 @@ export default function piSlate(pi: ExtensionAPI): void {
       && (typeof ctx.ui.getEditorComponent !== "function" || ctx.ui.getEditorComponent() === editorFactory);
   };
   let conversations: ReturnType<typeof installConversationBridge> | undefined;
-  let messageWindow: MessageWindow | undefined;
-  let toolGroups: ToolGroups | undefined;
-  const syncToolGroups = (): void => {
-    if (!claudeTools || liveContext()?.mode !== "tui") return;
-    const chat = findChatContainer(layoutRootOf(activeTui));
-    if (!chat || toolGroups?.container === chat) return;
-    toolGroups?.dispose();
-    toolGroups = new ToolGroups(chat, liveTheme);
-  };
+  let chatSurface: ChatSurface | undefined;
+  let groupPainter: ToolGroups | undefined;
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
@@ -282,9 +274,35 @@ export default function piSlate(pi: ExtensionAPI): void {
   let requestRender = (_force = false) => {};
 
   const syncVisibleMessages = (): void => {
-    syncToolGroups();
-    if (!owns("transcript") || liveContext()?.mode !== "tui") return;
-    messageWindow = syncMessageWindow(messageWindow, activeTui, resolveMessageLength(config.messageLength));
+    if ((!owns("transcript") && !claudeTools) || liveContext()?.mode !== "tui") return;
+    const feature = owns("transcript") ? "transcript" : "tool-groups";
+    diagnostics.attempt(feature, "Native chat retained; the optional chat adapter failed.", () => {
+      const chat = findChatContainer(layoutRootOf(activeTui));
+      if (chatSurface?.container !== chat) { chatSurface?.dispose(); chatSurface = undefined; }
+      if (!chat) return;
+      const options = {
+        limit: owns("transcript") ? resolveMessageLength(config.messageLength) : Number.POSITIVE_INFINITY,
+        groups: groupPainter,
+        active: () => {
+          const ctx = liveContext();
+          return Boolean(ctx && typeof ctx.isIdle === "function" && !ctx.isIdle());
+        },
+        onGroupingFault: () => {
+          groupPainter = undefined;
+          diagnostics.fault("tool-groups", "Native tool rendering restored after the optional grouping painter failed.");
+        },
+      };
+      if (chatSurface) chatSurface.update(options);
+      else chatSurface = new ChatSurface(chat, options);
+    }, () => { chatSurface?.dispose(); chatSurface = undefined; });
+    if (owns("transcript")) {
+      if (chatSurface) diagnostics.active("transcript", "Display-only message window mounted.");
+      else diagnostics.fallback("transcript", "Native transcript retained; no compatible fullscreen chat surface.");
+    }
+    if (claudeTools) {
+      if (chatSurface && groupPainter) diagnostics.active("tool-groups", "Consecutive tool cards can be grouped.");
+      else diagnostics.fallback("tool-groups", "Ungrouped cards retained; no compatible chat surface.");
+    }
   };
 
   // A selected split allocates header width; unavailable sidebar hosts stay full-width.
@@ -331,12 +349,21 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   const refreshResources = (ctx: ExtensionContext): void => {
     if (ctx.mode !== "tui" || !ctx.sessionManager || (!owns("sidebar") && !owns("editor")) || (sidebarYielded && !editorActive())) return;
-    const commands = pi.getCommands();
-    skills.discoverCommands(commands);
-    const registered = typeof pi.getMcpServers === "function" ? pi.getMcpServers() : [];
-    const catalog = commandResources(commands);
-    resources = { commands: catalog.commands, prompts: catalog.prompts, skills: skills.snapshot(),
-      ...mcpFiles.snapshot(getAgentDir(), ctx.cwd, typeof ctx.isProjectTrusted === "function" && ctx.isProjectTrusted(), registered) };
+    const catalog = diagnostics.attempt("command-catalog", "Previous command catalog retained; the host catalog could not be read.", () => {
+      const commands = pi.getCommands();
+      const catalog = commandResources(commands);
+      skills.discoverCommands(commands);
+      diagnostics.active("command-catalog", "Public command and skill catalog available.");
+      return catalog;
+    }, () => resources);
+    const mcp = diagnostics.attempt("mcp-catalog", "Previous MCP declarations retained; the catalog could not be read. Use /mcp for live status.", () => {
+      const registered = typeof pi.getMcpServers === "function" ? pi.getMcpServers() : [];
+      const snapshot = mcpFiles.snapshot(getAgentDir(), ctx.cwd, typeof ctx.isProjectTrusted === "function" && ctx.isProjectTrusted(), registered);
+      if (snapshot.mcpError) diagnostics.fallback("mcp-catalog", `${snapshot.mcpError}. Check global mcp.json and trusted .pi/mcp.json; use /mcp for validation.`);
+      else diagnostics.active("mcp-catalog", "Read-only configured state; Pi owns validation and connections.");
+      return snapshot;
+    }, () => ({ mcp: resources.mcp, ...(resources.mcpError ? { mcpError: resources.mcpError } : {}) }));
+    resources = { commands: catalog.commands, prompts: catalog.prompts, skills: skills.snapshot(), ...mcp };
     if (owns("sidebar") && !sidebarYielded) sidebar.setResources(resources);
   };
   const stopDashboard = (): void => {
@@ -356,13 +383,14 @@ export default function piSlate(pi: ExtensionAPI): void {
   }
 
   const install = (ctx: ExtensionContext): void => {
-    if (ctx.mode === "tui" && requestedClaudeTools && !claudeTools) {
-      ctx.ui.notify("Slate Claude Code tool style requires a host with registerToolRenderer; keeping default cards", "warning");
+    chatSurface?.dispose(); chatSurface = undefined;
+    groupPainter = claudeTools ? new ToolGroups(liveTheme) : undefined;
+    diagnostics.reset();
+    if (requestedClaudeTools) {
+      if (claudeTools) diagnostics.active("tool-style", "Public tool renderer hook installed.");
+      else diagnostics.fallback("tool-style", "Slate default cards retained; the optional renderer hook is unavailable.");
     }
     sessionEpoch += 1; sidebarYielded = false;
-    if (!owns("header")) {
-      noticeFilterDispose?.(); noticeFilterDispose = undefined; noticeFilterActive = false;
-    }
     const mountedEpoch = sessionEpoch;
     currentContext = ctx;
     if (ctx.mode === "tui") cachedTheme = ctx.ui.theme;
@@ -384,22 +412,26 @@ export default function piSlate(pi: ExtensionAPI): void {
     tokenRate.dispose();
     workingWord = undefined;
     stopWave();
-    if (loaded.error) ctx.ui.notify(loaded.error, "warning");
+    if (loaded.error) {
+      diagnostics.fallback("configuration", "Slate surfaces disabled because pi-slate.json could not be read or parsed. File preserved; repair it and /reload.");
+      ctx.ui.notify(loaded.error, "warning");
+    }
     if (ctx.mode !== "tui") return;
     if (owns("tool-cards")) {
       // Only check tools Slate registers. Claude mode styles the native read
       // renderer without owning its registration, so native read is not a loss.
-      try {
+      diagnostics.attempt("tool-ownership", "Host registrations retained; tool ownership could not be inspected.", () => {
         const registeredCards = claudeTools ? ["edit", "write"] : ["edit", "write", "read"];
         const lost = pi.getAllTools().filter((tool) => registeredCards.includes(tool.name)
           && resolve(tool.sourceInfo.path) !== fileURLToPath(import.meta.url));
-        if (lost.length) ctx.ui.notify(`Slate tool-cards unavailable for: ${lost.map((tool) => tool.name).join(", ")} (first registration wins)`, "warning");
-      } catch { /* Older hosts cannot expose tool ownership. */ }
+        if (lost.length) diagnostics.fallback("tool-ownership", `Host registrations retained for ${lost.map((tool) => tool.name).join(", ")}; first registration wins.`);
+        else diagnostics.active("tool-ownership", "Selected tool registrations are available.");
+      }, () => {});
     }
     if (owns("editor")) branch.start(ctx.cwd);
     sessionStartedAt = Date.now(); turnStartedAt = undefined; lastTurnMs = null; branchFacts = undefined;
     if (owns("editor") || owns("sidebar")) {
-      skills.reset(pi.getCommands());
+      skills.reset([]);
       skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
       refreshResources(ctx);
       tokenRate.setOnChange(() => {
@@ -481,48 +513,40 @@ export default function piSlate(pi: ExtensionAPI): void {
     // belowEditor has no host leading spacer. This factory renders exactly zero rows.
     // It is a TUI handle, not a chrome owner or application bootstrap header.
     if (owns("sidebar") || owns("transcript") || claudeTools) {
-      ctx.ui.setWidget("pi-slate:surface-host", (tui, theme) => {
+      diagnostics.attempt("surface-host", "Native UI retained; the optional surface handle could not be mounted.", () => ctx.ui.setWidget("pi-slate:surface-host", (tui, theme) => {
         activeTui = tui;
         requestRender = (force = false) => tui.requestRender(force);
-        queueMicrotask(syncToolGroups);
+        queueMicrotask(() => { if (mountedContext()) syncVisibleMessages(); });
         if (owns("sidebar")) {
-          sidebar.attach(tui, theme, () => { sidebarYielded = true; stopDashboard(); });
-          if (sidebar.splitActive && !dashboardClock) {
+          const attached = diagnostics.attempt("sidebar", "Native layout retained; the optional sidebar adapter failed.", () => {
+            sidebar.attach(tui, theme, () => {
+              sidebarYielded = true; stopDashboard();
+              diagnostics.fallback("sidebar", "Native layout retained after a later layout owner replaced Slate.");
+            });
+            return sidebar.splitActive;
+          }, () => { sidebar.dispose(); return false; });
+          if (attached) diagnostics.active("sidebar", "Sidebar mounted; visibility follows preferences and terminal size.");
+          else diagnostics.fallback("sidebar", "Native layout retained; sidebar needs a compatible fullscreen viewport.");
+          if (attached && !dashboardClock) {
             let ticks = 0;
             dashboardClock = setInterval(() => {
               const ctx = liveContext();
               if (!ctx || ctx.mode !== "tui" || !sidebar.splitActive) return;
-              sidebar.tick();
-              if (++ticks % 5 === 0) { refreshResources(ctx); syncSidebar(ctx); }
+              diagnostics.attempt("dashboard", "Last dashboard snapshot retained; a background refresh failed.", () => {
+                sidebar.tick();
+                if (++ticks % 5 === 0) { refreshResources(ctx); syncSidebar(ctx); }
+              }, () => {});
             }, 1000);
             dashboardClock.unref?.();
           }
-          if (!sidebar.splitActive && config.focused !== true) {
-            ctx.ui.notify("Slate sidebar unavailable: a compatible fullscreen host is required", "warning");
-          }
         }
-        if (owns("transcript")) queueMicrotask(() => {
-          if (!mountedContext()) return;
-          syncVisibleMessages();
-          if (!messageWindow) notify("Slate transcript unavailable: a compatible message-window host is required", "warning");
-        });
         return { render: () => [], invalidate() {} };
-      }, { placement: "belowEditor" });
+      }, { placement: "belowEditor" }), () => {});
     }
     if (owns("header")) {
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
-        // Header factory runs inside setHeader, before /new appends the stock chat copy.
-        const attachFilter = (chat: ReturnType<typeof findChatContainer>): void => {
-          if (!chat) return;
-          noticeFilterDispose?.();
-          noticeFilterDispose = installNewSessionNoticeFilter(chat);
-          noticeFilterActive = true;
-        };
-        attachFilter(findChatContainer(layoutRootOf(tui)));
-        if (!noticeFilterActive) queueMicrotask(() => {
-          if (mountedContext()) attachFilter(findChatContainer(layoutRootOf(tui)));
-        });
+        diagnostics.active("session-notices", "Native notices and conversation content are retained without text-based filtering.");
         return new SlateHeader(theme, liveContext, columnWidth, () => {
           const ctx = liveContext();
           return {
@@ -540,8 +564,8 @@ export default function piSlate(pi: ExtensionAPI): void {
         if (tuiChanged) conversations?.close();
         const previousDown = tuiChanged ? undefined : activeEditor?.onDownBoundary;
         activeTui = tui;
-        images?.detachEditor();
         selection.dispose();
+        images?.detachEditor();
         const minimalEditorTheme: EditorTheme = {
           ...editorTheme,
           borderColor: chromePaint(ctx.ui.theme),
@@ -581,6 +605,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         selection.attach(activeEditor, {
           copy: (text) => mountedContext() ? copyWithFeedback(tui, notify, text) : Promise.resolve(),
           requestRender: () => tui.requestRender(),
+          onPasteUnavailable: () => diagnostics.fault("paste-preview", "Native paste tokens retained; the undo-aware range adapter is unavailable."),
         });
         activeTui = tui;
         requestRender = (force = false) => tui.requestRender(force);
@@ -638,7 +663,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
   };
 
-  pi.on("session_start", async (_event, ctx) => { mcpFiles.setHost(await mcpHost); install(ctx); });
+  pi.on("session_start", (_event, ctx) => { install(ctx); });
   pi.on("agent_start", (_event, ctx) => {
     currentContext = ctx;
     if (ctx.mode === "tui" && (owns("sidebar") || editorActive() || owns("transcript"))) {
@@ -761,17 +786,15 @@ export default function piSlate(pi: ExtensionAPI): void {
     stopWave();
     thinkingFold.stop();
     tokenRate.dispose();
-    images?.dispose();
     selection.dispose();
+    images?.dispose();
     stopDashboard();
     mcpFiles.clear();
     background.reset("");
     branch.dispose();
-    toolGroups?.dispose();
-    toolGroups = undefined;
-    messageWindow?.dispose();
-    messageWindow = undefined;
-    noticeFilterDispose?.(); noticeFilterDispose = undefined; noticeFilterActive = false;
+    chatSurface?.dispose();
+    chatSurface = undefined;
+    groupPainter = undefined;
     conversations?.dispose();
     conversations = undefined;
     activeTui = undefined;
@@ -1011,7 +1034,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       const index = labels.indexOf(choice);
       if (section === "mcp") {
         const item = mcp[index];
-        if (item) inspect(ctx, item.name, `${item.enabled === null ? "—" : item.enabled ? "enabled" : "disabled"} (configuration, not connection status)\nSource: ${item.source}\nUse /mcp to manage this server.`);
+        if (item) inspect(ctx, item.name, mcpDetails(item));
       } else if (section === "skills") {
         const item = skills[index];
         if (item) inspect(ctx, item.name, `${item.loaded ? "Instructions observed loaded on this branch" : "Available; not observed loaded"}\n${item.path}`);
@@ -1082,7 +1105,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("slate", {
-    description: "Session dashboard, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or file a bug",
+    description: "Session dashboard, diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1093,7 +1116,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Diagnostics", "File a bug"]);
         if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
@@ -1112,11 +1135,18 @@ export default function piSlate(pi: ExtensionAPI): void {
         else if (setting === "Progress indicator") kind = "progress";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
+        else if (setting === "Diagnostics") kind = "diagnostics";
         else if (setting === "File a bug") kind = "bug-menu";
         else return;
       }
 
       if (parsed.kind === "session") { await sessionMenu(ctx, parsed.section); return; }
+      if (kind === "diagnostics") {
+        const report = diagnostics.report(SLATE_VERSION, VERSION, selected);
+        if (ctx.mode === "tui") inspect(ctx, "Slate diagnostics", report);
+        else ctx.ui.notify(report, "info");
+        return;
+      }
 
       if (parsed.kind === "surfaces") {
         if (parsed.value === undefined) {

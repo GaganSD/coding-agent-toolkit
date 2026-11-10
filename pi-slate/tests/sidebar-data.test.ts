@@ -1,13 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { getPackageDir, VERSION, type SessionEntry, type Skill, type SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import { loadSidebarMcpHost } from "../extensions/pi-slate/sidebar-mcp.ts";
-const host = await loadSidebarMcpHost(getPackageDir(), VERSION);
-assert(host);
-import { commandResources, parseMcpFile, parseSidebarFolds, sidebarMessageCounts, sidebarMcp, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills } from "../extensions/pi-slate/sidebar-data.ts";
+import type { SessionEntry, Skill, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import { commandResources, parseMcpFile, parseSidebarFolds, sidebarMessageCounts, sidebarMcp, sidebarText, sidebarUsage, SidebarSkills } from "../extensions/pi-slate/sidebar-data.ts";
 
 const usage = { input: 100, output: 20, cacheRead: 300, cacheWrite: 50, reasoning: 10, totalTokens: 470, cost: { total: 0.25 } };
 function entry(id: string, fields: Record<string, unknown>): SessionEntry { return { id, parentId: null, timestamp: "0", ...fields } as unknown as SessionEntry; }
@@ -108,69 +104,9 @@ test("explicit skill invocation and structured catalog work with skill commands 
   tracker.reset([]); assert.deepEqual(tracker.snapshot(), []);
 });
 
-test("MCP rejected partial overrides never replace an exact-name valid server", () => {
-  const global = parseMcpFile(JSON.stringify({ mcpServers: { "web-search": { command: "search" }, other: { command: "other" } } }));
-  const project = parseMcpFile(JSON.stringify({ mcpServers: { web_search: { enabled: false } } }));
-  const result = sidebarMcp([{ name: "web-search", config: { command: "extension" } }], global, project, host);
-  assert.equal(result.find(item => item.name === "web-search")!.enabled, true);
-  assert.equal(result.find(item => item.name === "web_search")!.enabled, null);
-});
-
-test("disabled/invalid entries remain visible and errors never include credentials", () => {
-  const result = sidebarMcp([], parseMcpFile(JSON.stringify({ mcpServers: { a: { command: "a", enabled: false }, b: {}, c: null, d: { command: "d", enabled: "yes" } } })), undefined, host);
-  assert.deepEqual(result.map(x => x.enabled), [false, null, null, null]);
-  assert.equal(parseMcpFile('{"token":"SECRET",bad}').error, "MCP config unreadable");
-  assert.equal(parseMcpFile('{"mcpServers":[]}').error, "MCP config invalid");
-  assert.deepEqual(parseMcpFile(undefined), { servers: {} });
-});
-
-test("MCP parsing follows the host's BOM support and still rejects malformed JSON", () => {
-  const text = '\uFEFF{"mcpServers":{"server":{"command":"server"}}}';
-  assert.deepEqual(parseMcpFile(text, true), parseMcpFile(text.slice(1)));
-  assert.equal(parseMcpFile(text).error, "MCP config unreadable", "older hosts do not support a BOM");
-  assert.equal(parseMcpFile('\uFEFF{"mcpServers":[]}', true).error, "MCP config invalid");
-  assert.equal(parseMcpFile('\uFEFF{"token":"SECRET",bad}', true).error, "MCP config unreadable");
-  assert.equal(parseMcpFile('\uFEFF\uFEFF{}', true).error, "MCP config unreadable");
-});
-
-test("MCP file cache invalidates parsed files when host BOM support changes", async t => {
-  const root = await mkdtemp(join(tmpdir(), "slate-mcp-bom-")); t.after(() => rm(root, { recursive: true, force: true }));
-  await writeFile(join(root, "mcp.json"), '\uFEFF{"mcpServers":{"server":{"command":"server"}}}');
-  const cache = new SidebarMcpFiles(); cache.setHost({ ...host, stripBom: false });
-  assert.equal(cache.snapshot(root, root, false, []).mcpError, "MCP config unreadable");
-  cache.setHost({ ...host, stripBom: true });
-  assert.deepEqual(cache.snapshot(root, root, false, []), { mcp: [{ name: "server", source: "global", enabled: true }] });
-  const parsed = cache.read(join(root, "mcp.json"));
-  cache.setHost({ ...host, stripBom: true });
-  assert.equal(cache.read(join(root, "mcp.json")), parsed, "unchanged parsing semantics preserve the cache");
-  cache.setHost(undefined);
-  assert.equal(cache.snapshot(root, root, false, []).mcpError, "MCP config unreadable");
-  cache.setHost({ ...host, stripBom: false });
-  assert.equal(cache.snapshot(root, root, false, []).mcpError, "MCP config unreadable");
-});
-
-test("MCP states follow native enabled flags and supported transports, not ignored legacy keys", () => {
-  const result = sidebarMcp([], parseMcpFile(JSON.stringify({ mcpServers: {
-    legacy: { command: "server", disabled: true }, off: { command: "server", enabled: false },
-    invalid: { url: "file:///private" }, sse: { type: "sse", url: "https://example.com/mcp" },
-    http: { type: "streamable-http", url: "https://example.com/mcp" },
-  } })), undefined, host);
-  assert.deepEqual(result.map(x => [x.name, x.enabled]), [["http", true], ["invalid", null], ["legacy", true], ["off", false], ["sse", null]]);
-});
-
-test("MCP file cache follows changes/removal and refuses untrusted project configuration", async t => {
-  const root = await mkdtemp(join(tmpdir(), "slate-mcp-")); t.after(() => rm(root, { recursive: true, force: true }));
-  const agent = join(root, "agent"), cwd = join(root, "repo"); await mkdir(agent); await mkdir(join(cwd, ".pi"), { recursive: true });
-  const global = join(agent, "mcp.json");
-  await writeFile(global, '{"mcpServers":{"a":{"command":"a"}}}');
-  await writeFile(join(cwd, ".pi", "mcp.json"), '{"mcpServers":{"a":{"enabled":false}}}');
-  const cache = new SidebarMcpFiles(); cache.setHost(host);
-  assert.equal(cache.snapshot(agent, cwd, false, []).mcp[0]!.enabled, true);
-  assert.equal(cache.snapshot(agent, cwd, true, []).mcp[0]!.enabled, false, "modern hosts merge partial project overrides");
-  await writeFile(global, '{"mcpServers":{"b":{"command":"b"}}}');
-  assert.equal(cache.snapshot(agent, cwd, false, []).mcp[0]!.name, "b");
-  await rm(global); assert.deepEqual(cache.snapshot(agent, cwd, false, []).mcp, []);
-  cache.clear();
+test("MCP data re-exports remain configuration-only and independent of host modules", () => {
+  assert.deepEqual(sidebarMcp([], parseMcpFile('{"mcpServers":{"future":{"type":"future-transport","enabled":false}}}')),
+    [{ name: "future", source: "global", enabled: false }]);
 });
 
 test("fold config defaults safely and display strings neutralize terminal escape/control data", () => {

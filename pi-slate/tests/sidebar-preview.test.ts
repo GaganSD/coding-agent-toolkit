@@ -430,78 +430,39 @@ test("unknown values and invalid MCP config remain explicit even when folded", (
   assert(!lines.some(line => line.includes("$0.00")));
 });
 
-test("rejected MCP entries count as Errors without dumping the reason", () => {
-  const { sidebar } = fixture();
-  sidebar.setResources({
-    ...resources,
-    mcp: [
-      { name: "ok", enabled: true, source: "global" },
-      { name: "ok2", enabled: true, source: "global" },
-      { name: "bad", enabled: null, source: "project" },
-    ],
-    mcpError: "MCP configuration has rejected entries",
-  });
-  const lines = plain(sidebar.render(80));
-  assert(lines.some(line => line.includes("MCP · 2 Enabled · 1 Error")), "enabled count stays numeric next to the error count");
-  assert(!lines.some(line => line.includes("rejected entries") || line.includes("config error")));
-});
-
-test("unavailable MCP validation renders as a warning when folded or expanded", () => {
+test("unknown MCP declarations are neutral when folded or expanded and inspection explains the boundary", () => {
   const { sidebar } = fixture();
   const details: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
-  sidebar.setResources({
-    ...resources,
-    mcp: [{ name: "unknown-server", enabled: null, source: "global" }],
-    mcpWarning: "MCP configuration validation unavailable",
-  });
+  sidebar.setResources({ ...resources, mcp: [{ name: "unknown-server", enabled: null, source: "global" }] });
   const folded = plain(sidebar.render(80));
-  assert(folded.some(line => line.includes("› MCP · — · 1 Warning")));
-  assert(!folded.some(line => line.includes("Error") || line.includes("0 Enabled") || line.includes("validation unavailable")));
+  assert(folded.some(line => line.includes("› MCP · —")));
+  assert(!folded.some(line => /Error|Warning|0 Enabled/.test(line)));
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
   const expanded = plain(sidebar.render(80));
-  assert(expanded.some(line => line.includes("⌄ MCP · — · 1 Warning")));
+  assert(expanded.some(line => line.includes("⌄ MCP · —")));
   assert(expanded.some(line => line.trim() === "— unknown-server"));
-  assert(!expanded.some(line => line.includes("Error") || line.includes("0 Enabled") || line.includes("validation unavailable")));
   sidebar.setThemeProvider(() => ({ fg: (tone: string, text: string) => tone === "warning" ? `\x1b[33m${text}\x1b[0m` : tone === "error" ? `\x1b[31m${text}\x1b[0m` : text, bold: (text: string) => text }) as Theme);
-  const painted = sidebar.render(80).join("\n");
-  assert(painted.includes("\x1b[33m · 1 Warning\x1b[0m"));
-  assert(!painted.includes("\x1b[31m"));
+  assert(!/\x1b\[(?:33|31)m/.test(sidebar.render(80).join("\n")));
   sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));
-  assert.match(details[0]!, /MCP configuration validation unavailable/);
-  assert(!details[0]!.includes("SECRET"));
+  assert.match(details[0]!, /Slate does not validate MCP/);
+  assert.match(details[0]!, /Use \/mcp/);
 });
 
-test("MCP file errors stay numeric and outrank a validation warning", () => {
-  const { sidebar } = fixture();
-  sidebar.setResources({ ...resources, mcpError: "MCP config unreadable", mcpWarning: "MCP configuration validation unavailable" });
-  const mixed = plain(sidebar.render(80));
-  assert(mixed.some(line => line.includes("MCP · 6 Enabled · 1 Error")));
-  assert(!mixed.some(line => line.includes("Warning") || line.includes("validation unavailable")));
-  sidebar.setResources({
-    skills: [], commands: [], prompts: [],
-    mcp: [{ name: "bad", enabled: null, source: "global" }],
-    mcpError: "MCP config unreadable",
-    mcpWarning: "MCP configuration validation unavailable",
-  });
-  const unknown = plain(sidebar.render(80));
-  assert(unknown.some(line => line.includes("MCP · — · 1 Error")));
-  assert(!unknown.some(line => line.includes("0 Enabled") || line.includes("Warning")));
-});
-
-test("a missing MCP host snapshot renders a warning instead of a config error", async t => {
-  const root = await mkdtemp(join(tmpdir(), "slate-mcp-warning-"));
+test("readable MCP declarations render without a host adapter; actual file failures remain visible", async t => {
+  const root = await mkdtemp(join(tmpdir(), "slate-mcp-configured-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { docs: { command: "server" } } }));
+  await writeFile(join(root, "mcp.json"), '\uFEFF{"mcpServers":{"docs":{"type":"future-transport"}}}');
   const snapshot = new SidebarMcpFiles().snapshot(root, root, false, []);
   const { sidebar } = fixture();
   sidebar.setResources({ skills: [], commands: [], prompts: [], ...snapshot });
   const lines = plain(sidebar.render(80));
   assert.equal(snapshot.mcpError, undefined);
-  assert.equal(snapshot.mcp[0]!.enabled, null);
-  assert.match(snapshot.mcpWarning!, /unavailable/);
-  assert(lines.some(line => line.includes("MCP · — · 1 Warning")));
-  assert(!lines.some(line => line.includes("Error") || line.includes("0 Enabled") || line.includes("validation unavailable")));
+  assert.equal(snapshot.mcp[0]!.enabled, true);
+  assert(lines.some(line => line.includes("MCP · 1 Enabled")));
+  assert(!lines.some(line => /Error|Warning/.test(line)));
+  sidebar.setResources({ skills: [], commands: [], prompts: [], ...snapshot, mcpError: "MCP config unreadable" });
+  assert(plain(sidebar.render(80)).some(line => line.includes("MCP · 1 Enabled · 1 Error")));
 });
 
 test("reset discards old titles, images, task rows and hit targets without changing fold preference", () => {

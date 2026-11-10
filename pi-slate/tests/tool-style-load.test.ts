@@ -9,6 +9,7 @@ import { Container, visibleWidth, type TUI, type TuiMouseEvent } from "@earendil
 import { ToolExecutionComponent } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js";
 import { theme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { ToolGroups } from "../extensions/pi-slate/tool-groups.ts";
+import { ChatSurface } from "../extensions/pi-slate/chat-surface.ts";
 
 test("default style loads locally and host preserves expansion, padding, mouse and restored results", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "slate-tool-host-"));
@@ -36,8 +37,8 @@ test("default style loads locally and host preserves expansion, padding, mouse a
     host.updateResult(JSON.parse(JSON.stringify({ content: [{ type: "text", text: "unique full body\nsecond row" }], isError: false, durationMs: 0 })));
     chat.addChild(host); return host;
   });
-  const groups = new ToolGroups(chat, () => theme);
-  t.after(() => groups.dispose());
+  const surface = new ChatSurface(chat, { groups: new ToolGroups(() => theme) });
+  t.after(() => surface.dispose());
   const plain = () => chat.render(80).map(stripVTControlCharacters).join("\n");
   assert.match(plain(), /Done \(2 tool calls\)/);
   assert.match(plain(), /2 lines · 0ms/);

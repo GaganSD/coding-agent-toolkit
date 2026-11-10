@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed
+
+- MCP is now configuration-only: removed private Pi imports, version gates, and duplicated server validation. Pi's `/mcp` owns schema validity, authentication, and connection health. Slate still reports malformed/unreadable files and displays unknown enabled state neutrally.
+- Optional UI capability loss, styling ownership conflicts, and adapter faults use quiet native fallbacks with `/slate diagnostics` details instead of startup warnings. Faulted adapters are isolated and retried on session replacement or reload; real settings and user-action failures remain visible.
+- One chat-surface owner projects the visible messages, then paints grouped or native rows. Tool grouping no longer patches the host or negotiates with a second wrapper; faults retain the window in the same frame. Canonical messages and successor render/mouse owners remain intact.
+- Removed rendered-text filtering of native new-session notices so genuine conversation content cannot be mistaken for a banner and discarded.
+
+### Fixed
+
+- Sidebar layout now uses root-identity leases without intercepting `setLayoutRoot`, including Pi's forwarding TUI proxy and successor layouts.
+- Editor adapters unwind in reverse order and retained disposed image/selection wrappers delegate to native behavior. Paste reveals require undo support, handle blank-ending bodies, and cannot collapse stale ranges over edited prompt content.
+
+### Development
+
+- Added real regular/fullscreen startup, mount, render, session replacement, and shutdown checks for default/no/full surfaces against the pinned baseline and a freshly resolved latest Pi running the packed Slate artifact. Cases isolate HOME/settings and prohibit execution-time networking.
+- Added a daily upstream compatibility canary, latest-host PR gating, architecture guards against private/computed host imports, and production-wiring tests for quiet fallbacks, fault isolation, and secret-free diagnostics.
+
 ## 0.2.0
 
 Four Catppuccin flavors behind a single /theme picker, and edits and writes that keep their diffs visible in collapsed tool cards.

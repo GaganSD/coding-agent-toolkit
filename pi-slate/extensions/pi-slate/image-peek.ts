@@ -13,6 +13,7 @@ import type { Sidebar } from "./sidebar.ts";
 
 export class ImagePeek {
   private shownId?: string;
+  private disposed = false;
   private rewriteTimer?: ReturnType<typeof setTimeout>;
   private readonly originalHandleMouse: CustomEditor["handleMouse"];
   private readonly originalHandleInput: CustomEditor["handleInput"];
@@ -36,12 +37,14 @@ export class ImagePeek {
     this.originalHandleMouse = this.editor.handleMouse;
     this.originalHandleInput = this.editor.handleInput;
     this.handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
+      if (this.disposed) return this.originalHandleMouse.call(this.editor, event);
       clearTimeout(this.rewriteTimer);
       const result = this.originalHandleMouse.call(this.editor, event);
       this.update();
       return result;
     };
     this.handleInput = (data: string): void => {
+      if (this.disposed) { this.originalHandleInput.call(this.editor, data); return; }
       const before = this.editor.getText();
       this.originalHandleInput.call(this.editor, data);
       clearTimeout(this.rewriteTimer);
@@ -59,6 +62,7 @@ export class ImagePeek {
   }
 
   rewrite(): void {
+    if (this.disposed) return;
     const text = this.editor.getText();
     const lines = text.split("\n");
     const cursor = this.editor.getCursor();
@@ -74,6 +78,7 @@ export class ImagePeek {
   }
 
   update(): void {
+    if (this.disposed) return;
     if (!this.workspace?.splitActive || this.workspace.isImagePinned()) return;
     const number = imageTokenAtCursor(this.editor.getText(), this.editor.getCursor());
     const filePath = number ? this.store.get(number) : undefined;
@@ -110,6 +115,7 @@ export class ImagePeek {
   }
 
   dispose(): void {
+    this.disposed = true;
     clearTimeout(this.rewriteTimer);
     if (this.editor.handleMouse === this.handleMouse) this.editor.handleMouse = this.originalHandleMouse;
     if (this.editor.handleInput === this.handleInput) this.editor.handleInput = this.originalHandleInput;

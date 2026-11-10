@@ -25,6 +25,7 @@ export type ComposerSelectionOptions = {
   copy?(text: string): void | Promise<void>;
   requestRender?(): void;
   onCopyError?(error: unknown): void;
+  onPasteUnavailable?(): void;
 };
 
 type PasteableEditor = ComposerSelectionEditor & {
@@ -48,6 +49,7 @@ type InstalledEditor = {
   render: ComposerSelectionEditor["render"];
   originalFocus?: PropertyDescriptor;
   focusGetter?: () => boolean;
+  deactivate(): void;
 };
 
 function isSelectAll(data: string): boolean {
@@ -106,6 +108,8 @@ type EditorPasteState = {
   exitHistoryBrowsing?: () => void;
   onChange?: (text: string) => void;
   invalidate?: () => void;
+  pushUndoSnapshot?: () => void;
+  lastAction?: unknown;
 };
 
 type RevealedPaste = {
@@ -126,11 +130,15 @@ function replaceRange(
 ): boolean {
   const internals = editor as unknown as Partial<EditorPasteState>;
   const state = internals.state;
-  if (!state || !Array.isArray(state.lines) || startLine < 0 || endLine >= state.lines.length) return false;
+  if (!state || !Array.isArray(state.lines) || startLine < 0 || endLine >= state.lines.length
+    || typeof internals.pushUndoSnapshot !== "function") return false;
   const startLineText = state.lines[startLine];
   const endLineText = state.lines[endLine];
-  if (!startLineText || !endLineText || startCol < 0 || endCol > endLineText.length) return false;
+  if (typeof startLineText !== "string" || typeof endLineText !== "string" || startCol < 0 || endCol > endLineText.length) return false;
 
+  // The private range adapter is optional: do not rewrite without native undo support.
+  internals.pushUndoSnapshot.call(editor);
+  internals.lastAction = null;
   internals.cancelAutocomplete?.call(editor);
   internals.exitHistoryBrowsing?.call(editor);
 
@@ -173,6 +181,7 @@ export class ComposerSelectionController {
   private escapeArmedAt = 0;
   private revision = 0;
   private revealed: RevealedPaste[] = [];
+  private revealedText?: string;
   private readonly now: () => number;
 
   constructor(now: () => number = Date.now) {
@@ -189,6 +198,7 @@ export class ComposerSelectionController {
     const originalInsertTextAtCursor = pasteable.insertTextAtCursor;
     const originalSetText = editor.setText;
     const originalRender = editor.render;
+    let pasteUnavailable = false, disposed = false;
 
     const setSelected = (on: boolean): void => {
       this.selected = on;
@@ -202,6 +212,7 @@ export class ComposerSelectionController {
     };
     const clearRevealed = (): void => {
       this.revealed = [];
+      this.revealedText = undefined;
     };
     const clearInteraction = (): void => {
       collapse();
@@ -220,12 +231,14 @@ export class ComposerSelectionController {
       }
     };
     const togglePasteAtCursor = (): boolean => {
+      // Ranges are only valid for the exact buffer that produced them. Never collapse edited text.
+      if (this.revealedText !== editor.getText()) clearRevealed();
       const cursor = editor.getCursor();
       const open = [...this.revealed].reverse().find((item) => cursorInRevealed(item, cursor));
       if (open) {
         const { endLine, endCol } = revealedRange(open);
-        if (!replaceRange(editor, open.startLine, open.startCol, endLine, endCol, open.token)) return false;
-        this.revealed = this.revealed.filter((item) => item !== open);
+        if (!replaceRange(editor, open.startLine, open.startCol, endLine, endCol, open.token)) throw new Error("Paste range adapter unavailable");
+        clearRevealed();
         return true;
       }
 
@@ -235,18 +248,22 @@ export class ComposerSelectionController {
       const id = Number(token.number);
       const body = internals.pastes instanceof Map ? internals.pastes.get(id) : undefined;
       if (typeof body !== "string") return false;
-      if (!replaceRange(editor, cursor.line, token.start, cursor.line, token.end, body)) return false;
-      this.revealed.push({ id, token: token.token, body, startLine: cursor.line, startCol: token.start });
+      if (!replaceRange(editor, cursor.line, token.start, cursor.line, token.end, body)) throw new Error("Paste range adapter unavailable");
+      // A second reveal leaves the previous body expanded rather than retaining stale offsets.
+      this.revealed = [{ id, token: token.token, body, startLine: cursor.line, startCol: token.start }];
+      this.revealedText = editor.getText();
       return true;
     };
 
     const setText = (text: string): void => {
+      if (disposed) { originalSetText.call(editor, text); return; }
       clearInteraction();
       clearRevealed();
       originalSetText.call(editor, text);
     };
 
     const handleInput = (data: string): void => {
+      if (disposed) { originalHandleInput.call(editor, data); return; }
       if (matchesKey(data, "escape")) {
         if (isKeyRelease(data)) return;
         if (isKeyRepeat(data)) {
@@ -312,16 +329,25 @@ export class ComposerSelectionController {
     };
 
     const handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
+      if (disposed) return originalHandleMouse.call(editor, event);
       // Leave press/drag/release unhandled so Pi's screen-level selection can run.
       if (event.type !== "wheel" && event.type !== "move" && event.type !== "release") {
         clearInteraction();
       }
       const result = originalHandleMouse.call(editor, event);
-      if (isPasteClick(event) && togglePasteAtCursor()) options.requestRender?.();
+      if (!pasteUnavailable && isPasteClick(event)) {
+        try { if (togglePasteAtCursor()) options.requestRender?.(); }
+        catch {
+          pasteUnavailable = true;
+          clearRevealed();
+          options.onPasteUnavailable?.();
+        }
+      }
       return result;
     };
 
     const render = (width: number): string[] => {
+      if (disposed) return originalRender.call(editor, width);
       if (editor.focused === false) {
         collapse();
         disarmEscape();
@@ -338,6 +364,7 @@ export class ComposerSelectionController {
 
     const handlePaste = originalHandlePaste
       ? (text: string): void => {
+        if (disposed) { originalHandlePaste.call(editor, text); return; }
         this.revision += 1;
         disarmEscape();
         clearRevealed();
@@ -351,6 +378,7 @@ export class ComposerSelectionController {
 
     const insertTextAtCursor = originalInsertTextAtCursor
       ? (text: string): void => {
+        if (disposed) { originalInsertTextAtCursor.call(editor, text); return; }
         this.revision += 1;
         disarmEscape();
         if (this.selected) {
@@ -386,7 +414,7 @@ export class ComposerSelectionController {
         set: (value: boolean) => {
           if (focused === value) return;
           focused = value;
-          if (!value) clearInteraction();
+          if (!disposed && !value) clearInteraction();
         },
       });
     }
@@ -407,12 +435,14 @@ export class ComposerSelectionController {
       render,
       originalFocus,
       focusGetter,
+      deactivate: () => { disposed = true; },
     };
   }
 
   dispose(): void {
     const installed = this.installed;
     if (installed) {
+      installed.deactivate();
       if (installed.editor.handleInput === installed.handleInput) installed.editor.handleInput = installed.originalHandleInput;
       if (installed.editor.handleMouse === installed.handleMouse) installed.editor.handleMouse = installed.originalHandleMouse;
       if (installed.editor.render === installed.render) installed.editor.render = installed.originalRender;
@@ -438,6 +468,7 @@ export class ComposerSelectionController {
     this.selected = false;
     this.escapeArmedText = undefined;
     this.revealed = [];
+    this.revealedText = undefined;
     this.revision += 1;
   }
 }
