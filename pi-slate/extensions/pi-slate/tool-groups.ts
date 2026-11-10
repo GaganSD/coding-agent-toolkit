@@ -31,6 +31,9 @@ function thoughts(component: Component): number | undefined {
 }
 
 type RowOwner = { component: Component; y: number; height: number; inset: number };
+type Segment =
+  | { kind: "native"; component: Component }
+  | { kind: "group"; tools: Tool[]; thoughtCount: number; failed: number; running: boolean };
 /** Paints an explicit display list and maps its mouse rows. Never patches a host component. */
 export class ToolGroups {
   private owners: Array<RowOwner | undefined> = [];
@@ -40,11 +43,9 @@ export class ToolGroups {
     this.theme = theme; this.hint = hint;
   }
 
-  render(children: readonly Component[], width: number): string[] {
-    const lines: string[] = [], owners: Array<RowOwner | undefined> = [];
-    const append = (component: Component, rows: string[]): void => {
-      for (let y = 0; y < rows.length; y++) { lines.push(rows[y]!); owners.push({ component, y, height: rows.length, inset: 0 }); }
-    };
+  /** Read all grouping metadata before painting so a fault cannot duplicate earlier renders. */
+  private plan(children: readonly Component[], width: number): Segment[] {
+    const segments: Segment[] = [];
     for (let i = 0; i < children.length;) {
       let end = i, thoughtCount = 0, failed = 0, running = false, expanded = false;
       const tools: Tool[] = [];
@@ -63,9 +64,26 @@ export class ToolGroups {
       }
       if (tools.length < 2 || expanded || width < 12) {
         const stop = Math.max(i + 1, end);
-        for (; i < stop; i++) append(children[i]!, children[i]!.render(width));
+        for (; i < stop; i++) segments.push({ kind: "native", component: children[i]! });
         continue;
       }
+      segments.push({ kind: "group", tools, thoughtCount, failed, running });
+      i = end;
+    }
+    return segments;
+  }
+
+  render(children: readonly Component[], width: number): string[] {
+    const lines: string[] = [], owners: Array<RowOwner | undefined> = [];
+    const append = (component: Component, rows: string[]): void => {
+      for (let y = 0; y < rows.length; y++) { lines.push(rows[y]!); owners.push({ component, y, height: rows.length, inset: 0 }); }
+    };
+    for (const segment of this.plan(children, width)) {
+      if (segment.kind === "native") {
+        append(segment.component, segment.component.render(width));
+        continue;
+      }
+      const { tools, thoughtCount, failed, running } = segment;
       const paint = this.theme();
       const parts = [`${tools.length} tool calls`];
       if (thoughtCount) parts.push(`${thoughtCount} thought${thoughtCount === 1 ? "" : "s"}`);
@@ -91,7 +109,6 @@ export class ToolGroups {
           owners.push({ component: member, y, height: rows.length, inset: 3 });
         }
       }
-      i = end;
     }
     this.owners = owners;
     return lines;

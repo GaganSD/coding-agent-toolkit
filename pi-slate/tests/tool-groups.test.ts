@@ -142,21 +142,26 @@ test("a grouping painter never patches the host or mutates its canonical childre
 });
 
 test("grouping metadata faults retain the window and paint selected native children only once", () => {
-  const chat = new Container(), broken = mockTool();
-  let paints = 0, faults = 0;
+  const chat = new Container(), broken = mockTool(), normal = new Text("visible normal message", 0, 0);
+  let paints = 0, normalPaints = 0, faults = 0;
   const render = broken.render.bind(broken);
   broken.render = width => { paints++; return render(width); };
-  chat.addChild(new Text("hidden older message", 0, 0)); chat.addChild(broken);
+  const renderNormal = normal.render.bind(normal);
+  normal.render = width => { normalPaints++; return renderNormal(width); };
+  chat.addChild(new Text("hidden older message", 0, 0)); chat.addChild(normal); chat.addChild(broken);
   let groups: ToolGroups | undefined = new ToolGroups(() => undefined);
   const onGroupingFault = () => { faults++; groups = undefined; };
-  const surface = new ChatSurface(chat, { limit: 1, groups, onGroupingFault });
+  const surface = new ChatSurface(chat, { limit: 2, groups, onGroupingFault });
   Reflect.set(broken.result, "content", {});
   assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/);
+  assert.equal(normalPaints, 1, "metadata is checked before any selected native child paints");
   assert.equal(paints, 1, "the faulting frame paints the selected native child only once");
   assert.equal(faults, 1);
-  surface.update({ limit: 1, groups, onGroupingFault });
+  surface.update({ limit: 2, groups, onGroupingFault });
   assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/);
+  assert.equal(normalPaints, 2, "each later native frame paints once");
+  assert.equal(paints, 2);
   assert.equal(faults, 1, "synchronization does not retry a quarantined painter");
-  assert.equal(chat.children.length, 2);
+  assert.equal(chat.children.length, 3);
   surface.dispose();
 });
