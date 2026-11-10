@@ -12,7 +12,7 @@ export function installChatView(container: Container, children: () => Component[
   views.set(container, { owner, children });
   return () => { if (views.get(container)?.owner === owner) views.delete(container); };
 }
-export function markChatRenderer<T extends Container["render"]>(render: T, consumesView: () => boolean = () => true): T {
+export function markChatRenderer<T extends Container["render"]>(render: T, consumesView: () => boolean): T {
   return Object.assign(render, { [CHAT_RENDERER]: consumesView });
 }
 export function consumesChatView(render: Container["render"]): boolean {
