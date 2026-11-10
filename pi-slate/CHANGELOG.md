@@ -2,22 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- `/logo` toggles the header between the stock mark and the minimal mark. `/logo original` and `/logo minimal` set one directly.
+
 ### Changed
 
-- MCP is now configuration-only: removed private Pi imports, version gates, and duplicated server validation. Pi's `/mcp` owns schema validity, authentication, and connection health. Slate still reports malformed/unreadable files and displays unknown enabled state neutrally.
-- Optional UI capability loss, styling ownership conflicts, and adapter faults use quiet native fallbacks with `/slate diagnostics` details instead of startup warnings. Faulted adapters are isolated and retried on session replacement or reload; real settings and user-action failures remain visible.
-- One chat-surface owner projects the visible messages, then paints grouped or native rows. Tool grouping no longer patches the host or negotiates with a second wrapper; faults retain the window in the same frame. Canonical messages and successor render/mouse owners remain intact.
-- Removed rendered-text filtering of native new-session notices so genuine conversation content cannot be mistaken for a banner and discarded.
+- With the dashboard hidden, the composer top edge shows context, MCP count, then thinking. The model stays on the next line and is not repeated.
+- Metadata separators follow the surrounding theme. Slate no longer checks for updates or draws its own header hairline; Pi's update notice stays.
+- Sidebar MCP is requested configuration only. `/mcp` owns validation, auth, and connection health. Unreadable files still show; unknown state stays neutral.
+- Optional UI gaps fall back to native behavior with no startup warning. `/slate diagnostics` lists them. Settings errors and failed user actions still show.
+- One chat surface paints grouped or native rows. A grouping failure keeps the visible window instead of dropping or double-painting it.
 
 ### Fixed
 
-- Sidebar layout now uses root-identity leases without intercepting `setLayoutRoot`, including Pi's forwarding TUI proxy and successor layouts.
-- Editor adapters unwind in reverse order and retained disposed image/selection wrappers delegate to native behavior. Paste reveals require undo support, handle blank-ending bodies, and cannot collapse stale ranges over edited prompt content.
+- Edit-preview dividers and truncation marks keep the diff background, so tool and terminal colors no longer bleed in.
+- The sidebar follows the live layout root, including Pi's forwarding proxy, without intercepting `setLayoutRoot`.
+- Disposed image and selection wrappers edit natively again. Paste-to-reveal needs undo and will not collapse text edited after the paste.
+- Conversation text that looks like Pi's new-session notice is no longer removed.
 
-### Development
+### Security
 
-- Added real regular/fullscreen startup, mount, render, session replacement, and shutdown checks for default/no/full surfaces against the pinned baseline and a freshly resolved latest Pi running the packed Slate artifact. Cases isolate HOME/settings and prohibit execution-time networking.
-- Added a daily upstream compatibility canary, latest-host PR gating, architecture guards against private/computed host imports, and production-wiring tests for quiet fallbacks, fault isolation, and secret-free diagnostics.
+- Transitive `undici` is pinned to 8.12.4.
 
 ## 0.2.0
 
