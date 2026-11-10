@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "sourceSha": "f816c4c30eda3e7ebfcfdc4b99bc1e081a6b833e",
-  "notes": "Four Catppuccin flavors behind a single /theme picker, and edits and writes that keep their diffs visible in collapsed tool cards.",
+  "sourceSha": "653788d5fb60b2d9bdc710c0bb1ff42deaa87544",
+  "notes": "Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.",
   "packages": [
     {
       "path": "pi-slate",
       "name": "pi-slate",
-      "from": "0.1.18",
-      "to": "0.2.0",
-      "bump": "minor"
+      "from": "0.2.0",
+      "to": "0.2.1",
+      "bump": "patch"
     }
   ]
 }

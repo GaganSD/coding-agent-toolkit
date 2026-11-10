@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1
+
+Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.
+
 ### Added
 
 - `/logo` toggles the header between the stock mark and the minimal mark. `/logo original` and `/logo minimal` set one directly.
