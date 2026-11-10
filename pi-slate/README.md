@@ -60,6 +60,8 @@ The sidebar keeps session facts visible without sending them to a model: a live 
 
 ![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
 
+MCP indicators show **requested configuration**, not schema validity or connection health. Slate reads enabled flags without importing Pi's MCP internals, validating transports/authentication, running credential commands, or connecting to servers. Unreadable/malformed files remain visible; unknown enabled state is a neutral `—`. Use `/mcp` for authoritative validation and live status.
+
 ### Background Tasks & Subagents
 
 Other extensions can publish detached terminals or jobs to the sidebar's task shelf through the `pi:background-tasks` event on Pi's event bus; snapshots are display-only and cleared with their session. With `editor` and a fullscreen `sidebar` selected, Slate can also lend the sidebar's chat slot to a pi-subagents worker conversation — a UI-only handshake with no new model tools — and restores the same surfaces on return. Without a compatible slot, pi-subagents uses its own fallback.
@@ -123,6 +125,7 @@ These work when `editor` is selected. No terminal configuration.
 | Working indicator | `/slate progress [waves\|dna-helix\|snake\|cylon-scanner]` | Animate the composer's working-status slot. `waves` is the default. |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
 | Session dashboard | `/slate session [mcp\|skills\|commands\|tasks\|image]` | Inspect facts, expand/collapse resources, insert commands, or manage the image shelf. |
+| Diagnostics | `/slate diagnostics` | Inspect optional feature availability, native fallbacks, and next steps without changing preferences or adding model context. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. When the dashboard is hidden, thinking follows context/MCP on the top edge and the model stays below. Not footer-slot ownership. |
@@ -144,6 +147,32 @@ Changes are saved and require `/reload`; appearance settings stay live. A fresh 
 | `sidebar` | Session dashboard, resources, tasks and images |
 | `tool-cards` | Highlighted edit/write cards and grouped reads |
 | `transcript` | Visible-message window |
+
+## Compatibility and diagnostics
+
+Slate treats an unavailable optional presentation feature as a **fallback**, not a server or application failure. Regular terminal mode, a missing renderer hook, or a later extension taking a layout slot no longer generates a startup warning. Real settings/file problems and failed copy/save/open actions remain visible.
+
+Run `/slate diagnostics` for feature-level `active` / `fallback` details. Adapter exceptions are isolated and quarantined for that session; `/reload` retries them. Reports retain fixed, actionable reasons—not exception text, credentials, raw configuration, or conversation contents. Fallbacks do not enable fullscreen, rewrite preferences, or take back another extension's slots.
+
+Compatibility boundaries:
+
+- Production imports only public Pi package entrypoints; an architecture test rejects private/computed host imports.
+- MCP is a read-only configuration projection. Pi owns server validation, authentication, and connections.
+- Sidebar layout uses root-identity leases, not intercepted setters or function-identity assumptions.
+- Message windowing projects the display without removing the host's message components. Active work stays visible; grouping and windowing share that projection and preserve unknown render owners.
+- Editor adapters unwind in reverse installation order. Retained disposed wrappers become native delegates. Paste reveals require undo support and never collapse a buffer edited since the reveal.
+- Native notices and user/assistant messages are never discarded by matching their rendered text.
+
+Development checks retain the locked baseline host and separately exercise the **packed artifact with freshly resolved latest stable Pi**:
+
+```sh
+npm run test:unit
+npm run test:integration       # includes real baseline-host startup/rendering
+npm run build
+npm run test:compat:latest     # temporary latest host + packed Slate consumer
+```
+
+The real-host probe covers regular/fullscreen mode, default/no/full surfaces, initialization, rendering, session replacement, and shutdown. Each case runs in a fresh process with isolated settings/HOME, no provider credentials, and execution-time networking blocked. The latest-host canary runs in Slate's PR validation and a dedicated daily workflow. Optional UI tree/editor adapters still require contract coverage; these checks detect upstream drift rather than promising compatibility with every future host.
 
 ## License
 

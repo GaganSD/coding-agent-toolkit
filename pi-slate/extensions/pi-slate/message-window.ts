@@ -1,4 +1,5 @@
 import { Container, ScrollView, isViewportTUI, type Component, type TUI } from "@earendil-works/pi-tui";
+import { chatViewChildren, compatibleChatRenderer, consumesChatView, installChatView, markChatRenderer } from "./chat-view.ts";
 
 export function childComponents(component: Component): Component[] {
   const stack = component as { entries?: Array<{ component?: Component }> };
@@ -42,79 +43,48 @@ export function layoutRootOf(tui: TUI | undefined): Component | undefined {
 
 export class MessageWindow {
   readonly container: Container;
-  private readonly addChild: (component: Component) => void;
-  private readonly removeChild: (component: Component) => void;
-  private readonly clear: () => void;
-  private readonly installedAdd: Container["addChild"];
-  private readonly installedRemove: Container["removeChild"];
-  private readonly installedClear: Container["clear"];
-  private hidden: Component[] = [];
-  private pinned?: Component;
+  private readonly originalRender: Container["render"];
+  private readonly originalMouse: Container["handleMouse"];
+  private readonly installedRender: Container["render"];
+  private readonly installedMouse: Container["handleMouse"];
+  private readonly removeView: () => void;
+  private readonly display = new Container();
   private limit: number;
   private disposed = false;
 
-  constructor(container: Container, limit: number) {
+  constructor(container: Container, limit: number, active: () => boolean = () => false) {
+    if (!compatibleChatRenderer(container.render)) throw new Error("Unrecognized chat renderer; native transcript retained");
     this.container = container;
     this.limit = limit;
-    this.addChild = container.addChild.bind(container);
-    this.removeChild = container.removeChild.bind(container);
-    this.clear = container.clear.bind(container);
-    this.installedAdd = (component) => {
-      if (this.disposed) { this.addChild(component); return; }
-      this.pinned = this.container.children.at(-1);
-      this.addChild(component);
-      this.trim();
-    };
-    this.installedRemove = (component) => {
-      if (this.disposed) { this.removeChild(component); return; }
-      const index = this.hidden.indexOf(component);
-      if (index >= 0) this.hidden.splice(index, 1);
-      if (this.pinned === component) this.pinned = undefined;
-      this.removeChild(component);
-    };
-    this.installedClear = () => {
-      if (this.disposed) { this.clear(); return; }
-      this.hidden = [];
-      this.pinned = undefined;
-      this.clear();
-    };
-    container.addChild = this.installedAdd;
-    container.removeChild = this.installedRemove;
-    container.clear = this.installedClear;
-    this.trim();
+    this.originalRender = container.render;
+    this.originalMouse = container.handleMouse;
+    this.removeView = installChatView(container, () => {
+      if (this.disposed || active() || !Number.isFinite(this.limit)) return container.children;
+      return container.children.slice(-Math.max(1, Math.floor(this.limit)));
+    });
+    this.installedRender = markChatRenderer((width) => {
+      if (this.disposed) return this.originalRender.call(container, width);
+      this.display.children = chatViewChildren(container);
+      // Another live Slate adapter may consume the projection. Recheck after rendering:
+      // it can fault and retire itself during this very frame.
+      if (!consumesChatView(this.originalRender)) return this.display.render(width);
+      const rows = this.originalRender.call(container, width);
+      return consumesChatView(this.originalRender) ? rows : this.display.render(width);
+    }, () => !this.disposed || consumesChatView(this.originalRender));
+    this.installedMouse = (event) => this.disposed || consumesChatView(this.originalRender)
+      ? this.originalMouse.call(container, event) : this.display.handleMouse(event);
+    container.render = this.installedRender;
+    container.handleMouse = this.installedMouse;
   }
 
-  setLimit(limit: number): void {
-    if (this.disposed || this.limit === limit) return;
-    this.limit = limit;
-    this.reveal();
-    this.trim();
-  }
-
+  setLimit(limit: number): void { if (!this.disposed) this.limit = limit; }
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.reveal();
-    if (this.container.addChild === this.installedAdd) this.container.addChild = this.addChild;
-    if (this.container.removeChild === this.installedRemove) this.container.removeChild = this.removeChild;
-    if (this.container.clear === this.installedClear) this.container.clear = this.clear;
-  }
-
-  private reveal(): void {
-    if (this.hidden.length === 0) return;
-    this.container.children.unshift(...this.hidden);
-    this.hidden = [];
-  }
-
-  private trim(): void {
-    if (!Number.isFinite(this.limit)) return;
-    const keep = Math.max(0, Math.floor(this.limit));
-    while (this.container.children.length > keep) {
-      const oldest = this.container.children[0];
-      if (!oldest || oldest === this.pinned) return;
-      this.removeChild(oldest);
-      this.hidden.push(oldest);
-    }
+    this.removeView();
+    if (this.container.render === this.installedRender) this.container.render = this.originalRender;
+    if (this.container.handleMouse === this.installedMouse) this.container.handleMouse = this.originalMouse;
+    this.display.children = [];
   }
 }
 
@@ -122,13 +92,14 @@ export function syncMessageWindow(
   current: MessageWindow | undefined,
   tui: TUI | undefined,
   limit: number,
+  active?: () => boolean,
 ): MessageWindow | undefined {
   const chat = findChatContainer(layoutRootOf(tui));
-  if (!chat) return current;
+  if (!chat) { current?.dispose(); return undefined; }
   if (current?.container === chat) {
     current.setLimit(limit);
     return current;
   }
   current?.dispose();
-  return new MessageWindow(chat, limit);
+  return new MessageWindow(chat, limit, active);
 }

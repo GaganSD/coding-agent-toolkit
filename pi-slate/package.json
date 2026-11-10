@@ -40,6 +40,8 @@
     "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "test:unit": "node ../scripts/test-package.mjs pi-slate unit",
     "test:integration": "node ../scripts/test-package.mjs pi-slate integration",
+    "test:compat": "node --experimental-strip-types --test tests/host-compat.test.mjs",
+    "test:compat:latest": "node scripts/latest-host.mjs",
     "build": "node ../scripts/package.mjs pi-slate",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "npm pack --dry-run",

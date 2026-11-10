@@ -24,7 +24,7 @@ const editorTheme = { borderColor: (text: string) => text } as EditorTheme;
 
 type Handler = (event: ExtensionEvent, ctx: ExtensionContext) => unknown;
 
-async function fixture(t: TestContext, text: string | undefined, mode = "tui", compatible = true, conflict = false) {
+async function fixture(t: TestContext, text: string | undefined, mode = "tui", compatible = true, conflict = false, configure?: (pi: ExtensionAPI, ui: ExtensionContext["ui"]) => void) {
   const cwd = await mkdtemp(join(tmpdir(), "slate-surfaces-"));
   const previous = { dir: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE };
   process.env.PI_CODING_AGENT_DIR = cwd;
@@ -40,6 +40,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   if (text !== undefined) await writeFile(path, text);
   const calls: string[] = [];
   const notices: string[] = [];
+  const notifications: Array<{ message: string; kind: string }> = [];
   const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
   const tools: ToolDefinition[] = [];
   const handlers = new Map<string, Handler[]>();
@@ -92,7 +93,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const ui = {
     theme,
     getTheme: (name: string) => ({ ...theme, name }),
-    notify: (message: string) => notices.push(message),
+    notify: (message: string, kind = "info") => { notices.push(message); notifications.push({ message, kind }); },
     setHeader: (factory: ((tui: TUI, theme: Theme) => Component) | undefined) => { assert.ok(factory); calls.push("header"); header = factory(tui, theme); },
     setFooter: (factory: (() => Component) | undefined) => { assert.ok(factory); calls.push("footer"); assert.deepEqual(factory().render(80), []); },
     setEditorComponent: (factory: ((tui: TUI, theme: EditorTheme, keys: KeybindingsManager) => Editor) | undefined) => {
@@ -135,6 +136,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
       return Reflect.get(target, key, receiver);
     },
   });
+  configure?.(pi, ui as unknown as ExtensionContext["ui"]);
   piSlate(pi);
   const emit = async (type: string, extra: Record<string, unknown> = {}, context = ctx) => {
     let result: unknown;
@@ -147,7 +149,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, bus, manager, draft: () => draft, eventBus: pi.events, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, bus, manager, draft: () => draft, eventBus: pi.events, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {
@@ -162,7 +164,8 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
     assert.deepEqual(f.tools.map((tool) => tool.name).sort(), has(surfaces, "tool-cards") ? ["edit", "write"] : []);
     assert.equal(f.commands.has("exit"), true);
     assert.equal(f.commands.has("prompts"), has(surfaces, "editor"));
-    assert.equal(f.chat.children.length, has(surfaces, "transcript") ? 100 : 105);
+    assert.equal(f.chat.children.length, 105, "the host's canonical message collection is never trimmed");
+    assert.equal(f.chat.render(80).length, has(surfaces, "transcript") ? 100 : 105);
     const message = { role: "assistant", content: [{ type: "thinking", thinking: "reasoning" }] };
     await f.emit("agent_start");
     await f.emit("message_update", { message, assistantMessageEvent: { type: "thinking_start", contentIndex: 0 } });
@@ -222,11 +225,13 @@ test('toolStyle "default" restores Slate cards and legacy read grouping', async 
   assert.equal(JSON.parse(await readFile(f.path, "utf8")).toolStyle, "default");
 });
 
-test("Claude mode still warns about lost edit/write registrations, not native read", async (t) => {
+test("lost optional styling registrations are diagnostic-only and never blame native read", async (t) => {
   const f = await fixture(t, JSON.stringify({ version: 1, surfaces: ["tool-cards"] }), "tui", true, true);
-  const notice = f.notices.find((value) => value.includes("tool-cards unavailable"));
-  assert.match(notice ?? "", /edit, write/);
-  assert.doesNotMatch(notice ?? "", /read/);
+  assert.deepEqual(f.notifications, []);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  const report = f.inspected.join("\n");
+  assert.match(report, /Host registrations retained for edit, write/);
+  assert.doesNotMatch(report, /retained for.*read/);
 });
 
 test("unselected cards ignore Claude tool style entirely", async (t) => {
@@ -340,11 +345,15 @@ for (const mode of ["print", "rpc", "json"]) {
   });
 }
 
-test("incompatible hosts report unavailable without fullscreen or overlay writes", async (t) => {
-  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar", "transcript"], focused: false }), "tui", false);
-  assert.match(f.notices.join("\n"), /sidebar unavailable/);
-  assert.match(f.notices.join("\n"), /transcript unavailable/);
+test("unsupported optional UI capabilities are quiet, preserve settings and explain fallbacks on demand", async (t) => {
+  const text = JSON.stringify({ surfaces: ["sidebar", "transcript"], focused: false });
+  const f = await fixture(t, text, "tui", false);
+  assert.deepEqual(f.notifications, []);
   assert.equal(f.chat.children.length, 105);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /sidebar: fallback/);
+  assert.match(f.inspected.join("\n"), /transcript: fallback/);
+  assert.equal(await readFile(f.path, "utf8"), text);
 });
 
 test("hidden sidebar stays quiet on an incompatible host", async (t) => {
@@ -352,9 +361,11 @@ test("hidden sidebar stays quiet on an incompatible host", async (t) => {
   assert.equal(f.notices.some((notice) => /sidebar unavailable/.test(notice)), false);
 });
 
-test("tool-cards reports first-registration losses without conflict repair", async (t) => {
+test("tool ownership diagnostics preserve first-registration wins without repair or startup alarms", async (t) => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["tool-cards"] }), "tui", true, true);
-  assert.match(f.notices.join("\n"), /tool-cards unavailable.*first registration wins/);
+  assert.deepEqual(f.notifications, []);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /first registration wins/);
 });
 
 test("real host below-editor widget renderer adds no rows for the TUI handle", () => {
@@ -830,3 +841,87 @@ for (const state of ["live", "invalidated", "replaced"] as const) {
     assert.deepEqual(f.notices.slice(notices), state === "live" ? ["Could not open file"] : []);
   });
 }
+
+
+test("a missing optional renderer hook uses default cards without startup alarms", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["tool-cards"] }), "tui", true, false, pi => {
+    Reflect.set(pi, "registerToolRenderer", undefined);
+  });
+  assert.deepEqual(f.notifications, []);
+  assert.deepEqual(f.tools.map(tool => tool.name).sort(), ["edit", "read", "write"]);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /tool-style: fallback/);
+});
+
+test("a throwing sidebar adapter cannot prevent the editor, header or transcript from installing", async t => {
+  t.mock.method(Sidebar.prototype, "attach", () => { throw new Error("SECRET private adapter error"); });
+  const f = await fixture(t, JSON.stringify({ surfaces: ["header", "editor", "sidebar", "transcript"], focused: false }));
+  assert(f.calls.includes("header")); assert(f.calls.includes("editor"));
+  assert.equal(f.chat.render(80).length, 100);
+  assert.deepEqual(f.notifications, []);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  const report = f.inspected.join("\n");
+  assert.match(report, /sidebar: fallback.*adapter failed/);
+  assert.doesNotMatch(report, /SECRET|private adapter error/);
+});
+
+test("a failing optional widget mount preserves the native root and unrelated editor/header surfaces", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["header", "editor", "sidebar"] }), "tui", true, false, (_pi, ui) => {
+    ui.setWidget = () => { throw new Error("SECRET widget implementation"); };
+  });
+  assert(f.calls.includes("editor")); assert(f.calls.includes("header"));
+  assert.equal(Reflect.get(f.tui, "layoutRoot"), f.root);
+  assert.deepEqual(f.notifications, []);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /surface-host: fallback/);
+  assert.doesNotMatch(f.inspected.join("\n"), /SECRET/);
+});
+
+test("a throwing host catalog does not interrupt setup or leak exception details", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"] }), "tui", true, false, pi => {
+    pi.getCommands = () => { throw new Error("SECRET command catalog"); };
+  });
+  assert(f.composer); assert.deepEqual(f.notifications, []);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /command-catalog: fallback/);
+  assert.doesNotMatch(f.inspected.join("\n"), /SECRET/);
+});
+
+test("real MCP file failures remain visible and have actionable on-demand details", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], focused: false }));
+  await writeFile(join(dirname(f.path), "mcp.json"), "{broken SECRET");
+  await f.emit("message_end", { message: { role: "user", content: "refresh" } });
+  assert.match(railOf(f).render(80).join("\n"), /1 Error/);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  const report = f.inspected.join("\n");
+  assert.match(report, /MCP config unreadable.*Check global mcp.json/);
+  assert.doesNotMatch(report, /SECRET/);
+});
+
+test("a Slate header never classifies or deletes host conversation content by its painted text", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["header"] }));
+  const exact = new Text("✓ New session started", 1, 1);
+  const blank = new Text("", 0, 1);
+  f.chat.addChild(blank); f.chat.addChild(exact);
+  assert(f.chat.children.includes(exact)); assert(f.chat.children.includes(blank));
+});
+
+test("production editor teardown unwinds selection before image adapters", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
+  const editor = f.composer!;
+  editor.insertTextAtCursor(f.imagePath);
+  assert.equal(editor.getText(), "[image-1]");
+  editor.setText("");
+  await f.emit("session_shutdown");
+  editor.insertTextAtCursor(f.imagePath);
+  assert.equal(editor.getText(), f.imagePath, "a retained disposed editor must not retain image rewrite wrappers");
+});
+
+test("a changed optional command-catalog shape cannot abort unrelated surface setup", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"] }), "tui", true, false, pi => {
+    Reflect.set(pi, "getCommands", () => ({ commands: [] }));
+  });
+  assert(f.composer); assert.deepEqual(f.notifications, []);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /command-catalog: fallback/);
+});

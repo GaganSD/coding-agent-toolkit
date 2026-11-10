@@ -4,65 +4,72 @@ import { Container, ScrollView, Text, VStack } from "@earendil-works/pi-tui";
 import { MESSAGE_LENGTH_DEFAULT } from "../extensions/pi-slate/layout.ts";
 import { findChatContainer, MessageWindow } from "../extensions/pi-slate/message-window.ts";
 
-test("message window keeps the newest messages and restores older ones", () => {
+const rows = (chat: Container) => chat.render(80).map(row => row.trimEnd());
+
+test("message window projects display only, never the host's authoritative children or mutation methods", () => {
   const chat = new Container();
   const messages = Array.from({ length: 5 }, (_, i) => new Text(`m${i}`, 0, 0));
-  for (const message of messages) chat.addChild(message);
+  messages.forEach(message => chat.addChild(message));
+  const add = chat.addChild, remove = chat.removeChild, clear = chat.clear;
   const window = new MessageWindow(chat, 3);
-  assert.deepEqual(chat.children, messages.slice(2));
-  window.setLimit(5);
   assert.deepEqual(chat.children, messages);
-  const extra = new Text("m5", 0, 0);
-  chat.addChild(extra);
-  assert.deepEqual(chat.children, [...messages.slice(1), extra]);
-  window.setLimit(Number.POSITIVE_INFINITY);
+  assert.deepEqual(rows(chat), ["m2", "m3", "m4"]);
+  assert.equal(chat.addChild, add); assert.equal(chat.removeChild, remove); assert.equal(chat.clear, clear);
+  messages[0]!.setText("updated by host while hidden");
+  window.setLimit(5);
+  assert.match(rows(chat).join("\n"), /updated by host while hidden/);
+  chat.addChild(new Text("m5", 0, 0));
   assert.equal(chat.children.length, 6);
+  assert.equal(rows(chat).length, 5);
+  window.setLimit(Number.POSITIVE_INFINITY);
+  assert.equal(rows(chat).length, 6);
   window.dispose();
-  chat.addChild(new Text("m6", 0, 0));
-  assert.equal(chat.children.length, 7);
+  assert.equal(chat.render, Container.prototype.render);
 });
 
 test("finder uses the last nested container inside the primary scroll view", () => {
-  const header = new Container();
-  const chat = new Container();
-  chat.addChild(new Text("hello", 0, 0));
-  const document = new Container();
-  document.addChild(header);
-  document.addChild(chat);
-  const root = new VStack([
-    { component: new ScrollView(document, { primary: true }), grow: 1 },
-    new Text("editor", 0, 0),
-  ]);
+  const header = new Container(), chat = new Container(), document = new Container();
+  chat.addChild(new Text("hello", 0, 0)); document.addChild(header); document.addChild(chat);
+  const root = new VStack([{ component: new ScrollView(document, { primary: true }), grow: 1 }, new Text("editor", 0, 0)]);
   assert.equal(findChatContainer(root), chat);
   assert.equal(findChatContainer(new VStack([new Container(), new Text("footer", 0, 0)])), undefined);
 });
 
-test("a live assistant row is not evicted by the next tool child", () => {
-  const chat = new Container();
-  const assistant = new Text("assistant", 0, 0);
-  const tool = new Text("tool", 0, 0);
+test("active work does not hide a live assistant when multiple tools are appended", () => {
+  const chat = new Container(); let active = true;
+  const assistant = new Text("assistant", 0, 0), a = new Text("tool a", 0, 0), b = new Text("tool b", 0, 0);
   chat.addChild(assistant);
-  const window = new MessageWindow(chat, 1);
-  chat.addChild(tool);
-  assert.deepEqual(chat.children, [assistant, tool]);
+  const window = new MessageWindow(chat, 1, () => active);
+  chat.addChild(a); chat.addChild(b);
+  assert.deepEqual(rows(chat), ["assistant", "tool a", "tool b"]);
+  active = false;
+  assert.deepEqual(rows(chat), ["tool b"]);
+  assert.deepEqual(chat.children, [assistant, a, b]);
   window.dispose();
+  assert.deepEqual(rows(chat), ["assistant", "tool a", "tool b"]);
 });
 
-test("default visible length stays synced at 100", () => {
-  assert.equal(MESSAGE_LENGTH_DEFAULT, 100);
-});
+test("default visible length stays synced at 100", () => { assert.equal(MESSAGE_LENGTH_DEFAULT, 100); });
 
-test("disposed wrappers retained by successors only delegate, without trimming", () => {
-  const chat = new Container(); const items = Array.from({ length: 6 }, (_, i) => new Text(`m${i}`, 0, 0));
-  items.slice(0, 3).forEach(item => chat.addChild(item));
+test("disposed display wrappers retained by successors delegate to native rendering", () => {
+  const chat = new Container();
+  for (let i = 0; i < 4; i++) chat.addChild(new Text(`m${i}`, 0, 0));
   const window = new MessageWindow(chat, 1);
-  const add = chat.addChild, remove = chat.removeChild, clear = chat.clear;
-  const successorAdd = (item: Text) => add(item);
-  chat.addChild = successorAdd; chat.removeChild = item => remove(item); chat.clear = () => clear();
+  const render = chat.render;
+  const successor = (width: number) => render.call(chat, width);
+  chat.render = successor;
+  assert.equal(rows(chat).length, 1);
   window.dispose(); window.dispose(); window.setLimit(0);
-  assert.equal(chat.addChild, successorAdd);
-  items.slice(3).forEach(item => chat.addChild(item)); assert.deepEqual(chat.children, items);
-  chat.removeChild(items[1]!); assert.equal(chat.children.length, 5);
-  chat.clear(); assert.equal(chat.children.length, 0);
-  chat.addChild(items[0]!); assert.deepEqual(chat.children, [items[0]]);
+  assert.equal(chat.render, successor);
+  assert.equal(rows(chat).length, 4);
+  chat.clear(); assert.deepEqual(rows(chat), []);
+});
+
+test("unknown render owners are preserved rather than bypassed", () => {
+  const chat = new Container();
+  const custom = () => ["native warning or another extension's rendering"];
+  chat.render = custom;
+  assert.throws(() => new MessageWindow(chat, 1), /native transcript retained/);
+  assert.equal(chat.render, custom);
+  assert.deepEqual(rows(chat), ["native warning or another extension's rendering"]);
 });

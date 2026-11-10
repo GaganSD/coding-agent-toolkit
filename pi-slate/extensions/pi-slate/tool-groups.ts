@@ -2,6 +2,7 @@ import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component, type Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 
 import { TOOL_STYLE_NAMES } from "./tool-style.ts";
+import { chatViewChildren, compatibleChatRenderer, consumesChatView, markChatRenderer } from "./chat-view.ts";
 
 const names = new Set(TOOL_STYLE_NAMES);
 type Tool = Component & {
@@ -40,17 +41,19 @@ export class ToolGroups {
   private readonly renderWrapper: Container["render"];
   private readonly mouseWrapper: Container["handleMouse"];
   private owners: Array<RowOwner | undefined> = [];
+  private disposed = false;
   readonly container: Container;
-  constructor(container: Container, theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand")) {
+  constructor(container: Container, theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand"), onFault?: () => void) {
+    if (!compatibleChatRenderer(container.render)) throw new Error("Unrecognized chat renderer; native tool cards retained");
     this.container = container;
     this.originalRender = container.render;
     this.originalMouse = container.handleMouse;
-    this.renderWrapper = (width) => {
+    const renderGroups = (width: number): string[] => {
       const lines: string[] = [], owners: Array<RowOwner | undefined> = [];
       const append = (component: Component, rows: string[]): void => {
         for (let y = 0; y < rows.length; y++) { lines.push(rows[y]!); owners.push({ component, y, height: rows.length, inset: 0 }); }
       };
-      const children = container.children;
+      const children = chatViewChildren(container);
       for (let i = 0; i < children.length;) {
         let end = i, thoughtCount = 0, failed = 0, running = false, expanded = false;
         const tools: Tool[] = [];
@@ -102,7 +105,17 @@ export class ToolGroups {
       this.owners = owners;
       return lines;
     };
+    this.renderWrapper = markChatRenderer((width) => {
+      if (this.disposed) return this.originalRender.call(container, width);
+      try { return renderGroups(width); }
+      catch {
+        this.dispose();
+        onFault?.();
+        return this.originalRender.call(container, width);
+      }
+    }, () => !this.disposed || consumesChatView(this.originalRender));
     this.mouseWrapper = (event: TuiMouseEvent) => {
+      if (this.disposed) return this.originalMouse.call(container, event);
       const owner = this.owners[event.y];
       if (!owner) return undefined;
       const local = { ...event, x: event.x - owner.inset, y: owner.y, width: Math.max(1, event.width - owner.inset), height: owner.height };
@@ -120,6 +133,7 @@ export class ToolGroups {
     container.handleMouse = this.mouseWrapper;
   }
   dispose(): void {
+    this.disposed = true;
     if (this.container.render === this.renderWrapper) this.container.render = this.originalRender;
     if (this.container.handleMouse === this.mouseWrapper) this.container.handleMouse = this.originalMouse;
     this.owners = [];

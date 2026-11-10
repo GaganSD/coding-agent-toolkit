@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Container, visibleWidth, type Component, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Container, Text, visibleWidth, type Component, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { ToolGroups } from "../extensions/pi-slate/tool-groups.ts";
 import { MessageWindow } from "../extensions/pi-slate/message-window.ts";
@@ -128,4 +128,39 @@ test("cleanup restores only owned methods, composes with message window, no glob
   next.chat.render = successor;
   next.groups.dispose();
   assert.equal(next.chat.render, successor);
+});
+
+
+test("grouping preserves unknown render owners and retained disposed wrappers delegate", () => {
+  const chat = new Container();
+  const foreign = () => ["foreign warning must remain visible"];
+  chat.render = foreign;
+  assert.throws(() => new ToolGroups(chat, () => undefined), /native tool cards retained/);
+  assert.equal(chat.render, foreign);
+  chat.render = Container.prototype.render;
+  chat.addChild(new Text("native content", 0, 0));
+  const groups = new ToolGroups(chat, () => undefined);
+  const render = chat.render;
+  const successor = (width: number) => render.call(chat, width);
+  chat.render = successor;
+  groups.dispose();
+  assert.equal(chat.render, successor);
+  assert.deepEqual(chat.render(80).map(row => row.trimEnd()), ["native content"]);
+});
+
+test("a grouping metadata fault must not disable the independently selected display window", () => {
+  for (const windowFirst of [false, true]) {
+    const chat = new Container();
+    const broken = mockTool();
+    chat.addChild(new Text("hidden older message", 0, 0)); chat.addChild(broken);
+    let window: MessageWindow, groups: ToolGroups;
+    if (windowFirst) { window = new MessageWindow(chat, 1); groups = new ToolGroups(chat, () => undefined); }
+    else { groups = new ToolGroups(chat, () => undefined); window = new MessageWindow(chat, 1); }
+    Reflect.set(broken.result, "content", {});
+    assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/, "the faulting frame must retain the window too");
+    window.setLimit(1); // The production synchronizer reuses this window after the grouping fault.
+    assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/);
+    assert.equal(chat.children.length, 2);
+    window.dispose(); groups.dispose();
+  }
 });
