@@ -917,6 +917,29 @@ test("production editor teardown unwinds selection before image adapters", async
   assert.equal(editor.getText(), f.imagePath, "a retained disposed editor must not retain image rewrite wrappers");
 });
 
+test("a production grouping fault keeps windowing mounted across synchronization", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["transcript", "tool-cards"] }));
+  let paints = 0;
+  const broken = {
+    toolCallId: "fault", toolName: "bash", expanded: false, isPartial: false,
+    result: { content: {} }, setExpanded() {},
+    render() { paints++; return ["native card"]; }, invalidate() {},
+  };
+  f.chat.addChild(broken);
+  assert.equal(f.chat.render(80).length, 100);
+  assert.equal(paints, 1);
+  assert.equal(f.chat.children.length, 106);
+  const installedRender = f.chat.render, installedMouse = f.chat.handleMouse;
+  await f.emit("message_end", { message: { role: "user", content: "synchronize" } });
+  assert.equal(f.chat.render, installedRender); assert.equal(f.chat.handleMouse, installedMouse);
+  assert.equal(f.chat.render(80).length, 100);
+  assert.equal(paints, 2);
+  assert.deepEqual(f.notifications, []);
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /tool-groups: fallback/);
+  assert.match(f.inspected.join("\n"), /transcript: active/);
+});
+
 test("a changed optional command-catalog shape cannot abort unrelated surface setup", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"] }), "tui", true, false, pi => {
     Reflect.set(pi, "getCommands", () => ({ commands: [] }));

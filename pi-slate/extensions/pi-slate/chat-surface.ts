@@ -1,5 +1,5 @@
 import { Container, ScrollView, isViewportTUI, type Component, type TUI } from "@earendil-works/pi-tui";
-import { chatViewChildren, compatibleChatRenderer, consumesChatView, installChatView, markChatRenderer } from "./chat-view.ts";
+import type { ToolGroups } from "./tool-groups.ts";
 
 export function childComponents(component: Component): Component[] {
   const stack = component as { entries?: Array<{ component?: Component }> };
@@ -41,65 +41,68 @@ export function layoutRootOf(tui: TUI | undefined): Component | undefined {
   return (tui as TUI & { layoutRoot?: Component }).layoutRoot;
 }
 
-export class MessageWindow {
+export type ChatSurfaceOptions = {
+  limit?: number;
+  groups?: ToolGroups;
+  active?: () => boolean;
+  onGroupingFault?: () => void;
+};
+
+/** One owner for the display pipeline: project first, then paint grouped or native rows. */
+export class ChatSurface {
   readonly container: Container;
+  private options: ChatSurfaceOptions;
   private readonly originalRender: Container["render"];
   private readonly originalMouse: Container["handleMouse"];
   private readonly installedRender: Container["render"];
   private readonly installedMouse: Container["handleMouse"];
-  private readonly removeView: () => void;
   private readonly display = new Container();
-  private limit: number;
+  private paintedGroups: ToolGroups | undefined;
   private disposed = false;
 
-  constructor(container: Container, limit: number, active: () => boolean = () => false) {
-    if (!compatibleChatRenderer(container.render)) throw new Error("Unrecognized chat renderer; native transcript retained");
-    this.container = container;
-    this.limit = limit;
+  constructor(container: Container, options: ChatSurfaceOptions) {
+    this.container = container; this.options = { ...options };
+    if (container.render !== Container.prototype.render || container.handleMouse !== Container.prototype.handleMouse) {
+      throw new Error("Unrecognized chat owner; native transcript retained");
+    }
     this.originalRender = container.render;
     this.originalMouse = container.handleMouse;
-    this.removeView = installChatView(container, () => {
-      if (this.disposed || active() || !Number.isFinite(this.limit)) return container.children;
-      return container.children.slice(-Math.max(1, Math.floor(this.limit)));
-    });
-    this.installedRender = markChatRenderer((width) => {
+    this.installedRender = width => {
       if (this.disposed) return this.originalRender.call(container, width);
-      this.display.children = chatViewChildren(container);
-      // Another live Slate adapter may consume the projection. Recheck after rendering:
-      // it can fault and retire itself during this very frame.
-      if (!consumesChatView(this.originalRender)) return this.display.render(width);
-      const rows = this.originalRender.call(container, width);
-      return consumesChatView(this.originalRender) ? rows : this.display.render(width);
-    }, () => !this.disposed || consumesChatView(this.originalRender));
-    this.installedMouse = (event) => this.disposed || consumesChatView(this.originalRender)
-      ? this.originalMouse.call(container, event) : this.display.handleMouse(event);
-    container.render = this.installedRender;
-    container.handleMouse = this.installedMouse;
+      const limit = this.options.limit ?? Number.POSITIVE_INFINITY;
+      const start = !this.options.active?.() && Number.isFinite(limit) ? -Math.max(1, Math.floor(limit)) : 0;
+      this.display.children = container.children.slice(start);
+      this.paintedGroups = undefined;
+      if (this.options.groups) {
+        try {
+          const rows = this.options.groups.render(this.display.children, width);
+          this.paintedGroups = this.options.groups;
+          return rows;
+        } catch {
+          this.options.groups = undefined;
+          this.options.onGroupingFault?.();
+        }
+      }
+      return this.display.render(width);
+    };
+    this.installedMouse = event => {
+      if (this.disposed) return this.originalMouse.call(container, event);
+      return this.paintedGroups ? this.paintedGroups.handleMouse(event) : this.display.handleMouse(event);
+    };
+    try {
+      container.render = this.installedRender;
+      container.handleMouse = this.installedMouse;
+    } catch (error) { this.dispose(); throw error; }
   }
 
-  setLimit(limit: number): void { if (!this.disposed) this.limit = limit; }
+  update(options: ChatSurfaceOptions): void { if (!this.disposed) this.options = { ...options }; }
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.removeView();
     if (this.container.render === this.installedRender) this.container.render = this.originalRender;
     if (this.container.handleMouse === this.installedMouse) this.container.handleMouse = this.originalMouse;
     this.display.children = [];
+    this.paintedGroups = undefined;
+    this.options = {};
   }
-}
-
-export function syncMessageWindow(
-  current: MessageWindow | undefined,
-  tui: TUI | undefined,
-  limit: number,
-  active?: () => boolean,
-): MessageWindow | undefined {
-  const chat = findChatContainer(layoutRootOf(tui));
-  if (!chat) { current?.dispose(); return undefined; }
-  if (current?.container === chat) {
-    current.setLimit(limit);
-    return current;
-  }
-  current?.dispose();
-  return new MessageWindow(chat, limit, active);
 }

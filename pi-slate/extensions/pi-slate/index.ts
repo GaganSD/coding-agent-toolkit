@@ -77,7 +77,7 @@ import {
   openExternalArgs,
   SLATE_ISSUES_URL,
 } from "./bug.ts";
-import { findChatContainer, layoutRootOf, syncMessageWindow, type MessageWindow } from "./message-window.ts";
+import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
@@ -262,21 +262,8 @@ export default function piSlate(pi: ExtensionAPI): void {
       && (typeof ctx.ui.getEditorComponent !== "function" || ctx.ui.getEditorComponent() === editorFactory);
   };
   let conversations: ReturnType<typeof installConversationBridge> | undefined;
-  let messageWindow: MessageWindow | undefined;
-  let toolGroups: ToolGroups | undefined;
-  const syncToolGroups = (): void => {
-    if (!claudeTools || liveContext()?.mode !== "tui") return;
-    diagnostics.attempt("tool-groups", "Ungrouped tool cards retained; the optional chat adapter failed.", () => {
-      const chat = findChatContainer(layoutRootOf(activeTui));
-      if (!chat) { diagnostics.fallback("tool-groups", "Ungrouped cards retained; no compatible chat container."); return; }
-      if (toolGroups?.container !== chat) {
-        messageWindow?.dispose(); messageWindow = undefined;
-        toolGroups?.dispose();
-        toolGroups = new ToolGroups(chat, liveTheme, undefined, () => diagnostics.fault("tool-groups", "Native tool rendering restored after the optional grouping adapter failed."));
-      }
-      diagnostics.active("tool-groups", "Consecutive tool cards can be grouped.");
-    }, () => { toolGroups?.dispose(); toolGroups = undefined; });
-  };
+  let chatSurface: ChatSurface | undefined;
+  let groupPainter: ToolGroups | undefined;
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
@@ -287,16 +274,35 @@ export default function piSlate(pi: ExtensionAPI): void {
   let requestRender = (_force = false) => {};
 
   const syncVisibleMessages = (): void => {
-    syncToolGroups();
-    if (!owns("transcript") || liveContext()?.mode !== "tui") return;
-    diagnostics.attempt("transcript", "Native transcript retained; the optional message-window adapter failed.", () => {
-      messageWindow = syncMessageWindow(messageWindow, activeTui, resolveMessageLength(config.messageLength), () => {
-        const ctx = liveContext();
-        return Boolean(ctx && typeof ctx.isIdle === "function" && !ctx.isIdle());
-      });
-      if (messageWindow) diagnostics.active("transcript", "Display-only message window mounted.");
-      else diagnostics.fallback("transcript", "Native transcript retained; no compatible fullscreen chat container.");
-    }, () => { messageWindow?.dispose(); messageWindow = undefined; });
+    if ((!owns("transcript") && !claudeTools) || liveContext()?.mode !== "tui") return;
+    const feature = owns("transcript") ? "transcript" : "tool-groups";
+    diagnostics.attempt(feature, "Native chat retained; the optional chat adapter failed.", () => {
+      const chat = findChatContainer(layoutRootOf(activeTui));
+      if (chatSurface?.container !== chat) { chatSurface?.dispose(); chatSurface = undefined; }
+      if (!chat) return;
+      const options = {
+        limit: owns("transcript") ? resolveMessageLength(config.messageLength) : Number.POSITIVE_INFINITY,
+        groups: groupPainter,
+        active: () => {
+          const ctx = liveContext();
+          return Boolean(ctx && typeof ctx.isIdle === "function" && !ctx.isIdle());
+        },
+        onGroupingFault: () => {
+          groupPainter = undefined;
+          diagnostics.fault("tool-groups", "Native tool rendering restored after the optional grouping painter failed.");
+        },
+      };
+      if (chatSurface) chatSurface.update(options);
+      else chatSurface = new ChatSurface(chat, options);
+    }, () => { chatSurface?.dispose(); chatSurface = undefined; });
+    if (owns("transcript")) {
+      if (chatSurface) diagnostics.active("transcript", "Display-only message window mounted.");
+      else diagnostics.fallback("transcript", "Native transcript retained; no compatible fullscreen chat surface.");
+    }
+    if (claudeTools) {
+      if (chatSurface && groupPainter) diagnostics.active("tool-groups", "Consecutive tool cards can be grouped.");
+      else diagnostics.fallback("tool-groups", "Ungrouped cards retained; no compatible chat surface.");
+    }
   };
 
   // A selected split allocates header width; unavailable sidebar hosts stay full-width.
@@ -377,6 +383,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   }
 
   const install = (ctx: ExtensionContext): void => {
+    chatSurface?.dispose(); chatSurface = undefined;
+    groupPainter = claudeTools ? new ToolGroups(liveTheme) : undefined;
     diagnostics.reset();
     if (requestedClaudeTools) {
       if (claudeTools) diagnostics.active("tool-style", "Public tool renderer hook installed.");
@@ -508,7 +516,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       diagnostics.attempt("surface-host", "Native UI retained; the optional surface handle could not be mounted.", () => ctx.ui.setWidget("pi-slate:surface-host", (tui, theme) => {
         activeTui = tui;
         requestRender = (force = false) => tui.requestRender(force);
-        queueMicrotask(syncToolGroups);
+        queueMicrotask(() => { if (mountedContext()) syncVisibleMessages(); });
         if (owns("sidebar")) {
           const attached = diagnostics.attempt("sidebar", "Native layout retained; the optional sidebar adapter failed.", () => {
             sidebar.attach(tui, theme, () => {
@@ -532,10 +540,6 @@ export default function piSlate(pi: ExtensionAPI): void {
             dashboardClock.unref?.();
           }
         }
-        if (owns("transcript")) queueMicrotask(() => {
-          if (!mountedContext()) return;
-          syncVisibleMessages();
-        });
         return { render: () => [], invalidate() {} };
       }, { placement: "belowEditor" }), () => {});
     }
@@ -788,10 +792,9 @@ export default function piSlate(pi: ExtensionAPI): void {
     mcpFiles.clear();
     background.reset("");
     branch.dispose();
-    messageWindow?.dispose();
-    messageWindow = undefined;
-    toolGroups?.dispose();
-    toolGroups = undefined;
+    chatSurface?.dispose();
+    chatSurface = undefined;
+    groupPainter = undefined;
     conversations?.dispose();
     conversations = undefined;
     activeTui = undefined;

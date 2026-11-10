@@ -6,7 +6,7 @@
 
 - MCP is now configuration-only: removed private Pi imports, version gates, and duplicated server validation. Pi's `/mcp` owns schema validity, authentication, and connection health. Slate still reports malformed/unreadable files and displays unknown enabled state neutrally.
 - Optional UI capability loss, styling ownership conflicts, and adapter faults use quiet native fallbacks with `/slate diagnostics` details instead of startup warnings. Faulted adapters are isolated and retried on session replacement or reload; real settings and user-action failures remain visible.
-- Transcript windowing is a display projection, not removal from the host's canonical message collection. Grouping shares that projection, preserves unknown render owners, and falls back to native rendering after adapter faults.
+- One chat-surface owner projects the visible messages, then paints grouped or native rows. Tool grouping no longer patches the host or negotiates with a second wrapper; faults retain the window in the same frame. Canonical messages and successor render/mouse owners remain intact.
 - Removed rendered-text filtering of native new-session notices so genuine conversation content cannot be mistaken for a banner and discarded.
 
 ### Fixed

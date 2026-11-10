@@ -1,8 +1,6 @@
 import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component, type Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
-
 import { TOOL_STYLE_NAMES } from "./tool-style.ts";
-import { chatViewChildren, compatibleChatRenderer, consumesChatView, markChatRenderer } from "./chat-view.ts";
 
 const names = new Set(TOOL_STYLE_NAMES);
 type Tool = Component & {
@@ -33,109 +31,84 @@ function thoughts(component: Component): number | undefined {
 }
 
 type RowOwner = { component: Component; y: number; height: number; inset: number };
-/** Instance-scoped adapter: children stay intact for host expansion, history and windowing.
- * No prototype mutations, timers, transcript replay, or retained historical output. */
+/** Paints an explicit display list and maps its mouse rows. Never patches a host component. */
 export class ToolGroups {
-  private readonly originalRender: Container["render"];
-  private readonly originalMouse: Container["handleMouse"];
-  private readonly renderWrapper: Container["render"];
-  private readonly mouseWrapper: Container["handleMouse"];
   private owners: Array<RowOwner | undefined> = [];
-  private disposed = false;
-  readonly container: Container;
-  constructor(container: Container, theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand"), onFault?: () => void) {
-    if (!compatibleChatRenderer(container.render)) throw new Error("Unrecognized chat renderer; native tool cards retained");
-    this.container = container;
-    this.originalRender = container.render;
-    this.originalMouse = container.handleMouse;
-    const renderGroups = (width: number): string[] => {
-      const lines: string[] = [], owners: Array<RowOwner | undefined> = [];
-      const append = (component: Component, rows: string[]): void => {
-        for (let y = 0; y < rows.length; y++) { lines.push(rows[y]!); owners.push({ component, y, height: rows.length, inset: 0 }); }
-      };
-      const children = chatViewChildren(container);
-      for (let i = 0; i < children.length;) {
-        let end = i, thoughtCount = 0, failed = 0, running = false, expanded = false;
-        const tools: Tool[] = [];
-        while (end < children.length) {
-          const child = children[end]!;
-          if (tool(child)) {
-            tools.push(child); expanded ||= child.expanded;
-            running ||= !child.result || child.isPartial;
-            if (child.result?.isError) failed++;
-          } else {
-            const count = thoughts(child);
-            if (count === undefined) break;
-            thoughtCount += count;
-          }
-          end++;
-        }
-        if (tools.length < 2 || expanded || width < 12) {
-          const stop = Math.max(i + 1, end);
-          for (; i < stop; i++) append(children[i]!, children[i]!.render(width));
-          continue;
-        }
-        const paint = theme();
-        const parts = [`${tools.length} tool calls`];
-        if (thoughtCount) parts.push(`${thoughtCount} thought${thoughtCount === 1 ? "" : "s"}`);
-        if (failed) parts.push(`${failed} failed`);
-        const mark = running ? "◌" : failed ? "✗" : "✓";
-        const summary = paint
-          ? `${paint.fg(failed ? "error" : running ? "accent" : "success", mark)} ${paint.bold(running ? "Running" : "Done")} ${paint.fg("muted", `(${parts.join(" · ")})`)} ${hint()}`
-          : `${mark} ${running ? "Running" : "Done"} (${parts.join(" · ")}) ${hint()}`;
-        lines.push("", truncateToWidth(summary, width));
-        owners.push(undefined, undefined);
-        for (let index = 0; index < tools.length; index++) {
-          const member = tools[index]!;
-          // Preserve local row coordinates for the host's existing click-to-expand region.
-          const rows = member.render(Math.max(1, width - 3));
-          const last = index === tools.length - 1;
-          let first = true;
-          for (let y = 0; y < rows.length; y++) {
-            const row = rows[y]!;
-            if (!row.trim()) continue;
-            const guide = first ? last ? "└─ " : "├─ " : last ? "   " : "│  ";
-            first = false;
-            lines.push(truncateToWidth((paint ? paint.fg("dim", guide) : guide) + row, width));
-            owners.push({ component: member, y, height: rows.length, inset: 3 });
-          }
-        }
-        i = end;
-      }
-      this.owners = owners;
-      return lines;
-    };
-    this.renderWrapper = markChatRenderer((width) => {
-      if (this.disposed) return this.originalRender.call(container, width);
-      try { return renderGroups(width); }
-      catch {
-        this.dispose();
-        onFault?.();
-        return this.originalRender.call(container, width);
-      }
-    }, () => !this.disposed || consumesChatView(this.originalRender));
-    this.mouseWrapper = (event: TuiMouseEvent) => {
-      if (this.disposed) return this.originalMouse.call(container, event);
-      const owner = this.owners[event.y];
-      if (!owner) return undefined;
-      const local = { ...event, x: event.x - owner.inset, y: owner.y, width: Math.max(1, event.width - owner.inset), height: owner.height };
-      if (local.x < 0) return undefined;
-      const result = owner.component.handleMouse?.(local);
-      if (!result || !(result.handled || result.capture || result.focus)) return undefined;
-      // Nested host containers already carry exact capture/focus coordinates.
-      if ("target" in result) return result as NonNullable<ReturnType<Container["handleMouse"]>>;
-      return { ...result, handled: true, target: {
-        component: owner.component, originX: event.screenX - local.x,
-        originY: event.screenY - local.y, width: local.width, height: local.height,
-      }, ...(result.focus ? { focusTarget: owner.component } : {}) };
-    };
-    container.render = this.renderWrapper;
-    container.handleMouse = this.mouseWrapper;
+  private readonly theme: () => Theme | undefined;
+  private readonly hint: () => string;
+  constructor(theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand")) {
+    this.theme = theme; this.hint = hint;
   }
-  dispose(): void {
-    this.disposed = true;
-    if (this.container.render === this.renderWrapper) this.container.render = this.originalRender;
-    if (this.container.handleMouse === this.mouseWrapper) this.container.handleMouse = this.originalMouse;
-    this.owners = [];
+
+  render(children: readonly Component[], width: number): string[] {
+    const lines: string[] = [], owners: Array<RowOwner | undefined> = [];
+    const append = (component: Component, rows: string[]): void => {
+      for (let y = 0; y < rows.length; y++) { lines.push(rows[y]!); owners.push({ component, y, height: rows.length, inset: 0 }); }
+    };
+    for (let i = 0; i < children.length;) {
+      let end = i, thoughtCount = 0, failed = 0, running = false, expanded = false;
+      const tools: Tool[] = [];
+      while (end < children.length) {
+        const child = children[end]!;
+        if (tool(child)) {
+          tools.push(child); expanded ||= child.expanded;
+          running ||= !child.result || child.isPartial;
+          if (child.result?.isError) failed++;
+        } else {
+          const count = thoughts(child);
+          if (count === undefined) break;
+          thoughtCount += count;
+        }
+        end++;
+      }
+      if (tools.length < 2 || expanded || width < 12) {
+        const stop = Math.max(i + 1, end);
+        for (; i < stop; i++) append(children[i]!, children[i]!.render(width));
+        continue;
+      }
+      const paint = this.theme();
+      const parts = [`${tools.length} tool calls`];
+      if (thoughtCount) parts.push(`${thoughtCount} thought${thoughtCount === 1 ? "" : "s"}`);
+      if (failed) parts.push(`${failed} failed`);
+      const mark = running ? "◌" : failed ? "✗" : "✓";
+      const summary = paint
+        ? `${paint.fg(failed ? "error" : running ? "accent" : "success", mark)} ${paint.bold(running ? "Running" : "Done")} ${paint.fg("muted", `(${parts.join(" · ")})`)} ${this.hint()}`
+        : `${mark} ${running ? "Running" : "Done"} (${parts.join(" · ")}) ${this.hint()}`;
+      lines.push("", truncateToWidth(summary, width));
+      owners.push(undefined, undefined);
+      for (let index = 0; index < tools.length; index++) {
+        const member = tools[index]!;
+        // Preserve local row coordinates for the host's existing click-to-expand region.
+        const rows = member.render(Math.max(1, width - 3));
+        const last = index === tools.length - 1;
+        let first = true;
+        for (let y = 0; y < rows.length; y++) {
+          const row = rows[y]!;
+          if (!row.trim()) continue;
+          const guide = first ? last ? "└─ " : "├─ " : last ? "   " : "│  ";
+          first = false;
+          lines.push(truncateToWidth((paint ? paint.fg("dim", guide) : guide) + row, width));
+          owners.push({ component: member, y, height: rows.length, inset: 3 });
+        }
+      }
+      i = end;
+    }
+    this.owners = owners;
+    return lines;
+  }
+
+  handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]> {
+    const owner = this.owners[event.y];
+    if (!owner) return undefined;
+    const local = { ...event, x: event.x - owner.inset, y: owner.y, width: Math.max(1, event.width - owner.inset), height: owner.height };
+    if (local.x < 0) return undefined;
+    const result = owner.component.handleMouse?.(local);
+    if (!result || !(result.handled || result.capture || result.focus)) return undefined;
+    // Nested host containers already carry exact capture/focus coordinates.
+    if ("target" in result) return result as NonNullable<ReturnType<Container["handleMouse"]>>;
+    return { ...result, handled: true, target: {
+      component: owner.component, originX: event.screenX - local.x,
+      originY: event.screenY - local.y, width: local.width, height: local.height,
+    }, ...(result.focus ? { focusTarget: owner.component } : {}) };
   }
 }

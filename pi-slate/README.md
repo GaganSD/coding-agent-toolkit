@@ -159,7 +159,7 @@ Compatibility boundaries:
 - Production imports only public Pi package entrypoints; an architecture test rejects private/computed host imports.
 - MCP is a read-only configuration projection. Pi owns server validation, authentication, and connections.
 - Sidebar layout uses root-identity leases, not intercepted setters or function-identity assumptions.
-- Message windowing projects the display without removing the host's message components. Active work stays visible; grouping and windowing share that projection and preserve unknown render owners.
+- One chat-surface owner copies the visible message list and paints grouped or native rows without removing host components. Active work stays visible; grouping faults retain the window in the same frame. Unknown render/mouse owners are preserved, and cleanup is not dependent on wrapper order.
 - Editor adapters unwind in reverse installation order. Retained disposed wrappers become native delegates. Paste reveals require undo support and never collapse a buffer edited since the reveal.
 - Native notices and user/assistant messages are never discarded by matching their rendered text.
 
