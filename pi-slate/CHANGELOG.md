@@ -10,7 +10,7 @@
 
 ### Changed
 
-- The sidebar header is reorganised into status, CONTEXT, SPEED and CACHE, which share one layout (heading with the key figure on the right, one bar or graph row, labelled details), and adapts to terminal height (full, compact, mini). CONTEXT is a two-row battery bar; use pi-context-view for the category breakdown.
+- The sidebar header is reorganised into status, CONTEXT, SPEED and CACHE, which share one layout (heading with the key figure on the right, one bar or graph row, labelled details), and adapts to terminal height (full, compact, mini). CONTEXT is a single bar; use pi-context-view for the category breakdown.
 - Live speed updates to the sidebar are throttled to about 4 per second.
 
 ## 0.2.1

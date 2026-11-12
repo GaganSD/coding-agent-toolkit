@@ -168,17 +168,17 @@ test("speed and cache replace the usage lane; full accounting stays in details",
 test("header height follows the terminal tier and its divider closes the header", () => {
   const { sidebar } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  for (const [rows, header] of [[60, 22], [44, 22], [43, 17], [30, 17], [29, 6], [20, 6], [19, 4]] as const)
+  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16], [29, 6], [20, 6], [19, 4]] as const)
     assert.equal(sessionSidebarSlots(rows, 0, false).header, header, `rows ${rows}`);
   const lines = plain(sidebar.render(40));
   assert.match(lines[0]!, /^┌─+┐$/, "top bar");
   assert.match(lines.at(-1)!, /^└─+┘$/, "bottom bar");
   const hairline = lines.findIndex((line, i) => i > 0 && i < lines.length - 1 && /^├─+┤$/.test(line));
-  assert.equal(hairline, 22, "hairline closes a 22-row header under the top bar");
+  assert.equal(hairline, 21, "hairline closes a 21-row header under the top bar");
   assert.match(lines[1]!, /^○ Idle|^● Working/);
   assert(lines[2]!.startsWith("Slate session title") && lines[2]!.endsWith("session-"));
   assert(lines[5]!.startsWith("CONTEXT") && lines[5]!.includes("16%") && lines[5]!.includes("31.6k/200k"));
-  assert(/^[█-▏░]+▄$/.test(lines[6]!) && /^[█-▏░]+▀$/.test(lines[7]!), "two-row battery with a centred nub");
+  assert(/^[█-▏░]+$/.test(lines[6]!) && lines[7] === "", "one-row context bar");
 });
 
 test("context row keeps the heading grammar and degrades gracefully when narrow", () => {
@@ -206,7 +206,7 @@ test("context meter fill follows the theme accent and shifts to the warning tone
   for (const rows of [60]) {
     const { sidebar } = fixture(rows);
     sidebar.setThemeProvider(() => toneTheme); sidebar.invalidate();
-    const meterLine = () => sidebar.render(40).find(line => /▄ ?│$/.test(stripAnsi(line)))!;
+    const meterLine = () => sidebar.render(40).find(line => /^│ ?[█-▏░]{4}/.test(stripAnsi(line)))!;
     for (const [percent, code] of [[0, 36], [79, 36], [80, 33], [100, 33]] as const) {
       sidebar.setSession({ ...session, percent }); sidebar.invalidate();
       const line = meterLine();

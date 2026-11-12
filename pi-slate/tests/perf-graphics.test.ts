@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
-import { batteryRows, bigDigits, brailleBars, cacheRows, combinedRow, contextRows, formatCountdown, formatRate, sparkBlocks, speedRows, stackedBar, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
+import { bigDigits, contextBar, brailleBars, cacheRows, combinedRow, contextRows, formatCountdown, formatRate, sparkBlocks, speedRows, stackedBar, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
 import { EMPTY_PERF, type SidebarPerf } from "../extensions/pi-slate/perf-stats.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
 import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
@@ -208,8 +208,8 @@ test("CONTEXT uses the same grammar", () => {
   const i = input(EMPTY_PERF, 40);
   const rows = contextRows(i, { percent: 2, tokens: 8100, window: 400_000, estimated: false }).map(strip);
   assert.match(rows[0]!, /^CONTEXT\s+2% {2}8\.1k\/400k$/);
-  // 2% of a 39-cell body = 6.24 eighths → 6 → one ▊ edge, then track, then the half-height nub.
-  assert.equal(rows[1], "▊" + "░".repeat(38) + "▄"); assert.equal(rows[2], "▊" + "░".repeat(38) + "▀");
+  // 2% of 40 cells = 6.4 eighths → 6 → one ▊ edge, then the track.
+  assert.equal(rows.length, 2); assert.equal(rows[1], "▊" + "░".repeat(39));
   assert.match(strip(contextRows(i, { percent: null, tokens: null, window: null, estimated: true })[0]!), /^CONTEXT\s+— {2}~—\/—$/);
 });
 
@@ -275,19 +275,13 @@ test("themed render keeps tones within the theme palette", () => {
   assert(tones.has("success") && tones.has("accent") && tones.has("warning"));
 });
 
-test("battery bar: two rows, exact width, eighth-step fill, visible at tiny percents, centred nub", () => {
+test("context bar: one row, exact width, eighth-step fill, visible at tiny percents", () => {
   const paint = (_t: string, x: string) => x;
-  for (const width of [0, 1, 2, 3, 10, 41]) for (const pct of [null, 0, 0.01, 2, 50, 99.9, 100, 140, NaN]) {
-    const rows = batteryRows(width, pct as number | null, paint, "accent");
-    assert.equal(rows.length, 2);
-    for (const r of rows) assert.equal(visibleWidth(r), width, `width ${width} pct ${pct}`);
-  }
-  assert.deepEqual(batteryRows(11, 0, paint, "accent"), ["░".repeat(10) + "▄", "░".repeat(10) + "▀"]);
-  assert.deepEqual(batteryRows(11, null, paint, "accent"), ["░".repeat(10) + "▄", "░".repeat(10) + "▀"]);
-  assert.equal(batteryRows(11, 0.01, paint, "accent")[0], "▏" + "░".repeat(9) + "▄", "any usage is visible");
-  assert.equal(batteryRows(11, 50, paint, "accent")[0], "█████" + "░".repeat(5) + "▄");
-  assert.equal(batteryRows(11, 100, paint, "accent")[1], "█".repeat(10) + "▀");
-  const tones: string[] = [];
-  batteryRows(11, 100, (t, x) => { tones.push(`${t}:${x}`); return x; }, "warning");
-  assert(tones.includes("warning:▄"), "a full battery lights its nub in the fill tone");
+  for (const width of [0, 1, 2, 3, 10, 41]) for (const pct of [null, 0, 0.01, 2, 50, 99.9, 100, 140, NaN])
+    assert.equal(visibleWidth(contextBar(width, pct as number | null, paint, "accent")), width, `width ${width} pct ${pct}`);
+  assert.equal(contextBar(10, 0, paint, "accent"), "░".repeat(10));
+  assert.equal(contextBar(10, null, paint, "accent"), "░".repeat(10));
+  assert.equal(contextBar(10, 0.01, paint, "accent"), "▏" + "░".repeat(9), "any usage is visible");
+  assert.equal(contextBar(10, 50, paint, "accent"), "█████" + "░".repeat(5));
+  assert.equal(contextBar(10, 100, paint, "accent"), "█".repeat(10));
 });
