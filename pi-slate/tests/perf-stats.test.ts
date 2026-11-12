@@ -40,6 +40,9 @@ test("tiny outputs count in the turn but not in rates or peak", () => {
   const perf = branchPerf([user(), asst({}, usageOf({ output: 10 })), asst({ durationMs: 100 }, usageOf({ output: 500 })), asst({}, usageOf({ output: 100 }))], opts);
   assert.deepEqual(perf.rates, [100]); assert.equal(perf.peak, 100); assert.equal(perf.lastRate, 100);
   assert.equal(perf.turn?.requests, 3); assert.equal(perf.turn?.output, 610);
+  assert.equal(perf.turn?.rate, 100, "turn average uses the same eligibility as rates and peak");
+  const onlyTiny = branchPerf([user(), asst({}, usageOf({ output: 10 }))], opts);
+  assert.equal(onlyTiny.turn?.output, 10); assert.equal(onlyTiny.turn?.rate, null); assert.equal(onlyTiny.peak, null);
 });
 
 test("turn average is token weighted, not a mean of rates", () => {

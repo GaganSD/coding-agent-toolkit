@@ -490,7 +490,7 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   assert.doesNotMatch(rail(), /Unnamed session|Untitled session/);
   assert.ok(rail().includes(f.manager.getSessionId().slice(0, 8)));
   assert.match(railOf(f).sessionDetails(), /Title: Dashboard test/);
-  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /new 100/); assert.match(rail(), /\$0\.35/);
+  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /new 100/); assert.match(rail(), /read 300 · write 50 · new 100/);
   assert(!/Summary|Activity Preview|Context\s*\n/.test(rail()));
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });

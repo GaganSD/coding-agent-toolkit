@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
-import { bigDigits, brailleBars, cacheRows, combinedRow, formatCountdown, formatRate, sparkBlocks, speedRows, stackedBar, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
+import { bigDigits, brailleBars, cacheRows, combinedRow, contextRows, formatCountdown, formatRate, sparkBlocks, speedRows, stackedBar, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
 import { EMPTY_PERF, type SidebarPerf } from "../extensions/pi-slate/perf-stats.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
 import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
@@ -48,125 +48,167 @@ test("stackedBar sums exactly to width and keeps non-zero parts visible", () => 
   assert.deepEqual(stackedBar([], 5), []);
 });
 
-test("brailleBars is zero-based, right-aligned, and always draws a positive value", () => {
+test("brailleBars is zero-based, left-aligned with blank padding, and always draws a positive value", () => {
   assert.deepEqual(brailleBars([], 0, 2), ["", ""]);
   assert.deepEqual(brailleBars([1, 2], 3, 0), []);
   const one = brailleBars([5], 4, 2);
   assert.equal(one.length, 2);
   assert(one.every(r => r.length === 4));
-  assert.equal(one[1]!.slice(0, 3), "⣀⣀⣀", "empty columns show baseline dots");
-  assert.equal(one[1]![3], "⣸", "the newest rate fills the right column of the last cell");
-  assert.equal(one[0]![3], "⢸");
-  assert.equal(one[0]!.slice(0, 3), "   ");
+  assert.deepEqual(one, ["⡇   ", "⡇   "].map(x => x), "one value is the left column of the first cell; no baseline dots");
+  assert.deepEqual(brailleBars([], 3, 2), ["   ", "   "]);
   const tiny = brailleBars([1000, 0.001], 1, 1);
-  assert.notEqual(tiny[0], "⣀", "tiny but positive value is still drawn");
-  // Zero-based: a flat series is full height, not half height.
-  assert.deepEqual(brailleBars([7, 7, 7, 7], 2, 1), ["⣿⣿"]);
-  // Zero-based: 50 vs 100 gives the left column half height (2 of 4 dots); min-max would give 1.
-  assert.equal(brailleBars([50, 100], 1, 1)[0], "⣼");
+  assert.notEqual(tiny[0], " ", "tiny but positive value is still drawn");
+  assert.deepEqual(brailleBars([7, 7, 7, 7], 2, 1), ["⣿⣿"], "flat series is full height");
+  assert.equal(brailleBars([50, 100], 1, 1)[0], "⣼", "zero-based: 50 vs 100 is half height, not min-max");
   const many = brailleBars(Array.from({ length: 500 }, (_, i) => i), 5, 2);
   assert(many.every(r => r.length === 5), "only the newest 2×width values are used");
+  assert.equal(many[1]![4], "⣿", "newest value is the right edge once full");
   for (const bad of [[Number.NaN, -3, Infinity], [0, 0]]) assert(brailleBars(bad, 3, 2).every(r => r.length === 3));
 });
 
-test("sparkBlocks scales to the max, right-aligns, and tolerates bad input", () => {
+test("sparkBlocks scales to the max, left-aligns, pads with spaces, and tolerates bad input", () => {
   assert.equal(sparkBlocks([], 0), "");
-  assert.equal(sparkBlocks([], 3), "▁▁▁");
-  assert.equal(sparkBlocks([1, 8], 4), "▁▁▂█");
+  assert.equal(sparkBlocks([], 3), "   ");
+  assert.equal(sparkBlocks([1, 8], 4), "▂█  ");
   assert.equal(sparkBlocks([4, 8], 2), "▅█");
-  assert.equal(sparkBlocks([1, 2, 3, 4], 2).length, 2);
+  assert.equal(sparkBlocks([1, 2, 3, 4], 2), "▆█", "newest values win when there are more than columns");
   assert.equal(sparkBlocks([Number.NaN, -1, 0], 3), "▁▁▁");
   assert.equal(sparkBlocks([5], 1), "█");
 });
 
 test("tier thresholds are pure and the header slot follows them", () => {
   assert.deepEqual([60, 44, 43, 30, 29, 20, 19, 0].map(sidebarTier), ["full", "full", "compact", "compact", "mini", "mini", "micro", "micro"]);
-  for (const rows of [12, 19, 20, 29, 30, 43, 44, 60, 100]) {
+  for (let rows = 12; rows <= 100; rows++) {
     const slots = sessionSidebarSlots(rows, 0, false);
     assert.equal(slots.header, SIDEBAR_HEADER_ROWS[sidebarTier(rows)], `header ${rows}`);
     assert(slots.middle >= 6, `middle keeps 6 rows at ${rows}`);
-    assert(sessionSidebarSlots(rows, 4, true).tasks + sessionSidebarSlots(rows, 4, true).image >= 0);
   }
 });
 
-test("empty perf: waiting and no-request lines, no NaN or zero percent", () => {
+const SECTIONS = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "compact", now = 1000, cost: number | null = 0.84) => {
+  const i = input(perf, inner, tier, now, cost);
+  return { speed: speedRows(i).map(strip), cache: cacheRows(i).map(strip), combined: strip(combinedRow(i)) };
+};
+
+test("empty perf: sections keep the grammar, collapse to two rows, and never print NaN or 0%", () => {
   for (const tier of ["full", "compact"] as const) {
-    const lines = [...speedRows(input(EMPTY_PERF, 40, tier), tier === "full" ? 8 : 2), ...cacheRows(input(EMPTY_PERF, 40, tier), tier === "full" ? 4 : 2)].map(strip);
-    const text = lines.join("\n");
-    assert.match(text, /waiting for first response/); assert.match(text, /no requests yet/);
-    assert.doesNotMatch(text, /NaN|Infinity|-\d|0%|[█▀]/);
+    const { speed, cache } = SECTIONS(EMPTY_PERF, 40, tier);
+    assert.equal(speed.length, 2); assert.equal(cache.length, 2);
+    assert.match(speed[0]!, /^SPEED\s+—$/); assert.equal(speed[1], "waiting for first response");
+    assert.match(cache[0]!, /^CACHE\s+—$/); assert.equal(cache[1], "no requests yet");
+    assert.doesNotMatch([...speed, ...cache].join("\n"), /NaN|Infinity|-\d|0%|[█▀]/);
   }
-  assert.equal(combinedRow(input(EMPTY_PERF)), "no requests yet");
-  assert.equal(speedRows(input(EMPTY_PERF, 40, "full"), 8).length, 8);
+  assert.equal(strip(combinedRow(input(EMPTY_PERF))), "no requests yet");
 });
 
-test("provider that never reports cache shows an explicit note", () => {
+test("provider that never reports cache shows an explicit note and no bar", () => {
   const perf = { ...perfFixture(1000), cache: { ...EMPTY_PERF.cache, seen: false } };
-  assert.match(strip(cacheRows(input(perf), 4).join("\n")), /no cache reads reported/);
-  assert.doesNotMatch(strip(cacheRows(input(perf), 4).join("\n")), /[█▓░]/);
+  const { cache } = SECTIONS(perf);
+  assert.equal(cache.length, 2); assert.equal(cache[1], "no cache reads reported"); assert.doesNotMatch(cache.join(""), /━/);
 });
 
-test("a single rate renders a graph with one column at the right edge", () => {
+test("compact SPEED: heading, left-aligned sparkline, labelled detail row; padding is spaces", () => {
+  const perf: SidebarPerf = { ...perfFixture(1000), rates: [10, 20, 23.5, 15, 18], lastRate: 23.5, peak: 23.5, turn: { requests: 2, output: 214, durationMs: 15_000, rate: 13.9 } };
+  const { speed } = SECTIONS(perf);
+  assert.equal(speed.length, 3);
+  assert.match(speed[0]!, /^SPEED\s+23\.5 tok\/s$/);
+  assert.match(speed[1]!, /^[▁-█]{5} +$/); assert.equal(speed[1]!.length, 40);
+  assert.equal(speed[2], "avg 13.9 · peak 23.5 · out 214");
+});
+
+test("a single rate renders one sparkline cell at the left; no rates draws a dim baseline", () => {
   const perf: SidebarPerf = { ...EMPTY_PERF, requests: 1, rates: [30], peak: 30, lastRate: 30, turn: { requests: 1, output: 300, durationMs: 10_000, rate: 30 } };
-  const rows = speedRows(input(perf, 40), 8).map(strip);
-  assert.equal(rows.length, 8);
-  const graph = rows.slice(4, 6);
-  assert(graph.every(r => visibleWidth(r) === 40));
-  assert.match(graph[0]!, /\S$/); assert.match(graph[1]!, /^⣀+/);
+  assert.match(SECTIONS(perf).speed[1]!, /^█ +$/);
+  const noRates = { ...perf, rates: [] };
+  assert.equal(SECTIONS(noRates).speed[1], "─".repeat(40));
 });
 
-test("streaming shows ~ live estimate; settled shows exact last rate", () => {
-  const live = { ...perfFixture(1000), live: { streaming: true, rate: 51.25 } };
-  const liveText = speedRows(input(live), 8).map(strip);
-  assert.match(liveText[0]!, /● streaming$/); assert.match(liveText.slice(1, 4).join("\n"), /▄▀▄/, "tilde glyph precedes the digits");
-  const settled = speedRows(input(perfFixture(1000)), 8).map(strip);
-  assert.match(settled[0]!, /last response$/); assert.doesNotMatch(settled.slice(1, 4).join(""), /▄▀▄/);
-  assert.match(strip(speedRows(input(live, 40, "compact"), 2)[0]!), /● ~51\.3 tok\/s|● ~51\.2 tok\/s/);
+test("streaming adds a marker but the headline stays the exact last rate", () => {
+  const perf = { ...perfFixture(1000), lastRate: 14.6, live: { streaming: true, rate: 999 } };
+  const compact = SECTIONS(perf).speed;
+  assert.match(compact[0]!, /^SPEED\s+● streaming {2}14\.6 tok\/s$/);
+  assert.doesNotMatch(compact.join("\n"), /~|999/);
+  const full = SECTIONS(perf, 40, "full").speed;
+  assert.match(full[0]!, /^SPEED\s+● streaming$/);
+  assert.match(SECTIONS(perfFixture(1000), 40, "full").speed[0]!, /^SPEED\s+last response$/);
+  const first = SECTIONS({ ...EMPTY_PERF, live: { streaming: true, rate: 20 } }).speed;
+  assert.match(first[0]!, /^SPEED\s+● streaming {2}—$/); assert.equal(first[1], "waiting for first response");
 });
 
-test("stats row: nulls become dashes", () => {
-  const perf: SidebarPerf = { ...perfFixture(1000), peak: null, turn: null };
-  const rows = speedRows(input(perf), 8).map(strip);
-  assert.match(rows[7]!, /^—\s+—\s+—$/);
+test("full SPEED: big digits, two braille rows, then the same detail row", () => {
+  const rows = SECTIONS(perfFixture(1000), 40, "full").speed;
+  assert.equal(rows.length, 7);
+  assert.equal(rows[2], " █  ▀▀█   █▀█ tok/s");
+  assert.match(rows[4]!, /[⠁-⣿]/); assert.match(rows[5]!, /[⠁-⣿]/);
+  assert.equal(rows[6], "avg 26.7 · peak 45.0 · out 12k");
+  assert(!rows.join("").includes("Turn avg"), "the 3-column table is gone");
 });
 
-test("huge numbers stay inside the width", () => {
+test("avg, peak and headline are known together", () => {
+  const perf: SidebarPerf = { ...perfFixture(1000), peak: null, lastRate: null, rates: [], turn: { requests: 1, output: 10, durationMs: 100, rate: null } };
+  const rows = SECTIONS(perf).speed;
+  assert.equal(rows.length, 2, "no eligible rates: collapsed waiting state");
+  assert.equal(rows[1], "replies too short to time");
+});
+
+test("huge numbers and tiny widths stay inside the width", () => {
   const perf: SidebarPerf = { ...perfFixture(1000), lastRate: 12_345, peak: 1e9, rates: [12_345, 1e9],
     turn: { requests: 1, output: 9e12, durationMs: 1, rate: 1e15 },
     cache: { ...perfFixture(1000).cache, read: 1.31e6, write: 1e12, uncached: 1e15, saved: 1.2e6 } };
-  for (const inner of [10, 16, 21, 22, 24, 30, 44, 60]) for (const tier of ["full", "compact"] as const) for (const cost of [1.2e6, 1e308, null]) {
-    const rows = [...speedRows(input(perf, inner, tier, 1000, cost), tier === "full" ? 8 : 2), ...cacheRows(input(perf, inner, tier, 1000, cost), tier === "full" ? 4 : 2), combinedRow(input(perf, inner, tier, 1000, cost))];
-    for (const r of rows) { assert(visibleWidth(r) <= inner, `${inner} ${tier}: ${strip(r)}`); assert.doesNotMatch(strip(r), /NaN|Infinity/); }
+  for (const inner of [1, 4, 10, 16, 21, 22, 24, 30, 44, 60]) for (const tier of ["full", "compact"] as const) for (const cost of [1.2e6, 1e308, null]) {
+    const i = input({ ...perf, live: { streaming: true, rate: 5 } }, inner, tier, 1000, cost);
+    for (const r of [...speedRows(i), ...cacheRows(i), combinedRow(i), ...contextRows(i, { percent: 91, tokens: 1e12, window: 1e15, estimated: true })]) {
+      assert(visibleWidth(r) <= inner, `${inner} ${tier}: ${strip(r)}`); assert.doesNotMatch(strip(r), /NaN|Infinity/);
+    }
   }
 });
 
-test("width tiers: digits fall back to text, narrow rails drop the graph", () => {
+test("width tiers: digits fall back to text; narrow rails drop the graph", () => {
   const perf = perfFixture(1000);
-  const narrowDigits = speedRows(input(perf, 12), 8).map(strip);
-  assert.equal(narrowDigits[1]!.trim(), "14.6 tok/s", "big digits need more than 12 columns");
-  const tiny = speedRows(input(perf, 20), 8).map(strip).join("\n");
-  assert.doesNotMatch(tiny, /[⣀-⣿]/); assert.match(tiny, /26\.7 · 45\.0 · 12k/);
-  assert.match(speedRows(input(perf, 40), 8).map(strip).join("\n"), /[⣀-⣿]/);
+  assert.equal(SECTIONS(perf, 12, "full").speed[1]!.trim(), "14.6 tok/s", "big digits need more than 12 columns");
+  const tiny = SECTIONS(perf, 20, "full").speed.join("\n");
+  assert.doesNotMatch(tiny, /[⠁-⣿]/);
+  assert.match(tiny, /avg 26\.7 · peak 45\.0/);
+  assert.match(SECTIONS(perf, 40, "full").speed.join("\n"), /[⠁-⣿]/);
 });
 
-test("warmth: countdown, cold, unknown lifetime and idle hint", () => {
+test("CACHE heading: hit, warmth countdown, cold, unknown lifetime and idle hint", () => {
   const base = perfFixture(1_000_000);
-  const head = (cache: Partial<SidebarPerf["cache"]>, now: number) => strip(cacheRows(input({ ...base, cache: { ...base.cache, ...cache } }, 44, "full", now), 4)[0]!);
-  assert.match(head({}, 1_000_000), /92% hit · ◉ warm 4:41$/);
-  assert.match(head({}, 1_000_000 + 1000), /warm 4:40$/, "countdown moves with the clock alone");
-  assert.match(head({}, 1_000_000 + 400_000), /◌ cold$/);
+  const head = (cache: Partial<SidebarPerf["cache"]>, now: number, tier: PerfInput["tier"] = "full") =>
+    strip(cacheRows(input({ ...base, cache: { ...base.cache, ...cache } }, 40, tier, now))[0]!);
+  assert.match(head({}, 1_000_000), /^CACHE\s+92% hit · ◉ 4:41$/);
+  assert.match(head({}, 1_000_000 + 1000), /◉ 4:40$/, "countdown moves with the clock alone");
+  assert.match(head({}, 1_000_000 + 400_000), /92% hit · cold$/);
   assert.match(head({ ttlMs: null }, 1_000_000 + 30_000), /^CACHE\s+92% hit$/, "no lifetime and recent: nothing extra");
-  assert.match(head({ ttlMs: null, lastActivityAt: 1_000_000 - 4 * 60_000 }, 1_000_000), /idle 4m$/);
-  assert.match(head({ lastHit: null }, 1_000_000), /^CACHE\s+◉ warm/, "unknown hit is omitted, never 0%");
+  assert.match(head({ ttlMs: null, lastActivityAt: 1_000_000 - 62_000 }, 1_000_000, "compact"), /^CACHE\s+92% hit · idle 1m$/);
+  assert.match(head({ lastHit: null }, 1_000_000), /^CACHE\s+◉ 4:41$/, "unknown hit is omitted, never 0%");
 });
 
-test("cache rows: bar spans the width and money lines handle unknowns", () => {
-  const rows = cacheRows(input(perfFixture(1000), 44), 4).map(strip);
-  assert.equal(rows[1]!.length, 44);
-  assert.match(rows[2]!, /read 1\.3M · write 108k · new 141k/);
-  assert.equal(rows[3], "spent $0.84 · saved ~$1.92");
-  const none = cacheRows(input({ ...perfFixture(1000), cache: { ...perfFixture(1000).cache, saved: null } }, 44, "full", 1000, null), 4).map(strip);
+test("CACHE bars use the context glyph in three tones; money rows handle unknowns", () => {
+  const themed: string[] = [];
+  const paint = { paint: (t: string, x: string) => { themed.push(`${t}:${x}`); return x; }, heading: (x: string) => x };
+  const full = cacheRows({ ...input(perfFixture(1000), 40, "full"), ...paint }).map(strip);
+  assert.equal(full.length, 4);
+  assert.equal(full[1], "━".repeat(40)); assert(!/[█▓░]/.test(full.join("")));
+  const bar = themed.filter(t => /^(success|warning|muted):━/.test(t)).map(t => t.split(":")[0]);
+  assert.deepEqual(bar, ["success", "warning", "muted"]);
+  assert.equal(themed.find(t => t.startsWith("success:━"))!.length - "success:".length + themed.find(t => t.startsWith("warning:━"))!.length - "warning:".length + themed.find(t => t.startsWith("muted:━"))!.length - "muted:".length, 40, "segments sum to the width");
+  assert.equal(full[2], "read 1.3M · write 108k · new 141k");
+  assert.equal(full[3], "spent $0.84 · saved ~$1.92");
+  const none = SECTIONS({ ...perfFixture(1000), cache: { ...perfFixture(1000).cache, saved: null } }, 40, "full", 1000, null).cache;
   assert.equal(none[3], "spent —");
+  const compact = SECTIONS(perfFixture(1000), 48).cache;
+  assert.equal(compact.length, 3); assert.equal(compact[2], "read 1.3M · write 108k · new 141k · spent $0.84");
+  assert.equal(SECTIONS(perfFixture(1000), 40).cache[2], "read 1.3M · write 108k · new 141k", "spent is dropped when it does not fit");
+  const zero = SECTIONS({ ...perfFixture(1000), cache: { ...perfFixture(1000).cache, read: 0, write: 0, uncached: 0 } }).cache;
+  assert.equal(zero[1], "─".repeat(40));
+});
+
+test("CONTEXT uses the same grammar", () => {
+  const i = input(EMPTY_PERF, 40);
+  const rows = contextRows(i, { percent: 2, tokens: 8100, window: 400_000, estimated: false }).map(strip);
+  assert.match(rows[0]!, /^CONTEXT\s+2% {2}8\.1k\/400k$/); assert.equal(rows[1], "━" + "─".repeat(39));
+  assert.match(strip(contextRows(i, { percent: null, tokens: null, window: null, estimated: true })[0]!), /^CONTEXT\s+— {2}~—\/—$/);
 });
 
 function sidebarWith(rows: number, perf: SidebarPerf, clock: { now: number }, extra: Partial<SidebarSession> = {}) {
@@ -197,7 +239,7 @@ test("render recomputes the countdown each second without extra timers", () => {
   assert.equal(s.render(44).map(strip).join("\n"), a);
   clock.now += 1000;
   const b = s.render(44).map(strip).join("\n");
-  assert.notEqual(a, b); assert.match(a, /warm 4:41/); assert.match(b, /warm 4:40/);
+  assert.notEqual(a, b); assert.match(a, /◉ 4:41/); assert.match(b, /◉ 4:40/);
 });
 
 test("every tier and width keeps rows bounded, including live streaming and long sessions", () => {
@@ -213,7 +255,7 @@ test("every tier and width keeps rows bounded, including live streaming and long
 test("mini tier shows the combined speed/cache row; details explain the numbers", () => {
   const clock = { now: 1_000_000 };
   const s = sidebarWith(24, perfFixture(clock.now), clock);
-  assert.match(s.render(40).map(strip).join("\n"), /↯14\.6 t\/s ◉92% 4:41/);
+  assert.match(s.render(40).map(strip).join("\n"), /14\.6 tok\/s · 92% hit · warm 4:41/);
   assert.match(s.sessionDetails(), /Speed & cache/);
   assert.match(s.sessionDetails(), /300 ms/);
 });

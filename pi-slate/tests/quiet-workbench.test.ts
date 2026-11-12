@@ -82,30 +82,19 @@ test("growing usage and money keep a stable label lane and value edge with the r
   sidebar.dispose();
 });
 
-test("context meter keeps a thin track and dim separator with the real theme", () => {
+test("short terminals keep the CONTEXT heading row grammar with the real theme", () => {
   const sidebar = new Sidebar(() => 10000);
   sidebar.attach({ terminal: { rows: 24, columns: 140 }, requestRender() {} } as unknown as TUI, theme);
-  assert.equal(sessionSidebarSlots(24, 0, false).header, 6, "mini tier keeps the one-row context meter");
+  assert.equal(sessionSidebarSlots(24, 0, false).header, 6, "mini tier keeps a one-row context summary");
   for (const width of [28, 40, 80]) {
     sidebar.setSession(session);
     const rows = sidebar.render(width);
-    const meter = rows.find(row => stripVTControlCharacters(row).includes("Context"))!;
-    assert(meter, `meter at ${width}`);
-    assert.match(stripVTControlCharacters(meter), /^│ Context [━─]+ │ 11% │$/, `structure at ${width}`);
-    assert.doesNotMatch(stripVTControlCharacters(meter), /[█░]/, "no solid or shaded blocks");
-    assert.equal(visibleWidth(meter), width);
-    const track = stripVTControlCharacters(meter).match(/─+/)![0];
-    const dimOpen = theme.fg("dim", "").replace(/\u001b\[39m$/, "");
-    assert(meter.includes(`${dimOpen}${track}`), "empty cells use the dim thin track");
+    const line = rows.find(row => stripVTControlCharacters(row).includes("CONTEXT"))!;
+    assert(line, `context row at ${width}`);
+    assert.match(stripVTControlCharacters(line), /^│ CONTEXT +11% /, `label left, percent right at ${width}`);
+    assert.doesNotMatch(stripVTControlCharacters(line), /[█░│]{2}|Context /, "no legacy inline meter");
+    assert.equal(visibleWidth(line), width);
   }
-  sidebar.setSession({ ...session, percent: 83 });
-  const warning = sidebar.render(40);
-  const fill = stripVTControlCharacters(warning.find(row => stripVTControlCharacters(row).includes("Context"))!).match(/━+/)![0];
-  assert(warning.some(row => row.includes(theme.fg("warning", fill))), "fill shifts to the warning tone at >= 80%");
-  sidebar.setSession({ ...session, percent: null });
-  const empty = stripVTControlCharacters(sidebar.render(40).find(row => stripVTControlCharacters(row).includes("Context"))!);
-  assert(empty.includes("─") && !empty.includes("━") && empty.endsWith("—% │"), "null percent is an empty track with a dash");
-  sidebar.dispose();
 });
 
 test("quiet editor avoids duplicate identity/model and restores compact facts without losing its draft", () => {

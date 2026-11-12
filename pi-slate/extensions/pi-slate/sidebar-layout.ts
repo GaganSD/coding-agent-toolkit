@@ -10,7 +10,7 @@ export function sidebarTier(rows: number): SidebarTier {
   return r >= SIDEBAR_FULL_ROWS ? "full" : r >= SIDEBAR_COMPACT_ROWS ? "compact" : r >= SIDEBAR_MINI_ROWS ? "mini" : "micro";
 }
 /** Header rows per tier, including the closing divider. Painting and hit testing both use this. */
-export const SIDEBAR_HEADER_ROWS: Record<SidebarTier, number> = { full: 22, compact: 14, mini: 6, micro: 4 };
+export const SIDEBAR_HEADER_ROWS: Record<SidebarTier, number> = { full: 21, compact: 16, mini: 6, micro: 4 };
 
 /** Allocate once for both painting and hit testing. Never depend on composer height. */
 export function sessionSidebarSlots(height: number, taskCount: number, hasImage: boolean): SidebarSlots {

@@ -9,12 +9,13 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
  *   `durationMs` (request start → response end, monotonic).
  * - A request's speed is end-to-end: output tokens ÷ (durationMs / 1000). It includes
  *   time to first token and hidden reasoning, both of which are real waiting time.
- * - The live streaming rate is an estimate (visible chars ÷ 4) and must be labelled `~`.
+ * - The live streaming rate is an estimate (visible chars ÷ 4) and must be labelled `~`; the rail no
+ *   longer shows it (the composer's working message does).
  * - Anything unknowable is `null`, never 0. The renderer shows `—` or omits the item.
  */
 
-/** Requests below either bound are latency-dominated; they count toward totals and the
- * turn average but never toward the graph, the peak, or "last response". */
+/** Requests below either bound are latency-dominated; they count toward totals and the turn's
+ * output, but never toward the graph, the peak, the turn average, or "last response". */
 export const PERF_MIN_OUTPUT_TOKENS = 32;
 export const PERF_MIN_DURATION_MS = 300;
 /** Bounded history so very long sessions cost constant memory in the rail. */
@@ -23,11 +24,12 @@ export const PERF_MAX_RATES = 256;
 export type SidebarTurnPerf = {
   /** Assistant requests since the last user message on the branch (the current or last turn). */
   requests: number;
-  /** Exact output tokens of those requests. */
+  /** Exact output tokens of all those requests (including tiny ones). */
   output: number;
-  /** Sum of their durationMs. */
+  /** Sum of all their durationMs. */
   durationMs: number;
-  /** Token-weighted exact rate: output ÷ (durationMs / 1000); null when durationMs is 0. */
+  /** Token-weighted exact rate over the ELIGIBLE requests of the turn only (same rule as rates/peak):
+   * eligible output ÷ eligible seconds; null when none are eligible, so avg/peak/headline are known together. */
   rate: number | null;
 };
 
@@ -94,15 +96,16 @@ function ratio(numerator: number, denominator: number): number | null {
  * One O(n) pass over the active branch.
  *
  * Turn rule: every timed assistant request after the last user message whose stopReason is not
- * error/aborted/deferred counts, regardless of size, because tiny tool-call requests are real
- * waiting time in the turn. Speed rows (rates/peak/lastRate) additionally require the minimums.
+ * error/aborted/deferred counts toward `turn.requests/output/durationMs`. `turn.rate` and the speed
+ * rows (rates/peak/lastRate) share one eligibility rule: output >= PERF_MIN_OUTPUT_TOKENS and
+ * duration >= PERF_MIN_DURATION_MS.
  */
 export function branchPerf(entries: readonly SessionEntry[], opts: BranchPerfOptions): SidebarPerf {
   let requests = 0;
   let rates: number[] = [];
   let peak: number | null = null;
   let lastRate: number | null = null;
-  let turnRequests = 0; let turnOutput = 0; let turnMs = 0;
+  let turnRequests = 0; let turnOutput = 0; let turnMs = 0; let turnRateOut = 0; let turnRateMs = 0;
 
   const sums = { read: 0, write: 0, uncached: 0 };
   const missing = { read: false, write: false, uncached: false };
@@ -121,7 +124,7 @@ export function branchPerf(entries: readonly SessionEntry[], opts: BranchPerfOpt
     if (entry.type === "message") {
       const message = obj(entry.message);
       const role = message?.role;
-      if (role === "user") { turnRequests = 0; turnOutput = 0; turnMs = 0; continue; }
+      if (role === "user") { turnRequests = 0; turnOutput = 0; turnMs = 0; turnRateOut = 0; turnRateMs = 0; continue; }
       if (role === "assistant" || role === "toolResult") {
         usage = obj(message?.usage);
         expected = role === "assistant";
@@ -168,6 +171,7 @@ export function branchPerf(entries: readonly SessionEntry[], opts: BranchPerfOpt
     if (output >= PERF_MIN_OUTPUT_TOKENS && durationMs >= PERF_MIN_DURATION_MS) {
       const rate = output / (durationMs / 1000);
       if (!Number.isFinite(rate)) continue;
+      turnRateOut += output; turnRateMs += durationMs;
       rates.push(rate);
       if (rates.length >= PERF_MAX_RATES * 2) rates = rates.slice(-PERF_MAX_RATES);
       if (peak === null || rate > peak) peak = rate;
@@ -193,7 +197,7 @@ export function branchPerf(entries: readonly SessionEntry[], opts: BranchPerfOpt
   return {
     requests, rates, peak, lastRate,
     turn: turnRequests > 0
-      ? { requests: turnRequests, output: turnOutput, durationMs: turnMs, rate: turnMs > 0 ? turnOutput / (turnMs / 1000) : null }
+      ? { requests: turnRequests, output: turnOutput, durationMs: turnMs, rate: turnRateMs > 0 ? turnRateOut / (turnRateMs / 1000) : null }
       : null,
     cache: {
       read, write, uncached, lastHit, sessionHit,

@@ -168,40 +168,34 @@ test("speed and cache replace the usage lane; full accounting stays in details",
 test("header height follows the terminal tier and its divider closes the header", () => {
   const { sidebar } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  for (const [rows, header] of [[60, 22], [44, 22], [43, 14], [30, 14], [29, 6], [20, 6], [19, 4]] as const)
+  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16], [29, 6], [20, 6], [19, 4]] as const)
     assert.equal(sessionSidebarSlots(rows, 0, false).header, header, `rows ${rows}`);
   const lines = plain(sidebar.render(40));
   assert.match(lines[0]!, /^┌─+┐$/, "top bar");
   assert.match(lines.at(-1)!, /^└─+┘$/, "bottom bar");
   const hairline = lines.findIndex((line, i) => i > 0 && i < lines.length - 1 && /^├─+┤$/.test(line));
-  assert.equal(hairline, 22, "hairline closes a 22-row header under the top bar");
+  assert.equal(hairline, 21, "hairline closes a 21-row header under the top bar");
   assert.match(lines[1]!, /^○ Idle|^● Working/);
   assert(lines[2]!.startsWith("Slate session title") && lines[2]!.endsWith("session-"));
   assert(lines[5]!.startsWith("CONTEXT") && lines[5]!.includes("16%") && lines[5]!.includes("31.6k/200k"));
   assert(/^[━─]+$/.test(lines[6]!), "single full-width context bar");
 });
 
-test("context meter fills the rail with a thin track and degrades gracefully when narrow", () => {
+test("context row keeps the heading grammar and degrades gracefully when narrow", () => {
   const { sidebar } = fixture(24);
-  const meter = (width: number) => {
-    const line = plain(sidebar.render(width)).find(line => line.startsWith("Context") || line.endsWith("%"));
-    assert(line, `meter at width ${width}`); assert.doesNotMatch(line, /[█░]/, "meter avoids block glyphs"); return line;
+  const context = (width: number) => {
+    const line = plain(sidebar.render(width)).find(line => line.startsWith("CONTEXT") || /\d+%|—/.test(line) && !line.includes("tok/s") && !line.includes("Idle") && !line.includes("Working"));
+    assert(line, `context at width ${width}`); return line;
   };
-  assert.equal(meter(80), `Context ${"━".repeat(10)}${"─".repeat(52)} │ 16%`);
-  assert.equal(meter(40), `Context ${"━".repeat(4)}${"─".repeat(18)} │ 16%`);
-  assert.equal(meter(28), `Context ${"━".repeat(2)}${"─".repeat(8)} │ 16%`);
+  assert.match(context(80), /^CONTEXT {2,}16% {2}31\.6k\/200k$/);
+  assert.match(context(40), /^CONTEXT {2,}16% {2}31\.6k\/200k$/);
   sidebar.setSession({ ...session, percent: null });
-  assert.equal(meter(40), `Context ${"─".repeat(23)} │ —%`, "null percent is an empty track");
-  sidebar.setSession({ ...session, percent: 0 });
-  assert.equal(meter(40), `Context ${"─".repeat(23)} │ 0%`);
-  sidebar.setSession({ ...session, percent: 100 });
-  assert.equal(meter(40), `Context ${"━".repeat(21)} │ 100%`);
+  assert.match(context(40), /^CONTEXT .*—/, "unknown percent shows a dash");
   sidebar.setSession(session);
-  for (const width of [8, 12, 20]) {
-    const line = meter(width);
+  for (const width of [20, 28]) {
+    const line = context(width);
     assert(visibleWidth(line) <= width - 4, `bounded at ${width}`);
     assert(line.includes("16%"), `percent survives at ${width}`);
-    if (width < 16) assert(!line.includes("Context"), `label yields before the percent at ${width}`);
   }
   for (const line of sidebar.render(3)) assert(visibleWidth(line) <= 3, "degenerate rail stays bounded");
 });
@@ -209,10 +203,10 @@ test("context meter fills the rail with a thin track and degrades gracefully whe
 test("context meter fill follows the theme accent and shifts to the warning tone at 80% and above", () => {
   const codes: Record<string, number> = { muted: 90, dim: 2, accent: 36, warning: 33, text: 37 };
   const toneTheme = { fg: (tone: string, text: string) => `\x1b[${codes[tone] ?? 0}m${text}\x1b[0m`, bold: (text: string) => text } as Theme;
-  for (const rows of [24, 60]) {
+  for (const rows of [60]) {
     const { sidebar } = fixture(rows);
     sidebar.setThemeProvider(() => toneTheme); sidebar.invalidate();
-    const meterLine = () => sidebar.render(40).find(line => /^│ ?(Context )?[━─]{4}/.test(stripAnsi(line)))!;
+    const meterLine = () => sidebar.render(40).find(line => /^│ ?[━─]{4}/.test(stripAnsi(line)))!;
     for (const [percent, code] of [[0, 36], [79, 36], [80, 33], [100, 33]] as const) {
       sidebar.setSession({ ...session, percent }); sidebar.invalidate();
       const line = meterLine();
@@ -492,7 +486,7 @@ test("sidebar closes both rails and joins every horizontal divider at the right 
     const lines = sidebar.render(width).map(stripAnsi);
     assert.equal(lines[0], "┌" + "─".repeat(width - 2) + "┐");
     assert.equal(lines.at(-1), "└" + "─".repeat(width - 2) + "┘");
-    assert.equal(lines[22], "├" + "─".repeat(width - 2) + "┤");
+    assert.equal(lines.find((l, i) => i > 0 && l.startsWith("├")), "├" + "─".repeat(width - 2) + "┤", "header divider joins both rails");
     for (const line of lines) {
       assert.equal(visibleWidth(line), width);
       assert.match(line, /^[│┌├└]/);
@@ -522,6 +516,6 @@ test("empty speed and cache sections collapse and give their rows to the resourc
   assert(empty.some(line => line.includes("no requests yet")));
   sidebar.setSession(session);
   const full = plain(sidebar.render(44));
-  assert.equal(full.findIndex(line => line.includes("MCP")) - mcpEmpty, 8, "6 speed + 2 cache rows are reclaimed");
+  assert.equal(full.findIndex(line => line.includes("MCP")) - mcpEmpty, 7, "5 speed + 2 cache rows are reclaimed");
   assert.equal(empty.length, full.length, "the rail still fills the terminal");
 });

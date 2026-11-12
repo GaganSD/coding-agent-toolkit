@@ -8,7 +8,7 @@ import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
 import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, sidebarTier, sidebarUncached, type SidebarTier } from "./sidebar-layout.ts";
-import { cacheRows, combinedRow, formatCountdown, formatRate, hasSpeed, speedRows, type PerfInput } from "./perf-graphics.ts";
+import { cacheRows, combinedRow, contextRows, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
 import { cacheWarmth, EMPTY_PERF } from "./perf-stats.ts";
 
 export const DOUBLE_CLICK_MS = 400;
@@ -261,7 +261,6 @@ export class Sidebar implements Component {
     const s = this.session;
     const perf = s.perf ?? EMPTY_PERF;
     const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
-    const tone = percent !== null && percent >= 80 ? "warning" : "accent";
     const branchUsage = () => this.actions?.inspect?.("Branch usage", this.sessionDetails());
     const name = s.name || "";
     const shortId = sidebarText(s.id).slice(0, 8) || "—";
@@ -286,40 +285,18 @@ export class Sidebar implements Component {
       extra: showId ? [{ x0: width - idWidth, x1: width, action: copyId }] : undefined,
     };
     const model: Row = { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) };
-    const meter = ((): string => {
-      const pct = percent === null ? "—%" : `${Math.round(percent)}%`;
-      if (width < visibleWidth(pct) + 3) return this.paint("muted", truncateToWidth(pct, width, "…"));
-      const suffix = ` │ ${pct}`;
-      const barWidth = Math.max(0, width - "Context ".length - visibleWidth(suffix));
-      const filledCells = percent === null ? 0 : Math.round(Math.max(0, Math.min(100, percent)) * barWidth / 100);
-      const label = truncateToWidth("Context ", Math.max(0, width - barWidth - visibleWidth(suffix)), "…");
-      return this.paint("muted", label)
-        + (filledCells ? this.paint(tone, "━".repeat(filledCells)) : "")
-        + this.paint("dim", "─".repeat(barWidth - filledCells) + suffix);
-    })();
     const divider: Row = { text: "", divider: true };
     const input = (): PerfInput => ({ perf, cost: s.usage.cost, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) });
-    if (tier === "micro") return [identity, model, { text: meter, action: branchUsage }, divider];
-    const combined: Row = { text: combinedRow(input()) };
-    if (tier === "mini") return [status, identity, model, { text: meter, action: branchUsage }, combined, divider];
-    const context: Row[] = (() => {
-      const pct = percent === null ? "—" : `${Math.round(percent)}%`;
-      const figures = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)}/${formatCompactTokenCount(s.contextWindow)}`;
-      const right = this.paint(tone === "warning" ? "warning" : "text", pct) + this.paint("dim", `  ${figures}`);
-      const filled = percent === null ? 0 : Math.round(Math.max(0, Math.min(100, percent)) * width / 100);
-      return [
-        { text: this.pair(this.heading("CONTEXT"), right, width), action: branchUsage },
-        { text: (filled ? this.paint(tone, "━".repeat(filled)) : "") + this.paint("dim", "─".repeat(Math.max(0, width - filled))), action: branchUsage },
-      ];
-    })();
+    const context: Row[] = contextRows(input(), { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
+      .map(text => ({ text, action: branchUsage }));
+    // Short terminals keep the same CONTEXT heading row (label left, figures right) without the bar.
+    if (tier === "micro") return [identity, model, context[0]!, divider];
+    if (tier === "mini") return [status, identity, model, context[0]!, { text: combinedRow(input()) }, divider];
     const rows = (lines: string[]): Row[] => lines.map(text => ({ text }));
-    const full = tier === "full";
-    // Empty states take only their two rows; render() hands the spare rows to the middle list.
-    const speedCount = full && hasSpeed(perf) ? 8 : 2;
-    const cacheCount = full && perf.cache.seen ? 4 : 2;
+    // Empty states collapse to their own natural height; render() hands spare rows to the middle list.
     return [status, identity, model, { text: "" }, ...context, { text: "" },
-      ...rows(speedRows(input(), speedCount)), { text: "" },
-      ...rows(cacheRows(input(), cacheCount)), { text: "" }, divider];
+      ...rows(speedRows(input())), { text: "" },
+      ...rows(cacheRows(input())), { text: "" }, divider];
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
