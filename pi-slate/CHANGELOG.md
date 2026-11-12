@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- Sidebar SPEED card: a large tok/s figure, a graph of recent responses, turn average, output and peak. A finished response's speed is exact (output tokens ÷ response time); the live value while streaming is marked `~`.
+- Sidebar CACHE section: hit % of the latest request, read/write/new split, spend and estimated savings. A warm/cold countdown appears only when the model publishes its cache lifetime.
+- The status row shows Working/Idle, the turn number, and the running turn's elapsed time.
+
+### Changed
+
+- The sidebar header is reorganised into status, CONTEXT, SPEED and CACHE, and adapts to terminal height (full, compact, mini). CONTEXT is a single bar; use pi-context-view for the category breakdown.
+- Live speed updates to the sidebar are throttled to about 4 per second.
+
 ## 0.2.1
 
 Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.

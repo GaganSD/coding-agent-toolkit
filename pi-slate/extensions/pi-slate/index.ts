@@ -37,6 +37,7 @@ import { mcpDetails } from "./sidebar-mcp.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
 import { resolveContextTokens } from "./context-usage.ts";
+import { branchPerf } from "./perf-stats.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import { advanceWave, isProgressStyle, isWaveActive, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
@@ -229,7 +230,10 @@ export default function piSlate(pi: ExtensionAPI): void {
   let lastTurnMs: number | null = null;
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
   const dashboardSubscriptions: Array<() => void> = [];
-  let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage> } | undefined;
+  let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage>; perf: ReturnType<typeof branchPerf> } | undefined;
+  let liveStreaming = false;
+  let lastLiveSync = 0;
+  let liveSyncTimer: ReturnType<typeof setTimeout> | undefined;
   let inspectingSidebar = false;
   let sidebarYielded = false;
   let sessionEpoch = 0;
@@ -329,8 +333,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     const leaf = ctx.sessionManager.getLeafId?.();
     if (!branchFacts || leaf === undefined || leaf !== branchFacts.leaf) {
       const entries = ctx.sessionManager.getBranch();
-      branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries) };
+      branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries),
+        perf: branchPerf(entries, { promptCache: ctx.model?.promptCache, retentionLong: process.env.PI_CACHE_RETENTION === "long" }) };
     }
+    const liveRate = tokenRate.rate();
     const mcpCount = resources.mcp.filter(server => server.enabled === true).length;
     if (owns("sidebar") && !sidebarYielded) {
       sidebar.setSession({
@@ -338,8 +344,9 @@ export default function piSlate(pi: ExtensionAPI): void {
         name: ctx.sessionManager.getSessionName?.(),
         pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(ctx.model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
         tokens, percent, contextWindow, estimated,
-        rate: tokenRate.rate() > 0 ? tokenRate.rate() : null, startedAt: sessionStartedAt, lastTurnMs,
+        rate: tokenRate.rate() > 0 ? tokenRate.rate() : null, startedAt: sessionStartedAt, lastTurnMs, turnStartedAt: turnStartedAt ?? null,
         working: typeof ctx.isIdle === "function" && !ctx.isIdle(), ...branchFacts.counts, usage: branchFacts.usage,
+        perf: { ...branchFacts.perf, live: { streaming: liveStreaming, rate: liveStreaming && liveRate > 0 ? liveRate : null } },
       });
     }
     contextEdge = {
@@ -429,14 +436,21 @@ export default function piSlate(pi: ExtensionAPI): void {
       }, () => {});
     }
     if (owns("editor")) branch.start(ctx.cwd);
-    sessionStartedAt = Date.now(); turnStartedAt = undefined; lastTurnMs = null; branchFacts = undefined;
+    sessionStartedAt = Date.now(); turnStartedAt = undefined; lastTurnMs = null; branchFacts = undefined; liveStreaming = false;
     if (owns("editor") || owns("sidebar")) {
       skills.reset([]);
       skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
       refreshResources(ctx);
       tokenRate.setOnChange(() => {
-        const ctx = liveContext();
-        if (ctx) syncSidebar(ctx);
+        // Per-token updates reach the sidebar at most ~4/s; a trailing sync keeps the last one.
+        const flush = (): void => {
+          liveSyncTimer = undefined; lastLiveSync = Date.now();
+          const live = liveContext();
+          if (live) syncSidebar(live);
+        };
+        const wait = 250 - (Date.now() - lastLiveSync);
+        if (wait <= 0) { if (liveSyncTimer) clearTimeout(liveSyncTimer); flush(); }
+        else if (!liveSyncTimer) liveSyncTimer = setTimeout(flush, wait);
         if (thinkingFold.elapsedMs() !== null) syncThinkingStatus();
       });
       syncSidebar(ctx);
@@ -699,6 +713,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("model_select", (_event, ctx) => {
     currentContext = ctx;
+    branchFacts = undefined; // cache lifetime depends on the selected model
     syncSidebar(ctx);
   });
   pi.on("thinking_level_select", (_event, ctx) => {
@@ -710,6 +725,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role === "assistant") {
       thinkingFold.stop();
+      liveStreaming = true;
       if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.startMessage();
     }
   });
@@ -727,6 +743,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role === "assistant") {
       thinkingFold.stop();
+      liveStreaming = false;
       if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.endMessage();
     } else if (owns("sidebar") && ctx.mode === "tui" && event.message.role === "toolResult") {
       skills.observeNested(event.message.nestedCalls?.calls ?? [], ctx.cwd);
@@ -773,7 +790,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     thinkingFold.stop();
     if (owns("sidebar") && ctx.mode === "tui") {
-      branchFacts = undefined; skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
+      branchFacts = undefined; liveStreaming = false; skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
       background.reset(ctx.sessionManager.getSessionId?.() ?? ""); sidebar.setTasks([]);
       pi.events.emit?.(BACKGROUND_TASKS_REQUEST, { version: 1, sessionId: ctx.sessionManager.getSessionId?.() ?? "" });
       refreshResources(ctx); syncSidebar(ctx);
@@ -782,6 +799,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("session_shutdown", (_event, ctx) => {
     sessionEpoch += 1;
+    liveStreaming = false; if (liveSyncTimer) { clearTimeout(liveSyncTimer); liveSyncTimer = undefined; }
     workingWord = undefined;
     stopWave();
     thinkingFold.stop();

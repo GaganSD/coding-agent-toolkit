@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import type { SessionEntry, SlashCommandInfo, Skill } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
+import type { SidebarPerf } from "./perf-stats.ts";
 import type { SidebarMcpResult } from "./sidebar-mcp.ts";
 import { record, sidebarText } from "./sidebar-text.ts";
 export { record, sidebarText } from "./sidebar-text.ts";
@@ -19,7 +20,10 @@ export type SidebarSession = {
   id: string; name?: string; pid: number; cwd: string; model: string; thinking: string;
   tokens: number | null; percent: number | null; contextWindow: number | null;
   estimated: boolean; rate: number | null; startedAt: number; lastTurnMs: number | null;
+  /** Wall-clock start of the running turn; absent or null when idle. */
+  turnStartedAt?: number | null;
   working: boolean; turns: number; messages: number; usage: SidebarUsage;
+  perf: SidebarPerf;
 };
 export type SidebarFolds = { mcp: boolean; skills: boolean; prompts: boolean };
 export const DEFAULT_SIDEBAR_FOLDS: SidebarFolds = { mcp: false, skills: false, prompts: false };

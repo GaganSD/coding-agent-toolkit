@@ -488,9 +488,9 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   await f.emit("session_info_changed");
   assert.match(rail(), /Dashboard test/);
   assert.doesNotMatch(rail(), /Unnamed session|Untitled session/);
-  assert.ok(rail().includes(`Session ${f.manager.getSessionId().slice(0, 8)} · PID ${process.pid}`));
+  assert.ok(rail().includes(f.manager.getSessionId().slice(0, 8)));
   assert.match(railOf(f).sessionDetails(), /Title: Dashboard test/);
-  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /450\s+In/); assert.match(rail(), /Uncached\s+100/); assert.match(rail(), /\$0.35/);
+  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /new 100/); assert.match(rail(), /\$0\.35/);
   assert(!/Summary|Activity Preview|Context\s*\n/.test(rail()));
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });
@@ -531,7 +531,7 @@ test("session titles restore, repaint on rename/clear events, and clear when swi
   assert(rows().some(row => row.includes("手动固定的标题")));
   f.manager.appendSessionInfo("");
   await f.emit("session_info_changed", { name: "" });
-  assert.match(rows()[1]!, /^│\s+│$/, "clearing the stored name restores the blank title row");
+  assert.match(rows()[2]!, /^│ Session/, "clearing the stored name restores the Session heading");
   assert.match(sidebar.sessionDetails(), /Title: —/);
   const restored = SessionManager.inMemory(f.ctx.cwd);
   restored.appendSessionInfo("已恢复的标题");

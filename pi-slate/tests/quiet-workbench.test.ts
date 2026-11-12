@@ -9,13 +9,14 @@ import { dashboardColumnWidth, formatCompactTokenCount, parseSlateArgs } from ".
 import { SLATE_NATIVE_THEME, SLATE_THEME } from "../extensions/pi-slate/install-defaults.ts";
 import { sessionSidebarSlots, sidebarCost, sidebarRate } from "../extensions/pi-slate/sidebar-layout.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
+import { perfFixture } from "./perf-fixture.ts";
 import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
 
 const theme = loadThemeFromPath(new URL("../themes/tokyo-night.json", import.meta.url).pathname, "truecolor");
 const session: SidebarSession = { id: "example-session", pid: 8421, cwd: "/tmp/project",
   model: "sample-model", thinking: "medium", tokens: 55000, percent: 11, contextWindow: 500000,
   estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 14000, working: true, turns: 4, messages: 8,
-  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, cost: 1.24 } };
+  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, cost: 1.24 }, perf: perfFixture(1000) };
 
 test("bundled default Tokyo Night loads with the native validator and restrained backgrounds", () => {
   assert.equal(SLATE_THEME, "tokyo-night"); assert.equal(theme.name, SLATE_THEME);
@@ -65,20 +66,10 @@ test("growing usage and money keep a stable label lane and value edge with the r
     for (const value of [0, 999, 128400, 999900000, 1e12, 1e20, 1e308, null]) {
       sidebar.setSession({ ...session, usage: { ...session.usage, input: value, output: value, cost: value } });
       const rows = sidebar.render(width).map(stripVTControlCharacters);
-      const stats: string[] = [];
-      for (const label of ["Cached", "Uncached"]) {
-        const line = rows.find(row => row.startsWith("│ " + label + " "))!;
-        assert(line, label); assert.equal(visibleWidth(line), width);
-        assert.equal(visibleWidth(line.trimEnd()), width, "right edge must not move");
-        stats.push(line);
-      }
-      const occupancy = rows.find(row => row.includes("/ 500k"))!;
-      assert(occupancy, "occupancy line");
-      if (width > 28) { // Below this, bounded values truncate instead of moving edges.
-        for (const line of stats) assert.doesNotMatch(line, /…/, "values must not consume the label lane");
-        assert(occupancy.includes(`${sidebarCost(value)} · ~82 t/s`), `${sidebarCost(value)} on the occupancy line`);
-        assert.doesNotMatch(occupancy, /…/);
-      }
+      assert(rows.every(row => visibleWidth(row) === width), `bounded rows at ${width} for ${value}`);
+      const spent = rows.find(row => row.includes("spent"))!;
+      assert(spent, "spent line");
+      if (width > 28) assert(spent.includes(`spent ${sidebarCost(value)}`), `${sidebarCost(value)} on the spent line`);
     }
   }
   assert.equal(formatCompactTokenCount(1e9), "1B"); assert.equal(formatCompactTokenCount(1e12), "1T");
@@ -93,8 +84,8 @@ test("growing usage and money keep a stable label lane and value edge with the r
 
 test("context meter keeps a thin track and dim separator with the real theme", () => {
   const sidebar = new Sidebar(() => 10000);
-  sidebar.attach({ terminal: { rows: 50, columns: 140 }, requestRender() {} } as unknown as TUI, theme);
-  assert.equal(sessionSidebarSlots(50, 0, false).header, 11, "single identity row removes the section/name rows");
+  sidebar.attach({ terminal: { rows: 24, columns: 140 }, requestRender() {} } as unknown as TUI, theme);
+  assert.equal(sessionSidebarSlots(24, 0, false).header, 6, "mini tier keeps the one-row context meter");
   for (const width of [28, 40, 80]) {
     sidebar.setSession(session);
     const rows = sidebar.render(width);

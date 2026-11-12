@@ -7,11 +7,13 @@ import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
-import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, sidebarRate, sidebarUncached } from "./sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, sidebarTier, sidebarUncached, type SidebarTier } from "./sidebar-layout.ts";
+import { cacheRows, combinedRow, formatCountdown, formatRate, hasSpeed, speedRows, type PerfInput } from "./perf-graphics.ts";
+import { cacheWarmth, EMPTY_PERF } from "./perf-stats.ts";
 
 export const DOUBLE_CLICK_MS = 400;
 type ListName = "mcp" | "skills" | "prompts" | "tasks";
-type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number };
+type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
 export type SidebarActions = {
   copy(text: string): void;
@@ -26,6 +28,7 @@ const EMPTY_SESSION: SidebarSession = {
   percent: null, contextWindow: null, estimated: false, rate: null, startedAt: 0,
   lastTurnMs: null, working: false, turns: 0, messages: 0,
   usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null },
+  perf: EMPTY_PERF,
 };
 const EMPTY_RESOURCES: SidebarResources = { skills: [], commands: [], prompts: [], mcp: [] };
 
@@ -102,7 +105,7 @@ export class Sidebar implements Component {
   setActions(actions: SidebarActions): void { this.actions = actions; }
   setSession(session: SidebarSession): void {
     // Keep the full plain-text title for copying/details; truncate only its painted row.
-    this.session = { ...session, name: sidebarText(session.name, Infinity), usage: { ...session.usage } };
+    this.session = { ...session, perf: session.perf ?? EMPTY_PERF, name: sidebarText(session.name, Infinity), usage: { ...session.usage } };
     this.changed();
   }
   setResources(resources: SidebarResources): void {
@@ -160,7 +163,21 @@ export class Sidebar implements Component {
       `Output: ${formatCompactTokenCount(s.usage.output)} · Total: ${formatCompactTokenCount(s.usage.total)}`,
       `Cache read: ${formatCompactTokenCount(s.usage.cacheRead)} · Cache write: ${formatCompactTokenCount(s.usage.cacheWrite)}`,
       `Uncached input: ${formatCompactTokenCount(uncached)} · Cache-hit share: ${hit}`,
-      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd].join("\n");
+      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd, ...this.speedCacheDetails()].join("\n");
+  }
+  private speedCacheDetails(): string[] {
+    const perf = this.session.perf ?? EMPTY_PERF;
+    const c = perf.cache;
+    const warmth = cacheWarmth(c, this.now());
+    const pct = (n: number | null): string => n === null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
+    return ["", "Speed & cache",
+      `Speed is end-to-end: output tokens ÷ request duration (includes time to first token and hidden reasoning).`,
+      `Requests under 32 output tokens or 300 ms are left out of the graph, peak and last response.`,
+      `The live value while streaming is an estimate (visible text ÷ 4) and is marked ~.`,
+      `Timed requests: ${perf.requests} · last response: ${formatRate(perf.lastRate)} tok/s · peak: ${formatRate(perf.peak)} tok/s · this turn: ${formatRate(perf.turn?.rate)} tok/s`,
+      `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${pct(c.lastHit)} · session ${pct(c.sessionHit)}.`,
+      `Saved is an estimate of what cache reads cost less than uncached input${c.saved === null ? " (prices unknown here)" : ""}.`,
+      `Cache lifetime is shown only when the provider publishes it${warmth.state === "unknown" ? " (not known for this model)" : ""}.`];
   }
   tick(): void { if (!this.hidden && this.splitActive) this.tui?.requestRender(); }
   invalidate(): void {
@@ -218,11 +235,14 @@ export class Sidebar implements Component {
     const add = (row: Row): void => {
       const y = lines.length;
       lines.push(row.divider ? this.dividerLine(width, "├") : this.decorateLine(row.text, width));
+      if (inner > 0) for (const e of row.extra ?? []) this.hits.push({ y, x0: 2 + e.x0, x1: 2 + e.x1, action: e.action });
       if (row.action && inner > 0) this.hits.push({ y, x0: 2, x1: width - 2, action: row.action });
       if (row.list) this.listRows.push({ y, list: row.list });
     };
     if (chrome) lines.push(this.dividerLine(width, "┌"));
-    for (const row of this.headerRows(inner).slice(0, slots.header)) add(row);
+    const header = this.headerRows(inner, sidebarTier(height)).slice(0, slots.header);
+    slots.middle += slots.header - header.length; slots.header = header.length;
+    for (const row of header) add(row);
     const middle = this.middle();
     this.middleRows = middle.length; this.middleHeight = slots.middle; this.middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
@@ -237,14 +257,35 @@ export class Sidebar implements Component {
     return this.cached.lines;
   }
 
-  private headerRows(width: number): Row[] {
+  private headerRows(width: number, tier: SidebarTier): Row[] {
     const s = this.session;
+    const perf = s.perf ?? EMPTY_PERF;
     const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
     const tone = percent !== null && percent >= 80 ? "warning" : "accent";
-    const identity = `Session ${sidebarText(s.id).slice(0, 8) || "—"} · PID ${s.pid}`;
+    const branchUsage = () => this.actions?.inspect?.("Branch usage", this.sessionDetails());
     const name = s.name || "";
-    const occupancy = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}`
-      + ` · ${sidebarCost(s.usage.cost)} · ${sidebarRate(s.rate)}`;
+    const shortId = sidebarText(s.id).slice(0, 8) || "—";
+    const idWidth = visibleWidth(shortId);
+    const showId = width >= idWidth + 13;
+    const copyName = () => { if (this.session.name) this.actions?.copy(this.session.name); };
+    const copyId = () => { if (this.session.id) this.actions?.copy(this.session.id); };
+    const status: Row = (() => {
+      const turns = s.turns === 1 ? "1 turn" : `${s.turns} turns`;
+      const left = s.working
+        ? this.paint("success", "● Working") + this.paint("muted", s.turns > 0 ? ` · turn ${s.turns}` : "")
+        : this.paint("dim", "○ Idle") + (s.turns > 0 ? this.paint("muted", ` · ${turns}`) : "");
+      const started = s.turnStartedAt;
+      const right = s.working
+        ? typeof started === "number" && Number.isFinite(started) ? this.paint("warning", formatCountdown(Math.max(0, this.now() - started))) : ""
+        : s.lastTurnMs !== null ? this.paint("dim", `last ${sidebarDuration(s.lastTurnMs)}`) : "";
+      return { text: this.pair(left, right, width) };
+    })();
+    const identity: Row = {
+      text: this.pair(this.heading(name || "Session", name ? "accent" : "mdHeading"), showId ? this.paint("dim", shortId) : "", width),
+      action: name ? copyName : undefined,
+      extra: showId ? [{ x0: width - idWidth, x1: width, action: copyId }] : undefined,
+    };
+    const model: Row = { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) };
     const meter = ((): string => {
       const pct = percent === null ? "—%" : `${Math.round(percent)}%`;
       if (width < visibleWidth(pct) + 3) return this.paint("muted", truncateToWidth(pct, width, "…"));
@@ -256,22 +297,29 @@ export class Sidebar implements Component {
         + (filledCells ? this.paint(tone, "━".repeat(filledCells)) : "")
         + this.paint("dim", "─".repeat(barWidth - filledCells) + suffix);
     })();
-    const branchUsage = () => this.actions?.inspect?.("Branch usage", this.sessionDetails());
-    const stat = (label: string, value: string): string => `${this.paint("muted", label)} ${this.paint("text", value)}`;
-    const statRight = (label: string, value: string): string => `${this.paint("text", value)} ${this.paint("muted", label)}`;
-    return [
-      { text: this.heading(name, "accent"), action: name ? () => { if (this.session.name) this.actions?.copy(this.session.name); } : undefined },
-      { text: this.heading(visibleWidth(identity) > width ? this.pair(`Session ${sidebarText(s.id).slice(0, 8) || "—"}`, `· PID ${s.pid}`, width) : identity), action: () => { if (s.id) this.actions?.copy(s.id); } },
-      { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) },
-      { text: "" },
-      { text: meter },
-      { text: this.paint("dim", occupancy), action: branchUsage },
-      { text: "" },
-      { text: this.pair(stat("Cached", formatCompactTokenCount(s.usage.cacheRead)), statRight("In", formatCompactTokenCount(s.usage.input)), width), action: branchUsage },
-      { text: this.pair(stat("Uncached", formatCompactTokenCount(sidebarUncached(s.usage))), statRight("Out", formatCompactTokenCount(s.usage.output)), width), action: branchUsage },
-      { text: "" },
-      { text: "", divider: true },
-    ];
+    const divider: Row = { text: "", divider: true };
+    const input = (): PerfInput => ({ perf, cost: s.usage.cost, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) });
+    if (tier === "micro") return [identity, model, { text: meter, action: branchUsage }, divider];
+    const combined: Row = { text: combinedRow(input()) };
+    if (tier === "mini") return [status, identity, model, { text: meter, action: branchUsage }, combined, divider];
+    const context: Row[] = (() => {
+      const pct = percent === null ? "—" : `${Math.round(percent)}%`;
+      const figures = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)}/${formatCompactTokenCount(s.contextWindow)}`;
+      const right = this.paint(tone === "warning" ? "warning" : "text", pct) + this.paint("dim", `  ${figures}`);
+      const filled = percent === null ? 0 : Math.round(Math.max(0, Math.min(100, percent)) * width / 100);
+      return [
+        { text: this.pair(this.heading("CONTEXT"), right, width), action: branchUsage },
+        { text: (filled ? this.paint(tone, "━".repeat(filled)) : "") + this.paint("dim", "─".repeat(Math.max(0, width - filled))), action: branchUsage },
+      ];
+    })();
+    const rows = (lines: string[]): Row[] => lines.map(text => ({ text }));
+    const full = tier === "full";
+    // Empty states take only their two rows; render() hands the spare rows to the middle list.
+    const speedCount = full && hasSpeed(perf) ? 8 : 2;
+    const cacheCount = full && perf.cache.seen ? 4 : 2;
+    return [status, identity, model, { text: "" }, ...context, { text: "" },
+      ...rows(speedRows(input(), speedCount)), { text: "" },
+      ...rows(cacheRows(input(), cacheCount)), { text: "" }, divider];
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;

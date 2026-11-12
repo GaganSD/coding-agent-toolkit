@@ -1,10 +1,22 @@
 export type SidebarSlots = { header: number; middle: number; tasks: number; image: number; footer: number };
 
+/** How much of the session rail's top half fits; chosen from terminal rows alone. */
+export type SidebarTier = "full" | "compact" | "mini" | "micro";
+export const SIDEBAR_FULL_ROWS = 44;
+export const SIDEBAR_COMPACT_ROWS = 30;
+export const SIDEBAR_MINI_ROWS = 20;
+export function sidebarTier(rows: number): SidebarTier {
+  const r = Math.floor(rows);
+  return r >= SIDEBAR_FULL_ROWS ? "full" : r >= SIDEBAR_COMPACT_ROWS ? "compact" : r >= SIDEBAR_MINI_ROWS ? "mini" : "micro";
+}
+/** Header rows per tier, including the closing divider. Painting and hit testing both use this. */
+export const SIDEBAR_HEADER_ROWS: Record<SidebarTier, number> = { full: 22, compact: 14, mini: 6, micro: 4 };
+
 /** Allocate once for both painting and hit testing. Never depend on composer height. */
 export function sessionSidebarSlots(height: number, taskCount: number, hasImage: boolean): SidebarSlots {
   const rows = Math.max(0, Math.floor(height));
   const footer = rows >= 12 ? 1 : 0;
-  const header = Math.min(rows >= 30 ? 11 : 4, rows - footer);
+  const header = Math.min(SIDEBAR_HEADER_ROWS[sidebarTier(rows)], rows - footer);
   let remaining = rows - header - footer;
   const middleMin = Math.min(6, remaining);
   const taskWant = taskCount ? (rows < 30 ? 1 : 2) + Math.min(rows < 30 ? 2 : 3, taskCount) * 2 : 0;
