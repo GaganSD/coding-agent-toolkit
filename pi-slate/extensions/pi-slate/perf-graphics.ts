@@ -173,16 +173,38 @@ const noteRow = (i: PerfInput, text: string): string => truncateToWidth(i.paint(
 const baseline = (i: PerfInput): string => i.paint("dim", "─".repeat(Math.max(0, i.inner)));
 const DASH: Seg = ["dim", "—"];
 
-/** CONTEXT: heading + a single filled/empty bar. */
+const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+
+/**
+ * Two-row battery: solid fill on a light-shaded track, with a half-height nub on the right
+ * (▄ over ▀ centres it on the body). The fill edge advances in eighth-cell steps; any
+ * non-zero percent shows at least one eighth so a fresh session never reads as empty.
+ */
+export function batteryRows(width: number, percent: number | null, paint: PerfInput["paint"], tone: Tone): string[] {
+  const w = Math.max(0, Math.floor(width));
+  if (w === 0) return ["", ""];
+  if (w < 3) return [paint("dim", "░".repeat(w)), paint("dim", "░".repeat(w))];
+  const body = w - 1;
+  const p = percent === null || !Number.isFinite(percent) ? 0 : Math.max(0, Math.min(100, percent));
+  let eighths = Math.round(p * body * 8 / 100);
+  if (p > 0 && eighths === 0) eighths = 1;
+  const full = Math.floor(eighths / 8), part = eighths % 8;
+  const fill = "█".repeat(full) + EIGHTHS[part]!;
+  const track = "░".repeat(Math.max(0, body - full - (part ? 1 : 0)));
+  const nubTone: Tone = p >= 100 ? tone : "dim";
+  const row = (nub: string) => (fill ? paint(tone, fill) : "") + (track ? paint("dim", track) : "") + paint(nubTone, nub);
+  return [row("▄"), row("▀")];
+}
+
+/** CONTEXT: heading + a two-row battery bar. */
 export function contextRows(i: PerfInput, c: { percent: number | null; tokens: number | null; window: number | null; estimated: boolean }): string[] {
   const percent = c.percent !== null && Number.isFinite(c.percent) ? Math.max(0, Math.min(100, c.percent)) : null;
   const tone: Tone = percent !== null && percent >= 80 ? "warning" : "accent";
   const pctSeg: Seg = percent === null ? DASH : [percent >= 80 ? "warning" : "text", `${Math.round(percent)}%`];
   const figures: Seg = ["dim", `${c.estimated ? "~" : ""}${formatCompactTokenCount(c.tokens)}/${formatCompactTokenCount(c.window)}`];
-  const filled = percent === null ? 0 : Math.round(percent * i.inner / 100);
   return [
     headingRow(i, "CONTEXT", [[pctSeg, ["dim", "  "], figures], [pctSeg]]),
-    i.paint(tone, "━".repeat(filled)) + i.paint("dim", "─".repeat(Math.max(0, i.inner - filled))),
+    ...batteryRows(i.inner, percent, i.paint, tone),
   ];
 }
 
