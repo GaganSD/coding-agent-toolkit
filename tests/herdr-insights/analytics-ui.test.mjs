@@ -137,7 +137,7 @@ const Popover = {
     `const appHome = () => "/app";
 const home = () => "/home";
 const theme = () => ({});
-const settings = () => ({});
+const settings = () => globalThis.__insightsTestSettings ?? ({});
 const nextCommand = () => globalThis.__insightsTestHerdr.nextCommand();
 const exec = (...args) => globalThis.__insightsTestHerdr.exec(...args);
 const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(...args);
@@ -737,6 +737,27 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
       assert.equal(node.style.whitespace, "nowrap", `${month.label} must not wrap`);
     }
   });
+});
+
+test("root size is converted from window pixels to zoomed layout units", () => {
+  const instance = blankInstance();
+  instance.render = Insights.prototype.render;
+  let notified = 0;
+  globalThis.__insightsTestSettings = { zoom: 0.9 };
+  try {
+    const root = instance.render({ notify() {} });
+    const call = root.calls.find(([name]) => name === "on_size_change");
+    assert.ok(call, "the root measures itself");
+    call[1][0]({ width: 810, height: 450 }, { notify() { notified += 1; } });
+    assert.equal(Math.round(instance.width), 900, "810 window px at zoom 0.9 is a 900-wide layout");
+    assert.equal(Math.round(instance.height), 500);
+    assert.equal(notified, 1);
+    assert.equal(heatmapMetrics(instance.width, 53).centered, true,
+      "a 900-wide panel fits all 53 weeks; the raw 810 would wrongly overflow");
+    assert.equal(heatmapMetrics(810, 53).centered, false);
+  } finally {
+    delete globalThis.__insightsTestSettings;
+  }
 });
 
 test("heatmap grows on wide views and prefers the newest weeks when narrow", () => {

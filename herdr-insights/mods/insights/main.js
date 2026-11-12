@@ -1470,9 +1470,16 @@ export default class Insights extends View {
     return v_flex().id("insights-root").size_full().min_h(0).bg(c.canvas).text_color(c.text)
       .overflow_y_scrollbar()
       .on_size_change((size, sizeCx) => {
-        const changed = Math.abs((this.width || 0) - size.width) >= 1;
-        this.width = size.width;
-        this.height = size.height;
+        // Sizes arrive in window pixels; layout values (w, h, size) are scaled by
+        // the person's app zoom, so convert back before deriving any layout from
+        // them. Without this, zoom < 1 underestimates the width (the heatmap
+        // overflows and clips its newest weeks) and zoom > 1 overestimates it.
+        const zoom = Number(settings().zoom) > 0 ? Number(settings().zoom) : 1;
+        const width = size.width / zoom;
+        const height = size.height / zoom;
+        const changed = Math.abs((this.width || 0) - width) >= 1;
+        this.width = width;
+        this.height = height;
         if (changed) sizeCx.notify();
       })
       .child(h_flex().w_full().justify_center().p(padding)
