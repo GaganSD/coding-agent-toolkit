@@ -91,18 +91,22 @@ const LEADERBOARD_COLUMN_BASIS = 300;
  * MIN_CELL cannot fit, only the newest `fitWeeks` weeks are drawn (see
  * fitHeatmapWeeks), so the grid never overflows its row.
  */
-export function heatmapMetrics(width, weekCount, zoom = 1) {
+export function heatmapMetrics(width, weekCount, zoom = 1, rowPx = null) {
   const viewWidth = Number.isFinite(width) ? width : 960;
   const weeks = Math.max(1, weekCount);
   const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const pagePadding = (viewWidth < 620 ? G.md : viewWidth < 900 ? G.lg : G.xl) * 2;
-  const available = Math.max(320, Math.min(1180, viewWidth - pagePadding) - G.lg * 2);
+  // The card's inner width: measured (rowPx, window pixels) once the card has
+  // been laid out, estimated from the page and card padding before that.
+  const measured = Number.isFinite(rowPx) && rowPx > 0;
+  const available = measured ? rowPx / z : Math.max(320, Math.min(1180, viewWidth - pagePadding) - G.lg * 2);
   // Herdr draws each cell and gap on whole window pixels, so under app zoom a
   // week is round(cell·z) + round(gap·z) px wide rather than (cell + gap)·z; at
   // zoom 0.9 that is 13 px instead of 12.6, about one column over a year. Fit in
   // drawn pixels, then express the drawn sizes back in layout units.
   const drawnWeek = (size) => Math.round(size * z) + Math.round(CELL_GAP * z);
-  const room = available * z - Math.round(DAY_LABEL_WIDTH * z);
+  // One pixel of slack: a centered grid can start on a fractional offset.
+  const room = available * z - Math.round(DAY_LABEL_WIDTH * z) - 1;
   let cell = Math.max(MIN_CELL, Math.min(MAX_CELL,
     Math.floor((available - DAY_LABEL_WIDTH - (weeks - 1) * CELL_GAP) / weeks)));
   while (cell > MIN_CELL && weeks * drawnWeek(cell) > room) cell -= 1;
@@ -1814,7 +1818,7 @@ export default class Insights extends View {
   heatmapCard(c, config, heatmap, selectedDay) {
     const dark = isDarkTheme(c);
     const palette = PALETTES.includes(config.palette) ? config.palette : "blue";
-    const metrics = heatmapMetrics(this.width, heatmap.weeks.length, Number(settings().zoom) || 1);
+    const metrics = heatmapMetrics(this.width, heatmap.weeks.length, Number(settings().zoom) || 1, this.heatmapRowPx);
     const cell = metrics.cell;
     const weekWidth = metrics.weekWidth;
     // Too narrow for every week: draw only the newest ones that fit, rather than
@@ -1855,7 +1859,14 @@ export default class Insights extends View {
         .child(v_flex().w(DAY_LABEL_WIDTH).flex_none().gap(CELL_GAP).children(weekLabels))
         .child(h_flex().gap(CELL_GAP).children(weekElements)));
 
-    const legend = h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_end()
+    // The legend spans the card's inner width, the same as the grid's row, so
+    // its measured width is what the grid is fitted to.
+    const legend = h_flex().id("ins-heat-legend").w_full().flex_wrap().gap(G.sm).items_center().justify_end()
+      .on_size_change((size, sizeCx) => {
+        if (Math.abs((this.heatmapRowPx || 0) - size.width) < 1) return;
+        this.heatmapRowPx = size.width;
+        sizeCx.notify();
+      })
       .child(mutedText("Less", c))
       .children([0, 1, 2, 3, 4].map((level) => div().size(10).rounded(2)
         .bg(level === 0 ? c.muted : heatColor(level, palette, dark))))

@@ -790,6 +790,21 @@ test("heatmap fits in drawn pixels under app zoom", () => {
   assert.ok(53 * drawnWeek <= (1100 - 48 - 32) * 0.9 - Math.round(30 * 0.9), "a centered grid also fits once snapped");
 });
 
+test("heatmap fits the measured card width once known", () => {
+  // At zoom 0.8 a week draws 10 + 2 = 12 px. A card measured at 590 px holds
+  // floor((590 - 24 - 1) / 12) = 47 weeks.
+  const measured = heatmapMetrics(800, 53, 0.8, 590);
+  assert.equal(measured.centered, false);
+  assert.equal(Math.round(measured.weekWidth * 0.8), 12);
+  assert.equal(measured.fitWeeks, 47);
+  assert.ok(Math.round(30 * 0.8) + measured.fitWeeks * 12 <= 590);
+  assert.equal(heatmapMetrics(800, 53, 0.8, 560).fitWeeks, 44, "the measurement, not the padding estimate, decides");
+  assert.equal(heatmapMetrics(800, 53, 0.8, null).fitWeeks, heatmapMetrics(800, 53, 0.8).fitWeeks,
+    "before the first measurement the estimate is used");
+  assert.match(mainSource, /heatmapMetrics\(this\.width, heatmap\.weeks\.length, Number\(settings\(\)\.zoom\) \|\| 1, this\.heatmapRowPx\)/);
+  assert.match(mainSource, /id\("ins-heat-legend"\)[\s\S]{0,200}on_size_change/);
+});
+
 test("fitHeatmapWeeks keeps the newest weeks and trims month spans", () => {
   const heatmap = buildHeatmap([], { endDay: "2024-01-28", weeks: 53, weekStartsOn: 0 });
   const all = fitHeatmapWeeks(heatmap, 53);
