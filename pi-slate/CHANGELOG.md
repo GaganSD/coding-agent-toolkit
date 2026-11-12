@@ -4,13 +4,13 @@
 
 ### Added
 
-- Sidebar SPEED card: a large tok/s figure, a graph of recent responses, turn average, output and peak. A finished response's speed is exact (output tokens ÷ response time); the live value while streaming is marked `~`.
-- Sidebar CACHE section: hit % of the latest request, read/write/new split, spend and estimated savings. A warm/cold countdown appears only when the model publishes its cache lifetime.
+- Sidebar SPEED section: tok/s of the latest response (exact: output tokens ÷ response time), a graph of recent responses, turn average, output and peak. Responses under 32 tokens or 300 ms are not timed. On tall terminals the figure is drawn in large digits.
+- Sidebar CACHE section: hit % of the latest request, a read/write/new bar, spend and estimated savings. A warm/cold countdown appears only when the model publishes its cache lifetime.
 - The status row shows Working/Idle, the turn number, and the running turn's elapsed time.
 
 ### Changed
 
-- The sidebar header is reorganised into status, CONTEXT, SPEED and CACHE, and adapts to terminal height (full, compact, mini). CONTEXT is a single bar; use pi-context-view for the category breakdown.
+- The sidebar header is reorganised into status, CONTEXT, SPEED and CACHE, which share one layout (heading with the key figure on the right, one bar or graph row, labelled details), and adapts to terminal height (full, compact, mini). CONTEXT is a single bar; use pi-context-view for the category breakdown.
 - Live speed updates to the sidebar are throttled to about 4 per second.
 
 ## 0.2.1
