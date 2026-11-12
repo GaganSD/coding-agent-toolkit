@@ -157,7 +157,7 @@ const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
     /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
     `const { ${uiNames} } = await import("${uiUrl}");`,
   );
-const { default: Insights, heatmapMetrics, modelLogo, presentationKey, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
+const { default: Insights, fitHeatmapWeeks, heatmapMetrics, modelLogo, presentationKey, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
 
 function optionArgument(args) {
   const index = args.indexOf("--options");
@@ -768,11 +768,38 @@ test("heatmap grows on wide views and prefers the newest weeks when narrow", () 
   assert.equal(wide.centered, true);
   assert.equal(narrow.centered, false);
   assert.equal(wide.weekWidth, wide.cell + 2);
-  assert.match(mainSource, /\.when\(metrics\.centered, \(el\) => el\.justify_center\(\)\)/);
-  assert.match(mainSource, /\.when\(!metrics\.centered, \(el\) => el\.justify_end\(\)\)/,
-    "an overflowing grid is end-aligned so recent weeks stay visible");
-  assert.match(mainSource, /h_flex\(\)\.w_full\(\)\.overflow_hidden\(\)[\s\S]{0,200}metrics\.centered/,
-    "the grid is clipped, not scrolled, so end alignment applies");
+  assert.ok(narrow.fitWeeks < 53 && narrow.fitWeeks >= 1, "a narrow view draws fewer weeks instead of overflowing");
+  assert.ok(30 + narrow.fitWeeks * narrow.weekWidth <= 480, "the weeks it draws fit");
+  assert.match(mainSource, /fitHeatmapWeeks\(heatmap, metrics\.fitWeeks\)/);
+});
+
+test("heatmap fits in drawn pixels under app zoom", () => {
+  // At zoom 0.9 a 12-unit cell draws 11 px and a 2-unit gap 2 px: 13 px a week,
+  // not 12.6. Fitting in unrounded units drew one week too many and hid the
+  // current one.
+  const zoomed = heatmapMetrics(494, 53, 0.9);
+  assert.equal(zoomed.cell, 12);
+  assert.equal(zoomed.centered, false);
+  assert.equal(Math.round(zoomed.weekWidth * 0.9), 13);
+  const room = (494 - 24 - 32) * 0.9 - Math.round(30 * 0.9);
+  assert.ok(zoomed.fitWeeks * 13 <= room, "the drawn weeks fit the row");
+  assert.ok((zoomed.fitWeeks + 1) * 13 > room, "and no more would");
+  const wide = heatmapMetrics(1100, 53, 0.9);
+  assert.equal(wide.centered, true);
+  const drawnWeek = Math.round(wide.cell * 0.9) + Math.round(2 * 0.9);
+  assert.ok(53 * drawnWeek <= (1100 - 48 - 32) * 0.9 - Math.round(30 * 0.9), "a centered grid also fits once snapped");
+});
+
+test("fitHeatmapWeeks keeps the newest weeks and trims month spans", () => {
+  const heatmap = buildHeatmap([], { endDay: "2024-01-28", weeks: 53, weekStartsOn: 0 });
+  const all = fitHeatmapWeeks(heatmap, 53);
+  assert.equal(all.weeks, heatmap.weeks);
+  const fit = fitHeatmapWeeks(heatmap, 10);
+  assert.equal(fit.weeks.length, 10);
+  assert.equal(fit.weeks.at(-1), heatmap.weeks.at(-1), "the current week is kept");
+  assert.equal(fit.months.reduce((sum, month) => sum + month.span, 0), 10, "month spans cover exactly the drawn weeks");
+  assert.equal(fit.months[0].week, 0);
+  assert.equal(fit.months.at(-1).label, heatmap.months.at(-1).label);
 });
 
 test("dashboard is divided into token and model usage sections", () => {
