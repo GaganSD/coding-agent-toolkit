@@ -1791,3 +1791,17 @@ test("disabling a machine cancels its pending continuation", async () => {
   assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, ["box"]);
   instance.close();
 });
+
+test("each Settings write resyncs enabled machines even when it replaces an earlier write", async () => {
+  const state = remoteHerdr({ rows: "ok", disabled: ["a", "b"], machines: [{ name: "a", layout: "ready" }, { name: "b", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  instance.setMachineEnabled("a", true, cx);
+  instance.setMachineEnabled("b", false, cx);
+  await settle();
+  const machinesSynced = new Set(state.execCalls.filter((call) => call.command === "sh").map((call) => call.options?.on));
+  assert.deepEqual([...machinesSynced], ["a"]);
+  instance.close();
+});

@@ -78,10 +78,11 @@ test("machineFileStem is filesystem-safe and injective on tricky names", () => {
 test("parseRows keeps only counters from scan progress, never remote file paths", () => {
   const value = parseRows(JSON.stringify(envelope([], {
     scan: { status: "running", processed: 3, total: 9, live: { file: "/home/u/.codex/sessions/secret.jsonl", phase: "scan", processed: 3, total: 9, decodedBytes: 10 } },
-    warnings: ["x".repeat(1000)],
+    warnings: ["/home/u/.codex/sessions/x.jsonl: read failed", "second"],
   })));
   assert.deepEqual(value.scan, { status: "running", processed: 3, total: 9, live: { phase: "scan", processed: 3, total: 9, decodedBytes: 10 } });
-  assert.ok(value.warnings[0].length <= 300);
+  assert.deepEqual(value.warnings, [], "warning text can name remote files, so only its count crosses");
+  assert.equal(value.warningCount, 2);
 });
 
 test("install command keeps the payload in one bounded argument", () => {
@@ -198,6 +199,7 @@ test("end to end: install, collect, and merge on this machine through the shell 
   assert.equal(rowsResult.code, 0, rowsResult.stderr);
   const remote = parseRows(rowsResult.stdout);
   assert.ok(remote.rowCount > 0);
+  assert.deepEqual(JSON.parse(rowsResult.stdout.trim().split("\n").at(-1)).warnings, [], "the remote prints no warning text");
 
   const machinesDir = path.join(root, "machines");
   await mkdir(machinesDir);

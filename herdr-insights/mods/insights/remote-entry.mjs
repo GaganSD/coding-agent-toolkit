@@ -53,7 +53,9 @@ async function rows(argv) {
         decodedBytes: scan.live.decodedBytes ?? 0,
       } : null,
     },
-    warnings: (Array.isArray(snapshot.warnings) ? snapshot.warnings : []).slice(0, 20).map((warning) => String(warning).slice(0, 300)),
+    // Warning text names remote files; only the count leaves the machine.
+    warnings: [],
+    warningCount: Array.isArray(snapshot.warnings) ? snapshot.warnings.length : 0,
   };
 }
 

@@ -979,7 +979,9 @@ export default class Insights extends View {
       if (this.closed) return;
       this.remoteRevision = (this.remoteRevision ?? 0) + 1;
       this.scheduleDashboard(writeCx, { force: true });
-      if (enabled) this.syncRemotes(writeCx);
+      // A newer toggle may have cancelled an earlier write that enabled a
+      // machine; syncing every enabled machine covers both.
+      this.syncRemotes(writeCx);
       writeCx.notify();
     });
   }

@@ -142,7 +142,12 @@ export function parseRows(stdout) {
   ) {
     throw new Error("The remote helper returned an invalid usage payload.");
   }
-  return { ...value, scan: progressCounters(scan), warnings: value.warnings.slice(0, 20).map((warning) => String(warning).slice(0, 300)) };
+  return {
+    ...value,
+    scan: progressCounters(scan),
+    warnings: [],
+    warningCount: finiteCount(value.warningCount ?? value.warnings.length),
+  };
 }
 
 const finiteCount = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
