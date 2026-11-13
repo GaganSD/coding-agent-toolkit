@@ -142,7 +142,26 @@ export function parseRows(stdout) {
   ) {
     throw new Error("The remote helper returned an invalid usage payload.");
   }
-  return value;
+  return { ...value, scan: progressCounters(scan), warnings: value.warnings.slice(0, 20).map((warning) => String(warning).slice(0, 300)) };
+}
+
+const finiteCount = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
+
+// Only counters cross to the Mac: the live file a remote scanner has open is
+// a path on that machine and is not shown or stored.
+function progressCounters(scan) {
+  const live = scan.live && typeof scan.live === "object" ? scan.live : null;
+  return {
+    status: scan.status,
+    processed: finiteCount(scan.processed),
+    total: finiteCount(scan.total),
+    live: live && {
+      phase: typeof live.phase === "string" ? live.phase : null,
+      processed: finiteCount(live.processed),
+      total: finiteCount(live.total),
+      decodedBytes: finiteCount(live.decodedBytes),
+    },
+  };
 }
 
 function failure(result, step) {
@@ -172,7 +191,8 @@ export async function syncMachine({ exec, bundle }) {
   return { probe, envelope };
 }
 
-const PLAIN_STEM = /^[A-Za-z0-9._-]{1,128}$/;
+// Lowercase only: macOS disks ignore case, so "Box" and "box" need two files.
+const PLAIN_STEM = /^[a-z0-9._-]{1,128}$/;
 
 /** A file name for a machine. Plain names map to themselves; any name that could
  * be confused with the encoded form, or is unsafe, is hex-encoded with "x-". */

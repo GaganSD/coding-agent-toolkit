@@ -71,6 +71,17 @@ test("machineFileStem is filesystem-safe and injective on tricky names", () => {
   for (const stem of stems) assert.match(stem, /^[A-Za-z0-9._-]+$/);
   assert.ok(!stems.includes(".") && !stems.includes(".."));
   assert.equal(machineFileStem("local-container"), "local-container");
+  const folded = ["Box", "box", "BOX"].map((name) => machineFileStem(name).toLowerCase());
+  assert.equal(new Set(folded).size, 3, "names differing only in case must not share a file on a case-insensitive disk");
+});
+
+test("parseRows keeps only counters from scan progress, never remote file paths", () => {
+  const value = parseRows(JSON.stringify(envelope([], {
+    scan: { status: "running", processed: 3, total: 9, live: { file: "/home/u/.codex/sessions/secret.jsonl", phase: "scan", processed: 3, total: 9, decodedBytes: 10 } },
+    warnings: ["x".repeat(1000)],
+  })));
+  assert.deepEqual(value.scan, { status: "running", processed: 3, total: 9, live: { phase: "scan", processed: 3, total: 9, decodedBytes: 10 } });
+  assert.ok(value.warnings[0].length <= 300);
 });
 
 test("install command keeps the payload in one bounded argument", () => {

@@ -46,9 +46,14 @@ async function rows(argv) {
       status: typeof scan.status === "string" ? scan.status : "idle",
       processed: Number.isInteger(scan.processed) ? scan.processed : 0,
       total: Number.isInteger(scan.total) ? scan.total : 0,
-      live: scan.live ?? null,
+      live: scan.live ? {
+        phase: scan.live.phase ?? null,
+        processed: scan.live.processed ?? 0,
+        total: scan.live.total ?? 0,
+        decodedBytes: scan.live.decodedBytes ?? 0,
+      } : null,
     },
-    warnings: (Array.isArray(snapshot.warnings) ? snapshot.warnings : []).slice(0, 20).map(String),
+    warnings: (Array.isArray(snapshot.warnings) ? snapshot.warnings : []).slice(0, 20).map((warning) => String(warning).slice(0, 300)),
   };
 }
 

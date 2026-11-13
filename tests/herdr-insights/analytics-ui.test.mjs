@@ -1637,7 +1637,7 @@ test("running worker status shows current file and decoded bytes", () => {
   assert.match(label, /decoded/, "in-progress decoded bytes are visible");
 });
 
-function remoteHerdr({ machines, rows = "fail", disabled = [] } = {}) {
+function remoteHerdr({ machines, rows = "fail", disabled = [], scan = null, firstSnapshotFails = false } = {}) {
   const envelope = {
     kind: "insights-remote-rows", version: 1, generatedAt: null, lastScanAt: null, lastCompletedScanAt: null,
     rowCount: 0, rows: "H4sIAAAAAAAAA4uOBQApu0wNAgAAAA==", scan: { status: "complete", processed: 1, total: 1 }, warnings: [],
@@ -1647,11 +1647,13 @@ function remoteHerdr({ machines, rows = "fail", disabled = [] } = {}) {
     execResult(command, args) {
       if (args[1] === "bundle") return { code: 0, stdout: JSON.stringify({ hash: "0123456789abcdef", payload: "UA" }), stderr: "" };
       if (command === "sh" && args.at(-1) === "rows") {
-        return rows === "fail" ? { code: 1, stdout: "", stderr: "Error: disk full" } : { code: 0, stdout: JSON.stringify(envelope), stderr: "" };
+        if (rows === "fail") return { code: 1, stdout: "", stderr: "Error: disk full" };
+        return { code: 0, stdout: JSON.stringify(scan ? { ...envelope, scan } : envelope), stderr: "" };
       }
       if (command === "sh") {
         return { code: 0, stdout: JSON.stringify({ ok: true, installed: true, dir: "/r/.cache/herdr-insights/0123456789abcdef", node: "/usr/bin/node" }), stderr: "" };
       }
+      if (firstSnapshotFails && args[1] === "snapshot") return { code: 1, stdout: "", stderr: "Error: slow disk" };
       const options = optionArgument(args);
       const payload = presentationFor({ ...savedSnapshot(), remoteDisabled: disabled }, options, args[1]);
       payload.snapshot.remoteDisabled = disabled;
@@ -1742,4 +1744,50 @@ test("machine status text covers syncing, indexing, synced, offline and never sy
   assert.match(machineStatusText({ ...synced, status: "offline", error: "gone" }, {}), /^Offline · last synced /);
   assert.equal(machineStatusText({ name: "box", status: "error", fetchedAt: null, error: "node was not found on PATH" }, {}), "Unavailable: node was not found on PATH");
   assert.equal(machineStatusText({ name: "box", fetchedAt: null }, {}), "Waiting for first sync");
+});
+
+test("no remote sync runs before the first snapshot delivers the disabled list, even from the refresh timer", async () => {
+  const state = remoteHerdr({ rows: "ok", disabled: ["box"], firstSnapshotFails: true, machines: [{ name: "box", layout: "ready" }] });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  for (const timer of calls.timers) timer.fn(cx);
+  await settle();
+  assert.equal(state.execCalls.filter((call) => call.command === "sh").length, 0);
+  instance.close();
+});
+
+test("a remote scan that stops advancing ends its fast continuation loop", async () => {
+  const state = remoteHerdr({ rows: "ok", scan: { status: "partial", processed: 4, total: 10 }, machines: [{ name: "box", layout: "ready" }] });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  for (let round = 0; round < 20; round += 1) {
+    await calls.runAfter();
+    await settle();
+  }
+  const rowsCalls = state.execCalls.filter((call) => call.command === "sh" && call.args.at(-1) === "rows").length;
+  assert.ok(rowsCalls >= 2 && rowsCalls <= 6, `continuations must stop when progress stalls (got ${rowsCalls})`);
+  instance.close();
+});
+
+test("disabling a machine cancels its pending continuation", async () => {
+  const state = remoteHerdr({ rows: "ok", scan: { status: "running", processed: 1, total: 10 }, machines: [{ name: "box", layout: "ready" }] });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  const before = state.execCalls.filter((call) => call.command === "sh").length;
+  assert.ok(before >= 2);
+  instance.setMachineEnabled("box", false, cx);
+  await settle();
+  for (let round = 0; round < 3; round += 1) {
+    await calls.runAfter();
+    await settle();
+  }
+  assert.equal(state.execCalls.filter((call) => call.command === "sh").length, before);
+  assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, ["box"]);
+  instance.close();
 });

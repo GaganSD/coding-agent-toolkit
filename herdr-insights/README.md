@@ -74,9 +74,12 @@ response text or modify source transcripts.
 
 For each other machine connected to Herdr, the mod uses Herdr's own connection
 to install its collector under `~/.cache/herdr-insights/` on that machine and
-run it there at low priority (Node.js 22.15+ required there too). Transcripts
-stay on that machine. Only per-day token totals come back, saved under
-`data/insights/machines/`.
+run it there at low priority. Node.js 22.15+ must be on that machine's login
+shell `PATH`. Transcripts stay on that machine. Only usage rows come back:
+token counts per day, session id, project folder, agent, provider and model,
+never prompt or response text. They are saved under
+`data/insights/machines/`. Two Herdr names for one host count its usage
+twice, so turn one of them off.
 
 ## Development
 

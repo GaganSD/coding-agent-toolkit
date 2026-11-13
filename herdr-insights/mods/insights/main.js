@@ -204,8 +204,10 @@ export function usageLogo(model, provider) {
 }
 const MAX_FACET_OPTIONS = 250;
 // After a partial remote slice the collector continues soon; a detached
-// indexer on the remote is polled more gently.
+// indexer on the remote is polled more gently. A scan that stops advancing
+// falls back to the ordinary refresh interval.
 const REMOTE_CONTINUE_MS = { partial: 1000, running: 15000, starting: 15000 };
+const REMOTE_MAX_STALLS = 3;
 
 // One sync per machine across every dashboard copy: copies share module code,
 // and two writers of the same machine file would race.
@@ -644,6 +646,7 @@ export default class Insights extends View {
     this.activityTask = null;
     this.cancelProgress();
     try { this.timer?.cancel(); } catch { /* already gone */ }
+    try { this.remoteSettingsTask?.cancel(); } catch { /* already gone */ }
     for (const entry of this.remote?.values() ?? []) {
       try { entry.timer?.cancel(); } catch { /* already gone */ }
       try { entry.task?.cancel(); } catch { /* already gone */ }
@@ -874,7 +877,8 @@ export default class Insights extends View {
   }
 
   syncRemotes(cx) {
-    if (this.closed || this.toolbarMode || !this.nodeBinary || this.runtimeError) return;
+    // Wait for the first presenter payload: it carries the disabled list.
+    if (!this.remoteStarted || this.closed || this.toolbarMode || !this.nodeBinary || this.runtimeError) return;
     const disabled = new Set(this.remoteDisabled ?? []);
     for (const machine of machines() ?? []) {
       if (!machine?.name || machine.layout === "loading" || disabled.has(machine.name)) continue;
@@ -885,7 +889,7 @@ export default class Insights extends View {
   syncMachine(cx, name, offline) {
     let entry = this.remote.get(name);
     if (!entry) {
-      entry = { task: null, timer: null, error: null, scan: null };
+      entry = { task: null, timer: null, error: null, scan: null, progress: null, stalls: 0 };
       this.remote.set(name, entry);
     }
     if (entry.task || this.closed) return;
@@ -909,13 +913,19 @@ export default class Insights extends View {
       }
       if (this.closed) return;
       entry.error = failure ? sanitizeError(failure) : null;
-      if (envelope) entry.scan = envelope.scan;
+      if (envelope) {
+        entry.scan = envelope.scan;
+        const progress = JSON.stringify([envelope.scan?.processed, envelope.scan?.total, envelope.scan?.live?.decodedBytes]);
+        entry.stalls = progress === entry.progress ? entry.stalls + 1 : 0;
+        entry.progress = progress;
+      }
       this.remoteRevision = (this.remoteRevision ?? 0) + 1;
       this.scheduleDashboard(syncCx, { force: true });
       const delay = envelope ? REMOTE_CONTINUE_MS[envelope.scan?.status] : undefined;
-      if (delay && !(this.remoteDisabled ?? []).includes(name)) {
+      if (delay && entry.stalls < REMOTE_MAX_STALLS && !(this.remoteDisabled ?? []).includes(name)) {
         entry.timer = syncCx.timer.after(delay, (timerCx) => {
           entry.timer = null;
+          if ((this.remoteDisabled ?? []).includes(name)) return;
           this.syncMachine(timerCx, name, false);
         });
       }
@@ -953,7 +963,13 @@ export default class Insights extends View {
     else current.add(name);
     const disabled = [...current].sort();
     this.remoteDisabled = disabled;
-    cx.spawn(async (writeCx) => {
+    if (!enabled) {
+      const entry = this.remote?.get(name);
+      try { entry?.timer?.cancel(); } catch { /* already gone */ }
+      if (entry) entry.timer = null;
+    }
+    try { this.remoteSettingsTask?.cancel(); } catch { /* superseded by this write */ }
+    this.remoteSettingsTask = cx.spawn(async (writeCx) => {
       try {
         await mkdir(`${appHome()}/data/insights`, { recursive: true });
         await writeFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
@@ -2379,7 +2395,7 @@ export default class Insights extends View {
       ...disabled,
     ].filter(Boolean))].sort();
     const remoteMachines = card(c).gap(G.sm)
-      .child(cardHeader("Remote machines", "Usage is collected on each machine; only daily totals come back.", c))
+      .child(cardHeader("Remote machines", "Usage is collected on each machine; only token counts come back, never transcripts.", c))
       .when(remoteNames.length === 0, (el) => el.child(mutedText("No other machines are connected to Herdr.", c)))
       .children(remoteNames.map((name, index) => h_flex().w_full().gap(G.sm).items_center()
         .child(toggleSwitch(`ins-remote-${index}`, !disabled.has(name), (checked, toggleCx) => this.setMachineEnabled(name, checked, toggleCx), c, {
