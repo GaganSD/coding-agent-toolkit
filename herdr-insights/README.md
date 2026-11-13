@@ -36,6 +36,9 @@ click-state rules. Set `HERDR_APP_HOME` to use a different app home.
 - Explore a stacked usage chart, daily heatmap, lifetime totals, and streaks.
 - Open **Settings** to choose sources, edit paths, toggle cached tokens, or
   change the palette and refresh interval.
+- Count usage on your other Herdr machines too. Pick **All machines**, **This
+  computer**, or one machine to scope the whole dashboard. Turn a machine off
+  under **Settings > Remote machines**.
 
 ### Codex fork accounting
 
@@ -68,6 +71,12 @@ No network requests or uploads. The mod runs a local Node helper, reads session
 files and OpenCode/Antigravity SQLite databases, and writes usage metadata to
 `~/.config/herdr-app/data/insights/insights.json`. It does not store prompt or
 response text or modify source transcripts.
+
+For each other machine connected to Herdr, the mod uses Herdr's own connection
+to install its collector under `~/.cache/herdr-insights/` on that machine and
+run it there at low priority (Node.js 22.15+ required there too). Transcripts
+stay on that machine. Only per-day token totals come back, saved under
+`data/insights/machines/`.
 
 ## Development
 

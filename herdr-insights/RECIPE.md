@@ -124,6 +124,19 @@ Keep raw rows and analytics work in Node, not QuickJS rendering. Return a versio
 and error. Coalesce filter requests and reject stale results. Send diagnostics to
 stderr and surface nonzero exits. Settings controls are initialized lazily.
 
+Remote machines: `remote.mjs` (no imports, loaded by QuickJS) builds fixed
+`sh -lc` scripts whose values arrive only as positional arguments, run with
+`exec(..., { on: machine })`. A probe finds Node 22.15+; when
+`~/.cache/herdr-insights/<hash>/.complete` is missing, a gzip+base64 bundle of
+`collector.mjs`, `indexer.mjs`, `remote-entry.mjs` and `core/*.mjs` (built by
+`presenter.mjs bundle`, content-hashed, one argument under 120,000 chars) is
+verified and renamed into place. `remote-entry.mjs rows` then runs the collector
+there under `nice`/`ionice` with its own store and prints only aggregated rows.
+`main.js` saves `machines/<stem>.rows.json` on success and `.state.json` after
+every attempt; `core/machines.mjs` loads them and pure `merge.mjs` tags rows with
+the machine and scopes session ids per machine. `remote.json` lists machines the
+user turned off. The machine filter scopes every section, lifetime included.
+
 `collector.mjs` and `core/{config,adapters,antigravity,scan,store,util}.mjs` implement collection.
 Default roots are `~/.pi/agent/sessions`, `~/.codex/sessions`,
 `~/.codex/archived_sessions`, `~/.claude/projects`, `~/.local/share/opencode`,
