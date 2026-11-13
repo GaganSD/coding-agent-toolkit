@@ -116,28 +116,30 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
 
 test("focused context sits on the composer top edge", () => {
   const line = composerContextEdge(
-    "$7.47 · 14 skills · 2 MCPs",
+    "ctx 11% · 2 mcp",
     80,
     (text) => text,
   );
   assert.equal(line[0], "┌");
   assert.equal(line.at(-1), "┐");
   assert.doesNotMatch(line, /tokens/);
-  assert.match(line, /\$7\.47/);
-  const squeezed = composerContextEdge("$7.47 · 14 skills", 28, (text) => text, 3);
+  assert.match(line, /ctx 11% · 2 mcp/);
+  const squeezed = composerContextEdge("ctx 11% · 2 mcp", 28, (text) => text, 3);
   assert.equal(visibleWidth(squeezed), 28);
   assert.match(squeezed, /↑ 3 more/);
 });
 
-test("focused prompt edge keeps cost, hides empty resource counts, and shows loaded skills", () => {
-  const empty = composerContextEdge(formatFocusedContextResources(1.234, 0, 0), 40, (text) => text);
+test("focused prompt edge shows ctx and mcp without zero counts", () => {
+  const empty = composerContextEdge(formatFocusedContextResources(10, false, 0), 40, (text) => text);
   assert.equal(visibleWidth(empty), 40);
-  assert.match(empty, /\$1\.23/);
-  assert.doesNotMatch(empty, /0 skills|0 MCP/);
+  assert.match(empty, /ctx 10%/);
+  assert.doesNotMatch(empty, /0 skills|0 mcp/);
 
-  const withSkill = composerContextEdge(formatFocusedContextResources(1.234, 1, 0), 80, (text) => text);
-  assert.match(withSkill, /\$1\.23 · 1 skill/);
-  assert.doesNotMatch(withSkill, /loaded|enabled|0 MCP|0 skills/);
+  const withMcp = composerContextEdge(formatFocusedContextResources(10, false, 2), 80, (text) => text);
+  assert.match(withMcp, /ctx 10% · 2 mcp/);
+
+  const estimated = composerContextEdge(formatFocusedContextResources(10, true, 1), 80, (text) => text);
+  assert.match(estimated, /ctx ~10% · 1 mcp/);
 });
 
 test("focused composer token label uses compact percent placement", () => {
@@ -149,6 +151,75 @@ test("focused composer token label uses compact percent placement", () => {
   );
   assert.match(labels.right, /5%\/1M tokens · ↑↓845/);
   assert.doesNotMatch(labels.right, /t\/s|5% used/);
+});
+
+test("composer metadata separators match the surrounding metadata tone", () => {
+  const labels = composerLabels(
+    {
+      project: "pi-configs",
+      branch: "main",
+      model: "grok-4.6",
+      thinking: "medium",
+      tokens: "0 tokens",
+      footer: "standard",
+    },
+    labelTheme,
+    140,
+  );
+  assert.match(labels.right, /\[muted\] · /);
+  assert.doesNotMatch(labels.right, /\[borderMuted\]/);
+});
+
+test("focused composer puts thinking after MCP on the top edge, leaving the model below", () => {
+  const editor = new ComposerEditor(
+    { terminal: { rows: 24, columns: 100 }, requestRender() {} } as TUI,
+    { borderColor: (text) => text } as EditorTheme,
+    new KeybindingsManager(),
+    () => ({
+      project: "slate",
+      branch: null,
+      model: { id: "sample", provider: "sample" },
+      thinking: "medium",
+      footer: "standard",
+      theme: labelTheme,
+      dashboardVisible: false,
+      context: { tokens: "10%/100k tokens", resources: "ctx 10% · 2 mcp" },
+    }),
+  );
+  const lines = editor.render(100);
+  assert.match(lines[0]!, /\[dim\]ctx 10%\[dim\] · \[dim\]2 mcp\[dim\] · \[dim\]medium/);
+  const bottom = lines.at(-1)!;
+  assert.doesNotMatch(bottom, /ctx 10%|medium| · /);
+  assert.match(bottom, /sample/);
+  assert.doesNotMatch(bottom, /borderMuted/);
+});
+
+test("top-edge thinking respects minimal metadata, narrow widths, and missing levels", () => {
+  for (const footer of ["standard", "minimal"] as const) {
+    for (const thinking of [undefined, "medium"]) {
+      for (const width of [12, 20, 32, 40, 65, 79, 80, 100]) {
+        const editor = new ComposerEditor(
+          { terminal: { rows: 24, columns: width }, requestRender() {} } as TUI,
+          { borderColor: (text) => text } as EditorTheme,
+          new KeybindingsManager(),
+          () => ({
+            project: "slate", branch: null, model: { id: "sample" }, thinking, footer, theme,
+            dashboardVisible: false,
+            context: { tokens: "10%/100k tokens", resources: "ctx 10% · 1 mcp" },
+          }),
+        );
+        const lines = editor.render(width).map(stripVTControlCharacters);
+        assert.ok(lines.every(line => visibleWidth(line) <= width));
+        if (footer === "standard" && thinking) {
+          if (width >= 32) assert.match(lines[0]!, /ctx 10% · 1 mcp · medium/);
+        } else {
+          assert.doesNotMatch(lines[0]!, /medium/);
+        }
+        assert.doesNotMatch(lines[0]!, /undefined/);
+        assert.doesNotMatch(lines.at(-1)!, /medium/);
+      }
+    }
+  }
 });
 
 const labelTheme = {
@@ -175,7 +246,7 @@ test("composerStatusLabel keeps Pi colors for other status kinds", () => {
 
 test("working status stays left of the focused context edge", () => {
   const line = composerStatusContextEdge(
-    "$7.47 · 14 skills · 2 MCPs",
+    "ctx 11% · 2 mcp",
     80,
     (text) => text,
     0,
@@ -183,13 +254,13 @@ test("working status stays left of the focused context edge", () => {
   );
   assert.equal(visibleWidth(line), 80);
   assert.match(line, /^┌── pondering\.\.\./);
-  assert.ok(line.indexOf("pondering") < line.indexOf("$7.47"));
-  assert.match(line, /\$7\.47 · 14 skills · 2 MCPs ┐$/);
+  assert.ok(line.indexOf("pondering") < line.indexOf("ctx 11%"));
+  assert.match(line, /ctx 11% · 2 mcp ┐$/);
 });
 
 test("live status keeps its label when resources are long", () => {
   const line = composerStatusContextEdge(
-    "$7.47 · 14 skills · 2 MCPs",
+    "ctx 11% · extra long resource · 2 mcp",
     64,
     (text) => text,
     0,
@@ -202,16 +273,16 @@ test("live status keeps its label when resources are long", () => {
   const plain = stripVTControlCharacters(line);
   assert.equal(visibleWidth(line), 64);
   assert.match(plain, /Retrying \(2\/5\)/);
-  assert.ok(!plain.includes("2 MCPs"));
+  assert.ok(!plain.includes("2 mcp"));
 });
 
 test("top edge right suffix stays pinned and survives truncation", () => {
   const pid = `PID-${process.pid}`;
-  const wide = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 80, (text) => text, 0, "", undefined, pid);
+  const wide = composerStatusContextEdge("ctx 11% · 2 mcp", 80, (text) => text, 0, "", undefined, pid);
   assert.equal(visibleWidth(wide), 80);
-  assert.match(wide, new RegExp(`2 MCPs +${pid} ┐$`));
+  assert.match(wide, new RegExp(`2 mcp +${pid} ┐$`));
 
-  const narrow = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 30, (text) => text, 0, "", undefined, pid);
+  const narrow = composerStatusContextEdge("ctx 11% · 2 mcp", 30, (text) => text, 0, "", undefined, pid);
   assert.equal(visibleWidth(narrow), 30);
   assert.ok(stripVTControlCharacters(narrow).endsWith(`${pid} ┐`));
 
@@ -223,7 +294,7 @@ test("top edge right suffix stays pinned and survives truncation", () => {
 test("top edge fits every width with ANSI and wide suffixes", () => {
   for (const suffix of ["PID-123456", "\x1b[90mPID-123456\x1b[0m", "進行中🚀"]) {
     for (let width = 0; width <= 80; width++) {
-      const line = composerStatusContextEdge("$7.47 · 14 skills", width, (text) => text, 12, "Retrying...", undefined, suffix);
+      const line = composerStatusContextEdge("ctx 11%", width, (text) => text, 12, "Retrying...", undefined, suffix);
       assert.equal(visibleWidth(line), width, `width ${width}: ${JSON.stringify(line)}`);
     }
   }
@@ -241,13 +312,13 @@ test("live status receives only its body budget and renders once", () => {
 });
 
 test("overflow count stays visible before static resource decorations", () => {
-  const line = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 30, (text) => text, 12);
+  const line = composerStatusContextEdge("ctx 11% · 2 mcp", 30, (text) => text, 12);
   assert.match(line, /↑ 12 more/);
   assert.equal(visibleWidth(line), 30);
 });
 
 test("composer top border omits the PID suffix when PID display is off", () => {
-  const off = composerStatusContextEdge("$7.47 · 14 skills", 80, (text) => text, 0, "", undefined, "");
+  const off = composerStatusContextEdge("ctx 11%", 80, (text) => text, 0, "", undefined, "");
   assert.doesNotMatch(stripVTControlCharacters(off), /PID-/);
   assert.ok(stripVTControlCharacters(off).endsWith("┐"));
 });
@@ -477,3 +548,55 @@ test("a tall prompt scrolls by wheel and leaves a short prompt to the transcript
   assert.equal(scrollComposerByLines(editor, -1), false);
 });
 
+test("effort border color option lets Pi's thinking-level border colors through", () => {
+  const tui = { terminal: { rows: 24, columns: 80 }, requestRender() {} } as TUI;
+  const editorTheme = { borderColor: (text: string) => text } as EditorTheme;
+  const srcTheme = { fg: (_name: string, text: string) => text, italic: (text: string) => text } as Theme;
+  const source = () => ({ project: "slate", branch: null, model: undefined, footer: "standard" as const, theme: srcTheme });
+  const locked = new ComposerEditor(tui, editorTheme, new KeybindingsManager(), source);
+  const open = new ComposerEditor(tui, editorTheme, new KeybindingsManager(), () => ({ ...source(), effortBorderColor: true }));
+  locked.setText("prompt");
+  open.setText("prompt");
+
+  // Successive host writes (effort/theme/bash changes) must repaint the whole frame.
+  for (const color of ["\x1b[35m", "\x1b[36m"]) {
+    const effortPaint = (text: string) => `${color}${text}\x1b[0m`;
+    locked.borderColor = effortPaint;
+    open.borderColor = effortPaint;
+    assert.equal(locked.borderColor("x"), "x", "default frame ignores host writes");
+    assert.equal(open.borderColor("x"), effortPaint("x"));
+    for (const width of [40, 80]) {
+      const frame = open.render(width);
+      const neutral = locked.render(width);
+      for (const glyph of ["┌", "┐", "│", "└", "┘"]) {
+        assert.ok(frame.join("\n").includes(effortPaint(glyph)), `host color reaches ${glyph}`);
+      }
+      assert.deepEqual(frame.map(stripVTControlCharacters), neutral.map(stripVTControlCharacters));
+      assert.ok(frame.every(row => visibleWidth(row) <= width));
+      assert.ok(neutral.every(row => !row.includes(color)));
+    }
+  }
+});
+
+test("effort border toggles live and retains host updates received while neutral", () => {
+  const tui = { terminal: { rows: 24, columns: 80 }, requestRender() {} } as TUI;
+  const initialPaint = (text: string) => `initial:${text}`;
+  let border = "neutral";
+  const state = {
+    project: "slate", branch: null, model: undefined, footer: "standard" as const,
+    effortBorderColor: true,
+    theme: { fg: (_name: string, text: string) => `${border}:${text}` } as Theme,
+  };
+  const editor = new ComposerEditor(tui, { borderColor: initialPaint } as EditorTheme, new KeybindingsManager(), () => state);
+  assert.equal(editor.borderColor("x"), "initial:x", "native initial color is available before host writes");
+  state.effortBorderColor = false;
+  const latestPaint = (text: string) => `latest:${text}`;
+  editor.borderColor = latestPaint;
+  assert.equal(editor.borderColor("x"), "neutral:x");
+  border = "new-theme";
+  assert.equal(editor.borderColor("x"), "new-theme:x", "neutral chrome follows theme changes");
+  state.effortBorderColor = true;
+  assert.equal(editor.borderColor("x"), "latest:x", "enabling uses host updates stored while off");
+  state.effortBorderColor = false;
+  assert.equal(editor.borderColor("x"), "new-theme:x", "disabling immediately restores chrome");
+});

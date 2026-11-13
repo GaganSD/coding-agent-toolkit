@@ -1,0 +1,30 @@
+name: Bug report
+description: Report something that is not working.
+labels: ["Bug"]
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: Extension and versions
+      description: Include the affected extension, Pi version, Node.js version, and OS.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest example or steps that reproduce the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots (optional)
+      description: Redact secrets and personal information before posting.

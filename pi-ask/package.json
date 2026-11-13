@@ -1,6 +1,6 @@
 {
   "name": "@gagansd/pi-ask",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "TUI interviews for Pi. Ask one decision at a time.",
   "type": "module",
   "license": "MIT",
@@ -14,10 +14,10 @@
     "terminal-ui",
     "tui"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-ask",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-ask",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-ask"
   },
   "files": [
@@ -34,6 +34,7 @@
   },
   "scripts": {
     "test": "node --test --experimental-strip-types tests/**/*.test.ts",
+    "tokens": "node --experimental-strip-types scripts/token-report.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "test:unit": "node ../scripts/test-package.mjs pi-ask unit",
@@ -49,14 +50,14 @@
     "typebox": "*"
   },
   "overrides": {
-    "undici": "8.12.2"
+    "undici": "8.12.4"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.3.0",
-    "@earendil-works/pi-coding-agent": "1.3.0",
-    "@earendil-works/pi-tui": "1.3.0",
+    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.4.0",
     "@types/node": "26.6.5",
-    "typebox": "1.3.37",
+    "typebox": "^1.4.3",
     "typescript": "7.0.2"
   },
   "pi": {

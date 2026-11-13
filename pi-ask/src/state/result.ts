@@ -1,4 +1,4 @@
-import { CANCELLED_SUMMARY, SUBMITTED_SUMMARY } from "../constants/text.ts";
+import { askStrings } from "../i18n.ts";
 import { formatResultLines } from "../result-format.ts";
 import type {
 	AskResult,
@@ -57,7 +57,7 @@ export function toAskResult(
 
 export function summarizeResult(result: AskResult): string {
 	if (result.status === "cancelled") {
-		return CANCELLED_SUMMARY;
+		return askStrings().cancelledSummary;
 	}
 	if (result.status === "unavailable") {
 		return "Needs user input";
@@ -67,7 +67,7 @@ export function summarizeResult(result: AskResult): string {
 	}
 
 	const lines = formatResultLines(result, { mode: "summary" });
-	return lines.join("\n") || SUBMITTED_SUMMARY;
+	return lines.join("\n") || askStrings().submittedSummary;
 }
 
 export function hasAnswerContent(state: AskState, questionId: string): boolean {

@@ -2,6 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type OverlayOptions, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
 import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
+import { mcpDetails } from "./sidebar-mcp.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
@@ -21,7 +22,7 @@ export type SidebarActions = {
   persistFold?(section: keyof SidebarFolds, expanded: boolean): SidebarFolds | undefined;
 };
 const EMPTY_SESSION: SidebarSession = {
-  id: "", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
+  id: "", name: "", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
   percent: null, contextWindow: null, estimated: false, rate: null, startedAt: 0,
   lastTurnMs: null, working: false, turns: 0, messages: 0,
   usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null },
@@ -41,7 +42,7 @@ export class Sidebar implements Component {
   private resizeStartWidth = 0;
   private _preferredWidth?: number;
   hidden = false;
-  splitActive = false;
+  get splitActive(): boolean { return this.splitDispose?.active() === true; }
   private session: SidebarSession = EMPTY_SESSION;
   private resources: SidebarResources = EMPTY_RESOURCES;
   private tasks: BackgroundTask[] = [];
@@ -74,13 +75,12 @@ export class Sidebar implements Component {
   setThemeProvider(provider: () => Theme | undefined): void { this.themeProvider = provider; this.invalidate(); }
   attach(tui: TUI, theme: Theme, onYield?: () => void): void {
     this.tui = tui; this.theme = theme;
-    if (this.splitDispose) return;
+    if (this.splitActive) return;
     this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth, () => {
-      this.splitActive = false; this.splitDispose = undefined;
+      this.splitDispose = undefined;
       this.hideResizeGuide(); this.resizing = false; this.hits = []; this.listRows = [];
       onYield?.();
     });
-    this.splitActive = Boolean(this.splitDispose);
     this.invalidate();
   }
   isVisible(columns: number, rows: number): boolean { return this.splitActive && !this.hidden && dashboardColumnWidth(columns, rows, this._preferredWidth) > 0; }
@@ -100,7 +100,11 @@ export class Sidebar implements Component {
     this.hidden = hidden; if (this.splitActive) this.tui?.requestRender(true);
   }
   setActions(actions: SidebarActions): void { this.actions = actions; }
-  setSession(session: SidebarSession): void { this.session = { ...session, usage: { ...session.usage } }; this.changed(); }
+  setSession(session: SidebarSession): void {
+    // Keep the full plain-text title for copying/details; truncate only its painted row.
+    this.session = { ...session, name: sidebarText(session.name, Infinity), usage: { ...session.usage } };
+    this.changed();
+  }
   setResources(resources: SidebarResources): void {
     this.resources = { ...resources, mcp: resources.mcp.map(x => ({ ...x })), skills: resources.skills.map(x => ({ ...x })), commands: resources.commands.map(x => ({ ...x })), prompts: resources.prompts.map(x => ({ ...x })) };
     this.changed();
@@ -148,7 +152,7 @@ export class Sidebar implements Component {
     const s = this.session;
     const uncached = sidebarUncached(s.usage);
     const hit = s.usage.input !== null && s.usage.cacheRead !== null && s.usage.input > 0 ? `${Math.round(s.usage.cacheRead / s.usage.input * 100)}%` : "—";
-    return [`Session ${sidebarText(s.id) || "—"} · PID ${s.pid}`, `Model: ${s.model} · ${s.thinking}`,
+    return [`Session ${sidebarText(s.id) || "—"} · PID ${s.pid}`, `Title: ${s.name || "—"}`, `Model: ${s.model} · ${s.thinking}`,
       `Context: ${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}${s.estimated ? " (estimated)" : ""}`,
       `Wall time (this runtime): ${sidebarDuration(s.startedAt > 0 ? this.now() - s.startedAt : null)}`,
       `Last turn: ${sidebarDuration(s.lastTurnMs)}`, `Turns: ${s.turns} · Messages: ${s.messages}`,
@@ -238,6 +242,7 @@ export class Sidebar implements Component {
     const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
     const tone = percent !== null && percent >= 80 ? "warning" : "accent";
     const identity = `Session ${sidebarText(s.id).slice(0, 8) || "—"} · PID ${s.pid}`;
+    const name = s.name || "";
     const occupancy = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}`
       + ` · ${sidebarCost(s.usage.cost)} · ${sidebarRate(s.rate)}`;
     const meter = ((): string => {
@@ -255,8 +260,8 @@ export class Sidebar implements Component {
     const stat = (label: string, value: string): string => `${this.paint("muted", label)} ${this.paint("text", value)}`;
     const statRight = (label: string, value: string): string => `${this.paint("text", value)} ${this.paint("muted", label)}`;
     return [
+      { text: this.heading(name, "accent"), action: name ? () => { if (this.session.name) this.actions?.copy(this.session.name); } : undefined },
       { text: this.heading(visibleWidth(identity) > width ? this.pair(`Session ${sidebarText(s.id).slice(0, 8) || "—"}`, `· PID ${s.pid}`, width) : identity), action: () => { if (s.id) this.actions?.copy(s.id); } },
-      { text: "" },
       { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) },
       { text: "" },
       { text: meter },
@@ -270,17 +275,15 @@ export class Sidebar implements Component {
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
-    const unknown = this.resources.mcp.some(x => x.enabled === null);
-    const rejected = this.resources.mcp.filter(x => x.enabled === null).length;
-    const errors = this.resources.mcpError
-      ? (this.resources.mcpError === "MCP configuration has rejected entries" && rejected > 0 ? rejected : 1)
-      : 0;
+    const unknownCount = this.resources.mcp.filter(x => x.enabled === null).length;
+    const errors = this.resources.mcpError ? 1 : 0;
+    const allUnknown = unknownCount > 0 && unknownCount === this.resources.mcp.length;
     const loaded = this.resources.skills.filter(x => x.loaded).length;
     const resourceHeading = (label: string, count: string, failed = 0): string =>
       this.heading(label) + this.paint("muted", ` · ${count}`)
       + (failed ? this.paint("error", ` · ${failed} ${failed === 1 ? "Error" : "Errors"}`) : "");
     const rows: Row[] = [{ text: "" }, {
-      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, errors || !unknown ? `${enabled} Enabled` : "—", errors),
+      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors),
       action: () => this.toggleSection("mcp"),
     }];
     if (this.folds.mcp) rows.push(...this.resourceRows("mcp"));
@@ -300,9 +303,8 @@ export class Sidebar implements Component {
     for (let i = start; i < Math.min(items.length, start + visible); i++) {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
-        const state = server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled";
-        rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
-          action: () => this.actions?.inspect?.(server.name, `${state} (configuration, not connection status)\nSource: ${server.source}\nUse /mcp to manage this server.`) });
+        rows.push({ text: this.paint(server.enabled === true ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
+          action: () => this.actions?.inspect?.(server.name, mcpDetails(server)) });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;
         rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", `${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`), list, item: i,
@@ -373,7 +375,7 @@ export class Sidebar implements Component {
     const l = truncateToWidth(left, Math.max(0, width - visibleWidth(r) - 1), "…");
     return `${l}${" ".repeat(Math.max(0, width - visibleWidth(l) - visibleWidth(r)))}${r}`;
   }
-  private heading(text: string): string { const painted = this.paint("mdHeading", text); return this.theme?.bold?.(painted) ?? painted; }
+  private heading(text: string, tone: "mdHeading" | "accent" = "mdHeading"): string { const painted = this.paint(tone, text); return this.theme?.bold?.(painted) ?? painted; }
   private paint(tone: "text" | "muted" | "dim" | "accent" | "success" | "warning" | "error" | "mdHeading", text: string): string { return this.theme?.fg(tone, text) ?? text; }
   private isDoubleClick(event: TuiMouseEvent, target: string): boolean {
     if (event.clickCount !== undefined) return event.clickCount === 2;
@@ -383,7 +385,7 @@ export class Sidebar implements Component {
   }
   dispose(): void {
     this.hideResizeGuide(); this.resizing = false;
-    this.splitDispose?.(); this.splitDispose = undefined; this.splitActive = false;
+    this.splitDispose?.(); this.splitDispose = undefined;
     this.reset(); this.tui = undefined; this.theme = undefined; this.themeProvider = undefined; this.actions = undefined;
   }
 

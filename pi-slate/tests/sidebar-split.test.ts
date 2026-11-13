@@ -72,7 +72,7 @@ test("a later root writer wins once and disposal never restores over it", () => 
 test("yield does not overwrite a successor's setter wrapper", () => {
   const host = createHost({ id: "chat" });
   const dispose = bindSplitHost(host, wrap("pane"), unwrap);
-  const slateSet = host.setLayoutRoot;
+  const slateSet = host.setLayoutRoot.bind(host);
   const successorSet = (component: Node | undefined) => slateSet(component);
   host.setLayoutRoot = successorSet;
   const foreign = { id: "foreign" };
@@ -82,4 +82,32 @@ test("yield does not overwrite a successor's setter wrapper", () => {
   dispose();
   assert.equal(host.setLayoutRoot, successorSet);
   assert.equal(host.layoutRoot, foreign);
+});
+
+
+test("leases do not patch method slots, including facades returning a fresh forwarding function on every read", () => {
+  const raw = createHost({ id: "chat" });
+  const setter = raw.setLayoutRoot;
+  const host = new Proxy(raw, {
+    get(target, key) {
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? (...args: unknown[]) => Reflect.apply(value, target, args) : value;
+    },
+  });
+  let yielded = 0;
+  for (let i = 0; i < 3; i++) {
+    const lease = bindSplitHost(host, wrap("slate"), unwrap, () => { yielded++; });
+    assert.equal(raw.setLayoutRoot, setter);
+    assert.equal(lease.active(), true);
+    lease();
+    assert.equal(raw.layoutRoot?.id, "chat");
+    assert.equal(raw.setLayoutRoot, setter);
+  }
+  const lease = bindSplitHost(host, wrap("slate"), unwrap, () => { yielded++; });
+  host.setLayoutRoot({ id: "successor" });
+  assert.equal(lease.active(), false);
+  assert.equal(lease.active(), false);
+  assert.equal(yielded, 1);
+  lease();
+  assert.equal(raw.layoutRoot?.id, "successor");
 });

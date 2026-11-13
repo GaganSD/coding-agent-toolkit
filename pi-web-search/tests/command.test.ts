@@ -41,7 +41,7 @@ test("completions cover the new command surface", () => {
 	]);
 	assert.deepEqual(webSearchCompletions("pro").map((item) => item.value), ["provider"]);
 	assert.deepEqual(webSearchCompletions("provider ").map((item) => item.value), [
-		"exa", "parallel", "grep", "sourcegraph", "github",
+		"exa", "parallel", "grep", "sourcegraph", "github", "brave",
 	]);
 	assert.deepEqual(webSearchCompletions("provider github ").map((item) => item.value), []);
 	assert.deepEqual(webSearchCompletions("classifier ").map((item) => item.value), ["none"]);
@@ -178,7 +178,7 @@ test("classifier picker lists Pi models plus None and can disable judgment", asy
 	await withCommand(async ({ handler, dir }) => {
 		await writeFile(join(dir, "web-search.json"), JSON.stringify({
 			research: { enabled: true },
-			jev: { enabled: true, provider: "typesafe", model: "jev-latest" },
+			classifier: { enabled: true, provider: "typesafe", model: "jev-latest" },
 		}));
 		const offered: string[][] = [];
 		let report = "";
@@ -203,7 +203,7 @@ test("classifier picker lists Pi models plus None and can disable judgment", asy
 		assert.ok(offered[0]?.some((option) => option.includes("typesafe/jev-latest")));
 		assert.ok(offered[0]?.some((option) => option.includes("openai/gpt-6-luna") && option.includes("login required")));
 		const saved = JSON.parse(await readFile(join(dir, "web-search.json"), "utf8"));
-		assert.equal(saved.jev.enabled, false);
+		assert.equal(saved.classifier.enabled, false);
 		assert.match(report, /Classifier disabled\. Saved to .* — run \/reload to apply\./);
 	});
 });
@@ -238,7 +238,7 @@ test("failed classifier discovery marks rows untested, not login required", asyn
 test("status report says auth status unknown when the registry cannot answer", async () => {
 	await withCommand(async ({ handler, dir }) => {
 		await writeFile(join(dir, "web-search.json"), JSON.stringify({
-			jev: { enabled: true, provider: "opencode", model: "jev-1.13" },
+			classifier: { enabled: true, provider: "opencode", model: "jev-1.13" },
 		}));
 		let report = "";
 		await handler("status", {

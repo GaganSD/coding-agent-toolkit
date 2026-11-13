@@ -141,7 +141,7 @@ test("show-setup notifies only missing search credentials", async () => {
 test("detectWelcome reports existing keys and gh auth without classifier work", async () => {
 	await withDir(async (dir) => {
 		const configPath = join(dir, "web-search.json");
-		await writeFile(configPath, `${JSON.stringify({ jev: { enabled: true } }, null, 2)}\n`);
+		await writeFile(configPath, `${JSON.stringify({ classifier: { enabled: true } }, null, 2)}\n`);
 		await withConfigEnv(configPath, async () => {
 			const snap = await detectWelcome({
 				modelRegistry: {

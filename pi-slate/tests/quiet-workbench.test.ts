@@ -7,7 +7,7 @@ import { loadThemeFromPath, SYSTEM_THEME_NAME } from "../node_modules/@earendil-
 import { ComposerEditor, type ComposerSource } from "../extensions/pi-slate/composer.ts";
 import { dashboardColumnWidth, formatCompactTokenCount, parseSlateArgs } from "../extensions/pi-slate/layout.ts";
 import { SLATE_NATIVE_THEME, SLATE_THEME } from "../extensions/pi-slate/install-defaults.ts";
-import { sessionSidebarSlots, sidebarCost } from "../extensions/pi-slate/sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarCost, sidebarRate } from "../extensions/pi-slate/sidebar-layout.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
 import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
 
@@ -27,12 +27,15 @@ test("bundled default Tokyo Night loads with the native validator and restrained
   assert.notEqual(theme.getBgAnsi("customMessageBg"), theme.getBgAnsi("userMessageBg"));
 });
 
-test("default restores the system theme while Tokyo Night remains explicit", () => {
-  for (const name of ["default", "tokyo-night", "tokyonight"])
-    assert.deepEqual(parseSlateArgs("theme " + name), { ok: true, kind: "named-theme", name: name === "default" ? "system" : "tokyo-night" });
-  assert.deepEqual(parseSlateArgs("theme mocha default"), { ok: true, kind: "theme", flavor: "mocha", style: "default" });
-  assert.deepEqual(parseSlateArgs("style default"), { ok: true, kind: "style", value: "default" });
-  assert.deepEqual(parseSlateArgs("theme tokyo-night extra"), { ok: false });
+test("theme selection belongs to the picker: /slate theme and /slate style take no arguments", () => {
+  assert.deepEqual(parseSlateArgs("theme"), { ok: true, kind: "theme-menu" });
+  for (const args of ["theme default", "theme tokyo-night", "theme tokyonight", "theme black-metal",
+    "theme mocha default", "theme mocha mauve", "theme latte", "theme tokyo-night extra"]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
+  for (const args of ["style", "style default", "style mauve"]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
 });
 
 test("compact viewport hides the rail without changing stored width or focus", () => {
@@ -73,7 +76,7 @@ test("growing usage and money keep a stable label lane and value edge with the r
       assert(occupancy, "occupancy line");
       if (width > 28) { // Below this, bounded values truncate instead of moving edges.
         for (const line of stats) assert.doesNotMatch(line, /…/, "values must not consume the label lane");
-        assert(occupancy.includes(`${sidebarCost(value)} · ~82/s`), `${sidebarCost(value)} on the occupancy line`);
+        assert(occupancy.includes(`${sidebarCost(value)} · ~82 t/s`), `${sidebarCost(value)} on the occupancy line`);
         assert.doesNotMatch(occupancy, /…/);
       }
     }
@@ -82,6 +85,9 @@ test("growing usage and money keep a stable label lane and value edge with the r
   assert.equal(sidebarCost(null), "—"); assert.equal(sidebarCost(Number.NaN), "—");
   assert.equal(sidebarCost(-1), "—"); assert.equal(sidebarCost(1.24), "$1.24");
   assert.equal(sidebarCost(1e308), "$1.0e+308");
+  assert.equal(sidebarRate(33.4), "~33 t/s"); assert.equal(sidebarRate(300), "~300 t/s");
+  assert.equal(sidebarRate(null), "—"); assert.equal(sidebarRate(Number.NaN), "—");
+  assert.equal(sidebarRate(-1), "—"); assert.equal(sidebarRate(Infinity), "—");
   sidebar.dispose();
 });
 
@@ -114,7 +120,7 @@ test("context meter keeps a thin track and dim separator with the real theme", (
 test("quiet editor avoids duplicate identity/model and restores compact facts without losing its draft", () => {
   const source: ComposerSource = { project: "project", branch: "feat/workbench", model: { id: "sample-model", provider: "sample" },
     thinking: "medium", footer: "standard", theme, paddingX: 4, workspaceHeader: true, dashboardVisible: true,
-    context: { tokens: "11%/500k tokens", resources: "$1.24 · 2 skills · 2 MCPs", summary: "ctx 11%" } };
+    context: { tokens: "11%/500k tokens", resources: "ctx 11% · 2 mcp" } };
   const editor = new ComposerEditor({ terminal: { rows: 40, columns: 140 }, requestRender() {} } as unknown as TUI,
     { borderColor: text => text } as EditorTheme, new KeybindingsManager(), () => source, { paddingX: 4 });
   editor.setPaddingX(0); // Native host copies its own padding after the factory returns.
@@ -131,16 +137,19 @@ test("quiet editor avoids duplicate identity/model and restores compact facts wi
     const lines = editor.render(width);
     assert(lines.every(line => visibleWidth(line) <= width));
     text = lines.map(stripVTControlCharacters).join("\n");
-    assert.equal((text.match(/\$1\.24/g) ?? []).length, 1, "cost remains only on the top resource edge");
     assert.match(text, /ctx 11%/);
+    assert.doesNotMatch(stripVTControlCharacters(lines.at(-1)!), /ctx 11%/);
     assert.match(text, /project/);
     if (width >= 42) assert.match(text, /project \/ feat\/workbench/);
     if (width >= 66) {
       const bottom = stripVTControlCharacters(lines.at(-1)!);
-      assert.match(bottom, /ctx 11% · sample-model/);
-      assert.ok(bottom.indexOf("ctx 11%") < bottom.indexOf("sample-model"));
+      assert.match(bottom, /sample-model/);
+      assert.doesNotMatch(bottom, /ctx 11%/);
     }
   }
   assert.equal(editor.getText(), "Preserve this draft");
-  assert.match(editor.render(100).map(stripVTControlCharacters).join("\n"), /sample-model · medium/);
+  const focused = editor.render(100).map(stripVTControlCharacters);
+  assert.match(focused[0]!, /ctx 11% · 2 mcp · medium/);
+  assert.match(focused.at(-1)!, /sample-model/);
+  assert.doesNotMatch(focused.at(-1)!, /medium/);
 });

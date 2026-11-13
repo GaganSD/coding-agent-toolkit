@@ -36,7 +36,7 @@ export const MAX_QUERY_CHARS = 4000;
 export const CONFIG_FILE_NAME = "web-search.json";
 export const CONFIG_PATH_ENV_VAR = "PI_WEB_SEARCH_CONFIG";
 
-export interface JevSettings {
+export interface ClassifierSettings {
 	enabled: boolean;
 	/** Exact Pi classifier provider. Empty when unpinned. */
 	provider: string;
@@ -44,7 +44,7 @@ export interface JevSettings {
 	model: string;
 	/** Weights for the ranking bools. Policy stays in code, tunable here. */
 	weights: { answers: number; offtopic: number; selfcontained: number };
-	/** Suppress below this safety probability; the mid-band is held, not passed. */
+	/** Suppress unsafe categories at or above this probability; uncertainty is retained. */
 	safetyThreshold: number;
 	/** Skip augmentation when the judged set would exceed this many characters. */
 	maxStateChars: number;
@@ -57,7 +57,7 @@ export interface ResolvedSettings {
 	web: FamilyChain;
 	code: FamilyChain;
 	researchEnabled: boolean;
-	jev: JevSettings;
+	classifier: ClassifierSettings;
 	/** Non-fatal config problems, surfaced to the model as warnings. */
 	notices: string[];
 }
@@ -74,10 +74,8 @@ export interface WebSearchConfig {
 	web?: Partial<FamilyChain>;
 	code?: Partial<FamilyChain>;
 	research?: { enabled?: boolean };
-	jev?: Partial<Omit<JevSettings, "weights">> & {
-		weights?: Partial<JevSettings["weights"]>;
-		/** Deprecated. Ignored; pin provider and model instead. */
-		backend?: unknown;
+	classifier?: Partial<Omit<ClassifierSettings, "weights">> & {
+		weights?: Partial<ClassifierSettings["weights"]>;
 	};
 }
 
@@ -94,19 +92,19 @@ export type WebSearchConfigResult =
 	| { status: "ok"; path: string; config: WebSearchConfig };
 
 const PROVIDER_KIND_SET = new Set<string>(PROVIDER_KINDS);
-const CONFIG_KEYS = new Set(["web", "code", "research", "jev", "timeoutMs", "maxResults"]);
+const CONFIG_KEYS = new Set(["web", "code", "research", "classifier", "timeoutMs", "maxResults"]);
 
-export const DEFAULT_JEV_SETTINGS: JevSettings = {
+export const DEFAULT_CLASSIFIER_SETTINGS: ClassifierSettings = {
 	enabled: false,
-	provider: "",
-	model: "",
+	provider: "vercel-ai-gateway",
+	model: "typesafe-ai/jev",
 	weights: { answers: 0.45, offtopic: -0.3, selfcontained: 0.25 },
 	safetyThreshold: 0.75,
 	maxStateChars: 24000,
 };
 
-const JEV_CONFIG_KEYS = new Set([
-	"enabled", "provider", "model", "backend", "weights", "safetyThreshold", "maxStateChars",
+const CLASSIFIER_CONFIG_KEYS = new Set([
+	"enabled", "provider", "model", "weights", "safetyThreshold", "maxStateChars",
 ]);
 
 export function defaultWebSearchConfigPath(): string {
@@ -254,30 +252,30 @@ export function parseWebSearchConfig(
 		config.research = research;
 	}
 
-	if ("jev" in parsed) {
-		const jev = parsed.jev;
-		if (!isPlainObject(jev)) {
+	if ("classifier" in parsed) {
+		const classifier = parsed.classifier;
+		if (!isPlainObject(classifier)) {
 			return {
 				status: "invalid",
 				path: configPath,
-				error: invalidConfig(configPath, `"jev" must be an object.`),
+				error: invalidConfig(configPath, `"classifier" must be an object.`),
 			};
 		}
-		const unknown = Object.keys(jev).filter((key) => !JEV_CONFIG_KEYS.has(key));
+		const unknown = Object.keys(classifier).filter((key) => !CLASSIFIER_CONFIG_KEYS.has(key));
 		if (unknown.length > 0) {
 			return {
 				status: "invalid", path: configPath,
-				error: invalidConfig(configPath, `Unsupported jev keys: ${unknown.join(", ")}.`),
+				error: invalidConfig(configPath, `Unsupported classifier keys: ${unknown.join(", ")}.`),
 			};
 		}
-		if ("weights" in jev && (!isPlainObject(jev.weights) ||
-			Object.keys(jev.weights).some((key) => !Object.hasOwn(DEFAULT_JEV_SETTINGS.weights, key)))) {
+		if ("weights" in classifier && (!isPlainObject(classifier.weights) ||
+			Object.keys(classifier.weights).some((key) => !Object.hasOwn(DEFAULT_CLASSIFIER_SETTINGS.weights, key)))) {
 			return {
 				status: "invalid", path: configPath,
-				error: invalidConfig(configPath, '"jev.weights" must contain only answers, offtopic, and selfcontained.'),
+				error: invalidConfig(configPath, '"classifier.weights" must contain only answers, offtopic, and selfcontained.'),
 			};
 		}
-		config.jev = jev as WebSearchConfig["jev"];
+		config.classifier = classifier as WebSearchConfig["classifier"];
 	}
 
 	return { status: "ok", path: configPath, config };
@@ -299,29 +297,27 @@ export async function configureJudgment(
 		const config = result.status === "ok" ? result.config : {};
 		let note: string | undefined;
 		if (action === "off") {
-			config.jev = { ...config.jev, enabled: false };
+			config.classifier = { ...config.classifier, enabled: false };
 		} else if (action === "on") {
 			config.research = { ...config.research, enabled: true };
-			const existing = pinnedClassifier(config.jev);
+			const existing = pinnedClassifier(config.classifier);
 			if (existing) {
-				config.jev = { ...config.jev, enabled: true };
+				config.classifier = { ...config.classifier, enabled: true };
 			} else {
 				const candidates = typeof available === "function" ? await available() : available;
-				if (candidates.length === 1) {
-					const [only] = candidates;
-					config.jev = { ...config.jev, enabled: true, provider: only.provider, model: only.id };
-				} else {
-					config.jev = { ...config.jev, enabled: true };
-					note = candidates.length === 0
-						? "Judgment enabled without a pin. Authenticate a Pi classifier, then set jev.provider and jev.model."
-						: `Judgment enabled without a pin. Available: ${candidates.map((entry) => `${entry.provider}/${entry.id}`).join(", ")}.`;
+				const preferred = candidates.find((entry) => entry.provider === DEFAULT_CLASSIFIER_SETTINGS.provider && entry.id === DEFAULT_CLASSIFIER_SETTINGS.model)
+					?? candidates.find((entry) => /(?:^|\/)~?(?:typesafe(?:-ai)?\/)?jev(?:-|$)/.test(entry.id));
+				const selected = preferred ?? (candidates.length === 1 ? candidates[0] : undefined)
+					?? { provider: DEFAULT_CLASSIFIER_SETTINGS.provider, id: DEFAULT_CLASSIFIER_SETTINGS.model };
+				config.classifier = { ...config.classifier, enabled: true, provider: selected.provider, model: selected.id };
+				if (!candidates.some((entry) => entry.provider === selected.provider && entry.id === selected.id)) {
+					note = `Default Jev selected; authenticate with /login ${selected.provider} before using judgment.`;
 				}
 			}
 		} else {
 			config.research = { ...config.research, enabled: true };
-			config.jev = { ...config.jev, enabled: true, provider: action.provider, model: action.id };
+			config.classifier = { ...config.classifier, enabled: true, provider: action.provider, model: action.id };
 		}
-		delete config.jev?.backend;
 		await mkdir(dirname(targetPath), { recursive: true });
 		const temporary = `${targetPath}.${randomUUID()}.tmp`;
 		try {
@@ -354,10 +350,10 @@ export function parseJudgmentArgs(args: string): JudgmentAction | "status" | und
 }
 
 function pinnedClassifier(
-	jev: WebSearchConfig["jev"],
+	classifier: WebSearchConfig["classifier"],
 ): { provider: string; model: string } | undefined {
-	const provider = typeof jev?.provider === "string" ? jev.provider.trim() : "";
-	const model = typeof jev?.model === "string" ? jev.model.trim() : "";
+	const provider = typeof classifier?.provider === "string" ? classifier.provider.trim() : "";
+	const model = typeof classifier?.model === "string" ? classifier.model.trim() : "";
 	return provider.length > 0 && model.length > 0 ? { provider, model } : undefined;
 }
 
@@ -401,7 +397,7 @@ export function applyConfig(
 		web,
 		code,
 		researchEnabled: config.research?.enabled === true,
-		jev: applyJevConfig(config.jev, notices),
+		classifier: applyClassifierConfig(config.classifier, notices),
 		notices,
 	};
 }
@@ -432,66 +428,65 @@ function resolveFamilyChain(
 	return { provider, fallback };
 }
 
-function applyJevConfig(
-	jev: WebSearchConfig["jev"],
+function applyClassifierConfig(
+	classifier: WebSearchConfig["classifier"],
 	notices: string[],
-): JevSettings {
-	if (!isPlainObject(jev)) {
-		return { ...DEFAULT_JEV_SETTINGS };
+): ClassifierSettings {
+	if (!isPlainObject(classifier)) {
+		return { ...DEFAULT_CLASSIFIER_SETTINGS };
 	}
-	const numeric = (key: keyof JevSettings, fallback: number): number => {
-		const value = jev[key];
+	const numeric = (key: keyof ClassifierSettings, fallback: number): number => {
+		const value = classifier[key];
 		if (value === undefined) {
 			return fallback;
 		}
 		if (typeof value !== "number" || !Number.isFinite(value)) {
-			notices.push(`Ignored jev.${key}: not a finite number.`);
+			notices.push(`Ignored classifier.${key}: not a finite number.`);
 			return fallback;
 		}
 		return value;
 	};
-	const model = jev.model;
+	const model = classifier.model;
 	if (model !== undefined && typeof model !== "string") {
-		notices.push("Ignored jev.model: expected a string.");
+		notices.push("Ignored classifier.model: expected a string.");
 	}
-	const provider = jev.provider;
+	const provider = classifier.provider;
 	if (provider !== undefined && typeof provider !== "string") {
-		notices.push("Ignored jev.provider: expected a string.");
+		notices.push("Ignored classifier.provider: expected a string.");
 	}
-	if (jev.backend !== undefined) {
-		notices.push("Ignored jev.backend: pin jev.provider and jev.model to a Pi classifier.");
-	}
-	const pinnedProvider = typeof provider === "string" ? provider.trim() : "";
-	const pinnedModel = typeof model === "string" ? model.trim() : "";
-	if (jev.enabled === true && (pinnedProvider.length === 0 || pinnedModel.length === 0)) {
-		notices.push("jev.enabled without provider/model: judgment stays unpinned until set.");
+	// A missing pair uses Jev; a partial/invalid explicit pin never substitutes.
+	const useDefault = provider === undefined && model === undefined;
+	const pinnedProvider = useDefault ? DEFAULT_CLASSIFIER_SETTINGS.provider : typeof provider === "string" ? provider.trim() : "";
+	const pinnedModel = useDefault ? DEFAULT_CLASSIFIER_SETTINGS.model : typeof model === "string" ? model.trim() : "";
+	if (classifier.enabled === true && (pinnedProvider.length === 0 || pinnedModel.length === 0)) {
+		notices.push("classifier.enabled without provider/model: judgment stays unpinned until set.");
 	}
 	return {
-		enabled: jev.enabled === true,
+		enabled: classifier.enabled === true,
 		provider: pinnedProvider,
 		model: pinnedModel,
 		weights: {
-			answers: numericWeight(jev, "answers", notices),
-			offtopic: numericWeight(jev, "offtopic", notices),
-			selfcontained: numericWeight(jev, "selfcontained", notices),
+			answers: numericWeight(classifier, "answers", notices),
+			offtopic: numericWeight(classifier, "offtopic", notices),
+			selfcontained: numericWeight(classifier, "selfcontained", notices),
 		},
-		safetyThreshold: numeric("safetyThreshold", DEFAULT_JEV_SETTINGS.safetyThreshold),
-		maxStateChars: numeric("maxStateChars", DEFAULT_JEV_SETTINGS.maxStateChars),
+		safetyThreshold: numeric("safetyThreshold", DEFAULT_CLASSIFIER_SETTINGS.safetyThreshold),
+		maxStateChars: numeric("maxStateChars", DEFAULT_CLASSIFIER_SETTINGS.maxStateChars),
 	};
 }
 
 function numericWeight(
-	jev: NonNullable<WebSearchConfig["jev"]>,
-	key: keyof JevSettings["weights"],
+	classifier: NonNullable<WebSearchConfig["classifier"]>,
+	key: keyof ClassifierSettings["weights"],
 	notices: string[],
 ): number {
-	const value = jev.weights?.[key];
+	const value = classifier.weights?.[key];
 	if (value === undefined) {
-		return DEFAULT_JEV_SETTINGS.weights[key];
+		return DEFAULT_CLASSIFIER_SETTINGS.weights[key];
 	}
 	if (typeof value !== "number" || !Number.isFinite(value)) {
-		notices.push(`Ignored jev.weights.${key}: not a finite number.`);
-		return DEFAULT_JEV_SETTINGS.weights[key];
+		notices.push(`Ignored classifier.weights.${key}: not a finite number.`);
+		return DEFAULT_CLASSIFIER_SETTINGS.weights[key];
 	}
 	return value;
 }

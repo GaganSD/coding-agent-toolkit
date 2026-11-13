@@ -29,14 +29,23 @@ export function collectValidationIssues(
 	return collector.issues;
 }
 
+const QUESTION_SHAPE_KEYS = ["id", "label", "prompt", "type", "options"];
+
 export function prepareAskParams(input: unknown): unknown {
-	if (!(isRecord(input) && Array.isArray(input.questions))) {
+	if (!isRecord(input)) {
 		return input;
 	}
+	const repaired = repairQuestionShape(input);
+	if (!Array.isArray(repaired.questions)) {
+		return repaired;
+	}
 	return {
-		...input,
-		questions: input.questions.map((question) => {
-			if (!(isRecord(question) && Array.isArray(question.options))) {
+		...repaired,
+		questions: repaired.questions.map((question) => {
+			if (!isRecord(question)) {
+				return question;
+			}
+			if (!Array.isArray(question.options)) {
 				return question;
 			}
 			return {
@@ -45,6 +54,37 @@ export function prepareAskParams(input: unknown): unknown {
 			};
 		}),
 	};
+}
+
+/**
+ * Repair common payload-shape mistakes before validation: a lone question
+ * flattened to the top level, or question fields left beside a one-item
+ * `questions` array. Only missing keys are moved; existing values and
+ * multi-question payloads are left untouched.
+ */
+function repairQuestionShape(
+	input: Record<string, unknown>
+): Record<string, unknown> {
+	const questions = input.questions;
+	const one =
+		questions === undefined && typeof input.prompt === "string"
+			? ({} as Record<string, unknown>)
+			: Array.isArray(questions) &&
+				  questions.length === 1 &&
+				  isRecord(questions[0])
+				? questions[0]
+				: undefined;
+	if (one === undefined) return input;
+	const rest = { ...input };
+	const moved: Record<string, unknown> = {};
+	for (const key of QUESTION_SHAPE_KEYS) {
+		if (one[key] === undefined && rest[key] !== undefined) {
+			moved[key] = rest[key];
+			delete rest[key];
+		}
+	}
+	if (Object.keys(moved).length === 0) return input;
+	return { ...rest, questions: [{ ...one, ...moved }] };
 }
 
 function prepareOption(input: unknown): unknown {

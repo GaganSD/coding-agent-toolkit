@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+## 0.2.1
+
+Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.
+
+### Added
+
+- `/logo` toggles the header between the stock mark and the minimal mark. `/logo original` and `/logo minimal` set one directly.
+
+### Changed
+
+- Improved Fallback handling when Pi updates break the TUI.
+- Improved misc. UX & UI & removed redundant UI in a new session.
+- Sidebar MCP is a requested configuration now. `/mcp` owns validation, auth, and connection health only.
+
+### Fixed
+
+- Edit-preview dividers and truncation marks keep the diff background, so tool and terminal colors no longer bleed in.
+- The sidebar follows the live layout root, including Pi's forwarding proxy, without intercepting `setLayoutRoot`.
+- Disposed image and selection wrappers edit natively again. Paste-to-reveal needs undo and will not collapse text edited after the paste.
+
+### Security
+
+- Transitive `undici` is pinned to 8.12.4.
+
+## 0.2.0
+
+Four Catppuccin flavors behind a single /theme picker, and edits and writes that keep their diffs visible in collapsed tool cards.
+
+### Added
+
+- New `/theme` picker: Light/Dark sections, 15 palettes per flavor, live preview, Enter saves, Escape restores, responsive two-column/stacked/tiny layouts. `/theme slate` stays an alias and `/slate theme` opens the same picker.
+- The selector groups Catppuccin under **Light** (Latte, Frappé) and **Dark** (Macchiato, Mocha) sections; Tokyo Night and Black Metal sit under Dark. Frappé is mid-dark and is grouped under Light by choice.
+- Selected rows in the picker use body text on the selection background, keeping every light palette above 3:1 instead of ~1.45:1 for accent-colored selections.
+- Catppuccin Latte (light), Frappé, and Macchiato flavors alongside Mocha, all taken from the official palette (https://catppuccin.com/palette).
+- Each flavor ships the same 15 palettes: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default. Palette choices survive navigation within the selector.
+- On Pi 1.4, cancelling after preview restores the original palette but automatic terminal-appearance following resumes only after `/reload` (public theme-instance API limitation). Saved theme and light/dark settings are untouched.
+
+### Changed
+
+- `edit` and `write` keep their diff preview while collapsed instead of collapsing to a `+N -M` counter. The one-line summary is replaced by the tool's own diff block (16 rows, split for edits at 100+ columns, expand for the rest); diffs still fold into the usual grouped tool runs.
+- `/theme` is the only theme surface: `/slate theme` opens the picker and takes no arguments. `/slate theme <flavor> <palette>` and the old `/slate theme <name>` forms are now plain invalid usage instead of a second 60-name command tree.
+- `/slate style` is removed along with the theme arguments; the picker is the only theme surface. Pink is labelled `Pink` instead of its full theme name, and saved full names such as `catppuccin-latte-mauve` remain valid through Pi's `/settings`.
+- Mocha Quiet remains a saved theme and now shows as the last palette in the Mocha row.
+- Effort ramps follow each flavor: dark flavors brighten toward the accent, Latte deepens toward an accent darkened into body text, so every ramp stays monotonic.
+
+### Fixed
+
+- Native MCP validation is used on newer Pi versions by default. Missing validation is a warning, not a configuration failure.
+
+## 0.1.18
+
+Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.
+
+Pi 1.4.0 compatibility, session titles, and an opt-in effort-colored composer frame.
+
+### Added
+
+- Session title in the sidebar when `/name` or another extension sets one (Thanks @Benature for the PR)
+- `/slate effort-border [on|off]` paints the composer frame with a theme-native effort ramp. Off by default; applies live (Thanks @Benature for the PR)
+
+### Changed
+
+- Black Metal is selectable again from `/slate theme` and the theme menu.
+- Sidebar token rate reads `~33 t/s`.
+- `/prompts` has no default shortcut. Optional `"shortcuts": { "prompts": "" }` in `pi-slate.json`; `false` / `"none"` also mean none (Thanks @EinErste for the issue)
+
+### Fixed
+
+- Pi 1.4.0: empty MCP config no longer shows a false sidebar error, BOM-prefixed MCP files work, and stacked dialogs restore the composer (Thanks @Benature for the PR)
+
 ## 0.1.17
 
 Slimmer README with fast-loading screenshots and session lifecycle stability fixes.

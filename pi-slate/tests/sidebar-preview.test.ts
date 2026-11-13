@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
-import type { SidebarResources, SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
+import { SidebarMcpFiles, type SidebarResources, type SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
 import { sessionSidebarSlots } from "../extensions/pi-slate/sidebar-layout.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts";
@@ -43,30 +46,96 @@ function task(i: number): BackgroundTask {
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["Session session- · PID 8421", "sonnet-4.6", "16%", "31.6k / 200k · $0.12 · ~82/s", "61.4k In", "876 Out", "Cached 48k", "Uncached 7.3k", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
+  for (const label of ["Session session- · PID 8421", "sonnet-4.6", "16%", "31.6k / 200k · $0.12 · ~82 t/s", "61.4k In", "876 Out", "Cached 48k", "Uncached 7.3k", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
     assert(lines.some(line => line.includes(label)), label);
   for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0", "prompt-0"])
     assert(!lines.some(line => line.includes(label)), label);
   assert.match(sidebar.sessionDetails(), /Cache read: 48k/);
 });
 
-test("session identity copies the full ID and never substitutes a session name", () => {
+test("session identity keeps the ID while a separate title copies the full name", () => {
   const { sidebar } = fixture();
   const copied: string[] = [];
   const id = "01234567-89ab-cdef-0123-456789abcdef";
-  sidebar.setSession({ ...session, id });
+  const name = "Slate 的会话标题";
+  sidebar.setSession({ ...session, id, name });
   sidebar.setActions({ copy: (value) => copied.push(value), openFile() {} });
-  assert.equal(plain(sidebar.render(40))[1], "Session 01234567 · PID 8421");
+  const lines = plain(sidebar.render(40));
+  assert.equal(lines[1], name, "title is the first content row");
+  assert.equal(lines[2], "Session 01234567 · PID 8421", "identity follows the title");
   sidebar.handleMouse(mouse(row(sidebar, "Session 01234567")));
-  assert.deepEqual(copied, [id]);
+  sidebar.handleMouse(mouse(row(sidebar, name)));
+  assert.deepEqual(copied, [id, name]);
   assert.ok(sidebar.sessionDetails().startsWith(`Session ${id} · PID 8421\n`));
+  assert.match(sidebar.sessionDetails(), /Title: Slate 的会话标题/);
   sidebar.setSession({ ...session, id: "" });
-  assert.equal(plain(sidebar.render(40))[1], "Session — · PID 8421");
+  assert.equal(plain(sidebar.render(40))[1], "", "unnamed sessions retain the title spacer");
+  assert.equal(plain(sidebar.render(40))[2], "Session — · PID 8421");
+  assert.match(sidebar.sessionDetails(), /Title: —/);
+});
+
+test("long titles stay bounded, copy without ellipsis, and refresh on same-session renames", () => {
+  const { sidebar } = fixture();
+  const copied: string[] = [];
+  const name = "中文会话 👩‍💻 café —— ".repeat(100).trim();
+  assert(name.length > 512, "full title survives the default sidebar text limit");
+  sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
+  sidebar.setSession({ ...session, name: `\x1b[31m${name}\x1b[0m\n` });
+  const before = sidebar.render(28);
+  const title = plain(before)[1]!;
+  assert.match(title, /…$/);
+  assert(before.every(line => visibleWidth(line) <= 28));
+  assert(!before.some(line => line.includes("\x1b[31m") || line.includes("\n")), "untrusted title styling and line breaks are removed");
+  sidebar.handleMouse(mouse(1, { width: 28 }));
+  assert.deepEqual(copied, [name], "copy uses the complete sanitized title, not its painted ellipsis");
+  assert(sidebar.sessionDetails().includes(`Title: ${name}\n`));
+  sidebar.setSession({ ...session, name: "改名后的会话" });
+  sidebar.handleMouse(mouse(1, { width: 28 }));
+  assert.deepEqual(copied, [name, "改名后的会话"], "a click before repaint never copies the previous title");
+  const after = sidebar.render(28);
+  assert.notEqual(after, before, "renaming invalidates cached rows even with the same clock and ID");
+  assert.equal(plain(after)[1], "改名后的会话");
+  sidebar.setSession({ ...session, name: " \n\x1b[2J" });
+  sidebar.handleMouse(mouse(1, { width: 28 }));
+  assert.deepEqual(copied, [name, "改名后的会话"], "clearing a title disables copying before repaint");
+  assert.equal(plain(sidebar.render(28))[1], "");
+  assert.equal(sidebar.handleMouse(mouse(1, { width: 28 })), undefined, "an empty title has no stale copy hit");
+  assert.deepEqual(copied, [name, "改名后的会话"]);
+});
+
+test("top title uses bold theme accent and follows theme changes independently of the identity", () => {
+  const { sidebar } = fixture();
+  const name = "特别的标题 👩‍💻 café";
+  const copied: string[] = [];
+  const titleTheme = (accent: number) => ({
+    fg: (tone: string, text: string) => `\x1b[${tone === "accent" ? accent : tone === "mdHeading" ? 33 : 37}m${text}\x1b[0m`,
+    bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+  }) as Theme;
+  let current = titleTheme(36);
+  sidebar.setThemeProvider(() => current);
+  sidebar.setSession({ ...session, name });
+  sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
+  for (const width of [8, 28, 40, 80]) {
+    const lines = sidebar.render(width);
+    assert.match(lines[1]!, /\x1b\[36m/, "title uses accent rather than body text or heading color");
+    assert.match(lines[1]!, /\x1b\[1m/, "title is bold");
+    assert.match(lines[2]!, /\x1b\[33m/, "Session ID retains its heading color");
+    assert(lines.every(line => visibleWidth(line) <= width));
+  }
+  const before = sidebar.render(40);
+  current = titleTheme(35);
+  const after = sidebar.render(40);
+  assert.notEqual(after, before, "theme changes refresh the cached title");
+  assert.match(after[1]!, /\x1b\[35m/);
+  assert.doesNotMatch(after[1]!, /\x1b\[36m/);
+  assert.match(after[1]!, /\x1b\[1m/);
+  sidebar.handleMouse(mouse(1));
+  assert.deepEqual(copied, [name], "copy contains no styling");
 });
 
 test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny terminals", () => {
   const { sidebar, terminal } = fixture();
-  sidebar.setSession({ ...session, id: "长会话 👩‍💻 café\n\x1b[2J", model: "非常长的模型名字".repeat(8) });
+  sidebar.setSession({ ...session, id: "长会话 👩‍💻 café\n\x1b[2J", name: "标题 👩‍💻 café\n\x1b[2J".repeat(8), model: "非常长的模型名字".repeat(8) });
   sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2), task(3)]);
   for (let height = 0; height <= 60; height++) {
     terminal.rows = height;
@@ -88,14 +157,15 @@ test("usage is a single stable label/value lane; full accounting stays in detail
     const text = plain(sidebar.render(width)).join("\n");
     assert(text.includes("PID 8421"));
     if (width >= 28) for (const value of ["61.4k", "876", "48k", "7.3k", "$0.12"]) assert(text.includes(value), value);
-    if (width >= 40) assert(text.includes("~82/s")); // Narrow rails truncate the merged occupancy tail first.
+    if (width >= 40) assert(text.includes("~82 t/s")); // Narrow rails truncate the merged occupancy tail first.
   }
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
   assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
 });
 
-test("session identity occupies one row and the 11-row header matches its slots", () => {
+test("title precedes the session identity and the 11-row header matches its slots", () => {
   const { sidebar } = fixture();
+  sidebar.setSession({ ...session, name: "Slate session title" });
   assert.equal(sessionSidebarSlots(60, 0, false).header, 11);
   assert.equal(sessionSidebarSlots(30, 0, false).header, 11);
   assert.equal(sessionSidebarSlots(29, 0, false).header, 4, "compact header also releases the removed rows");
@@ -104,9 +174,10 @@ test("session identity occupies one row and the 11-row header matches its slots"
   assert.match(lines.at(-1)!, /^└─+┘$/, "bottom bar");
   const hairline = lines.findIndex((line, i) => i > 0 && i < lines.length - 1 && /^├─+┤$/.test(line));
   assert.equal(hairline, 11, "hairline closes an 11-row header under the top bar");
-  assert.equal(lines[1], "Session session- · PID 8421");
+  assert.equal(lines[1], "Slate session title");
+  assert.equal(lines[2], "Session session- · PID 8421");
   assert(/^Context [━─]+ │ 16%$/.test(lines[5]!), "single context meter row");
-  assert(lines[6]!.includes("31.6k / 200k · $0.12 · ~82/s"), "merged occupancy line");
+  assert(lines[6]!.includes("31.6k / 200k · $0.12 · ~82 t/s"), "merged occupancy line");
   assert(lines[8]!.includes("61.4k In") && lines[8]!.includes("Cached 48k"));
   assert(lines[8]!.indexOf("Cached 48k") < lines[8]!.indexOf("61.4k In"), "Cached lanes left, In right with value first");
   assert(lines[9]!.includes("876 Out") && lines[9]!.includes("Uncached 7.3k"));
@@ -159,7 +230,7 @@ test("occupancy and stat rows keep the branch usage inspect action; nulls render
   const { sidebar } = fixture(); const inspected: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: title => inspected.push(title) });
   sidebar.setSession({ ...session, estimated: true, usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null } });
-  sidebar.handleMouse(mouse(row(sidebar, "~31.6k / 200k · — · ~82/s")));
+  sidebar.handleMouse(mouse(row(sidebar, "~31.6k / 200k · — · ~82 t/s")));
   sidebar.handleMouse(mouse(row(sidebar, "— In")));
   sidebar.handleMouse(mouse(row(sidebar, "Uncached —")));
   assert.deepEqual(inspected, ["Branch usage", "Branch usage", "Branch usage"]);
@@ -359,27 +430,53 @@ test("unknown values and invalid MCP config remain explicit even when folded", (
   assert(!lines.some(line => line.includes("$0.00")));
 });
 
-test("rejected MCP entries count as Errors without dumping the reason", () => {
+test("unknown MCP declarations are neutral when folded or expanded and inspection explains the boundary", () => {
   const { sidebar } = fixture();
-  sidebar.setResources({
-    ...resources,
-    mcp: [
-      { name: "ok", enabled: true, source: "global" },
-      { name: "ok2", enabled: true, source: "global" },
-      { name: "bad", enabled: null, source: "project" },
-    ],
-    mcpError: "MCP configuration has rejected entries",
-  });
-  const lines = plain(sidebar.render(80));
-  assert(lines.some(line => line.includes("MCP · 2 Enabled · 1 Error")), "enabled count stays numeric next to the error count");
-  assert(!lines.some(line => line.includes("rejected entries") || line.includes("config error")));
+  const details: string[] = [];
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  sidebar.setResources({ ...resources, mcp: [{ name: "unknown-server", enabled: null, source: "global" }] });
+  const folded = plain(sidebar.render(80));
+  assert(folded.some(line => line.includes("› MCP · —")));
+  assert(!folded.some(line => /Error|Warning|0 Enabled/.test(line)));
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  const expanded = plain(sidebar.render(80));
+  assert(expanded.some(line => line.includes("⌄ MCP · —")));
+  assert(expanded.some(line => line.trim() === "— unknown-server"));
+  sidebar.setThemeProvider(() => ({ fg: (tone: string, text: string) => tone === "warning" ? `\x1b[33m${text}\x1b[0m` : tone === "error" ? `\x1b[31m${text}\x1b[0m` : text, bold: (text: string) => text }) as Theme);
+  assert(!/\x1b\[(?:33|31)m/.test(sidebar.render(80).join("\n")));
+  sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));
+  assert.match(details[0]!, /Slate does not validate MCP/);
+  assert.match(details[0]!, /Use \/mcp/);
 });
 
-test("reset discards old images, task rows and hit targets without changing fold preference", () => {
-  const { sidebar } = fixture(); sidebar.setFolds({ mcp: true, skills: false, prompts: true }); sidebar.setView(image()); sidebar.setTasks([task(0)]);
-  sidebar.render(40); sidebar.reset();
+test("readable MCP declarations render without a host adapter; actual file failures remain visible", async t => {
+  const root = await mkdtemp(join(tmpdir(), "slate-mcp-configured-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "mcp.json"), '\uFEFF{"mcpServers":{"docs":{"type":"future-transport"}}}');
+  const snapshot = new SidebarMcpFiles().snapshot(root, root, false, []);
+  const { sidebar } = fixture();
+  sidebar.setResources({ skills: [], commands: [], prompts: [], ...snapshot });
+  const lines = plain(sidebar.render(80));
+  assert.equal(snapshot.mcpError, undefined);
+  assert.equal(snapshot.mcp[0]!.enabled, true);
+  assert(lines.some(line => line.includes("MCP · 1 Enabled")));
+  assert(!lines.some(line => /Error|Warning/.test(line)));
+  sidebar.setResources({ skills: [], commands: [], prompts: [], ...snapshot, mcpError: "MCP config unreadable" });
+  assert(plain(sidebar.render(80)).some(line => line.includes("MCP · 1 Enabled · 1 Error")));
+});
+
+test("reset discards old titles, images, task rows and hit targets without changing fold preference", () => {
+  const { sidebar } = fixture();
+  const copied: string[] = [];
+  sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
+  sidebar.setSession({ ...session, name: "Old title" });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: true }); sidebar.setView(image()); sidebar.setTasks([task(0)]);
+  const titleRow = row(sidebar, "Old title");
+  sidebar.reset();
+  assert.equal(sidebar.handleMouse(mouse(titleRow)), undefined, "reset clears the old title hit before another paint");
+  assert.deepEqual(copied, []);
   assert.equal(sidebar.currentViewId(), undefined); assert.deepEqual(sidebar.getFolds(), { mcp: true, skills: false, prompts: true });
-  assert(!plain(sidebar.render(40)).some(line => line.includes("job-0") || line.includes("server-0")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("Old title") || line.includes("job-0") || line.includes("server-0")));
   sidebar.dispose(); sidebar.dispose();
 });
 

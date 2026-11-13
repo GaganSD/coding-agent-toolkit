@@ -1,16 +1,8 @@
 import { readFileSync } from "node:fs";
-import { parseFlavor, parseStyle, type Flavor, type Style } from "./catppuccin.ts";
 import { parseSurfaces, SURFACES, type Surface } from "./surfaces.ts";
 import { isProgressStyle, type ProgressStyle } from "./working-wave.ts";
 
-// The source SVG is a 4×4 square grid. Terminal cells are approximately twice
-// as tall as they are wide, so every source square occupies two columns.
-// Keep the empty fourth column on the first two rows. The header centers this
-// fixed-width canvas as a whole; trimming those spaces distorts the mark.
-export const PI_LOGO = ["██████  ", "██  ██  ", "████  ██", "██    ██"];
-export const PI_LOGO_ASCII = ["######  ", "##  ##  ", "####  ##", "##    ##"];
-
-/** Header mark variants: the classic white Pi or the stock brand mark. */
+/** Header mark variants: the classic monochrome Pi or the stock brand mark. */
 export const LOGO_STYLES = ["original", "minimal"] as const;
 export type LogoStyle = typeof LOGO_STYLES[number];
 
@@ -81,39 +73,9 @@ export function modelStatusLabel(
   return base;
 }
 
-const INTEGERS = new Intl.NumberFormat("en");
-
-export function formatInteger(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return INTEGERS.format(Math.round(value));
-}
-
-export function formatTokenCount(tokens: number | null | undefined): string {
-  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "— tokens";
-  return `${formatInteger(tokens)} tokens`;
-}
-
-export function formatTokenRate(rate: number | null | undefined): string {
-  if (rate === null || rate === undefined || !Number.isFinite(rate)) return "— tokens/sec";
-  return `${formatInteger(Math.max(0, rate))} tokens/sec`;
-}
-
 export function formatPercent(percent: number | null | undefined): string {
   if (percent === null || percent === undefined || !Number.isFinite(percent)) return "—%";
   return `${Math.round(percent)}%`;
-}
-
-export function formatSpend(cost: number | null | undefined): string {
-  if (cost === null || cost === undefined || !Number.isFinite(cost)) return "$0.00";
-  return `$${Math.max(0, cost).toFixed(2)}`;
-}
-
-export function formatContextTokens(
-  tokens: number | null | undefined,
-  percent: number | null | undefined,
-  rate: number | null | undefined,
-): string {
-  return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
 /** Compact thousands: 845 -> "845", 16005 -> "16k", 47349 -> "47.3k", 1000000 -> "1M". */
@@ -141,72 +103,16 @@ export function formatFocusedContextTokens(
   return `${formatPercent(percent)}/${formatCompactTokenCount(contextWindow)} tokens · ↑↓${formatCompactTokenCount(rate)}`;
 }
 
-export function formatMcpEnabled(count: number): string {
-  const servers = Math.max(0, Math.round(count));
-  return `${servers} MCPs enabled`;
-}
-
-export function formatSkillsLoaded(count: number): string {
-  const skills = Math.max(0, Math.round(count));
-  return `${skills} skills loaded`;
-}
-
-export function formatContextResources(
-  spend: number | null | undefined,
-  skills: number,
-  mcpCount: number | null,
-): string {
-  return `${formatSpend(spend)} · ${formatSkillsLoaded(skills)} · ${formatMcpEnabled(mcpCount ?? 0)}`;
-}
-
 export function formatFocusedContextResources(
-  spend: number | null | undefined,
-  skills: number,
+  percent: number | null | undefined,
+  estimated: boolean,
   mcpCount: number | null,
 ): string {
-  const skillCount = Math.max(0, Math.round(skills));
   const serverCount = mcpCount === null ? 0 : Math.max(0, Math.round(mcpCount));
 
-  // Focused mode owns the only inline cost readout; keep it even when no
-  // skills or MCP servers are loaded.
-  const parts = [formatSpend(spend)];
-  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"}`);
-  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"}`);
+  const parts = [`ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`];
+  if (serverCount > 0) parts.push(`${serverCount} mcp`);
   return parts.join(" · ");
-}
-
-export function countSkillCommands(commands: readonly { source?: string; sourceInfo?: { path?: string }; name?: string }[]): number {
-  const seen = new Set<string>();
-  for (const command of commands) {
-    if (command.source !== "skill") continue;
-    seen.add(command.sourceInfo?.path || command.name || "skill");
-  }
-  return seen.size;
-}
-
-/** Later sources override the same server name (project over global). */
-export function mergeMcpServerMaps(...sources: unknown[]): Record<string, unknown> {
-  const servers: Record<string, unknown> = {};
-  for (const data of sources) {
-    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
-    const next = (data as { mcpServers?: unknown }).mcpServers;
-    if (!next || typeof next !== "object" || Array.isArray(next)) continue;
-    Object.assign(servers, next);
-  }
-  return servers;
-}
-
-export function parseMcpEnabledCount(data: unknown): number | null {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const servers = (data as { mcpServers?: unknown }).mcpServers;
-  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return null;
-  return Object.values(servers).filter(isEnabledMcpServer).length;
-}
-
-function isEnabledMcpServer(server: unknown): boolean {
-  if (!server || typeof server !== "object" || Array.isArray(server)) return false;
-  const entry = server as { enabled?: unknown; disabled?: unknown };
-  return entry.enabled !== false && entry.disabled !== true;
 }
 
 export function footerVisibility(width: number): {
@@ -303,7 +209,9 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | diagnostics | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+
+export const LOGO_USAGE = "Usage: /logo [original|minimal]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -313,9 +221,9 @@ export function withoutCurrent(label: string): string {
   return label.endsWith(" (current)") ? label.slice(0, -" (current)".length) : label;
 }
 
-const THEME_STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
 const SLATE_COMPLETIONS = [
   "session", "session mcp", "session skills", "session prompts", "session commands", "session tasks", "session image",
+  "diagnostics",
   "surfaces",
   "surfaces set",
   ...SURFACES.map((name) => `surfaces set ${name}`),
@@ -338,9 +246,9 @@ const SLATE_COMPLETIONS = [
   "pid",
   "pid on",
   "pid off",
-  "logo",
-  "logo original",
-  "logo minimal",
+  "effort-border",
+  "effort-border on",
+  "effort-border off",
   "progress",
   "progress waves",
   "progress dna-helix",
@@ -350,10 +258,6 @@ const SLATE_COMPLETIONS = [
   "message-length default",
   "message-length all",
   "theme",
-  "theme tokyo-night",
-  ...THEME_STYLES.map((style) => `theme ${style}`),
-  "style",
-  ...THEME_STYLES.map((style) => `style ${style}`),
   "bug",
   "bug file",
   "bug open",
@@ -361,6 +265,7 @@ const SLATE_COMPLETIONS = [
 
 export type SlateArgs =
   | { ok: true; kind: "menu" }
+  | { ok: true; kind: "diagnostics" }
   | { ok: true; kind: "session"; section?: "mcp" | "skills" | "prompts" | "commands" | "tasks" | "image" }
   | { ok: true; kind: "surfaces"; value?: Surface[] }
   | { ok: true; kind: "density"; value?: "comfortable" | "compact" }
@@ -369,14 +274,11 @@ export type SlateArgs =
   | { ok: true; kind: "width"; width?: number }
   | { ok: true; kind: "focused"; value?: boolean }
   | { ok: true; kind: "pid"; value?: boolean }
-  | { ok: true; kind: "logo"; value?: LogoStyle }
+  | { ok: true; kind: "effort-border"; value?: boolean }
   | { ok: true; kind: "progress"; value?: ProgressStyle }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
-  | { ok: true; kind: "named-theme"; name: "system" | "tokyo-night" }
-  | { ok: true; kind: "theme"; flavor?: Flavor; style?: Style }
-  | { ok: true; kind: "style"; value?: Style }
   | { ok: true; kind: "bug-menu" }
   | { ok: true; kind: "bug"; action: "file" | "open" }
   | { ok: false };
@@ -384,7 +286,8 @@ export type SlateArgs =
 export function parseSlateArgs(raw: string): SlateArgs {
   const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return { ok: true, kind: "menu" };
-  const [head, tail, extra] = words;
+  const [head, tail] = words;
+  if (head === "diagnostics") return words.length === 1 ? { ok: true, kind: "diagnostics" } : { ok: false };
   if (head === "session") {
     if (words.length === 1) return { ok: true, kind: "session" };
     if (words.length === 2 && (tail === "mcp" || tail === "skills" || tail === "prompts" || tail === "commands" || tail === "tasks" || tail === "image")) return { ok: true, kind: "session", section: tail };
@@ -400,27 +303,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
     }
     return { ok: false };
   }
+  // Theme selection lives in the `/theme` picker; `/slate theme` only opens it.
   if (head === "theme") {
-    if (words.length > 3) return { ok: false };
-    if (!tail) return { ok: true, kind: "theme-menu" };
-    if (tail === "default" && !extra) return { ok: true, kind: "named-theme", name: "system" };
-    if ((tail === "tokyo-night" || tail === "tokyonight") && !extra) return { ok: true, kind: "named-theme", name: "tokyo-night" };
-    const flavor = parseFlavor(tail);
-    if (flavor) {
-      if (!extra) return { ok: true, kind: "theme", flavor };
-      const style = parseStyle(extra);
-      return style ? { ok: true, kind: "theme", flavor, style } : { ok: false };
-    }
-    const style = parseStyle(tail);
-    if (style && !extra) return { ok: true, kind: "theme", style };
-    return { ok: false };
+    return words.length === 1 ? { ok: true, kind: "theme-menu" } : { ok: false };
   }
   if (words.length > 2) return { ok: false };
-  if (head === "style") {
-    if (!tail) return { ok: true, kind: "style" };
-    const style = parseStyle(tail);
-    return style ? { ok: true, kind: "style", value: style } : { ok: false };
-  }
   if (head === "density") {
     if (!tail) return { ok: true, kind: "density" };
     if (tail === "comfortable" || tail === "compact") return { ok: true, kind: "density", value: tail };
@@ -449,9 +336,9 @@ export function parseSlateArgs(raw: string): SlateArgs {
     if (tail === "on" || tail === "off") return { ok: true, kind: "pid", value: tail === "on" };
     return { ok: false };
   }
-  if (head === "logo") {
-    if (!tail) return { ok: true, kind: "logo" };
-    if (tail === "original" || tail === "minimal") return { ok: true, kind: "logo", value: tail };
+  if (head === "effort-border") {
+    if (!tail) return { ok: true, kind: "effort-border" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "effort-border", value: tail === "on" };
     return { ok: false };
   }
   if (head === "progress") {
@@ -485,6 +372,20 @@ export function slateArgumentCompletions(prefix: string): { value: string; label
   const matches = candidates.filter((value) => value.startsWith(normalized))
     .map((value) => ({ value, label: value }));
   return matches.length ? matches : null;
+}
+
+export function logoArgumentCompletions(prefix: string): { value: string; label: string }[] | null {
+  const normalized = prefix.trimStart().toLowerCase();
+  const matches = LOGO_STYLES.filter((value) => value.startsWith(normalized))
+    .map((value) => ({ value, label: value }));
+  return matches.length ? matches : null;
+}
+
+export function parseLogoArgs(raw: string): { ok: true; value?: LogoStyle } | { ok: false } {
+  const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { ok: true };
+  const value = LOGO_STYLES.find((style) => style === words[0]);
+  return words.length === 1 && value ? { ok: true, value } : { ok: false };
 }
 
 export function clampSidebarColumns(totalWidth: number, columns: number): number {

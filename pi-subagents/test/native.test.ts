@@ -46,8 +46,8 @@ async function fixture(t: Parameters<typeof temp>[0], handler?: (model: Model<Ap
   });
   const profiles = await loadProfiles(agentDir, cwd, true);
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, task: { agent: "reviewer", task: "Review fixture" },
-    profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: [],
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
+    profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: () => [],
   };
   const store = new FileArtifacts(path.join(root, "runs"));
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store });
@@ -106,7 +106,7 @@ test("real SDK: worker tools differ, no model/scoped/thinking fallback", async t
   assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.deepEqual(names.sort(), [...EDIT_TOOLS].sort());
   assert.throws(() => prepareNative({ ...options, task: { ...options.task, model: "fixture/missing" } }), /unavailable/);
-  assert.throws(() => prepareNative({ ...options, scopedModels: ["different/provider"] }), /scope/);
+  assert.throws(() => prepareNative({ ...options, scopedModels: () => ["different/provider"] }), /scope/);
   const unsupportedThinking = /Thinking level 'high' is unsupported by fixture\/test; supported levels: off; set an explicit supported level on the task or profile/;
   assert.throws(() => prepareNative({ ...options, agentThinking: "high" }), unsupportedThinking);
   assert.throws(() => prepareNative({ ...options, agentThinking: "off", task: { ...options.task, thinking: "high" } }), unsupportedThinking);
@@ -152,6 +152,37 @@ test("real SDK: contact_agent round trip and run-owned reply", async t => {
   assert.equal(calls, 2);
   assert.equal(f.manager.status(id!).usage!.input, 10, "billing stays cumulative");
   assert.equal(f.manager.status(id!).contextUsage!.tokens, 8, "occupancy uses latest response only");
+});
+
+test("real SDK: queued steering runs before follow-up and settlement saves the follow-up report", async t => {
+  const first = createAssistantMessageEventStream();
+  let initialModel!: Model<Api>;
+  const inputs: string[][] = [];
+  const f = await fixture(t, (model, context) => {
+    const users = context.messages.filter(message => message.role === "user").map(message =>
+      typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("\n"));
+    inputs.push(users);
+    if (inputs.length === 1) { initialModel = model; return first; }
+    return response(model, [{ type: "text", text: `Report after ${users.at(-1)}` }]);
+  });
+  const [id] = await f.manager.launch([prepareNative(f.options)]);
+  await until(() => inputs.length === 1);
+  // Queue in reverse priority while the first native model response is held open.
+  assert.equal(await f.manager.followUp(id!, "follow-up task"), "queued");
+  assert.equal(await f.manager.steer(id!, "steering task"), "queued");
+  for await (const event of response(initialModel, [{ type: "text", text: "Initial report" }])) first.push(event);
+  first.end();
+  await f.manager.settled(id!);
+  const record = f.manager.status(id!);
+  assert.equal(record.state, "completed", record.error ?? "no error");
+  assert.deepEqual(inputs, [
+    [f.options.task.task],
+    [f.options.task.task, "steering task"],
+    [f.options.task.task, "steering task", "follow-up task"],
+  ]);
+  assert.match(await readFile(record.reportPath!, "utf8"), /Report after follow-up task/);
+  assert.match(await readFile(record.sessionPath!, "utf8"), /Report after follow-up task/);
+  await assert.rejects(f.manager.followUp(id!, "too late"), /running/);
 });
 
 test("real SDK: provider errors and empty output cannot succeed", async t => {

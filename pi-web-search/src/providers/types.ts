@@ -1,4 +1,6 @@
-export type ProviderKind = "exa" | "parallel" | "grep" | "sourcegraph" | "github";
+export type ProviderKind = "exa" | "parallel" | "grep" | "sourcegraph" | "github" | "brave";
+/** Jina extracts known pages; it never participates in search routing. */
+export type EvidenceProvider = ProviderKind | "jina";
 
 /**
  * Sources answer different questions. Exa/Parallel answer web questions;
@@ -14,6 +16,7 @@ export const PROVIDER_FAMILY: Record<ProviderKind, ProviderFamily> = {
 	grep: "code",
 	sourcegraph: "code",
 	github: "code",
+	brave: "web",
 };
 
 export const PROVIDER_KINDS: readonly ProviderKind[] = [
@@ -22,7 +25,20 @@ export const PROVIDER_KINDS: readonly ProviderKind[] = [
 	"grep",
 	"sourcegraph",
 	"github",
+	"brave",
 ];
+
+const SOURCE_FAMILIES = new Map<string, ProviderFamily>([...Object.entries(PROVIDER_FAMILY), ["jina", "web"]]);
+
+/** Provider provenance can contain comma-separated contributors after deduplication. */
+export function isCodeSource(source?: string): boolean {
+	return (source ?? "").split(", ").some((tag) => SOURCE_FAMILIES.get(tag) === "code");
+}
+
+export function sourceFamily(source?: string): ProviderFamily | undefined {
+	const families = new Set((source ?? "").split(", ").map((tag) => SOURCE_FAMILIES.get(tag)).filter((family) => family !== undefined));
+	return families.size === 1 ? families.values().next().value : undefined;
+}
 
 /** Default order tried within a family when config does not override it. */
 export const DEFAULT_CHAIN: Record<ProviderFamily, ProviderKind[]> = {
@@ -49,25 +65,26 @@ export interface SearchResultDetail {
 	citedText?: string;
 	status?: string;
 	type?: string;
+	/** Stable one-based hit handle, assigned in stored order before preview selection. */
+	ref?: string;
 }
 
 export interface StreamResult {
 	/** Markdown summary; "" when the provider only returns documents. */
 	text: string;
 	sources?: Source[];
-	providerKind: ProviderKind;
+	providerKind: EvidenceProvider;
 	/** Every provider that contributed, when more than one ran. */
-	providers?: ProviderKind[];
+	providers?: EvidenceProvider[];
 	searchResults?: SearchResultDetail[];
 	/** Exa requestId or Parallel search_id. Joined when several ran. */
 	requestId?: string;
 	usage?: { name: string; count: number }[];
 	warnings?: string[];
 	scope?: "web" | "code" | "both";
-	skipped?: string[];
-	jevStatus?: "ran" | "disabled" | "unavailable" | "skipped";
-	/** Decision-layer audit trail; absent whenever jev did not run. */
-	jev?: {
+	classifierStatus?: "ran" | "disabled" | "unavailable" | "skipped";
+	/** Decision-layer audit trail; absent whenever classifier did not run. */
+	classifier?: {
 		sufficient: boolean;
 		lowConfidence: boolean;
 		/** Count withheld as unsafe. */
@@ -100,6 +117,8 @@ export interface ProviderError extends Error {
 	/** JSON-RPC error code, kept separate from `status` (which is HTTP). */
 	rpcCode?: number;
 	retryable?: boolean;
+	/** Trusted HTTP Retry-After delay, bounded by the retrieval reuse policy. */
+	retryAfterMs?: number;
 }
 
 export interface ProviderErrorOptions {
@@ -107,6 +126,7 @@ export interface ProviderErrorOptions {
 	rpcCode?: number;
 	retryable?: boolean;
 	cause?: unknown;
+	retryAfterMs?: number;
 }
 
 const RETRYABLE_CODES = new Set<ProviderErrorCode>([
@@ -138,6 +158,7 @@ export function providerError(
 	if (opts.rpcCode !== undefined) {
 		error.rpcCode = opts.rpcCode;
 	}
+	if (opts.retryAfterMs !== undefined) error.retryAfterMs = opts.retryAfterMs;
 	error.retryable = opts.retryable ?? isRetryable(code, opts.status);
 	if (opts.cause !== undefined) {
 		error.cause = opts.cause;

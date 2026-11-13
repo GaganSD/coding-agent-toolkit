@@ -1,7 +1,7 @@
 {
   "name": "@gagansd/pi-web-search",
-  "version": "0.3.1",
-  "description": "Search the web and public code from Pi, with citations. web_search, code_search, and opt-in multi_search — keyless by default, no vendor lock-in.",
+  "version": "0.4.0",
+  "description": "One search tool for public web/code, URL extraction, and local evidence continuation. Cited, context-efficient, and keyless by default.",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
@@ -17,10 +17,10 @@
     "parallel",
     "jev"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-web-search",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-web-search",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-web-search"
   },
   "files": [
@@ -36,6 +36,7 @@
   "scripts": {
     "test": "node --experimental-strip-types scripts/test.ts",
     "typecheck": "tsc --noEmit",
+    "bench:context": "node --experimental-strip-types scripts/footprint.ts",
     "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "test:unit": "node ../scripts/test-package.mjs pi-web-search unit",
     "test:integration": "node ../scripts/test-package.mjs pi-web-search integration",
@@ -43,6 +44,7 @@
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "node --experimental-strip-types scripts/pack-check.ts",
     "smoke:live": "node --experimental-strip-types scripts/live-smoke.ts",
+    "smoke:classifier": "node --experimental-strip-types scripts/classifier-smoke.ts",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck && npm run pack:check"
   },
   "peerDependencies": {
@@ -66,7 +68,7 @@
     }
   },
   "overrides": {
-    "undici": "8.12.2"
+    "undici": "8.12.4"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.3.0",

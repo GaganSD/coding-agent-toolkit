@@ -316,25 +316,25 @@ export function renderFooterKeymaps(
 		],
 		multi: [
 			footerHint(main.toggle, "toggle"),
-			footerHint(
-				main.changeQuestionType,
-				"question type",
-				footerKeyIdLabel(main.changeQuestionType)
-			),
 			footerHint(main.confirm, "continue"),
 			footerHint(main.optionNote, "note", noteNavigationLabel),
 			footerHint(main.cancel, "dismiss"),
-			footerHint(global.settings, "settings"),
-		],
-		default: [
 			footerHint(
 				main.changeQuestionType,
 				"question type",
 				footerKeyIdLabel(main.changeQuestionType)
 			),
+			footerHint(global.settings, "settings"),
+		],
+		default: [
 			footerHint(main.confirm, "confirm"),
 			footerHint(main.optionNote, "note", noteNavigationLabel),
 			footerHint(main.cancel, "dismiss"),
+			footerHint(
+				main.changeQuestionType,
+				"question type",
+				footerKeyIdLabel(main.changeQuestionType)
+			),
 			footerHint(global.settings, "settings"),
 		],
 	};

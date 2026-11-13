@@ -2,7 +2,30 @@
 
 ## Unreleased
 
+### Added
+
 - Allow explicit run deadlines up to six hours through `minimalSubagents.timeoutMs`; retain the thirty-minute default and session-bound cancellation.
+
+- `subagent followUp` and `/subagents followUp` queue a message after the sub-agent's pending work, the same follow-up verb as the owning session; steer still enters after the current turn.
+- Exact-ID status presents cached context usage and the current tool alongside state, model/thinking, and evidence paths, inside the same closed output schema.
+
+### Changed
+
+- Worker threads render finalized conversation with Pi's native markdown theme and show context usage in the header; tool output stays clamped behind Tools.
+
+### Fixed
+
+- Settled sub-agents reject `steer`/`followUp` instead of acknowledging input their disposing session would never process.
+- Threads re-render cached markdown with the active theme after invalidation instead of retaining stale colors.
+
+## 0.1.0
+
+Support extension-provided models through the owning Pi registry, tighten admission and resume validation, and clarify workspace isolation.
+
+- Support extension-provided models through the owning Pi registry's live catalog, authentication, and streaming services without inheriting parent extensions, tools, or conversation (#59).
+- Revalidate model, scope, authentication, and thinking before admission and resume; reject removed or virtual models without fallback.
+- Cancel pending resume validation on stop or tool cancellation without spending an attempt; validate batch policies concurrently with task-specific errors and a separate admission deadline.
+- Identify conflicting batch tasks and active runs with cwd and effective workspace roots; explain directory-based isolation and whole-worktree Git reservations (#67).
 
 ## 0.0.7
 

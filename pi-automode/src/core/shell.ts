@@ -67,7 +67,11 @@ const PROVEN_SIMPLE: Readonly<Record<string, SimpleSpec>> = {
  * alone is never proof. (Resolved after realpath, so the usual /bin ->
  * /usr/bin merges are fine.)
  */
-const TRUSTED_EXECUTABLE_PREFIXES = ["/bin", "/usr/bin", "/sbin", "/usr/sbin"];
+const TRUSTED_EXECUTABLE_PREFIXES = [
+  "/bin", "/usr/bin", "/sbin", "/usr/sbin",
+  // Ubuntu 26's distribution-owned uutils coreutils, not a user's ~/.cargo/bin.
+  "/usr/lib/cargo/bin/coreutils",
+];
 
 /** Package-manager family: snapshot the manifest as relevant executable input. */
 const MANIFEST_PROGRAMS = new Set(["npm", "npx", "pnpm", "yarn", "bun"]);

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
-import { ModelRuntime, SessionManager, type ExtensionAPI, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { ModelRegistry, ModelRuntime, SessionManager, type ExtensionAPI, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Check } from "typebox/value";
 import register from "../index.ts";
 import { OutputSchema } from "../src/tool.ts";
@@ -39,14 +39,13 @@ test("public tool: native launch/question/reply/completion stay compact while ex
       return stream;
     },
   });
-  const previousDir = process.env.PI_CODING_AGENT_DIR, create = ModelRuntime.create;
+  const previousDir = process.env.PI_CODING_AGENT_DIR;
   const hooks = new Map<string, () => Promise<void>>(), notices: string[] = [];
   const snapshots: Array<{ sessionId: string; tasks: Array<{ id: string; state: string }> }> = [];
   const bus = new Map<string, (value: unknown) => void>();
   let tool!: ToolDefinition;
   try {
     process.env.PI_CODING_AGENT_DIR = agentDir;
-    ModelRuntime.create = async () => runtime; // The host's only model calls use the isolated fake provider.
     register({
       registerTool: (value: ToolDefinition) => { tool = value; }, registerCommand() {},
       on: (name: string, handler: () => Promise<void>) => { hooks.set(name, handler); return () => {}; },
@@ -57,11 +56,13 @@ test("public tool: native launch/question/reply/completion stay compact while ex
         emit(name: string, value: unknown) { if (name === "pi:background-tasks") snapshots.push(value as typeof snapshots[number]); },
       },
     } as unknown as ExtensionAPI);
-    const ctx = { cwd, mode: "tui", isProjectTrusted: () => true, scopedModels: [],
+    const ctx = { cwd, mode: "tui", isProjectTrusted: () => true, modelRegistry: new ModelRegistry(runtime),
+      model: runtime.getPhysicalModel("fixture", "test")!,
+      scopedModels: [{ model: runtime.getPhysicalModel("fixture", "test")!, thinkingLevel: "off" }],
       sessionManager: SessionManager.inMemory(cwd), ui: { setWidget() {} },
     } as unknown as ExtensionToolContext;
     const execute = (input: unknown) => tool.execute("public-call", input, undefined, undefined, ctx);
-    const launch = await execute({ action: "run", tasks: [{ agent: "reviewer", task: "PRIVATE_TASK_BRIEF", model: "fixture/test" }] });
+    const launch = await execute({ action: "run", tasks: [{ agent: "reviewer", task: "PRIVATE_TASK_BRIEF" }] });
     assert(Check(OutputSchema, launch.structuredContent));
     const { runs: [receipt] } = launch.structuredContent as { runs: { id: string; cwd: string; workspace: string; model: string; thinking: string }[] };
     assert.deepEqual(Object.keys(receipt!).sort(), ["cwd", "id", "model", "thinking", "workspace"]);
@@ -99,7 +100,6 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     await hooks.get("session_shutdown")?.();
     assert.equal(bus.size, 0, "dashboard refresh listener is disposed");
     if (snapshots.length) assert.deepEqual(snapshots.at(-1)!.tasks, []);
-    ModelRuntime.create = create;
     if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousDir;
   }
 });
@@ -133,19 +133,18 @@ test("public tool: a transient native failure resumes through the tool on the sa
       return stream;
     },
   });
-  const previousDir = process.env.PI_CODING_AGENT_DIR, create = ModelRuntime.create;
+  const previousDir = process.env.PI_CODING_AGENT_DIR;
   const hooks = new Map<string, () => Promise<void>>(), notices: string[] = [];
   let tool!: ToolDefinition;
   try {
     process.env.PI_CODING_AGENT_DIR = agentDir;
-    ModelRuntime.create = async () => runtime;
     register({
       registerTool: (value: ToolDefinition) => { tool = value; }, registerCommand() {},
       on: (name: string, handler: () => Promise<void>) => { hooks.set(name, handler); return () => {}; },
       getThinkingLevel: () => "off", appendEntry() {},
       sendMessage: (message: { content: string }) => { notices.push(message.content); },
     } as unknown as ExtensionAPI);
-    const ctx = { cwd, mode: "tui", isProjectTrusted: () => true, scopedModels: [],
+    const ctx = { cwd, mode: "tui", isProjectTrusted: () => true, modelRegistry: new ModelRegistry(runtime), scopedModels: [],
       sessionManager: SessionManager.inMemory(cwd), ui: { setWidget() {} },
     } as unknown as ExtensionToolContext;
     const execute = (input: unknown) => tool.execute("public-call", input, undefined, undefined, ctx);
@@ -174,7 +173,6 @@ test("public tool: a transient native failure resumes through the tool on the sa
     assert.equal(calls, 2);
   } finally {
     await hooks.get("session_shutdown")?.();
-    ModelRuntime.create = create;
     if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousDir;
   }
 });

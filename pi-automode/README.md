@@ -153,6 +153,8 @@ file. A rejected, unavailable, or insufficient-confidence proposal saves nothing
 and does not execute; retry with **Allow once** if appropriate. No chat-model
 fallback is used. Ordinary workspace file tools already use the deterministic floor.
 
+Verified system executables include Ubuntu 26's distribution-owned coreutils under `/usr/lib/cargo/bin/coreutils`, in addition to the standard system binary directories. User Cargo/PATH binaries and lookalike directories do not inherit that trust; program identity, executable permissions, flags, and operands must still pass verification. Verified system executables may be hard-linked, but their content and link metadata remain fingerprinted; hard-linked workspace operands still require approval.
+
 ## Decision Models
 
 Optional: without a decision model, unresolved calls require local approval.

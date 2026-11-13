@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.5
+
+- Add RPC dialog interviews with single/multi-select, free-text answers, back navigation, and review before submission.
+- Repair common malformed question payloads before validation.
+- Add Simplified Chinese dialog strings via `PI_ASK_LOCALE=zh`.
+- Reduce recurring tool context by about 44%.
+- Prioritize common keyboard hints in the footer.
+- Fix RPC cancellation races and unexpected dialog responses.
 
 ## 0.1.4
 

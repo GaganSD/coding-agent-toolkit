@@ -7,7 +7,7 @@ import { captureHead, diffPath, diffTool } from "../src/diff.ts";
 import { canonicalDirectory, git, overlaps, workspaceRoot } from "../src/workspace.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { RunManager } from "../src/runs.ts";
-import { plan, temp } from "./helpers.ts";
+import { MemoryStore, plan, temp } from "./helpers.ts";
 
 async function repository(root: string): Promise<void> {
   await git(root, ["init", "-q"]);
@@ -30,6 +30,38 @@ test("canonical roots collapse symlinks and subdirs but distinguish Git worktree
   assert(!await overlaps(repo, repo + "-other"));
   assert(await overlaps(linked, repo), "symlink aliases of one tree overlap");
   assert.equal(await workspaceRoot(root), await canonicalDirectory(root));
+});
+
+test("workspace admission reports same-checkout subdirs, nested non-Git roots and escaped paths", async t => {
+  const root = await temp(t), repo = path.join(root, "repo");
+  await mkdir(repo); await repository(repo);
+  const left = path.join(repo, "left"), right = path.join(repo, "right");
+  await mkdir(left); await mkdir(right);
+  const workspace = await workspaceRoot(repo);
+  const store = new MemoryStore();
+  const manager = new RunManager({ owner: "fixture", store, config: { ...DEFAULT_CONFIG } });
+  t.after(() => manager.shutdown());
+  await assert.rejects(manager.launch([
+    plan(undefined, { cwd: left, workspace: await workspaceRoot(left), mode: "edit" }),
+    plan(undefined, { cwd: right, workspace: await workspaceRoot(right) }),
+  ]), error => {
+    assert(error instanceof Error);
+    assert(error.message.includes(JSON.stringify(left)) && error.message.includes(JSON.stringify(right)));
+    assert(error.message.includes(JSON.stringify(workspace)));
+    return true;
+  });
+  const nested = path.join(root, "plain", "nested");
+  await mkdir(nested, { recursive: true });
+  await assert.rejects(manager.launch([
+    plan(undefined, { cwd: root, workspace: root }),
+    plan(undefined, { cwd: nested, workspace: nested, mode: "edit" }),
+  ]), /tasks\[1\].*overlaps tasks\[0\]/);
+  // Error rendering must not emit literal newlines from cwd values.
+  await assert.rejects(manager.launch([
+    plan(undefined, { cwd: "/fake\nname", workspace: root, mode: "edit" }),
+    plan(undefined, { cwd: nested, workspace: nested }),
+  ]), error => { assert(error instanceof Error); assert(!error.message.includes("\n")); return true; });
+  assert.equal(store.records.size, 0);
 });
 
 test("diff is bounded, literal, read-only, and rejects a changed baseline", async t => {

@@ -6,7 +6,7 @@
 > and [verification record](docs/verification.md) for dated test evidence.
 
 > **Build record.** The package lives in
-> [`pi-extensions/pi-automode`](https://github.com/GaganSD/pi-extensions/tree/main/pi-automode)
+> [`coding-agent-toolkit/pi-automode`](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-automode)
 > and is published as `@gagansd/pi-automode` (MIT).
 
 ## Scope being built

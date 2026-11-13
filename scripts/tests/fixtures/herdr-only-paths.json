@@ -1,0 +1,15 @@
+[
+  "herdr-insights/README.md",
+  "herdr-insights/RECIPE.md",
+  "herdr-insights/mods/insights/analytics.js",
+  "herdr-insights/mods/insights/core/adapters.mjs",
+  "herdr-insights/mods/insights/core/antigravity.mjs",
+  "herdr-insights/mods/insights/core/config.mjs",
+  "herdr-insights/mods/insights/core/scan.mjs",
+  "tests/herdr-insights/analytics.test.mjs",
+  "tests/herdr-insights/collector-adapters.test.mjs",
+  "tests/herdr-insights/collector-antigravity.test.mjs",
+  "tests/herdr-insights/collector-config.test.mjs",
+  "tests/herdr-insights/fixtures/antigravity-generation.hex",
+  "tests/herdr-insights/fixtures/antigravity-generation.md"
+]

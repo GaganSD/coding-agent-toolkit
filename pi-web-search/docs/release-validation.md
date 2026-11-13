@@ -1,6 +1,27 @@
-# Release checks: 0.2.0
+# Release validation
 
-Review date: 2026-10-02. These checks describe this release candidate, not a guarantee of future provider availability.
+## Next release: 0.4.0
+
+PR #90 replaces the model-facing tool names, so the next release is a **minor breaking 0.x release**, from `0.3.1` to `0.4.0`. The migration and release highlights are recorded in `CHANGELOG.md` under Unreleased.
+
+Keep the package and lockfile at `0.3.1` in the feature PR. The existing release checker accepts only generated, release-only metadata changes, and publication requires a merged `release/next` PR. Bundling the version bump or a release plan into #90 would fail those safeguards. Release notes and this handoff can ship in #90; publication cannot.
+
+After #90 is merged and main CI passes, run from the monorepo root:
+
+```bash
+npm run release:prepare -- \
+  --package pi-web-search:minor \
+  --notes 'Search the web, public code, and URLs through one tool, with compact previews and local follow-up reading. Adds Jina URL reading, optional Brave search, and Jev as the default for optional ranking. Breaking: update custom tool references to search, rename the jev settings block to classifier, remove backend, and reload Pi.' \
+  --dry-run
+```
+
+Confirm the preview selects **only** `@gagansd/pi-web-search`, currently `0.3.1` → `0.4.0`, and includes the merged #90 source. Remove `--dry-run` to create/update the release PR. Preparation always uses remote main, not the current checkout; do not dispatch before #90 merges. If the package version or main changes, review the new preview and regenerate the release PR as needed. Review its generated changelog, let CI pass, then merge it to publish the validated artifact. No release is dispatched by #90 itself.
+
+Consumers should update custom prompts, tool allowlists, and scripts to `search`, rename the `jev` config block to `classifier`, and remove `backend` before upgrading, then reload Pi. Use `scope: "code"` for code queries, `effort: "thorough"` for opted-in multi-source retrieval, `urls` for extraction, and `ref` with optional `find` or `cursor` for local evidence. `scope: "both"` defaults to thorough; both require `research.enabled`. Do not pass the old `search_read` arguments (`resultId`, zero-based `index`, `offset`, or `limit`) to `search`; hit refs are one-based (`<resultId>:1`).
+
+## Historical review: 0.2.0
+
+Review date: 2026-10-02. The checks below describe the 0.2.0 release candidate, not a guarantee of future provider availability. See the repository's `docs/ci-cd.md` for the current CI and release gates.
 
 ## Security fixes
 
@@ -40,6 +61,7 @@ npm run smoke:live
 - Package checks install the tarball without host peers. Pi loads its TypeScript entrypoint without compilation. Tests also run against extracted source.
 - The live smoke uses an isolated home and agent directory. It does not use your keys or GitHub CLI login.
 - Live checks cover Exa, grep.app, scoped Sourcegraph, native Parallel, URL extraction, and multi-source code search through Pi's SDK.
+- Brave is key-required, so its live case runs only when you opt in with `BRAVE_API_KEY=... npm run smoke:live`. The key is forwarded to the isolated child process and is never printed. Without it the Brave case is skipped.
 - Live checks send public test queries. They require network access and can fail when a provider is unavailable.
 - A terminal rehearsal checked local installation, first-run setup, settings display, and a second launch without the welcome prompt.
 - The compatibility lane has three jobs: Linux (Node 22.19.0, Pi 0.99), Windows (Node 24, Pi 0.99), and macOS (Node 24, Pi 1.0).

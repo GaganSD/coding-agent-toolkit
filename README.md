@@ -1,3 +1,4 @@
+**New**: [Insights](https://github.com/GaganSD/coding-agent-toolkit/tree/main/herdr-insights) — Token usage insights for coding agents
 <table align="center"><tr><td>
 
 ```text
@@ -18,15 +19,13 @@
 
 </td></tr></table>
 
-<h1 align="center">pi-extensions</h1>
-
-<p align="center"><strong>High-performance, context-efficient tools for the <a href="https://pi.dev">Pi</a> agent harness.</strong></p>
+<p align="center"><strong>A Monorepo of <a href="https://pi.dev">Pi</a> Extensions and <a href="https://herdr.dev">Herdr</a></strong> Mods</p>
 
 <p align="center">
-  <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/publish.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
-  <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/quickstart.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/quickstart.yml?branch=main&style=flat-square&label=Quickstart&color=10b981&labelColor=18181b" alt="Quickstart CI Status" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/actions/workflows/publish.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/coding-agent-toolkit/publish.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/actions/workflows/quickstart.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/coding-agent-toolkit/quickstart.yml?branch=main&style=flat-square&label=Quickstart&color=10b981&labelColor=18181b" alt="Quickstart CI Status" /></a>
   <a href="https://snyk.io"><img src="https://img.shields.io/badge/security-snyk%20monitored-10b981?style=flat-square&labelColor=18181b&logo=snyk&logoColor=white" alt="Security: Snyk" /></a>
-  <a href="https://github.com/GaganSD/pi-extensions/actions"><img src="https://img.shields.io/badge/vulnerabilities-0%20reported-10b981?style=flat-square&labelColor=18181b" alt="Vulnerabilities: 0" /></a>
+  <a href="https://github.com/GaganSD/coding-agent-toolkit/actions"><img src="https://img.shields.io/badge/vulnerabilities-0%20reported-10b981?style=flat-square&labelColor=18181b" alt="Vulnerabilities: 0" /></a>
   <br />
   <a href="https://pi.dev"><img src="https://img.shields.io/badge/pi-%3E%3D1.0.0-27272a?style=flat-square&labelColor=18181b" alt="Pi >= 1.0.0" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-27272a?style=flat-square&labelColor=18181b" alt="License: MIT" /></a>
@@ -34,17 +33,19 @@
 
 ---
 
-A monorepo of modular extensions engineered specifically for the Pi coding agent. Each package adheres to strict context-efficiency principles, zero-bloat architecture, and native Pi integration. Detailed subagent delegation benchmarks live in [`benchmarks/README.md`](./benchmarks/README.md).
+A monorepo of benchmarked/minimal overhead tools I've built for Pi & Herdr:
+- [Pi extensions](#pi-extensions): terminal UI, subagent delegation, web search, interactive interviews, and permission controls.
+- [Herdr mods](#herdr-mods): Currently, just one - a local-first token-usage dashboard for Pi, Codex & different coding agents.
 
 ## Design Principles
 
-- **Minimal by Design** — Engineered for zero-context bloat and preserve the agent's context window. Prompts and schemas stay minimal while benchmaxxing every tool for effectiveness.
-- **Keyless by Default** — Essential utilities like public web and code retrieval work instantly out of the box.
-- **Pi-Native** — Built strictly around Pi's extension lifecycle, tools, custom slash commands, themes, and configuration store.
+- **Minimal by Design** — Focused tools with minimal overhead. Context and schemas stay small to preserve the agent's context window.
+- **Keyless by Default** — Public web and code retrieval work without API keys; Insights reads local session data without an account.
+- **Native Integration** — Pi extensions use Pi's extension lifecycle, tools, slash commands, and themes. Herdr mods use Herdr's native mod system.
 
 ---
 
-## Packages
+## Pi extensions
 
 | Package | Description | Install |
 | :--- | :--- | :--- |
@@ -52,25 +53,23 @@ A monorepo of modular extensions engineered specifically for the Pi coding agent
 | [pi-subagents](./pi-subagents/) | Tiny, benchmarked subagent harness with 88% less token overhead ([benchmarks](./benchmarks/README.md)). | `pi install npm:@gagansd/pi-subagents` |
 | [pi-web-search](./pi-web-search/) | Cited public web and code search. Keyless by default with optional ranking. | `pi install npm:@gagansd/pi-web-search` |
 | [pi-ask](./pi-ask/) | Structured interactive TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
-| [pi-automode](./pi-automode/) | Permission gate for Pi: command/path rules, optional thresholded safety review, local approvals, and protected-path blocks. | `pi install npm:@gagansd/pi-automode` |
+| [pi-automode](./pi-automode/) (beta) | Permission gate for Pi: command/path rules, optional thresholded safety review, local approvals, and protected-path blocks. | `pi install npm:@gagansd/pi-automode` |
 
----
+### Install Pi extensions
 
-## Installation
+#### All-in-one (local checkout)
 
-### All-in-One Suite (Monorepo)
-
-Point Pi to a clone of this repository to register all 5 extensions, skills, and Slate themes simultaneously:
+Requires Node.js `>=22.19.0` and Pi `>=1.0.0`. Point Pi to a clone of this repository to register all five Pi extensions, skills, and Slate themes. This does **not** install Herdr mods:
 
 ```bash
-git clone https://github.com/GaganSD/pi-extensions.git
-cd pi-extensions
+git clone https://github.com/GaganSD/coding-agent-toolkit.git
+cd coding-agent-toolkit
 pi install .
 ```
 
 Then reload Pi with `/reload`.
 
-### Standalone (NPM)
+#### Individual extensions (npm)
 
 Install individual extensions directly:
 
@@ -84,7 +83,29 @@ pi install npm:@gagansd/pi-automode   # Permission gate (opt-in, off by default)
 
 ---
 
+## Herdr mods
+
+| Mod | Description | Install |
+| :--- | :--- | :--- |
+| [Insights](./herdr-insights/) | Local-first token-usage dashboard with model rankings, usage trends, and an activity heatmap. Reads Pi, Codex, Claude Code, and OpenCode sessions. | From a checkout: `npm run install:local --prefix herdr-insights` |
+
+### Install Insights
+
+Requires [Herdr](https://herdr.dev) and **Node.js 22.15+**. No dependencies or account needed. From this repository's root:
+
+```bash
+npm run install:local --prefix herdr-insights
+```
+
+The installer validates the mod with `herdr-app check` without opening a tab or test window. Add `-- --open` to open one **Insights** tab. It installs only `mods/insights/` under `~/.config/herdr-app`, leaving layouts, keys, and terminals unchanged. No Pi extension installation is required.
+
+See the [Insights README](./herdr-insights/README.md) for standalone checkout instructions, settings, privacy details, and uninstallation, [INSTALL.md](./herdr-insights/INSTALL.md) for agent installation instructions, or [RECIPE.md](./herdr-insights/RECIPE.md) for the rebuild specification.
+
+---
+
 ## Development & Building
+
+### Pi extensions
 
 **Prerequisites**: Node.js `>=22.19.0`, npm `>=10.0.0`, Pi `>=1.0.0`.
 
@@ -99,9 +120,43 @@ npm run build --prefix pi-slate       # or pi-subagents, pi-web-search, pi-ask, 
 
 After `pi install .`, local edits apply on `/reload`.
 
+### Herdr mods
+
+Insights uses Node.js `22.15+`; its native validation requires Herdr. Run its checks separately from the root Pi extension suite:
+
+```bash
+npm run test:insights
+npm run check:insights
+```
+
+These are developer checks, not installation steps. See the
+[Insights development guide](./docs/herdr-insights-development.md) for opt-in
+native release validation.
+
+### Shared token counter
+
+After installing root development dependencies, count literal text locally (no API calls):
+
+```bash
+node scripts/tokens.mjs --text "hello world"
+node scripts/tokens.mjs --file pi-ask/src/index.ts
+printf 'hello world' | node scripts/tokens.mjs
+node scripts/tokens.mjs --text "hello world" --encoding cl100k_base
+# {"tokens":2,"encoding":"cl100k_base","scope":"text-only"}
+```
+
+Shared repository scripts/tests can import `countTokens(text, { encoding })` from
+`scripts/tokens.mjs`; the encoding defaults to `o200k_base`. Encoders are cached
+for repeated calls. Counts are exact for the selected tokenizer, **not universal
+model counts** (e.g. Claude/Gemini), and exclude chat framing, tool schemas not
+included in the input, images, and provider overhead. Input whitespace is preserved;
+stdin adds no newline of its own. Special-token-looking strings are counted as
+literal text. This is development tooling, not a runtime dependency shipped with
+individual extensions.
+
 ---
 
-## Benchmarks & Performance
+## Pi Subagent Benchmarks & Performance
 
 `@gagansd/pi-subagents` is continuously benchmarked against standard delegation alternatives on dynamic multi-step workflows (parallel join, bounded repair, conditional fanout):
 
@@ -119,12 +174,13 @@ See [`benchmarks/README.md`](./benchmarks/README.md) for full benchmark methodol
 ## Repository Structure
 
 ```text
-pi-extensions/
+coding-agent-toolkit/
 ├── pi-slate/           # Minimal TUI, custom surfaces, diff viewers & themes
 ├── pi-subagents/       # High-efficiency subagent delegation harness
 ├── pi-web-search/      # Multi-provider web & code search with classifier
 ├── pi-ask/             # Structured TUI interview & clarification modal
 ├── pi-automode/        # Parent-session permission gate with verified launcher
+├── herdr-insights/     # Native Herdr mod: local coding-agent token-usage dashboard
 ├── benchmarks/         # Multi-model workflow benchmarking suite
 ├── docs/               # Architecture, CI/CD, and release guides
 └── scripts/            # Build, test, security scanning, and release tools

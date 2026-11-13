@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "01c44392f729d42dac00ab516d23b06d40d2b863",
-  "notes": "Slimmer README with fast-loading screenshots and session lifecycle stability fixes.",
+  "sourceSha": "653788d5fb60b2d9bdc710c0bb1ff42deaa87544",
+  "notes": "Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.",
   "packages": [
     {
       "path": "pi-slate",
       "name": "pi-slate",
-      "from": "0.1.16",
-      "to": "0.1.17",
+      "from": "0.2.0",
+      "to": "0.2.1",
       "bump": "patch"
     }
   ]

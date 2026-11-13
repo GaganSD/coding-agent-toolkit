@@ -219,6 +219,19 @@ test("short terminal resize hides/restores the rail with one width reformat and 
   }
 });
 
+test("split transcript preserves Pi 1.4 CJK emphasis and tables after unfinished math", t => {
+  const f = fixture(t, 1);
+  f.messages[0]!.setText("你好**加粗**，以及*斜体*。\n\n$$\nx + y\n\n| Release | Status |\n| --- | --- |\n| Pi 1.4 | Compatible |");
+  f.tui.renderNow();
+  const frame = Reflect.get(f.tui, "currentLayout") as { lines: string[] };
+  const plain = frame.lines.map(stripVTControlCharacters).join("\n");
+  assert.match(plain, /你好加粗，以及斜体。/);
+  assert.doesNotMatch(plain, /\*\*加粗\*\*|\*斜体\*/);
+  assert.match(plain, /Release/); assert.match(plain, /Compatible/);
+  f.assertFrame();
+  f.reset(); f.tui.renderNow(); f.assertCached();
+});
+
 test("committing a preferred sidebar width reformats chat once", (t) => {
   const preferred: { value?: number } = {};
   const f = fixture(t, 20, "auto", preferred);

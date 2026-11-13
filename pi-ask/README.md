@@ -4,11 +4,11 @@ Gives your agent a way to interview you in a structured form — brainstorming, 
 
 One skill (~20-token description), built for context minimisation.
 
-![Multi-select](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-ask/assets/multi.png)
+![Multi-select](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-ask/assets/multi.png)
 
-![Single-select](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-ask/assets/single.png)
+![Single-select](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-ask/assets/single.png)
 
-![Text](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-ask/assets/text.png)
+![Text](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-ask/assets/text.png)
 
 ## Install
 
@@ -40,7 +40,7 @@ The agent calls `ask_user`. `/answer` if it asked in prose instead.
 | `/answer` | Turn the latest completed assistant message into a form |
 | `/ask-settings` | Settings overlay. `?` inside a form opens the same overlay |
 
-TUI-only. Non-TUI callers get `status: "unavailable"`.
+Hosts without the custom TUI (RPC subagents, ACP clients) get the same interview as sequential select/input cards with back navigation and a review card. Callers with no dialog UI at all get `status: "unavailable"`.
 
 ## Contract
 
@@ -57,4 +57,18 @@ Output:
 - `answers[id]`: `{ values, labels, customText?, note?, optionNotes? }`
 - `unanswered: id[]`
 
-Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the current chat model unless `answer.extractionModels` is set.
+Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the current chat model unless `answer.extractionModels` is set. `PI_ASK_LOCALE=zh` localizes the dialog cards and result summaries (Simplified Chinese).
+
+## Context footprint
+
+Recurring model-facing contribution of `ask_user`, measured with `npm run tokens` (character proxy: `ceil(chars / 4)`, not provider billing):
+
+| Part | Chars | Est. tokens |
+| --- | ---: | ---: |
+| description | 148 | 37 |
+| prompt snippet | 103 | 26 |
+| prompt guidelines | 723 | 181 |
+| parameter schema | 528 | 132 |
+| **total** | **1,502** | **376** |
+
+Field-level prose lives in the guidelines; the registered schema ships without `description` keys.

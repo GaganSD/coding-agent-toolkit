@@ -81,3 +81,19 @@ export const AnswerExtractionParamsSchema = Type.Object({
 		description: "Questions extracted from the assistant message",
 	}),
 });
+
+/**
+ * Model-facing copy of a schema with per-field `description` prose removed.
+ * Field rules already live in the tool description and prompt guidelines, so
+ * the duplicates only cost recurring context. The exported schemas keep their
+ * descriptions for validation, docs, and tests.
+ */
+export function stripSchemaDescriptions<T>(schema: T): T {
+	// Annotations are string-valued; a property *named* description holds an
+	// object schema and survives the string check.
+	return JSON.parse(
+		JSON.stringify(schema),
+		(key, value) =>
+			key === "description" && typeof value === "string" ? undefined : value
+	) as T;
+}

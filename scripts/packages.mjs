@@ -12,7 +12,7 @@ export const packages = {
   },
   "pi-slate": {
     name: "pi-slate", tests: "tests",
-    integration: ["install-defaults.test.ts", "sidebar-split.test.ts", "diff-tools.test.ts", "read.test.ts", "tool-groups.test.ts", "tool-style-load.test.ts", "git-diff.test.ts", "package.test.mjs", "prompts.test.ts"],
+    integration: ["install-defaults.test.ts", "sidebar-split.test.ts", "diff-tools.test.ts", "read.test.ts", "tool-groups.test.ts", "tool-style-load.test.ts", "host-compat.test.mjs", "git-diff.test.ts", "package.test.mjs", "prompts.test.ts"],
     commands: ["slate", "prompts", "exit"], tools: [],
   },
   "pi-subagents": {
@@ -23,7 +23,7 @@ export const packages = {
   "pi-web-search": {
     name: "@gagansd/pi-web-search", tests: "tests",
     integration: ["integration.test.ts", "registration.test.ts", "native-sdk.test.ts", "package/package-content.test.ts", "package/validation.test.ts"],
-    commands: ["web-search"], tools: ["web_search", "code_search"],
+    commands: ["web-search"], tools: ["search"],
   },
 };
 

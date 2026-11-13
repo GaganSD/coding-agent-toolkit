@@ -12,47 +12,41 @@ import {
 } from "./layout.ts";
 
 const SIDEBAR_SPLIT = Symbol.for("pi-slate.sidebar-split");
-const ORIGINAL_SET_LAYOUT_ROOT = Symbol.for("pi-slate.setLayoutRoot");
 const SPLIT_OWNER = Symbol.for("pi-slate.sidebar-split-owner");
 
 type SplitHost<T> = {
   layoutRoot?: T;
   setLayoutRoot(component: T | undefined): void;
-  [ORIGINAL_SET_LAYOUT_ROOT]?: (component: T | undefined) => void;
   [SPLIT_OWNER]?: object;
 };
 
+type LayoutLease = (() => void) & { active(): boolean };
+
+/** Root-identity lease, never a setter monkeypatch. Host facades need not preserve method identity. */
 export function bindSplitHost<T>(
   host: SplitHost<T>,
   wrap: (component: T | undefined) => T | undefined,
   unwrap: (component: T | undefined) => T | undefined,
   onYield?: () => void,
-): () => void {
-  const originalSet = host[ORIGINAL_SET_LAYOUT_ROOT] ?? host.setLayoutRoot.bind(host);
+): LayoutLease {
   const owner = {};
-  host[ORIGINAL_SET_LAYOUT_ROOT] = originalSet;
-  host[SPLIT_OWNER] = owner;
   const mounted = wrap(host.layoutRoot);
-  const yieldRoot = (component: T | undefined): void => {
-    // A later writer wins. Stop intercepting, rather than wrapping its root forever.
-    if (host[SPLIT_OWNER] === owner) {
-      if (host.setLayoutRoot === yieldRoot) host.setLayoutRoot = originalSet;
-      delete host[ORIGINAL_SET_LAYOUT_ROOT];
-      delete host[SPLIT_OWNER];
-      onYield?.();
-    }
-    originalSet(component);
+  let disposed = false, yielded = false;
+  host[SPLIT_OWNER] = owner;
+  if (host.layoutRoot !== undefined) host.setLayoutRoot(mounted);
+  const active = (): boolean => {
+    if (disposed) return false;
+    const own = host[SPLIT_OWNER] === owner && host.layoutRoot === mounted;
+    if (!own && !yielded) { yielded = true; onYield?.(); }
+    return own;
   };
-  host.setLayoutRoot = yieldRoot;
-  if (host.layoutRoot !== undefined) originalSet(mounted);
-
-  return () => {
-    if (host[SPLIT_OWNER] !== owner) return;
-    if (host.setLayoutRoot === yieldRoot) host.setLayoutRoot = originalSet;
-    delete host[ORIGINAL_SET_LAYOUT_ROOT];
-    delete host[SPLIT_OWNER];
-    if (host.layoutRoot === mounted) originalSet(unwrap(mounted));
+  const dispose = (): void => {
+    const own = active();
+    disposed = true;
+    if (host[SPLIT_OWNER] === owner) delete host[SPLIT_OWNER];
+    if (own) host.setLayoutRoot(unwrap(mounted));
   };
+  return Object.assign(dispose, { active });
 }
 
 type SplitMousePane = Component & {
@@ -130,7 +124,7 @@ export function splitChat(component: Component | undefined): Component | undefin
   return component.chat();
 }
 
-export type SidebarSplitLease = (() => void) & { replaceChat(view: Component): (() => void) | undefined; ownsFocus(component: Component): boolean };
+export type SidebarSplitLease = LayoutLease & { replaceChat(view: Component): (() => void) | undefined; ownsFocus(component: Component): boolean };
 
 export function installSidebarSplit(
   tui: TUI,
@@ -152,10 +146,10 @@ export function installSidebarSplit(
     onYield,
   );
   return Object.assign(dispose, {
-    ownsFocus(component: Component) { return component === split && (tui as TUI & { layoutRoot?: Component }).layoutRoot === split; },
+    ownsFocus(component: Component) { return dispose.active() && component === split; },
     replaceChat(view: Component) {
       // A later layout owner wins; never resurrect a stale slot.
-      if (!split || (tui as TUI & { layoutRoot?: Component }).layoutRoot !== split) return undefined;
+      if (!split || !dispose.active()) return undefined;
       return split.replaceChat(view);
     },
   });

@@ -6,10 +6,33 @@ Short-lived PR branches merge into `main`. There is no `develop` branch or
 long-lived release branch. Ordinary merges **never publish to npm**.
 
 GitHub Actions runs `.github/workflows/ci.yml` on every PR, including fork PRs
-without secrets. `publish.yml` calls that same reusable CI on every push to `main`. It detects affected packages;
-shared tooling/workflow/release-plan changes validate all packages. Root
-documentation-only changes still run tooling and secret checks. The stable
-required status is **CI passed**.
+without secrets. `publish.yml` calls that same reusable CI on every push to `main`.
+`scripts/ci.mjs` selects checks by ownership rather than treating every root-level
+change as shared Pi code. The stable required status is **CI passed**; it requires
+success for selected jobs and accepts skips only for explicitly unselected jobs.
+
+| Changed paths | Selected checks |
+| --- | --- |
+| A Pi package, including its tests | That package |
+| `herdr-insights/`, `tests/herdr-insights/`, `docs/herdr-insights-development.md` | Herdr |
+| `scripts/herdr-insights/` | Herdr plus tooling lint/tests |
+| Shared package runner/build/release scripts, root lockfile, ESLint config | All Pi packages plus tooling |
+| Root `package.json`, CI routing code/tests, workflow definitions | All packages, Herdr, and tooling |
+| `.release/plan.json` | Packages named by the plan (old plan when deleted) |
+| Other tooling tests, dependency/security/token/hook scripts | Tooling |
+| Ordinary root documentation and GitHub metadata | No package suites |
+| Unclassified paths | Full validation, with paths reported in logs and the job summary |
+
+Release intent validation runs unconditionally in the dependency-free `changes`
+job. Secret scanning remains unconditional. Herdr retains its Node 22.15.0,
+22, and 24 matrix, but no longer runs on unrelated Pi changes. Package-owned
+Markdown still selects its package: distribution tests can consume documentation.
+
+Manual CI dispatch and the weekly full sweep validate every package, Herdr, and
+tooling. PR detection compares the merge checkout with its first parent; main
+pushes compare the event's before SHA with its head, including multi-commit pushes.
+Moves are treated as deletion plus addition so both owners receive checks.
+Tests stay in their existing package directories.
 
 Each affected package runs:
 
@@ -174,7 +197,7 @@ Complete these steps before the first release:
    `@gagansd/pi-subagents`, `@gagansd/pi-web-search`, and
    `@gagansd/pi-automode`, configure:
    - GitHub owner: `GaganSD`
-   - Repository: `pi-extensions`
+   - Repository: `coding-agent-toolkit`
    - Workflow filename: `publish.yml` (not the full path)
    - Environment: `npm`
    - Allow direct `npm publish`
@@ -188,6 +211,13 @@ Complete these steps before the first release:
    under repository Settings → Security. These were enabled during setup.
    They protect supported credential formats before GitHub accepts a push;
    the Actions scanner is not a replacement.
+
+### Repository rename follow-up
+
+After a GitHub repository rename, update each npm package's trusted publisher to
+`GaganSD/coding-agent-toolkit` before publishing. GitHub URL redirects do not
+update npm's external trust configuration. Also verify the release GitHub App's
+repository access and any external Snyk integration after the rename.
 
 ## Snyk dependency scan
 
@@ -217,8 +247,8 @@ pulling a Docker image for every matrix leg. Bump that version deliberately in
 Snyk requires the repository secret `SNYK_TOKEN`. Generate one at
 <https://app.snyk.io/account> → Auth Token and set it under
 Settings → Secrets and variables → Actions. Fork pull requests cannot read
-repository secrets, so the Snyk steps are skipped there; the tooling and secret
-lanes still run. `publish.yml` passes `secrets: inherit` to `ci.yml` so the
+repository secrets, so the Snyk steps are skipped there; selected checks and the
+unconditional secret lane still run. `publish.yml` passes `secrets: inherit` to `ci.yml` so the
 scan also gates `main`. Add `--org=<id>` to the two commands only when the
 token must report under a specific organization.
 
@@ -228,7 +258,20 @@ Snyk's free tier covers public repositories without a monthly test limit.
 
 ## Quickstart CI
 
-`quickstart.yml` validates the README's live quickstart after the main CI/release workflow completes successfully, on a daily schedule, and on manual dispatch. It installs the pinned Pi CLI into an isolated temporary agent directory, runs `pi install .` from a fresh checkout without `node_modules`, verifies Pi starts far enough to print help, waits through npm's post-publish processing window, and downloads every publishable package from npm at the exact version in its manifest. The post-release trigger plus registry polling avoids checking a new version before the publish job has made it downloadable.
+`quickstart.yml` validates the README's live quickstart on a daily schedule and
+manual dispatch. Main also calls it as a reusable workflow when the ownership
+map selects quickstart: Pi package changes, release plans, quickstart scripts,
+shared package tooling, or broad/full validation. Herdr-only and ordinary
+documentation pushes skip downloads and installation.
+
+The main caller waits for successful validation and release eligibility, and for
+publication to succeed or be intentionally skipped. It uses the same commit SHA,
+not a later main checkout. It installs the pinned Pi CLI into an isolated temporary
+agent directory, runs `pi install .` from a fresh checkout without `node_modules`,
+verifies Pi starts far enough to print help, waits through npm's post-publish
+processing window, and downloads every publishable package from npm at the exact
+version in its manifest. Waiting for publication plus registry polling avoids
+checking a new version before the publish job has made it downloadable.
 
 ## Dependency and Actions updates
 

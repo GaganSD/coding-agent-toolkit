@@ -1,28 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  PI_LOGO,
-  PI_LOGO_ASCII,
   paintLogo,
   centerOffset,
   compactDisplayText,
   compactPath,
   footerVisibility,
-  countSkillCommands,
-  formatContextResources,
-  formatContextTokens,
   formatCompactTokenCount,
-  formatInteger,
-  formatMcpEnabled,
   formatPercent,
-  formatSkillsLoaded,
-  formatSpend,
-  formatTokenCount,
-  formatTokenRate,
   formatFocusedContextResources,
   formatFocusedContextTokens,
-  mergeMcpServerMaps,
-  parseMcpEnabledCount,
   mainColumnWidth,
   maxSidebarWidth,
   modelLabel,
@@ -60,12 +47,7 @@ import {
   workspacePaneSlots,
 } from "../extensions/pi-slate/workspace-layout.ts";
 
-test("logo preserves the official four-row geometry and terminal aspect ratio", () => {
-  assert.deepEqual(PI_LOGO, ["██████  ", "██  ██  ", "████  ██", "██    ██"]);
-  assert.deepEqual(PI_LOGO_ASCII, ["######  ", "##  ##  ", "####  ##", "##    ##"]);
-  assert.ok(PI_LOGO.every((line) => line.length === 8));
-  assert.ok(PI_LOGO_ASCII.every((line) => line.length === 8));
-  assert.ok(PI_LOGO_ASCII.every((line) => /^[ #]+$/.test(line)));
+test("logo paint stays white in every theme", () => {
   assert.equal(paintLogo("π"), "\x1b[38;2;255;255;255mπ\x1b[39m");
   assert.equal(paintLogo("π", false), "\x1b[97mπ\x1b[39m");
 });
@@ -97,18 +79,9 @@ test("footer progressively reveals optional metadata", () => {
   });
 });
 
-test("sidebar context labels match the OpenCode-style facts", () => {
-  assert.equal(formatInteger(18958), "18,958");
-  assert.equal(formatTokenCount(18958), "18,958 tokens");
-  assert.equal(formatTokenCount(null), "— tokens");
-  assert.equal(formatTokenRate(42.4), "42 tokens/sec");
-  assert.equal(formatTokenRate(null), "— tokens/sec");
+test("percent labels round and handle missing values", () => {
   assert.equal(formatPercent(2.4), "2%");
   assert.equal(formatPercent(null), "—%");
-  assert.equal(formatSpend(1.234), "$1.23");
-  assert.equal(formatSpend(null), "$0.00");
-  assert.equal(formatContextTokens(3485, 2.4, 42.4), "3,485 tokens · 2% used · 42 tokens/sec");
-  assert.equal(formatContextTokens(null, null, null), "— tokens · —% used · — tokens/sec");
 });
 
 test("compact token counts handle missing values and rounding across units", () => {
@@ -124,7 +97,6 @@ test("focused context tokens use compact percent placement", () => {
   assert.equal(formatFocusedContextTokens(2.4, 42.4, 250_000), "2%/250k tokens · ↑↓42");
   assert.equal(formatFocusedContextTokens(2.4, 42.4, 1_000_000), "2%/1M tokens · ↑↓42");
   assert.equal(formatFocusedContextTokens(null, null, null), "—%/— tokens · ↑↓—");
-  assert.equal(formatContextTokens(3485, 2.4, 42.4), "3,485 tokens · 2% used · 42 tokens/sec");
 });
 
 test("model label stays safe with missing data", () => {
@@ -238,6 +210,15 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("pid on"), { ok: true, kind: "pid", value: true });
   assert.deepEqual(parseSlateArgs("pid off"), { ok: true, kind: "pid", value: false });
   assert.deepEqual(parseSlateArgs("pid nope"), { ok: false });
+  assert.deepEqual(parseSlateArgs("effort-border"), { ok: true, kind: "effort-border" });
+  assert.deepEqual(parseSlateArgs("effort-border on"), { ok: true, kind: "effort-border", value: true });
+  assert.deepEqual(parseSlateArgs("effort-border off"), { ok: true, kind: "effort-border", value: false });
+  assert.deepEqual(parseSlateArgs("effort-border nope"), { ok: false });
+  assert.deepEqual(slateArgumentCompletions("effort-border"), [
+    { value: "effort-border", label: "effort-border" },
+    { value: "effort-border on", label: "effort-border on" },
+    { value: "effort-border off", label: "effort-border off" },
+  ]);
   assert.deepEqual(slateArgumentCompletions("pid"), [
     { value: "pid", label: "pid" },
     { value: "pid on", label: "pid on" },
@@ -253,29 +234,27 @@ test("/slate args route density, footer, and width", () => {
     { value: "progress snake", label: "progress snake" },
     { value: "progress cylon-scanner", label: "progress cylon-scanner" },
   ]);
-  assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
-  assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
-  assert.deepEqual(parseSlateArgs("message-length 50"), { ok: true, kind: "message-length", value: 50 });
-  assert.deepEqual(parseSlateArgs("message-length all"), { ok: true, kind: "message-length", value: "all" });
-  assert.deepEqual(parseSlateArgs("bug"), { ok: true, kind: "bug-menu" });
-  assert.deepEqual(parseSlateArgs("bug file"), { ok: true, kind: "bug", action: "file" });
-  assert.deepEqual(parseSlateArgs("bug open"), { ok: true, kind: "bug", action: "open" });
+  assert.equal(slateArgumentCompletions("theme b"), null);
+  assert.equal(slateArgumentCompletions("theme lat"), null);
   assert.deepEqual(parseSlateArgs("theme"), { ok: true, kind: "theme-menu" });
-  assert.deepEqual(parseSlateArgs("theme mocha"), { ok: true, kind: "theme", flavor: "mocha" });
-  assert.deepEqual(parseSlateArgs("theme mauve"), { ok: true, kind: "theme", style: "mauve" });
-  assert.deepEqual(parseSlateArgs("theme mocha mauve"), {
-    ok: true,
-    kind: "theme",
-    flavor: "mocha",
-    style: "mauve",
-  });
-  assert.deepEqual(parseSlateArgs("theme pantera"), { ok: false });
-  assert.deepEqual(parseSlateArgs("theme latte quiet"), { ok: false });
+  // Theme selection moved into the `/theme` picker; arguments are invalid, not routed.
+  for (const args of [
+    "theme mocha", "theme mauve", "theme mocha mauve", "theme black-metal", "theme blackmetal",
+    "theme pantera", "theme latte quiet", "theme catppuccin-mocha-pink",
+    "theme mocha catppuccin-mocha-pink", "theme pink", "theme latte", "theme frappe rosewater",
+    "theme frappé maroon", "theme macchiato default", "theme mocha quiet", "theme latte blue",
+    "theme nope", "theme mocha mauve extra", "theme system", "theme default",
+  ]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
   assert.deepEqual(parseSlateArgs("flavor mocha"), { ok: false });
   assert.deepEqual(parseSlateArgs("diff"), { ok: false });
-  assert.deepEqual(parseSlateArgs("style sapphire"), { ok: true, kind: "style", value: "sapphire" });
-  assert.deepEqual(parseSlateArgs("theme nope"), { ok: false });
-  assert.deepEqual(parseSlateArgs("theme mocha mauve extra"), { ok: false });
+  // `/slate style` is gone; the picker is the only theme surface.
+  for (const args of ["style", "style sapphire", "style catppuccin-mocha-pink", "style quiet"]) {
+    assert.deepEqual(parseSlateArgs(args), { ok: false }, args);
+  }
+  assert.equal(slateArgumentCompletions("style"), null);
+  assert.equal(slateArgumentCompletions("theme p"), null);
   assert.deepEqual(parseSlateArgs("bug nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("width nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("nope"), { ok: false });
@@ -299,60 +278,12 @@ test("sidebar rows pin the footer dock and give the rest to content", () => {
   assert.deepEqual(sidebarRowSlots(20, SIDEBAR_DOCK_LINES), { contentHeight: 16, dockHeight: 4 });
 });
 
-test("MCP and skill counts share the Context resource line", () => {
-  assert.equal(formatMcpEnabled(0), "0 MCPs enabled");
-  assert.equal(formatMcpEnabled(1), "1 MCPs enabled");
-  assert.equal(formatMcpEnabled(2), "2 MCPs enabled");
-  assert.equal(formatSkillsLoaded(0), "0 skills loaded");
-  assert.equal(formatSkillsLoaded(3), "3 skills loaded");
-  assert.equal(formatContextResources(1.234, 3, 2), "$1.23 · 3 skills loaded · 2 MCPs enabled");
-  assert.equal(formatContextResources(null, 0, null), "$0.00 · 0 skills loaded · 0 MCPs enabled");
-  assert.equal(countSkillCommands([
-    { source: "skill", sourceInfo: { path: "/skills/a/SKILL.md" }, name: "a" },
-    { source: "skill", sourceInfo: { path: "/skills/a/SKILL.md" }, name: "a:1" },
-    { source: "extension", sourceInfo: { path: "/ext.ts" }, name: "slate" },
-  ]), 1);
-  assert.equal(parseMcpEnabledCount({
-    mcpServers: { a: {}, b: {} },
-  }), 2);
-  assert.equal(parseMcpEnabledCount({}), null);
-  assert.equal(parseMcpEnabledCount(null), null);
-});
-
-test("focused context resources keep cost and omit zero skill and MCP counts", () => {
-  assert.equal(formatFocusedContextResources(1.234, 0, 0), "$1.23");
-  assert.equal(formatFocusedContextResources(1.234, 0, null), "$1.23");
-  assert.equal(formatFocusedContextResources(null, 0, 0), "$0.00");
-  assert.equal(formatFocusedContextResources(1.234, 3, 0), "$1.23 · 3 skills");
-  assert.equal(formatFocusedContextResources(1.234, 0, 2), "$1.23 · 2 MCPs");
-  assert.equal(formatFocusedContextResources(1.234, 1, 1), "$1.23 · 1 skill · 1 MCP");
-  assert.equal(formatContextResources(null, 0, null), "$0.00 · 0 skills loaded · 0 MCPs enabled");
-});
-
-test("MCP enabled count reads mcp.json and lets project override global", () => {
-  assert.equal(parseMcpEnabledCount({
-    mcpServers: {
-      linear: { url: "https://mcp.linear.app/mcp" },
-      github: { url: "https://api.githubcopilot.com/mcp", enabled: false },
-    },
-  }), 1);
-  assert.equal(parseMcpEnabledCount({
-    mcpServers: { linear: { url: "https://mcp.linear.app/mcp" } },
-  }), 1);
-  assert.equal(parseMcpEnabledCount({ connectedCount: 2 }), null);
-  assert.deepEqual(
-    mergeMcpServerMaps(
-      { mcpServers: { linear: { enabled: true }, github: {} } },
-      { mcpServers: { linear: { enabled: false } } },
-    ),
-    { linear: { enabled: false }, github: {} },
-  );
-  assert.equal(parseMcpEnabledCount({
-    mcpServers: mergeMcpServerMaps(
-      { mcpServers: { linear: {}, github: {} } },
-      { mcpServers: { github: { enabled: false } } },
-    ),
-  }), 1);
+test("focused context resources lead with ctx and use lowercase mcp", () => {
+  assert.equal(formatFocusedContextResources(null, false, 0), "ctx —%");
+  assert.equal(formatFocusedContextResources(10, false, 0), "ctx 10%");
+  assert.equal(formatFocusedContextResources(10, true, 0), "ctx ~10%");
+  assert.equal(formatFocusedContextResources(10, false, 1), "ctx 10% · 1 mcp");
+  assert.equal(formatFocusedContextResources(10, false, 2), "ctx 10% · 2 mcp");
 });
 
 test("files widget stays compact and never exceeds five lines", () => {

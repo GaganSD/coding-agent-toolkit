@@ -33,7 +33,7 @@ test("installs presentation only and passes other tools through", () => {
   const original = { renderShell: "default" as const };
   assert.equal(setup(original)("other"), original);
   assert.equal(setup(original)("toString"), original);
-  assert.equal(TOOL_STYLE_NAMES.length, 10);
+  assert.equal(TOOL_STYLE_NAMES.length, 9);
   assert.ok(Object.isFrozen(TOOL_STYLE_NAMES));
   assert.equal(setup(original)("read").renderShell, "self");
 });
@@ -48,7 +48,6 @@ test("compact headings cover every supported tool without dumping source or muta
     ["ls", { path: "." }, "Ls (.)"],
     ["write", { path: "a", content: "SECRET" }, "Write (a)"],
     ["edit", { path: "a", oldText: "SECRET", newText: "SECRET2" }, "Edit (a)"],
-    ["apply_patch", { patch: "SECRET" }, "Apply patch (patch)"],
     ["codemode", { code: "SECRET" }, "Codemode (script)"],
     ["recall", { query: "earlier work" }, "Recall (earlier work)"],
   ];
@@ -110,13 +109,32 @@ test("counts SDK edit patches, Slate write patches, and display-diff fallback", 
   const get = setup();
   for (const [name, details] of [
     ["edit", { patch }], ["write", { slateDiff: { patch } }],
-    ["apply_patch", { patch }], ["edit", { diff: "-1 old\n+1 new\n+2 next\n 3 same" }],
+    ["edit", { diff: "-1 old\n+1 new\n+2 next\n 3 same" }],
   ] as const) {
     const expected = "+2 -1";
     assert.equal(plain(output(get(name), result("done", details))), `└ ${expected}`);
   }
   assert.equal(plain(output(get("write"), result("done", { slateDiff: { patch: "" } }))), "└ +0 -0");
   assert.equal(plain(output(get("write"), result("done", { slateDiff: { note: "omitted" } }))), "└ done");
+});
+
+test("collapsed file mutations hand the row to their diff renderer", () => {
+  const seen: boolean[] = [];
+  const original = { renderShell: "default" as const, renderResult(_result: unknown, options: { expanded: boolean }) {
+    seen.push(options.expanded);
+    return { render: () => ["native diff"], invalidate() {} };
+  } };
+  const patch = "--- before\n+++ after\n@@ -1 +1 @@\n-old\n+new\n";
+  const edit = setup(original as unknown as ToolRenderers)("edit");
+  assert.equal(plain(output(edit, result("done", { patch }))), "native diff");
+  assert.deepEqual(seen, [false], "a collapsed edit still shows the diff");
+  assert.equal(plain(output(edit, result("boom", { patch }), context({ isError: true }))), "└ boom");
+  assert.equal(plain(output(edit, result("", { patch }), context({ isPartial: true }))), "└ Running…");
+  assert.equal(plain(output(edit, result("Edited a"))), "└ Edited a", "no patch keeps the summary");
+  const write = setup(original as unknown as ToolRenderers)("write");
+  assert.equal(plain(output(write, result("done", { slateDiff: { patch } }))), "native diff");
+  const bash = setup(original as unknown as ToolRenderers)("bash");
+  assert.equal(plain(output(bash, result("done", { patch }))), "└ +1 -1", "other tools stay one line");
 });
 
 test("sanitizes terminal controls, hyperlinks, bidi, and multiline arguments; fits all widths", () => {

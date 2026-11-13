@@ -18,9 +18,8 @@ for (const researchEnabled of [false, true]) {
 	assert.equal(loaded.extensions.length, 1);
 	const extension = loaded.extensions[0];
 	assert.equal(extension.resolvedPath, resolve(packageRoot, manifest.pi.extensions[0]));
-	assert.deepEqual([...extension.tools.keys()], researchEnabled
-		? ["web_search", "code_search", "multi_search"] : ["web_search", "code_search"]);
+	assert.deepEqual([...extension.tools.keys()], ["search"]);
 	assert.ok(extension.commands.has("web-search"));
 	assert.equal(extension.commands.has("web-search-settings"), false);
 }
-console.log("Packed TypeScript entrypoint loads in Pi without local dependencies; default and research registrations pass.");
+console.log("Packed TypeScript entrypoint loads in Pi without local dependencies; unified search registration and codemode evidence pass.");

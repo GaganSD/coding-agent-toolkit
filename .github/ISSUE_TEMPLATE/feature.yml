@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an improvement.
+labels: ["Feature Request"]
+body:
+  - type: input
+    id: scope
+    attributes:
+      label: Affected extension or area
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and what is missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Suggested solution or alternatives (optional)
+      description: How might this work? Other approaches are welcome.

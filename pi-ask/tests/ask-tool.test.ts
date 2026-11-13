@@ -123,6 +123,20 @@ test("ask option schema and tool guidance support grounded recommendations", () 
 	);
 });
 
+test("registered schema strips prose but keeps the description field", () => {
+	const { tool } = registerMockTool();
+	const questionItems = tool.parameters.properties.questions.items;
+	const optionProps = questionItems.properties.options.items.properties;
+	assert.ok(
+		"description" in optionProps,
+		"option description field must survive stripping"
+	);
+	assert.equal(optionProps.description.type, "string");
+	assert.equal(optionProps.description.description, undefined);
+	assert.equal(questionItems.properties.prompt.description, undefined);
+	assert.equal(tool.parameters.description, undefined);
+});
+
 test("ask params schema constrains question types", () => {
 	assert.equal(
 		Value.Check(AskParamsSchema, {
@@ -261,6 +275,57 @@ test("ask tool reports invalid question types with structured issues", async () 
 		{ mode: "tui", ui: { custom() {}, setWorkingVisible() {} } }
 	);
 	assert.match(response.content[0].text, INVALID_TYPE_RE);
+});
+
+test("prepareArguments hoists a flattened lone question into questions", () => {
+	const { tool } = registerMockTool();
+	const prepared = tool.prepareArguments({
+		id: "goal",
+		prompt: "What should I optimize for?",
+		options: [{ value: "speed", label: "Speed" }],
+	}) as { questions: Array<Record<string, unknown>>; prompt?: string };
+	assert.equal(prepared.prompt, undefined);
+	assert.equal(prepared.questions.length, 1);
+	assert.equal(prepared.questions[0]?.id, "goal");
+	assert.equal(prepared.questions[0]?.prompt, "What should I optimize for?");
+	assert.equal(
+		(prepared.questions[0]?.options as Array<{ value: string }>)[0]?.value,
+		"speed"
+	);
+});
+
+test("prepareArguments merges stray top-level fields into a lone question", () => {
+	const { tool } = registerMockTool();
+	const prepared = tool.prepareArguments({
+		questions: [{ id: "goal" }],
+		prompt: "Goal?",
+		options: [{ value: "speed", label: "Speed" }],
+	}) as { questions: Array<Record<string, unknown>>; prompt?: string };
+	assert.equal(prepared.prompt, undefined);
+	assert.equal(prepared.questions[0]?.id, "goal");
+	assert.equal(prepared.questions[0]?.prompt, "Goal?");
+	assert.ok(Array.isArray(prepared.questions[0]?.options));
+});
+
+test("prepareArguments leaves multi-question payloads and set values untouched", () => {
+	const { tool } = registerMockTool();
+	const input = {
+		questions: [
+			{ id: "a", prompt: "First?" },
+			{ id: "b", prompt: "Second?" },
+		],
+		prompt: "Stray?",
+	};
+	const prepared = tool.prepareArguments(input) as typeof input;
+	assert.equal(prepared.questions.length, 2);
+	assert.equal(prepared.prompt, "Stray?");
+
+	const kept = tool.prepareArguments({
+		questions: [{ id: "a", prompt: "First?", label: "Custom" }],
+		label: "Stray",
+	}) as { questions: Array<{ label: string }>; label: string };
+	assert.equal(kept.questions[0]?.label, "Custom");
+	assert.equal(kept.label, "Stray");
 });
 
 test("prepareArguments fills missing option labels from values", () => {

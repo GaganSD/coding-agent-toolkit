@@ -27,6 +27,8 @@ class FakeEditor implements ComposerSelectionEditor {
   pasteCalls: string[] = [];
   insertCalls: string[] = [];
   mouseCalls = 0;
+  undoSnapshots = 0;
+  pushUndoSnapshot(): void { this.undoSnapshots++; }
   cursor?: { line: number; col: number };
   renderedLines = ["TOP", "prompt", "BOTTOM"];
   autocomplete = false;
@@ -418,4 +420,49 @@ test("press and drag stay unhandled so Pi can select screen text", () => {
   assert.equal(drag?.capture, undefined);
   assert.deepEqual(copied, []);
   selection.dispose();
+});
+
+
+test("editing a revealed paste invalidates collapse ranges rather than overwriting prompt edits", () => {
+  for (const edit of [(text: string) => text + " edited", (text: string) => "prefix " + text, (text: string) => text.replace("one", "changed")]) {
+    const editor = new FakeEditor("see [paste #1 +2 lines] tail");
+    editor.pastes.set(1, "one\ntwo"); editor.cursor = { line: 0, col: 10 };
+    attach(editor); editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+    assert.equal(editor.undoSnapshots, 1);
+    editor.text = edit(editor.text);
+    editor.cursor = { line: 1, col: 1 };
+    const edited = editor.text;
+    editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+    assert.equal(editor.text, edited);
+  }
+});
+
+test("paste reveals require native undo support and support bodies ending with blank lines", () => {
+  const editor = new FakeEditor("[paste #1 +2 lines]");
+  editor.pastes.set(1, "one\n"); editor.cursor = { line: 0, col: 5 };
+  attach(editor);
+  editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+  assert.equal(editor.text, "one\n");
+  editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+  assert.equal(editor.text, "[paste #1 +2 lines]");
+  assert.equal(editor.undoSnapshots, 2);
+  Reflect.set(editor, "pushUndoSnapshot", undefined);
+  editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+  assert.equal(editor.text, "[paste #1 +2 lines]", "unsupported private range editing stays native");
+});
+
+test("real editor paste reveal is undoable without orphaning native paste bodies", t => {
+  const { editor } = createIntegratedEditor(t);
+  const selection = new ComposerSelectionController(); selection.attach(editor);
+  t.after(() => selection.dispose());
+  const body = "x".repeat(1001) + "\n";
+  editor.insertTextAtCursor(body);
+  const token = editor.getText();
+  assert.match(token, /^\[paste #1/);
+  editor.render(80);
+  editor.handleMouse({ type: "click", button: "left", x: 5, y: 1, screenX: 5, screenY: 1, width: 80, height: 4 } as TuiMouseEvent);
+  assert.equal(editor.getText(), body);
+  editor.handleInput("\x1b[45;5u");
+  assert.equal(editor.getText(), token);
+  assert.equal(editor.getExpandedText(), body);
 });

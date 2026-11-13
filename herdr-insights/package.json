@@ -1,0 +1,15 @@
+{
+  "name": "herdr-insights",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first token usage insights for Herdr coding-agent sessions.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "install:local": "node scripts/install.mjs",
+    "uninstall:local": "node scripts/uninstall.mjs"
+  }
+}

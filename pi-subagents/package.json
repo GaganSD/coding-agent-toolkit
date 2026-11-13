@@ -1,6 +1,6 @@
 {
   "name": "@gagansd/pi-subagents",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "description": "Tiny yet powerful, benchmarked sub-agents for Pi",
   "license": "MIT",
   "type": "module",
@@ -10,10 +10,10 @@
     "pi",
     "subagents"
   ],
-  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-subagents",
+  "homepage": "https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-subagents",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "url": "git+https://github.com/GaganSD/coding-agent-toolkit.git",
     "directory": "pi-subagents"
   },
   "exports": {
@@ -74,7 +74,7 @@
     "yaml": "2.9.1"
   },
   "overrides": {
-    "undici": "8.12.2"
+    "undici": "8.12.4"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.3.0",

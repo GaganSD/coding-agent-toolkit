@@ -142,7 +142,10 @@ export class DiffView implements Component {
   }
 
   private fit(text: string, width: number, bg = this.config.colors.contextBg): string {
-    const clipped = truncateToWidth(text, width, "…");
+    // Truncation resets SGR before the ellipsis; repaint it rather than exposing
+    // the host tool/terminal background at the edge of a clipped code cell.
+    const ellipsis = ansiColor(bg, true) + ansiColor(this.config.colors.fg) + "…";
+    const clipped = truncateToWidth(text, width, ellipsis);
     return ansiColor(bg, true) + clipped + RESET + ansiColor(bg, true)
       + " ".repeat(Math.max(0, width - visibleWidth(clipped))) + RESET;
   }
@@ -204,7 +207,8 @@ export class DiffView implements Component {
     if (split) {
       const leftWidth = Math.floor((width - 3) / 2);
       const rightWidth = width - leftWidth - 3;
-      const border = ansiColor(this.config.colors.borderFg) + " │ " + RESET;
+      const border = ansiColor(this.config.colors.contextBg, true)
+        + ansiColor(this.config.colors.borderFg) + " │ " + RESET;
       output.push(this.fit(ansiColor(this.config.colors.lineNumberFg) + "Before", leftWidth) + border
         + this.fit(ansiColor(this.config.colors.lineNumberFg) + "After", rightWidth));
       const pairs = pairRows(this.rows);

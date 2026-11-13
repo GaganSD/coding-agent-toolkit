@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const httpUrl = new URL("../src/providers/http.ts", import.meta.url).href;
-const augmentUrl = new URL("../src/jev/augment.ts", import.meta.url).href;
+const augmentUrl = new URL("../src/classifier/augment.ts", import.meta.url).href;
 
 // Allow slow child startup under CPU contention. Fixture deadlines must outlive
 // the guard, so a leaked timer still fails rather than expiring before exit.
@@ -99,7 +99,7 @@ test("optional judging survives an otherwise idle operation deadline with its ev
 		try {
 			const result = await augmentResults({
 				query: "q", signal: deadline.signal,
-				settings: { jev: { enabled: true, provider: "typesafe", model: "jev-latest", maxStateChars: 20000 } },
+				settings: { classifier: { enabled: true, provider: "typesafe", model: "jev-latest", maxStateChars: 20000 } },
 			}, input, {
 				timeoutMs: ${CLEANUP_FIXTURE_DEADLINE_MS},
 				modelRegistry: {
@@ -110,7 +110,7 @@ test("optional judging survives an otherwise idle operation deadline with its ev
 			});
 			assert.deepEqual(result.searchResults, input.searchResults);
 			assert.deepEqual(result.sources, input.sources);
-			assert.equal(result.jevStatus, "unavailable");
+			assert.equal(result.classifierStatus, "unavailable");
 			assert.match(result.warnings.join(" "), /operation timeout/);
 		} finally { deadline.dispose(); }
 	`);
