@@ -1,0 +1,99 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
+import { THIS_COMPUTER } from "../../herdr-insights/mods/insights/analytics.js";
+import { run } from "../../herdr-insights/mods/insights/presenter.mjs";
+import { rowsFileText, stateFileText } from "../../herdr-insights/mods/insights/remote.mjs";
+
+function row(day, session, total) {
+  return {
+    day, session, harness: "codex", provider: "openai", model: "gpt-5", project: "/p",
+    tokens: { input: total, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, total },
+    messages: 1, activeMs: 0, longestTaskMs: 0,
+  };
+}
+
+function envelope(rows) {
+  return {
+    kind: "insights-remote-rows", version: 1, generatedAt: null, lastScanAt: null,
+    lastCompletedScanAt: "2026-11-13T00:59:00.000Z", rowCount: rows.length,
+    rows: gzipSync(JSON.stringify(rows)).toString("base64"),
+    scan: { status: "complete", processed: 1, total: 1 }, warnings: [],
+  };
+}
+
+async function context(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "insights-presenter-remote-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = path.join(root, "data/insights.json");
+  const machines = path.join(root, "data/machines");
+  await mkdir(machines, { recursive: true });
+  const save = (name, rows, extra = {}) => Promise.all([
+    writeFile(path.join(machines, `${name}.rows.json`), rowsFileText({ machine: name, envelope: envelope(rows), fetchedAt: "2026-11-13T01:00:00.000Z" })),
+    writeFile(path.join(machines, `${name}.state.json`), stateFileText({ machine: name, attemptedAt: "2026-11-13T01:00:00.000Z", error: extra.error ?? null })),
+  ]);
+  return { root, store, machines, save, home: path.join(root, "home") };
+}
+
+async function prepare(ctx, options = {}) {
+  const result = await run(["prepare", "--store", ctx.store, "--options", JSON.stringify({ today: "2026-11-13", ...options })]);
+  assert.equal(result.exitCode, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+test("prepare merges saved remote machines next to the store", async (t) => {
+  const ctx = await context(t);
+  await ctx.save("box", [row("2026-11-12", "a", 7)]);
+  await ctx.save("vps", [row("2026-11-13", "a", 3)], { error: "machine unreachable" });
+  const payload = await prepare(ctx);
+  assert.equal(payload.dashboard.lifetime.total, 10);
+  assert.equal(payload.dashboard.lifetime.sessions, 2);
+  assert.deepEqual(payload.snapshot.machines.map((m) => [m.name, m.status]), [[null, "ok"], ["box", "ok"], ["vps", "offline"]]);
+  assert.deepEqual(payload.dashboard.machines.map((m) => m.name), [null, "box", "vps"]);
+  assert.equal((await prepare(ctx, { filters: { machine: "box" } })).dashboard.lifetime.total, 7);
+  assert.equal((await prepare(ctx, { filters: { machine: THIS_COMPUTER } })).dashboard.lifetime.total, 0);
+});
+
+test("disabled machines in remote.json are left out", async (t) => {
+  const ctx = await context(t);
+  await ctx.save("box", [row("2026-11-12", "a", 7)]);
+  await ctx.save("vps", [row("2026-11-13", "a", 3)]);
+  await writeFile(path.join(path.dirname(ctx.store), "remote.json"), JSON.stringify({ disabled: ["vps"] }));
+  const payload = await prepare(ctx);
+  assert.equal(payload.dashboard.lifetime.total, 7);
+  assert.deepEqual(payload.snapshot.machines.map((m) => m.name), [null, "box"]);
+});
+
+test("a corrupt machine file or remote.json never breaks the dashboard", async (t) => {
+  const ctx = await context(t);
+  await ctx.save("box", [row("2026-11-12", "a", 7)]);
+  await writeFile(path.join(ctx.machines, "bad.rows.json"), "{");
+  await writeFile(path.join(path.dirname(ctx.store), "remote.json"), "nope");
+  const payload = await prepare(ctx);
+  assert.equal(payload.error, null);
+  assert.equal(payload.dashboard.lifetime.total, 7);
+  assert.ok(payload.snapshot.warnings.some((w) => w.includes("bad.rows.json")));
+});
+
+test("snapshot also merges remote machines", async (t) => {
+  const ctx = await context(t);
+  await mkdir(ctx.home);
+  await ctx.save("box", [row("2026-11-12", "a", 7)]);
+  const result = await run(["snapshot", "--store", ctx.store, "--home", ctx.home, "--options", JSON.stringify({ today: "2026-11-13" })]);
+  assert.equal(result.exitCode, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.dashboard.lifetime.total, 7);
+  assert.equal(payload.snapshot.machines.length, 2);
+});
+
+test("bundle prints the remote worker bundle", async () => {
+  const result = await run(["bundle"]);
+  assert.equal(result.exitCode, 0, result.stderr);
+  const bundle = JSON.parse(result.stdout);
+  assert.match(bundle.hash, /^[0-9a-f]{16}$/);
+  const files = JSON.parse(gunzipSync(Buffer.from(bundle.payload, "base64")).toString("utf8")).files;
+  assert.ok(files["remote-entry.mjs"] && files["collector.mjs"]);
+});
