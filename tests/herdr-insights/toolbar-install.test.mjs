@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   APP_FILES,
+  CLONED_TOOLBAR_LAYOUT,
   PACKAGE_ROOT,
   SINGLE_TOOLBAR_CONTENT,
   TOOLBAR_LAYOUT,
@@ -68,6 +69,27 @@ test("standalone distribution installs one mod and a single-mod toolbar without 
   const text = await fs.readFile(path.join(appHome, "layouts/main-insights.json"), "utf8");
   assert.equal(record.hash, hash(text));
   assert.equal(log.filter((entry) => entry.args[1] === "mod.open").length, 0, "no floating window");
+});
+
+test("a personal tab-bar clone installs, and the tab bar keeps the window buttons last", async (t) => {
+  const root = await temporaryRoot(t);
+  const sourceRoot = await createSource(root);
+  const appHome = path.join(root, "app");
+  await writeTree(appHome, { ...APP_FILES, "layouts/main.json": CLONED_TOOLBAR_LAYOUT });
+  const fake = await createFakeRunner(root);
+  assertSuccess(runInstall({ appHome, fake, sourceRoot }));
+  const layout = await readJson(path.join(appHome, "layouts/main-insights.json"));
+  const row = layout.children[0];
+  assert.equal(row.id, "tabs");
+  assert.equal(row.type, "row");
+  const ids = row.children.map((child) => child.id);
+  assert.deepEqual(ids, process.platform === "darwin"
+    ? ["insights-original-tabs", "insights-toolbar-button"]
+    : ["insights-toolbar-button", "insights-original-tabs"]);
+  assert.deepEqual(row.children.find((child) => child.id === "insights-original-tabs").content,
+    { mod: "tabs-graph" }, "the clone is preserved, not replaced by Herdr's tabs");
+  assert.deepEqual(row.children.find((child) => child.id === "insights-toolbar-button").content,
+    SINGLE_TOOLBAR_CONTENT);
 });
 
 test("one mod reinstalls idempotently and uninstall preserves data and local edits", async (t) => {

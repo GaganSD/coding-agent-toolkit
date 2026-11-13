@@ -30,6 +30,13 @@ export const TOOLBAR_LAYOUT = JSON.stringify({ id: "root", type: "column", child
 
 export const SINGLE_TOOLBAR_CONTENT = { mod: "insights", props: { mode: "toolbar" } };
 
+// A personal clone of the tab bar (`mod.clone tabs --as tabs-graph`): same block
+// ID, but the content is not Herdr's own `tabs` mod.
+export const CLONED_TOOLBAR_LAYOUT = JSON.stringify({ id: "root", type: "column", children: [
+  { id: "tabs", type: "block", size: { px: 42 }, window_drag: true, content: { mod: "tabs-graph" } },
+  { id: "main", type: "block", content: { tab: "active" } },
+] }) + "\n";
+
 export const APP_FILES = {
   "data/insights/insights.json": '{"version":1,"keep":"local"}\n',
   "data/insights/local-note.txt": "local data\n",

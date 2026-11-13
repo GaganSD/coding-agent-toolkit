@@ -69,8 +69,10 @@ dashboard. The installer preflights the mod tree, checks a temporary buffered co
 before replacing live files, generates the dashboard's local Node path, and records
 ownership in `install-manifest.json`. Install/uninstall share an exclusive lock;
 interrupted operations require confirming the process stopped before removing it.
-The toolbar is a personal layout clone wrapping Herdr's original `tabs` block;
-no built-in mod source is cloned, patched, or vendored. See
+The toolbar is a personal layout clone wrapping the tab-bar block (Herdr's `tabs`
+or a personal clone of it); no built-in mod source is cloned, patched, or
+vendored. Windows and Linux place the button before the bar so the window
+buttons the bar draws stay last; macOS places it after. See
 [INSTALL.md](../herdr-insights/INSTALL.md) for the clone, click-state, and
 ownership rules. A clone does not inherit future structural changes to its
 source layout. A normal install has one `install-manifest.json` and the dashboard
