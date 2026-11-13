@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const mainSource = await readFile(new URL("../../herdr-insights/mods/insights/main.js", import.meta.url), "utf8");
 const analyticsSource = await readFile(new URL("../../herdr-insights/mods/insights/analytics.js", import.meta.url), "utf8");
 const uiSource = await readFile(new URL("../../herdr-insights/mods/insights/ui.js", import.meta.url), "utf8");
+const remoteSource = await readFile(new URL("../../herdr-insights/mods/insights/remote.mjs", import.meta.url), "utf8");
 const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 const analyticsUrl = dataUrl(analyticsSource);
 const analytics = await import(analyticsUrl);
@@ -147,7 +148,17 @@ const notify = (...args) => globalThis.__insightsTestHerdr.notify(...args);
 const panes = () => globalThis.__insightsTestHerdr.panes();
 const props = () => globalThis.__insightsTestHerdr.props();
 const run = (...args) => globalThis.__insightsTestHerdr.run(...args);
-const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
+const spaces = () => globalThis.__insightsTestHerdr.spaces();
+const machines = () => globalThis.__insightsTestHerdr.machines?.() ?? [];`,
+  )
+  .replace(
+    /^import \{ mkdir, writeFile \} from "fs\/promises";$/m,
+    `const mkdir = (...args) => globalThis.__insightsTestHerdr.mkdir(...args);
+const writeFile = (...args) => globalThis.__insightsTestHerdr.writeFile(...args);`,
+  )
+  .replace(
+    /^import \{[^}]*\} from "\.\/remote\.mjs";$/m,
+    (line) => line.replace(/"\.\/remote\.mjs"/, `"${dataUrl(remoteSource)}"`),
   )
   .replace(
     /^import \{[\s\S]*?\} from "\.\/analytics\.js";$/m,
@@ -196,6 +207,9 @@ function useHerdr({ readTextFile, execResult } = {}) {
     props: () => state.props,
     run: (...args) => state.commands.push(args),
     spaces: () => state.spaces,
+    machines: () => state.machines ?? [],
+    mkdir: async (dir) => { (state.mkdirs ??= []).push(dir); },
+    writeFile: async (file, text) => { (state.files ??= {})[file] = String(text); },
     readTextFile: async (path) => {
       state.runtimeReads.push(path);
       return readTextFile ? readTextFile(path) : null;
@@ -209,8 +223,8 @@ function useHerdr({ readTextFile, execResult } = {}) {
       state.notifications.push(notification);
       return "toast-1";
     },
-    exec: async (command, args) => {
-      state.execCalls.push({ command, args });
+    exec: async (command, args, execOptions) => {
+      state.execCalls.push({ command, args, options: execOptions });
       if (execResult) return execResult(command, args, state);
       const options = optionArgument(args);
       const payload = presentationFor(savedSnapshot(), options, args[1] ?? "snapshot");
@@ -357,7 +371,8 @@ test("native mod keeps timers and shell use inside the Herdr contract", () => {
   assert.doesNotMatch(mainSource, /--rebuild/);
   assert.match(mainSource, /readTextFile\(this\.runtimePath\(\)\)/);
   assert.match(mainSource, /mods\/insights\/runtime\.json/);
-  assert.equal((mainSource.match(/exec\(this\.nodeBinary, \[/g) ?? []).length, 3);
+  assert.equal((mainSource.match(/exec\(this\.nodeBinary, \[/g) ?? []).length, 4);
+  assert.match(mainSource, /exec\(this\.nodeBinary, \[this\.presenterPath\(\), "bundle"\]\)/);
   assert.match(mainSource, /presenter\.mjs/);
   assert.match(mainSource, /"prepare"/);
   assert.match(mainSource, /timer\.after\(0/);
@@ -944,7 +959,7 @@ test("model usage wraps into columns instead of switching on a pane width", () =
 
 test("loading state shows live scan progress and scan status lives in settings", () => {
   assert.doesNotMatch(mainSource, /Reading local session history|collector and presentation helper|Preparing the compact dashboard|Initializing the native source|bottomGrid/);
-  assert.match(mainSource, /children\(\[preferences, sources, scan, json\]\)/);
+  assert.match(mainSource, /children\(\[preferences, sources, remoteMachines, scan, json\]\)/);
 
   const instance = blankInstance();
   instance.loading = true;
@@ -1620,4 +1635,111 @@ test("running worker status shows current file and decoded bytes", () => {
   assert.match(label, /Indexing 3 of 10 files/);
   assert.match(label, /open-giant\.jsonl\.zst/, "the live file is visible");
   assert.match(label, /decoded/, "in-progress decoded bytes are visible");
+});
+
+function remoteHerdr({ machines, rows = "fail", disabled = [] } = {}) {
+  const envelope = {
+    kind: "insights-remote-rows", version: 1, generatedAt: null, lastScanAt: null, lastCompletedScanAt: null,
+    rowCount: 0, rows: "H4sIAAAAAAAAA4uOBQApu0wNAgAAAA==", scan: { status: "complete", processed: 1, total: 1 }, warnings: [],
+  };
+  const state = useHerdr({
+    readTextFile: () => null,
+    execResult(command, args) {
+      if (args[1] === "bundle") return { code: 0, stdout: JSON.stringify({ hash: "0123456789abcdef", payload: "UA" }), stderr: "" };
+      if (command === "sh" && args.at(-1) === "rows") {
+        return rows === "fail" ? { code: 1, stdout: "", stderr: "Error: disk full" } : { code: 0, stdout: JSON.stringify(envelope), stderr: "" };
+      }
+      if (command === "sh") {
+        return { code: 0, stdout: JSON.stringify({ ok: true, installed: true, dir: "/r/.cache/herdr-insights/0123456789abcdef", node: "/usr/bin/node" }), stderr: "" };
+      }
+      const options = optionArgument(args);
+      const payload = presentationFor({ ...savedSnapshot(), remoteDisabled: disabled }, options, args[1]);
+      payload.snapshot.remoteDisabled = disabled;
+      return { code: 0, stdout: JSON.stringify(payload), stderr: "" };
+    },
+  });
+  state.machines = machines;
+  return state;
+}
+
+async function settle() {
+  for (let index = 0; index < 12; index += 1) await flush();
+}
+
+test("remote machines sync with exec on, save only aggregated files, and re-prepare the dashboard", async () => {
+  const state = remoteHerdr({
+    rows: "ok",
+    machines: [
+      { name: null, layout: "ready" },
+      { name: "box", layout: "ready" },
+      { name: "gone", layout: "unavailable" },
+      { name: "wait", layout: "loading" },
+    ],
+  });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  await calls.runAfter();
+  await settle();
+
+  const remoteCalls = state.execCalls.filter((call) => call.command === "sh");
+  assert.ok(remoteCalls.length >= 2);
+  assert.ok(remoteCalls.every((call) => call.options?.on === "box"), "remote commands run only on the ready machine");
+  assert.equal(state.execCalls.filter((call) => call.args?.[1] === "bundle").length, 1);
+  const rowsFile = JSON.parse(state.files["/app/data/insights/machines/box.rows.json"]);
+  assert.equal(rowsFile.kind, "insights-remote-machine-rows");
+  assert.equal(rowsFile.envelope.rowCount, 0);
+  assert.equal(JSON.parse(state.files["/app/data/insights/machines/box.state.json"]).error, null);
+  assert.match(JSON.parse(state.files["/app/data/insights/machines/gone.state.json"]).error, /offline/);
+  assert.equal(state.files["/app/data/insights/machines/gone.rows.json"], undefined);
+  assert.equal(Object.keys(state.files).some((file) => file.includes("wait")), false);
+  const prepares = state.execCalls.filter((call) => call.args?.[1] === "prepare");
+  assert.ok(prepares.some((call) => optionArgument(call.args).remoteRevision >= 1), "a finished sync re-prepares the dashboard");
+  instance.close();
+});
+
+test("a failed remote keeps its last rows and records the error for the machine", async () => {
+  const state = remoteHerdr({ machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  assert.equal(state.files["/app/data/insights/machines/box.rows.json"], undefined);
+  assert.match(JSON.parse(state.files["/app/data/insights/machines/box.state.json"]).error, /disk full/);
+  assert.match(instance.remoteView("box").error, /disk full/);
+  instance.close();
+});
+
+test("machines disabled in Settings are never synced, not even on the first pass", async () => {
+  const state = remoteHerdr({ rows: "ok", disabled: ["box"], machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  assert.equal(state.execCalls.filter((call) => call.command === "sh").length, 0);
+  assert.deepEqual(instance.remoteDisabled, ["box"]);
+  instance.close();
+});
+
+test("the machine filter and remote revisions reach the presenter options and the cache key", () => {
+  const instance = blankInstance();
+  assert.equal(instance.dashboardOptions().filters.machine, undefined);
+  instance.machineFilter = "box";
+  assert.equal(instance.dashboardOptions().filters.machine, "box");
+  const before = presentationKey(savedSnapshot(), instance.dashboardOptions());
+  instance.remoteRevision = 3;
+  assert.equal(instance.dashboardOptions().remoteRevision, 3);
+  assert.notEqual(presentationKey(savedSnapshot(), instance.dashboardOptions()), before);
+});
+
+test("machine status text covers syncing, indexing, synced, offline and never synced", async () => {
+  const { machineStatusText } = await import(dataUrl(transformedMain));
+  const synced = { name: "box", status: "ok", fetchedAt: "2024-01-10T12:00:00Z", error: null };
+  assert.equal(machineStatusText(synced, { syncing: true }), "Syncing…");
+  assert.equal(machineStatusText(synced, { scan: { status: "partial", processed: 5, total: 1200 } }), "Indexing 5 of 1,200 files");
+  assert.match(machineStatusText(synced, {}), /^Synced /);
+  assert.match(machineStatusText({ ...synced, status: "offline", error: "gone" }, {}), /^Offline · last synced /);
+  assert.equal(machineStatusText({ name: "box", status: "error", fetchedAt: null, error: "node was not found on PATH" }, {}), "Unavailable: node was not found on PATH");
+  assert.equal(machineStatusText({ name: "box", fetchedAt: null }, {}), "Waiting for first sync");
 });

@@ -65,6 +65,7 @@ test("disabled machines in remote.json are left out", async (t) => {
   const payload = await prepare(ctx);
   assert.equal(payload.dashboard.lifetime.total, 7);
   assert.deepEqual(payload.snapshot.machines.map((m) => m.name), [null, "box"]);
+  assert.deepEqual(payload.snapshot.remoteDisabled, ["vps"], "main.js reads the disabled list from the presenter");
 });
 
 test("a corrupt machine file or remote.json never breaks the dashboard", async (t) => {

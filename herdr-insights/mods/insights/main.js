@@ -1,9 +1,11 @@
 // Insights: a native, local-only usage dashboard. No DOM, no shell, no stored cx.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Button, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
-import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, writeTextFile, pickFolder, notify, spaces } from "herdr";
+import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, writeTextFile, pickFolder, notify, spaces, machines } from "herdr";
+import { mkdir, writeFile } from "fs/promises";
 import {
   PALETTES,
+  THIS_COMPUTER,
   clampRefreshSeconds,
   dashboardMarkdown,
   dayKey,
@@ -46,6 +48,7 @@ import {
   toggleSwitch,
   tokens,
 } from "./ui.js";
+import { machineFileStem, rowsFileText, stateFileText, syncMachine } from "./remote.mjs";
 
 const MIN_CELL = 12;
 const MAX_CELL = 20;
@@ -200,6 +203,48 @@ export function usageLogo(model, provider) {
   return modelLogo(model) ?? providerLogo(provider);
 }
 const MAX_FACET_OPTIONS = 250;
+// After a partial remote slice the collector continues soon; a detached
+// indexer on the remote is polled more gently.
+const REMOTE_CONTINUE_MS = { partial: 1000, running: 15000, starting: 15000 };
+
+// One sync per machine across every dashboard copy: copies share module code,
+// and two writers of the same machine file would race.
+const remoteInflight = new Map();
+
+export function machineStatusText(machine, live = {}) {
+  if (live.syncing) return "Syncing…";
+  const scan = live.error ? null : live.scan;
+  if (scan && REMOTE_CONTINUE_MS[scan.status]) {
+    return scan.total > 0 ? `Indexing ${formatInt(scan.processed)} of ${formatInt(scan.total)} files` : "Indexing…";
+  }
+  const error = live.error ?? machine?.error ?? null;
+  if (!machine?.fetchedAt) return error ? `Unavailable: ${error}` : "Waiting for first sync";
+  const synced = formatTimestamp(machine.fetchedAt);
+  return error ? `Offline · last synced ${synced}` : `Synced ${synced}`;
+}
+
+function machineTone(machine, live, c) {
+  if (live.syncing || (live.scan && !live.error && REMOTE_CONTINUE_MS[live.scan.status])) return c.accent;
+  if (!machine?.fetchedAt) return c.destructive;
+  return live.error ?? machine?.error ? c.dim : c.done;
+}
+
+function machineLabel(value) {
+  if (value === "all") return "All machines";
+  if (value === THIS_COMPUTER) return "This computer";
+  return value;
+}
+
+function menuTrigger(id, label, valueLabel, active, c) {
+  return Button.new(id).h(H.control).px(8).gap(G.sm).items_center().rounded(R.control)
+    .border_1().border_color(active ? c.ring : c.border).bg(c.card).cursor_pointer()
+    .hover((style) => style.bg(c.subtle))
+    .focus((style) => style.border_color(c.ring))
+    .accessibility_label(`${label}: ${valueLabel}`)
+    .child(div().text_size(T.label).font_medium().text_color(c.dim).child(label))
+    .child(div().max_w(132).truncate().text_size(T.body).text_color(c.text).child(valueLabel))
+    .child(div().text_size(11).text_color(c.dim).child("⌄"));
+}
 const DEFAULT_NODE = "node";
 const RUNTIME_FILE = "mods/insights/runtime.json";
 const PRESENTER_FILE = "mods/insights/presenter.mjs";
@@ -304,6 +349,7 @@ export function presentationKey(snapshot, options = {}) {
     lastScanAt: snapshot?.lastScanAt ?? null,
     config: snapshot?.config ?? null,
     filters: options.filters ?? {},
+    remoteRevision: options.remoteRevision ?? 0,
     period: options.period ?? "all",
     year: options.year ?? null,
     heatmapMode: options.heatmapMode ?? "daily",
@@ -495,6 +541,11 @@ export default class Insights extends View {
     this.width = 960;
     this.height = 800;
     this.filters = { provider: "all", model: "all" };
+    this.machineFilter = "all";
+    this.remote = new Map();
+    this.remoteRevision = 0;
+    this.remoteDisabled = [];
+    this.bundlePromise = null;
     this.period = "all";
     this.year = Number(todayKey().slice(0, 4));
     this.heatmapMode = "daily";
@@ -593,6 +644,10 @@ export default class Insights extends View {
     this.activityTask = null;
     this.cancelProgress();
     try { this.timer?.cancel(); } catch { /* already gone */ }
+    for (const entry of this.remote?.values() ?? []) {
+      try { entry.timer?.cancel(); } catch { /* already gone */ }
+      try { entry.task?.cancel(); } catch { /* already gone */ }
+    }
     try { this.dashboardTimer?.cancel(); } catch { /* already gone */ }
     try { this.dashboardTask?.cancel(); } catch { /* already gone */ }
     try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
@@ -776,18 +831,155 @@ export default class Insights extends View {
     if (this.timer && this.timerSeconds === seconds) return;
     try { this.timer?.cancel(); } catch { /* already gone */ }
     this.timerSeconds = seconds;
-    this.timer = cx.timer.every(seconds * 1000, (timerCx) => this.refresh(timerCx));
+    this.timer = cx.timer.every(seconds * 1000, (timerCx) => {
+      this.refresh(timerCx);
+      this.syncRemotes(timerCx);
+    });
+  }
+
+  machinesDir() {
+    return `${appHome()}/data/insights/machines`;
+  }
+
+  remoteSettingsPath() {
+    return `${appHome()}/data/insights/remote.json`;
+  }
+
+  remoteView(name) {
+    const entry = this.remote?.get(name);
+    return { syncing: Boolean(entry?.task), error: entry?.error ?? null, scan: entry?.scan ?? null };
+  }
+
+  // The bundle is built by the local Node helper (QuickJS has no gzip/sha)
+  // once per view and shared by every machine sync.
+  loadBundle() {
+    if (!this.bundlePromise) {
+      const pending = exec(this.nodeBinary, [this.presenterPath(), "bundle"]).then((result) => {
+        if (result.code !== 0) throw new Error(resultError(result));
+        const bundle = JSON.parse(result.stdout);
+        if (typeof bundle?.hash !== "string" || typeof bundle?.payload !== "string") {
+          throw new Error("The presentation helper returned no worker bundle.");
+        }
+        return bundle;
+      });
+      pending.catch(() => { if (this.bundlePromise === pending) this.bundlePromise = null; });
+      this.bundlePromise = pending;
+    }
+    return this.bundlePromise;
+  }
+
+  refreshAll(cx) {
+    this.refresh(cx);
+    this.syncRemotes(cx);
+  }
+
+  syncRemotes(cx) {
+    if (this.closed || this.toolbarMode || !this.nodeBinary || this.runtimeError) return;
+    const disabled = new Set(this.remoteDisabled ?? []);
+    for (const machine of machines() ?? []) {
+      if (!machine?.name || machine.layout === "loading" || disabled.has(machine.name)) continue;
+      this.syncMachine(cx, machine.name, machine.layout === "unavailable");
+    }
+  }
+
+  syncMachine(cx, name, offline) {
+    let entry = this.remote.get(name);
+    if (!entry) {
+      entry = { task: null, timer: null, error: null, scan: null };
+      this.remote.set(name, entry);
+    }
+    if (entry.task || this.closed) return;
+    try { entry.timer?.cancel(); } catch { /* already gone */ }
+    entry.timer = null;
+    let task = null;
+    task = cx.spawn(async (syncCx) => {
+      let envelope = null;
+      let failure = null;
+      try {
+        let pending = remoteInflight.get(name);
+        if (!pending) {
+          pending = this.fetchMachine(name, offline).finally(() => remoteInflight.delete(name));
+          remoteInflight.set(name, pending);
+        }
+        envelope = await pending;
+      } catch (error) {
+        failure = error;
+      } finally {
+        if (entry.task === task) entry.task = null;
+      }
+      if (this.closed) return;
+      entry.error = failure ? sanitizeError(failure) : null;
+      if (envelope) entry.scan = envelope.scan;
+      this.remoteRevision = (this.remoteRevision ?? 0) + 1;
+      this.scheduleDashboard(syncCx, { force: true });
+      const delay = envelope ? REMOTE_CONTINUE_MS[envelope.scan?.status] : undefined;
+      if (delay && !(this.remoteDisabled ?? []).includes(name)) {
+        entry.timer = syncCx.timer.after(delay, (timerCx) => {
+          entry.timer = null;
+          this.syncMachine(timerCx, name, false);
+        });
+      }
+      syncCx.notify();
+    });
+    entry.task = task;
+    cx.notify();
+  }
+
+  // Only aggregated rows are written, beside the store, for the presenter to
+  // merge. A failed attempt keeps the last rows file and records the error.
+  async fetchMachine(name, offline) {
+    const dir = this.machinesDir();
+    const stem = machineFileStem(name);
+    const attemptedAt = new Date().toISOString();
+    await mkdir(dir, { recursive: true });
+    try {
+      if (offline) throw new Error("The machine is offline.");
+      const { envelope } = await syncMachine({
+        exec: (command, args, options) => exec(command, args, { ...options, on: name }),
+        bundle: () => this.loadBundle(),
+      });
+      await writeFile(`${dir}/${stem}.rows.json`, rowsFileText({ machine: name, envelope, fetchedAt: attemptedAt }));
+      await writeFile(`${dir}/${stem}.state.json`, stateFileText({ machine: name, attemptedAt, error: null }));
+      return envelope;
+    } catch (error) {
+      await writeFile(`${dir}/${stem}.state.json`, stateFileText({ machine: name, attemptedAt, error: sanitizeError(error) }));
+      throw error;
+    }
+  }
+
+  setMachineEnabled(name, enabled, cx) {
+    const current = new Set(this.remoteDisabled ?? []);
+    if (enabled) current.delete(name);
+    else current.add(name);
+    const disabled = [...current].sort();
+    this.remoteDisabled = disabled;
+    cx.spawn(async (writeCx) => {
+      try {
+        await mkdir(`${appHome()}/data/insights`, { recursive: true });
+        await writeFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
+      } catch (error) {
+        this.saveError = sanitizeError(error);
+      }
+      if (this.closed) return;
+      this.remoteRevision = (this.remoteRevision ?? 0) + 1;
+      this.scheduleDashboard(writeCx, { force: true });
+      if (enabled) this.syncRemotes(writeCx);
+      writeCx.notify();
+    });
   }
 
   dashboardOptions() {
-    return {
-      filters: this.filters,
+    const machine = this.machineFilter ?? "all";
+    const options = {
+      filters: machine === "all" ? this.filters : { ...this.filters, machine },
       period: this.period,
       year: this.year,
       heatmapMode: this.heatmapMode,
       selectedDay: this.selectedDay,
       today: todayKey(),
     };
+    if (this.remoteRevision) options.remoteRevision = this.remoteRevision;
+    return options;
   }
 
   // Analytics run in the Node presentation helper. QuickJS only stores the
@@ -1147,6 +1339,12 @@ export default class Insights extends View {
     const snapshot = payload.snapshot;
     this.cancelDashboardWork();
     this.snapshot = snapshot;
+    if (Array.isArray(snapshot.remoteDisabled)) this.remoteDisabled = snapshot.remoteDisabled;
+    // The first sync waits for the presenter's disabled list.
+    if (!this.remoteStarted) {
+      this.remoteStarted = true;
+      this.syncRemotes(cx);
+    }
     const savedConfig = normalizeConfig(snapshot.config);
     const today = todayKey();
     const years = Array.isArray(payload.dashboard?.years) && payload.dashboard.years.length
@@ -1551,7 +1749,7 @@ export default class Insights extends View {
       .child(h_flex().flex_wrap().gap(G.sm).items_center()
         .when(Boolean(status), (el) => el.child(div().text_size(T.small)
           .text_color(statusError ? c.destructive : c.dim).child(status)))
-        .child(button("insights-refresh", "↻ Refresh", (_event, clickCx) => this.refresh(clickCx), c, {
+        .child(button("insights-refresh", "↻ Refresh", (_event, clickCx) => this.refreshAll(clickCx), c, {
           disabled: this.busy(),
           variant: "outline",
         }))
@@ -1644,6 +1842,7 @@ export default class Insights extends View {
     const { config, rowCount, range, lifetime, peak, streaks, heatmap, leaders, selectedDay, selectedTotals, selectedTop, years } = derived;
 
     return v_flex().w_full().gap(G.lg)
+      .when(this.machineList().length > 1 || this.machineFilter !== "all", (el) => el.child(this.machineBar(c)))
       .child(this.metricStrip(c, lifetime, peak, streaks))
       .when(rowCount === 0, (el) => el.child(this.emptyNotice(c, config)))
       .child(this.sectionHeader("Token usage", c))
@@ -1653,6 +1852,52 @@ export default class Insights extends View {
       .child(this.filtersBar(c, config, range, derived.facets, years))
       .when(Boolean(derived.modelSeries?.weeks?.length), (el) => el.child(this.modelChartCard(c, derived.modelSeries)))
       .child(this.leaderboardCard(c, leaders, range));
+  }
+
+  // This computer, then every remote seen in saved data or live this session.
+  machineList() {
+    const list = Array.isArray(this.dashboard?.machines) ? [...this.dashboard.machines] : [];
+    if (!list.some((machine) => machine?.name === null)) list.unshift({ name: null });
+    const known = new Set(list.map((machine) => machine?.name));
+    for (const name of this.remote?.keys() ?? []) {
+      if (!known.has(name) && !(this.remoteDisabled ?? []).includes(name)) list.push({ name, status: "error", fetchedAt: null, error: null });
+    }
+    return list;
+  }
+
+  machineBar(c) {
+    const remotes = this.machineList().filter((machine) => machine?.name);
+    const value = this.machineFilter ?? "all";
+    const id = "ins-machine-filter";
+    const menu = Popover.new(id).trigger(menuTrigger("ins-machine-trigger", "Machine", machineLabel(value), value !== "all", c))
+      .open(this.openFilter === id)
+      .on_open_change((open, changeCx) => {
+        this.openFilter = open ? id : null;
+        this.openOptions = open ? {
+          truncated: false,
+          options: [
+            { value: "all", label: machineLabel("all") },
+            { value: THIS_COMPUTER, label: machineLabel(THIS_COMPUTER) },
+            ...remotes.map((machine) => ({ value: machine.name, label: machine.name, detail: machineStatusText(machine, this.remoteView(machine.name)) })),
+          ],
+        } : null;
+        changeCx.notify();
+      });
+    if (this.openFilter === id && this.openOptions) {
+      menu.content(this.filterMenuContent("machine", value, this.openOptions, c, (picked, pickCx) => {
+        this.machineFilter = picked;
+        this.scheduleDashboard(pickCx, { force: true });
+      }));
+    }
+    return h_flex().w_full().flex_wrap().gap(G.md).items_center()
+      .child(menu)
+      .children(remotes.map((machine) => {
+        const live = this.remoteView(machine.name);
+        return h_flex().gap(G.xs).items_center().min_w(0)
+          .child(div().size(6).flex_none().rounded_full().bg(machineTone(machine, live, c)))
+          .child(div().text_size(T.small).text_color(c.text).child(machine.name))
+          .child(div().text_size(T.small).text_color(c.dim).truncate().child(machineStatusText(machine, live)));
+      }));
   }
 
   sectionHeader(title, c) {
@@ -1692,14 +1937,7 @@ export default class Insights extends View {
     const selected = selectedFacet(facet, value, field, config);
     const id = `ins-${field}-filter`;
     const active = value !== "all";
-    const trigger = Button.new(`ins-${field}-trigger`).h(H.control).px(8).gap(G.sm).items_center().rounded(R.control)
-      .border_1().border_color(active ? c.ring : c.border).bg(c.card).cursor_pointer()
-      .hover((style) => style.bg(c.subtle))
-      .focus((style) => style.border_color(c.ring))
-      .accessibility_label(`${label}: ${selected.label}`)
-      .child(div().text_size(T.label).font_medium().text_color(c.dim).child(label))
-      .child(div().max_w(132).truncate().text_size(T.body).text_color(c.text).child(selected.label))
-      .child(div().text_size(11).text_color(c.dim).child("⌄"));
+    const trigger = menuTrigger(`ins-${field}-trigger`, label, selected.label, active, c);
 
     const menu = Popover.new(id).trigger(trigger)
       .open(this.openFilter === id)
@@ -2134,6 +2372,23 @@ export default class Insights extends View {
           variant: "primary",
         })));
 
-    return v_flex().w_full().gap(G.lg).children([preferences, sources, scan, json]);
+    const disabled = new Set(this.remoteDisabled ?? []);
+    const remoteNames = [...new Set([
+      ...(machines() ?? []).map((machine) => machine?.name),
+      ...this.machineList().map((machine) => machine?.name),
+      ...disabled,
+    ].filter(Boolean))].sort();
+    const remoteMachines = card(c).gap(G.sm)
+      .child(cardHeader("Remote machines", "Usage is collected on each machine; only daily totals come back.", c))
+      .when(remoteNames.length === 0, (el) => el.child(mutedText("No other machines are connected to Herdr.", c)))
+      .children(remoteNames.map((name, index) => h_flex().w_full().gap(G.sm).items_center()
+        .child(toggleSwitch(`ins-remote-${index}`, !disabled.has(name), (checked, toggleCx) => this.setMachineEnabled(name, checked, toggleCx), c, {
+          label: `${name} enabled`,
+        }))
+        .child(fieldLabel(name, c))
+        .child(div().flex_1().min_w(0).text_size(T.small).text_color(c.dim).truncate()
+          .child(disabled.has(name) ? "Not collected" : machineStatusText(this.machineList().find((machine) => machine?.name === name), this.remoteView(name))))));
+
+    return v_flex().w_full().gap(G.lg).children([preferences, sources, remoteMachines, scan, json]);
   }
 }

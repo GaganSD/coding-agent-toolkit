@@ -83,6 +83,7 @@ function compactSnapshot(snapshot, rowCount = 0) {
     scan,
     warnings = [],
     machines = [],
+    remoteDisabled = [],
   } = snapshot ?? {};
   return {
     version,
@@ -101,6 +102,7 @@ function compactSnapshot(snapshot, rowCount = 0) {
     scan: scan && typeof scan === "object" ? scan : null,
     warnings: Array.isArray(warnings) ? warnings : [],
     machines: Array.isArray(machines) ? machines : [],
+    remoteDisabled: Array.isArray(remoteDisabled) ? remoteDisabled : [],
   };
 }
 
@@ -127,8 +129,9 @@ async function withMachines(snapshot, storePath) {
   const dataDir = path.dirname(storePath);
   const warnings = [];
   let records = [];
+  let disabled = [];
   try {
-    const disabled = await disabledMachines(dataDir, warnings);
+    disabled = await disabledMachines(dataDir, warnings);
     const loaded = await loadMachineRecords(path.join(dataDir, "machines"), { disabled });
     records = loaded.records;
     warnings.push(...loaded.warnings);
@@ -137,6 +140,7 @@ async function withMachines(snapshot, storePath) {
   }
   const merged = mergeSnapshots(snapshot, records);
   merged.warnings.push(...warnings);
+  merged.remoteDisabled = disabled;
   return merged;
 }
 
