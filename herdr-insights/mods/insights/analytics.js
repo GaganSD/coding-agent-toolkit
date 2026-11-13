@@ -4,6 +4,9 @@
 export const PERIODS = ["week", "month", "year", "all"];
 export const HEATMAP_MODES = ["daily", "weekly", "cumulative"];
 export const PRESENTATION_VERSION = 1;
+// Machine filter value for rows from this computer. Remote machine names never
+// contain "/", so this cannot collide with one.
+export const THIS_COMPUTER = "/this-computer";
 export const DEFAULT_SOURCES = [
   {
     id: "pi",
@@ -378,6 +381,13 @@ function matchesCompiled(row, filters) {
   if (filters.model && row.model !== filters.model) return false;
   if (filters.project && row.project !== filters.project) return false;
   return true;
+}
+
+function filterRowsByMachine(rows, machine) {
+  const selected = cleanFilter(machine);
+  if (!selected) return rows;
+  if (selected === THIS_COMPUTER) return rows.filter((row) => row?.machine === null || row?.machine === undefined);
+  return rows.filter((row) => row?.machine === selected);
 }
 
 export function filterRows(rows, filters = {}) {
@@ -930,8 +940,10 @@ function resolvedDashboardOptions(options = {}, fallbackToday = todayKey()) {
  */
 export function deriveDashboard(snapshot, options = {}) {
   const config = normalizeConfig(snapshot?.config ?? {});
-  const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
   const settings = resolvedDashboardOptions(options);
+  // Unlike the facet filters, the machine filter selects which usage exists at
+  // all, so lifetime totals, streaks, and the heatmap follow it too.
+  const rows = filterRowsByMachine(Array.isArray(snapshot?.rows) ? snapshot.rows : [], settings.filters.machine);
   const { filters, period, year, heatmapMode, leaderboardGroup, today } = settings;
   const years = availableYears(rows, today);
   const includeCache = config.includeCache;
@@ -1028,6 +1040,7 @@ const DASHBOARD_KEY_FIELDS = [
   "provider",
   "model",
   "project",
+  "machine",
   "period",
   "year",
   "heatmapMode",
@@ -1053,6 +1066,7 @@ function dashboardKey(snapshot, options = {}) {
     provider: cleanFilter(filters.provider) ?? "all",
     model: cleanFilter(filters.model) ?? "all",
     project: cleanFilter(filters.project) ?? "all",
+    machine: cleanFilter(filters.machine) ?? "all",
     period: resolved.period,
     year: resolved.year,
     heatmapMode: resolved.heatmapMode,
@@ -1087,6 +1101,7 @@ export function compactDashboard(derived) {
   const leaders = derived?.leaders ?? {};
   return {
     config: derived?.config ?? {},
+    machines: Array.isArray(derived?.snapshot?.machines) ? derived.snapshot.machines : [],
     years: derived?.years ?? [],
     filters: derived?.filters ?? {},
     period: derived?.period,

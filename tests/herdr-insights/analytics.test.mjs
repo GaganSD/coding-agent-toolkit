@@ -551,3 +551,34 @@ test("dashboard cache reuses facet-aware derivation until snapshot or state chan
   cache.read(value, options);
   assert.equal(calls, 11);
 });
+
+test("machine filter scopes the whole dashboard, including lifetime and heatmap", () => {
+  const { THIS_COMPUTER } = analytics;
+  const rows = [
+    row({ day: "2024-01-01", session: "a", tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 10 } }),
+    row({ day: "2024-01-02", session: "box/b", machine: "box", tokens: { input: 5, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: 5 } }),
+  ];
+  const snap = { config: {}, rows, machines: [{ name: null, status: "ok" }, { name: "box", status: "offline", fetchedAt: "2024-01-02T00:00:00.000Z" }] };
+  const today = "2024-01-03";
+  assert.equal(deriveDashboard(snap, { today }).lifetime.total, 15);
+  assert.equal(deriveDashboard(snap, { today, filters: { machine: "all" } }).lifetime.total, 15);
+  assert.equal(deriveDashboard(snap, { today, filters: { machine: THIS_COMPUTER } }).lifetime.total, 10);
+  const box = deriveDashboard(snap, { today, filters: { machine: "box" } });
+  assert.equal(box.lifetime.total, 5);
+  assert.equal(box.heatmap.windowTotal, 5);
+  assert.equal(box.streaks.longest, 1);
+  assert.equal(deriveDashboard({ config: {}, rows: [row({ machine: undefined })] }, { today, filters: { machine: THIS_COMPUTER } }).lifetime.total, 15,
+    "rows without a machine field belong to this computer");
+});
+
+test("compact dashboard carries the machine list and the machine filter changes the cache key", () => {
+  const snap = { config: {}, rows: [row()], machines: [{ name: null, status: "ok" }, { name: "box", status: "ok" }] };
+  const compact = compactDashboard(deriveDashboard(snap, { today: "2024-01-03" }));
+  assert.deepEqual(compact.machines.map((m) => m.name), [null, "box"]);
+  assert.deepEqual(compactDashboard(deriveDashboard({ config: {}, rows: [] }, {})).machines, []);
+  let calls = 0;
+  const cache = createDashboardCache((value, options) => { calls += 1; return deriveDashboard(value, options); });
+  cache.read(snap, { today: "2024-01-03", filters: { machine: "all" } });
+  cache.read(snap, { today: "2024-01-03", filters: { machine: "box" } });
+  assert.equal(calls, 2);
+});
