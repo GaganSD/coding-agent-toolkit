@@ -1,3 +1,6 @@
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { showInspect } from "./inspect.js";
+import { showPermissionDialog } from "./permission-dialog.js";
 import type { ActionEvidence, AutomodeSettings, Decision } from "./types.js";
 import type { EpochController } from "./runtime/epoch.js";
 import { AsyncMutex } from "./runtime/mutex.js";
@@ -21,15 +24,16 @@ import { escapeTerminal } from "./runtime/escape.js";
  */
 
 export const MAX_PENDING_APPROVALS = 32;
-export const DEFAULT_APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
+export const DEFAULT_APPROVAL_TIMEOUT_MS = 60 * 1000;
 
 const CHOICE_DECLINE = "Decline";
 const CHOICE_ALLOW_ONCE = "Allow once";
+const CHOICE_ALWAYS = "Always Allow";
 const CHOICE_INSPECT = "Inspect details";
-const CHOICE_BACK = "Back";
 
 /** Minimal dialog surface; implemented by ctx.ui in TUI mode. */
 export interface ApprovalUi {
+	custom?: ExtensionUIContext["custom"];
 	select(
 		title: string,
 		options: string[],
@@ -53,6 +57,7 @@ export interface ApprovalRequest {
 	detail: string;
 	evidence: ActionEvidence;
 	decision: Decision;
+	allowAlways?: boolean;
 	turnSignal?: AbortSignal;
 	/**
 	 * Gate-linked pending signal (lifecycle epoch + turn + entry deadline).
@@ -70,7 +75,7 @@ export interface ApprovalToken {
 }
 
 export type ApprovalOutcome =
-	| { kind: "allow-once"; token: ApprovalToken }
+	| { kind: "allow-once" | "always-allow"; token: ApprovalToken }
 	| { kind: "declined"; replay: boolean }
 	| { kind: "expired" }
 	| { kind: "cancelled"; reason: string }
@@ -174,30 +179,32 @@ export class ApprovalManager {
 			try {
 				if (combined.aborted) return classifyAbort();
 				for (;;) {
-					const title =
-						`Needs your permission\n\n${req.summary}\n\n` +
-						`Why: ${escapeTerminal(req.decision.reason)}`;
-					const choice = await ctx.ui.select(title, [CHOICE_DECLINE, CHOICE_ALLOW_ONCE, CHOICE_INSPECT], {
-						signal: combined,
-						timeout: remaining(),
-					});
+					const title = `Needs your permission\n\n${req.summary}`;
+					const options = [CHOICE_DECLINE, CHOICE_ALLOW_ONCE, ...(req.allowAlways ? [CHOICE_ALWAYS] : []), CHOICE_INSPECT];
+					const choice = ctx.ui.custom
+						? await showPermissionDialog({ custom: ctx.ui.custom.bind(ctx.ui) }, req.summary, options, combined, remaining())
+						: await ctx.ui.select(title, options, { signal: combined, timeout: remaining() });
 					if (combined.aborted) return classifyAbort();
-					if (choice === CHOICE_ALLOW_ONCE) {
+					if (choice === CHOICE_ALLOW_ONCE || (choice === CHOICE_ALWAYS && req.allowAlways)) {
 						// Token creation requires the epochs that gate revalidation re-checks.
 						if (!this.#deps.epochs.check(epochSnap) || this.#deps.settings.epoch !== settingsEpoch) {
 							return { kind: "cancelled", reason: "policy or session changed while awaiting approval" };
 						}
 						const id = this.#deps.newId?.() ?? `approval-${++fallbackId}`;
 						return {
-							kind: "allow-once",
+							kind: choice === CHOICE_ALWAYS ? "always-allow" : "allow-once",
 							token: { id, fingerprint: req.fingerprint, epoch: epochSnap, settingsEpoch, consumed: false },
 						};
 					}
 					if (choice === CHOICE_INSPECT) {
-						await ctx.ui.select(`Inspect — exact action (control characters escaped)\n\n${req.detail}`, [CHOICE_BACK], {
-							signal: combined,
-							timeout: remaining(),
-						});
+						if (ctx.ui.custom) {
+							await showInspect({ custom: ctx.ui.custom.bind(ctx.ui) }, req.detail, combined);
+						} else {
+							await ctx.ui.select(`Inspect — exact action (control characters escaped)\n\n${req.detail}\n\nEsc close`, [], {
+								signal: combined,
+								timeout: remaining(),
+							});
+						}
 						if (combined.aborted) return classifyAbort();
 						continue;
 					}

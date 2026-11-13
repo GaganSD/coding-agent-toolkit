@@ -1,6 +1,62 @@
 # Verification record
 
-## Executed on the merged package
+## Command-rule recovery verification — 2026-10-22
+
+Current implementation: Pi **1.3.0**, macOS; command/tool-path rules, active
+safety review, versioned disclosure consent, and operator-confirmed reusable
+permissions. Earlier sections below are historical, not current behavior.
+
+| Check | Result |
+|---|---|
+| Full repository tests | 1,514 passed; zero failures/cancellations/skips |
+| Repository tooling tests | 25 passed |
+| All package typechecks | pass |
+| Automode check: Node 22.23.1 / 24.21.0 / 26.5.0 | 318 / 318 on each; typecheck/build pass |
+| Automode lint | pass |
+| Tarball contents | pass; 73 files |
+| Extracted tarball CLI `--help` / `--check` on all three Node versions | pass |
+| Operator's configured local package, actual Pi discovery and launcher check | pass; state remains Off |
+
+The offline suite includes real Pi session/tool execution with a test-only
+classifier registry: a high-safe judgment authorizes an inert Bash command,
+while the same path below threshold refuses execution. Other regressions cover
+hard-block precedence, stale consent, malformed/unsafe/uncertain answers,
+decline replay, audit failures, invalidated model results, tool-scoped reusable
+permissions, cancellation, native-read directory generalization, and a final
+save-authority check before the atomic settings rename. Exact/glob/restricted
+regex tests include literal wildcard handling, absolute end matching, prefix
+index isolation, and bounded non-backtracking work.
+
+### Live adapter smoke (synthetic data, no tool execution)
+
+- The operator's saved gateway model, `perplexity/pplx-decider-v1.1-27b`,
+  returned HTTP 404 `model_not_found`. No fallback or automatic selection
+  change was made.
+- An explicitly authorized smoke of
+  `vercel-ai-gateway/typesafe-ai/jev-1.14.0` completed both native requests.
+  Synthetic command: `git status --short`; workspace metadata was synthetic.
+- Safety: `safe`, P(safe) **0.91**, confidence **0.86**. This is below the
+  default 0.99/0.9 thresholds and therefore grants **no automatic permission**.
+- Pattern selection: `none`, probability **0.56**, confidence **0.12**. No
+  reusable rule is saved. This is a valid no-suitable-pattern response, not
+  evidence that every routine command produces a useful proposal.
+- Reported total cost: **$0.000060312**, within the operator's $1 limit.
+  Zero commands executed; saved Automode/settings/auth file hashes unchanged.
+
+This is transport/schema/fail-closed smoke evidence, **not semantic risk
+calibration**, a verified provider-resolved model pin, or proof of safe
+unattended operation. The operator kept the old model selection and consent;
+reselect a working decision model in `/automode` before using hosted review.
+Independent audits covered the recovered pre-change implementation; no
+independent post-change review is claimed.
+
+Repository-wide `npm run lint` still traverses ignored benchmark caches and
+research. Tracked-file lint isolates 12 existing errors in
+`benchmarks/preflight-guard.cjs`; unrelated files were not changed.
+
+## Historical beta verification
+
+### Executed on the earlier merged package
 
 Environment: macOS, Pi **1.1.0**, inert workspace/agent fixtures inside this
 repository's ignored cache. No product-model requests, real credentials,

@@ -1,5 +1,11 @@
 # Default command policy: deterministic allow / block / ask tiers
 
+> **Historical proposal.** The tables below predate the command-rule rework;
+> “Current” refers to that earlier beta. The shipped default entries now live
+> in `src/default-rules.ts` (compiled as `dist/default-rules.js`). See the
+> [README](../README.md) for current precedence, matching, and model review.
+> Unimplemented proposal categories below are not security guarantees.
+
 Derived from an investigation of [`r4vi/pi-auto-mode`](https://github.com/r4vi/pi-auto-mode)
 (a pi re-implementation of Claude Code's auto mode), adapted to pi-automode's
 architecture. pi-auto-mode uses regex bash patterns and a two-stage chat-model

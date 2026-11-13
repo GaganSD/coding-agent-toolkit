@@ -80,15 +80,13 @@ export function createAutomodeExtension(options: AutomodeOptions = {}): Extensio
 			throw error;
 		}
 
-		// Shadow reviewer wiring failure is visible, never silently swallowed;
-		// local policy still enforces/asks without it and never consumes a
-		// shadow result as permission.
+		// Reviewer wiring failures are visible; unresolved calls stay local.
 		let nativeReviewer: NativeReviewer | null = null;
 		let reviewerError: string | undefined;
 		try {
 			nativeReviewer = new NativeReviewer();
 		} catch (error) {
-			reviewerError = `shadow reviewer unavailable: ${error instanceof Error ? error.message : String(error)}`;
+			reviewerError = `decision reviewer unavailable: ${error instanceof Error ? error.message : String(error)}`;
 		}
 		const reviewer: GateReviewer | null = nativeReviewer;
 

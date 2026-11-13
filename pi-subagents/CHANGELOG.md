@@ -4,6 +4,8 @@
 
 ### Added
 
+- Allow explicit run deadlines up to six hours through `minimalSubagents.timeoutMs`; retain the thirty-minute default and session-bound cancellation.
+
 - `subagent followUp` and `/subagents followUp` queue a message after the sub-agent's pending work, the same follow-up verb as the owning session; steer still enters after the current turn.
 - Exact-ID status presents cached context usage and the current tool alongside state, model/thinking, and evidence paths, inside the same closed output schema.
 

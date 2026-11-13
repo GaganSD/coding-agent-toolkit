@@ -181,7 +181,7 @@ test("bash: a hard-linked operand is incomplete — an exact allow rule still as
   const settings = validateSettings({
     version: 1,
     enabled: true,
-    allowlist: [{ type: "command", text: "cat alias.txt" }],
+    allowlist: [{ text: "cat alias.txt" }],
   });
   const decision = evaluatePolicy(ev, settings);
   assert.equal(decision.outcome, "ask");

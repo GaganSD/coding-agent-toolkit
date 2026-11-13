@@ -5,10 +5,16 @@
  * All modules use ESM `.js` import specifiers (Node >= 22.19).
  */
 
+/** Full-string command/path rule. No message/natural-language interpretation.
+ * Default tool is bash; native file tools match the canonical absolute path.
+ * Default mode is glob (* wildcard); exact permits literal *, regex is bounded
+ * non-backtracking syntax implemented in core/rules.ts.
+ */
 export interface Rule {
-  type: "message" | "command";
   text: string;
   enabled?: boolean;
+  tool?: "bash" | "read" | "edit" | "write";
+  mode?: "glob" | "exact" | "regex";
 }
 
 export interface DecisionModelSelection {
@@ -23,6 +29,10 @@ export interface AutomodeSettings {
   enabled: boolean;
   decisionModel: DecisionModelSelection | null;
   disclosureConsent: DisclosureConsent;
+  /** Explicit consent for command-bearing active safety review. Null = old consent. */
+  disclosureVersion: number | null;
+  reviewSafeThreshold: number;
+  reviewConfidenceThreshold: number;
   /** Consent binding: provider id of the decision model at consent time. Null = unbound. */
   disclosureProvider: string | null;
   /** Consent binding: model id of the decision model at consent time. Null = unbound. */
@@ -50,6 +60,9 @@ export const DEFAULT_SETTINGS: AutomodeSettings = Object.freeze({
   enabled: false,
   decisionModel: null,
   disclosureConsent: "none",
+  disclosureVersion: null,
+  reviewSafeThreshold: 0.99,
+  reviewConfidenceThreshold: 0.67,
   disclosureProvider: null,
   disclosureModel: null,
   disclosureEndpoint: null,
@@ -60,7 +73,7 @@ export const DEFAULT_SETTINGS: AutomodeSettings = Object.freeze({
   logMaxEntries: 500,
   reviewTimeoutMs: 2000,
   reviewMaxRequests: 100,
-  approvalTimeoutMs: 600_000,
+  approvalTimeoutMs: 60_000,
 });
 
 export interface Action {
@@ -98,8 +111,8 @@ export interface FileSnapshot {
 
 /**
  * How a bash command's executable was resolved, or why it is treated as
- * opaque. Opaque commands never receive a deterministic allow in this beta,
- * even with an exact operator allow rule.
+ * opaque. Opaque effects are not proven by executable evidence. Eligible
+ * simple invocations may still receive explicit operator/model permission.
  */
 export interface ShellResolution {
   command: string;
@@ -119,6 +132,9 @@ export interface ActionEvidence {
   sensitive: boolean;
   /** False when any decisive evidence could not be established; unprovable cases Ask/Block. */
   complete: boolean;
+  /** Only opacity (not filesystem/integrity failure) prevents deterministic proof.
+   * Eligible simple, non-sensitive commands may receive explicit/model permission. */
+  reviewableShell?: boolean;
   /**
    * Binds tool, exact argument bytes, canonical cwd, canonical targets and
    * snapshot content. Request IDs are deliberately excluded: they are not

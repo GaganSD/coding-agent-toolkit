@@ -1,5 +1,10 @@
 # Launch decisions
 
+> **Historical launch record (2026-10-14).** The operator subsequently requested
+> active safety review and command/tool-path patterns. Those changes supersede
+> the shadow-only product boundary below, not its unachieved calibration goals.
+> See the [current README](../README.md) and [dated verification](verification.md).
+
 Closes the "Remaining launch decisions" list in `docs/specification.md`.
 Each decision records: the decision, the evidence behind it, and what it
 permits the beta to claim. Decisions here do not authorize claims beyond the

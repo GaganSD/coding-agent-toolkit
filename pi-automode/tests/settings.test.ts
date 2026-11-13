@@ -27,6 +27,25 @@ async function modeOf(p: string): Promise<number> {
 
 const VALID_MINIMAL = { version: 1, enabled: true };
 
+test("permission-save authority is rechecked immediately before the atomic commit", async () => {
+  const dir = await tempDir();
+  try {
+    const file = path.join(dir, "automode.json");
+    const store = new SettingsStore(file);
+    await store.update(validateSettings(VALID_MINIMAL));
+    const before = await fs.readFile(file, "utf8");
+    const epoch = store.epoch;
+    let checks = 0;
+    await assert.rejects(store.update({ ...store.current, allowlist: [{ text: "git status" }] }, {
+      authorize: () => ++checks < 3,
+    }), /save authority expired/);
+    assert.equal(checks, 3);
+    assert.equal(await fs.readFile(file, "utf8"), before);
+    assert.equal(store.epoch, epoch);
+    assert.deepEqual(await fs.readdir(dir), ["automode.json"]);
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
+
 test("oversized updates preserve the readable file, current settings and epoch", async () => {
   const dir = await tempDir();
   try {
@@ -63,7 +82,7 @@ test("validateSettings accepts a minimal valid document and applies defaults", (
   assert.equal(s.logMaxEntries, 500);
   assert.equal(s.reviewTimeoutMs, 2000);
   assert.equal(s.reviewMaxRequests, 100);
-  assert.equal(s.approvalTimeoutMs, 600_000);
+  assert.equal(s.approvalTimeoutMs, 60_000);
 });
 
 test("validateSettings rejects unknown top-level fields, including credentials", () => {
@@ -103,26 +122,34 @@ test("validateSettings rejects wrong types", () => {
   assert.throws(() => validateSettings({ ...VALID_MINIMAL, decisionModel: { provider: "", model: "m" } }));
   assert.throws(() => validateSettings({ ...VALID_MINIMAL, allowlist: {} }));
   assert.throws(() => validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "cmd", text: "ls" }] }));
+  // Removed message rules are rejected with an explicit migration error.
+  assert.throws(
+    () => validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "message", text: "ls" }] }),
+    /message rules are no longer supported/,
+  );
+  // Legacy type: "command" is accepted and dropped from the validated rule.
+  const legacy = validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "command", text: "ls" }] });
+  assert.deepEqual(legacy.allowlist[0], { text: "ls" });
   assert.throws(() => validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "command" }] }));
   assert.throws(() =>
-    validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "command", text: "ls", enabled: 1 }] }),
+    validateSettings({ ...VALID_MINIMAL, allowlist: [{ text: "ls", enabled: 1 }] }),
   );
   assert.throws(() =>
-    validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "command", text: "ls", bogus: true }] }),
+    validateSettings({ ...VALID_MINIMAL, allowlist: [{ text: "ls", bogus: true }] }),
   );
-  assert.throws(() => validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "command", text: "" }] }));
+  assert.throws(() => validateSettings({ ...VALID_MINIMAL, allowlist: [{ text: "" }] }));
 });
 
 test("validateSettings accepts unicode rule text, rejects control characters", () => {
   const ok = validateSettings({
     ...VALID_MINIMAL,
-    blocklist: [{ type: "message", text: "绝不部署到生产环境 🚫" }],
+    blocklist: [{ text: "绝不部署到生产环境 🚫" }],
   });
   assert.equal(ok.blocklist[0]?.text, "绝不部署到生产环境 🚫");
 
   for (const bad of ["badbell", "badescape", "baddel", "badc1"]) {
     assert.throws(
-      () => validateSettings({ ...VALID_MINIMAL, allowlist: [{ type: "command", text: bad }] }),
+      () => validateSettings({ ...VALID_MINIMAL, allowlist: [{ text: bad }] }),
       (e) => e instanceof Error,
       `expected rejection for ${JSON.stringify(bad)}`,
     );
@@ -130,7 +157,7 @@ test("validateSettings accepts unicode rule text, rejects control characters", (
   // Tab/newline/CR remain legal inside operator-written text.
   const withNl = validateSettings({
     ...VALID_MINIMAL,
-    allowlist: [{ type: "message", text: "line one\nline two\tend" }],
+    allowlist: [{ text: "line one\nline two\tend" }],
   });
   assert.equal(withNl.allowlist[0]?.text, "line one\nline two\tend");
 
@@ -164,6 +191,18 @@ test("validateSettings enforces numeric bounds", () => {
     approvalTimeoutMs: 3_600_000,
   });
   assert.equal(ok.logMaxEntries, 100_000);
+});
+
+test("active review thresholds and disclosure version are validated independently of old files", () => {
+  const old = validateSettings(VALID_MINIMAL);
+  assert.equal(old.disclosureVersion, null);
+  assert.equal(old.reviewSafeThreshold, 0.99);
+  assert.equal(old.reviewConfidenceThreshold, 0.67);
+  for (const value of [NaN, Infinity, 0.49, 1.01, null, "0.99"]) {
+    assert.throws(() => validateSettings({ ...VALID_MINIMAL, reviewSafeThreshold: value }));
+    assert.throws(() => validateSettings({ ...VALID_MINIMAL, reviewConfidenceThreshold: value }));
+  }
+  assert.throws(() => validateSettings({ ...VALID_MINIMAL, disclosureVersion: "1" }));
 });
 
 test("old files without disclosure bindings load with null bindings", async () => {
@@ -229,6 +268,7 @@ function consentedSettings(overrides: Partial<AutomodeSettings>): AutomodeSettin
     disclosureModel: "jev-1.13.2",
     disclosureEndpoint: "https://api.typesafe.example/v1",
     disclosureWorkspace: "/canonical/workspace",
+    disclosureVersion: 1,
     ...overrides,
   });
 }
@@ -372,7 +412,7 @@ test("load reads a valid file", async () => {
   const file = path.join(dir, "automode.json");
   await fs.writeFile(
     file,
-    JSON.stringify({ version: 1, enabled: true, allowlist: [{ type: "command", text: "ls" }] }),
+    JSON.stringify({ version: 1, enabled: true, allowlist: [{ text: "ls" }] }),
   );
   const store = new SettingsStore(file);
   await store.load();
@@ -417,7 +457,7 @@ test("reload returns false when nothing changed, true on external valid change",
 
   await fs.writeFile(
     file,
-    JSON.stringify({ version: 1, enabled: true, blocklist: [{ type: "command", text: "rm -rf /" }] }),
+    JSON.stringify({ version: 1, enabled: true, blocklist: [{ text: "rm -rf /" }] }),
   );
   assert.equal(await store.reload(), true);
   assert.equal(store.epoch, epochAfterUpdate + 1);

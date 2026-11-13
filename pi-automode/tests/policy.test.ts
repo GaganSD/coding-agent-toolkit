@@ -86,7 +86,7 @@ test("shell PATH preserves an existing agent-bin entry instead of moving it firs
     for (const agentDir of [fx.agentDir, alias]) {
       process.env.PATH = [earlier, "/usr/bin", path.join(agentDir, "bin")].join(path.delimiter);
       const { decision, evidence } = await decide({ ...fx, agentDir }, "bash", { command: "ls -la" }, settings({
-        allowlist: [{ type: "command", text: "ls -la" }],
+        allowlist: [{ text: "ls -la" }],
       }));
       assert.equal(evidence.shell?.resolvedExecutable, path.join(earlier, "ls"));
       assert.equal(decision.outcome, "ask");
@@ -113,7 +113,7 @@ test("protected writes block; protected reads are a local Ask", async () => {
 
 test("exact block commands match every byte; differing bytes do not match", async () => {
   const fx = await fixture();
-  const cfg = settings({ blocklist: [{ type: "command", text: "git push --force" }] });
+  const cfg = settings({ blocklist: [{ text: "git push --force" }] });
   const hit = await decide(fx, "bash", { command: "git push --force" }, cfg);
   assert.equal(hit.decision.outcome, "block");
   assert.equal(hit.decision.source, "rule:blocklist");
@@ -129,38 +129,43 @@ test("exact block commands match every byte; differing bytes do not match", asyn
 test("disabled rules never match", async () => {
   const fx = await fixture();
   const cfg = settings({
-    blocklist: [{ type: "command", text: "git push --force", enabled: false }],
+    blocklist: [{ text: "git push --force", enabled: false }],
   });
   const { decision } = await decide(fx, "bash", { command: "git push --force" }, cfg);
   assert.notEqual(decision.outcome, "block");
 });
 
-test("enabled message block rule forces Ask before the file floor", async () => {
+test("glob block rules match wildcards across the full command text", async () => {
   const fx = await fixture();
-  await fs.writeFile(path.join(fx.workspace, "a.txt"), "x");
   const cfg = settings({
-    blocklist: [{ type: "message", text: "Never deploy to production" }],
+    blocklist: [{ text: "rm -rf *" }, { text: "git push --force*" }, { text: "* --output=/dev/sd*" }],
   });
-  const { decision } = await decide(fx, "read", { path: "a.txt" }, cfg);
-  assert.equal(decision.outcome, "ask");
-  assert.equal(decision.source, "policy:message-block-unresolved");
+  for (const cmd of ["rm -rf .", "rm -rf /tmp/x", "rm -rf *", "git push --force", "git push --force origin main"]) {
+    const { decision } = await decide(fx, "bash", { command: cmd }, cfg);
+    assert.equal(decision.outcome, "block", cmd);
+    assert.equal(decision.source, "rule:blocklist");
+  }
+  // `rm -rf *` needs the trailing space: the bare command is not matched.
+  const bare = await decide(fx, "bash", { command: "rm -rf" }, cfg);
+  assert.notEqual(bare.decision.outcome, "block");
+  // Leading-wildcard bucket: matched regardless of the command's first token.
+  const lead = await decide(fx, "bash", { command: "sort --output=/dev/sda in.txt" }, cfg);
+  assert.equal(lead.decision.outcome, "block");
+});
 
-  // A disabled message block rule must not hold anything.
-  const cfgDisabled = settings({
-    blocklist: [{ type: "message", text: "Never deploy to production", enabled: false }],
-  });
-  const allowed = await decide(fx, "read", { path: "a.txt" }, cfgDisabled);
-  assert.equal(allowed.decision.outcome, "allow");
-
-  // Precedence: an exact block command still blocks outright.
-  const cfgBoth = settings({
-    blocklist: [
-      { type: "message", text: "Never deploy to production" },
-      { type: "command", text: "ls" },
-    ],
-  });
-  const blocked = await decide(fx, "bash", { command: "ls" }, cfgBoth);
-  assert.equal(blocked.decision.outcome, "block");
+test("glob metacharacters other than * are literal", async () => {
+  const fx = await fixture();
+  const cfg = settings({ blocklist: [{ text: "echo a+b (c) *" }] });
+  const hit = await decide(fx, "bash", { command: "echo a+b (c) literally" }, cfg);
+  assert.equal(hit.decision.outcome, "block");
+  // `?` and `.` in the rule are literal, not regex wildcards.
+  const miss = await decide(fx, "bash", { command: "echo aXb c literally" }, cfg);
+  assert.notEqual(miss.decision.outcome, "block");
+  const regexCfg = settings({ blocklist: [{ text: "echo file?.txt *" }] });
+  const q = await decide(fx, "bash", { command: "echo file?.txt x" }, regexCfg);
+  assert.equal(q.decision.outcome, "block");
+  const qMiss = await decide(fx, "bash", { command: "echo file1.txt x" }, regexCfg);
+  assert.notEqual(qMiss.decision.outcome, "block");
 });
 
 test("workspace file floor allows ordinary reads/edits/writes", async () => {
@@ -193,35 +198,62 @@ test("floor never covers outside-workspace or incomplete targets", async () => {
   assert.equal(hard.decision.source, "policy:incomplete-evidence");
 });
 
-test("exact allow command + complete evidence allows; opaque shell asks even with a rule", async () => {
+test("exact operator permission covers simple opaque commands, unlike built-in defaults", async () => {
   const fx = await fixture();
-  const cfg = settings({ allowlist: [{ type: "command", text: "ls -la" }] });
+  const cfg = settings({ allowlist: [{ text: "ls -la" }] });
   const ok = await decide(fx, "bash", { command: "ls -la" }, cfg);
   assert.equal(ok.decision.outcome, "allow", ok.decision.reason);
   assert.equal(ok.decision.source, "rule:allowlist");
   assert.equal(ok.decision.matchedRule?.text, "ls -la");
 
-  // Same rule, different bytes → no match.
+  // Different bytes miss the operator rule but the built-in `ls *` default covers them.
   const miss = await decide(fx, "bash", { command: "ls -la " }, cfg);
-  assert.equal(miss.decision.outcome, "ask");
+  assert.equal(miss.decision.outcome, "allow");
+  assert.equal(miss.decision.source, "rule:default-allowlist");
 
-  // Exact rule for an opaque program: Ask, never a fake allow.
-  const npmCfg = settings({ allowlist: [{ type: "command", text: "npm test -- parser" }] });
+  // Explicit operator authority, not a claim of proven program effects.
+  const npmCfg = settings({ allowlist: [{ text: "npm test -- parser" }] });
   await fs.writeFile(path.join(fx.workspace, "package.json"), "{}");
   const npm = await decide(fx, "bash", { command: "npm test -- parser" }, npmCfg);
-  assert.equal(npm.decision.outcome, "ask");
-  assert.equal(npm.decision.source, "policy:opaque-shell");
+  assert.equal(npm.decision.outcome, "allow");
+  assert.equal(npm.decision.source, "rule:allowlist");
 
-  const gitCfg = settings({ allowlist: [{ type: "command", text: "git status" }] });
+  const gitCfg = settings({ allowlist: [{ text: "git status" }] });
   const git = await decide(fx, "bash", { command: "git status" }, gitCfg);
-  assert.equal(git.decision.outcome, "ask", "git status is not intrinsically safe");
+  assert.equal(git.decision.outcome, "allow", "operator explicitly authorized this invocation");
+  const exactMiss = await decide(fx, "bash", { command: "git status " }, gitCfg);
+  assert.equal(exactMiss.decision.outcome, "ask", "extra bytes do not inherit exact authority");
+});
+
+test("built-in default rules apply alongside operator rules", async () => {
+  const fx = await fixture();
+  const cfg = settings();
+  // Default allowlist: plain verified read-only commands run without a rule.
+  const ls = await decide(fx, "bash", { command: "ls" }, cfg);
+  assert.equal(ls.decision.outcome, "allow", ls.decision.reason);
+  assert.equal(ls.decision.source, "rule:default-allowlist");
+  // Default blocklist: catastrophic patterns block with no operator rule.
+  const rm = await decide(fx, "bash", { command: "rm -rf /" }, cfg);
+  assert.equal(rm.decision.outcome, "block");
+  assert.equal(rm.decision.source, "rule:default-blocklist");
+  const dd = await decide(fx, "bash", { command: "dd if=/dev/zero of=/dev/sda bs=1M" }, cfg);
+  assert.equal(dd.decision.outcome, "block");
+  assert.equal(dd.decision.source, "rule:default-blocklist");
+  // A default block outranks even a matching operator allowlist rule.
+  const allowRm = settings({ allowlist: [{ text: "rm -rf /" }] });
+  const overridden = await decide(fx, "bash", { command: "rm -rf /" }, allowRm);
+  assert.equal(overridden.decision.outcome, "block");
+  // An operator block outranks a default allowlist entry.
+  const blockLs = settings({ blocklist: [{ text: "ls *" }] });
+  const blocked = await decide(fx, "bash", { command: "ls -la" }, blockLs);
+  assert.equal(blocked.decision.outcome, "block");
 });
 
 test("blocklist outranks an identical allowlist rule", async () => {
   const fx = await fixture();
   const cfg = settings({
-    allowlist: [{ type: "command", text: "ls -la" }],
-    blocklist: [{ type: "command", text: "ls -la" }],
+    allowlist: [{ text: "ls -la" }],
+    blocklist: [{ text: "ls -la" }],
   });
   const { decision } = await decide(fx, "bash", { command: "ls -la" }, cfg);
   assert.equal(decision.outcome, "block");
@@ -229,7 +261,7 @@ test("blocklist outranks an identical allowlist rule", async () => {
 
 test("unmatched bash with no rules asks", async () => {
   const fx = await fixture();
-  const { decision } = await decide(fx, "bash", { command: "ls" }, settings());
+  const { decision } = await decide(fx, "bash", { command: "git status" }, settings());
   assert.equal(decision.outcome, "ask");
   assert.equal(decision.source, "policy:no-matching-rule");
 });
@@ -237,10 +269,10 @@ test("unmatched bash with no rules asks", async () => {
 test("script change after an allow rule: fingerprint revalidation catches it", async () => {
   const fx = await fixture();
   await fs.writeFile(path.join(fx.workspace, "run.sh"), "echo v1");
-  const cfg = settings({ allowlist: [{ type: "command", text: "bash run.sh" }] });
+  const cfg = settings({ allowlist: [{ text: "bash run.sh" }] });
   const first = await decide(fx, "bash", { command: "bash run.sh" }, cfg);
-  // Interpreters are opaque in this beta: Ask, but with the script snapshot bound.
-  assert.equal(first.decision.outcome, "ask");
+  // Explicit operator permission still binds script content for final revalidation.
+  assert.equal(first.decision.outcome, "allow");
   await fs.writeFile(path.join(fx.workspace, "run.sh"), "echo v2-changed");
   const second = await decide(fx, "bash", { command: "bash run.sh" }, cfg);
   assert.notEqual(
@@ -252,17 +284,23 @@ test("script change after an allow rule: fingerprint revalidation catches it", a
 
 test("policy is pure with respect to settings identity (no mutation)", async () => {
   const fx = await fixture();
-  const cfg = settings({ blocklist: [{ type: "command", text: "ls" }] });
+  const cfg = settings({ blocklist: [{ text: "ls" }] });
   const snapshot = JSON.stringify(cfg);
   await decide(fx, "bash", { command: "ls" }, cfg);
   assert.equal(JSON.stringify(cfg), snapshot);
 });
 
-test("message allowlist rules do not auto-allow in the shadow beta", async () => {
+test("glob allowlist rules allow verified commands and stay literal elsewhere", async () => {
   const fx = await fixture();
-  const cfg = settings({ allowlist: [{ type: "message", text: "Run the parser test suite" }] });
-  const { decision } = await decide(fx, "bash", { command: "ls" }, cfg);
-  assert.equal(decision.outcome, "ask");
+  await fs.writeFile(path.join(fx.workspace, "a.txt"), "x\n");
+  const cfg = settings({ allowlist: [{ text: "wc *" }] });
+  const ok = await decide(fx, "bash", { command: "wc -l a.txt" }, cfg);
+  assert.equal(ok.decision.outcome, "allow", ok.decision.reason);
+  assert.equal(ok.decision.matchedRule?.text, "wc *");
+  // `wc *` does not cover the bare `wc` (no trailing space to match).
+  const bare = await decide(fx, "bash", { command: "wc" }, cfg);
+  assert.equal(bare.decision.outcome, "ask");
+  assert.equal(bare.decision.source, "policy:no-matching-rule");
 });
 
 test("raw Pi-expanding path syntax never floor-allows (fail closed)", async () => {
@@ -302,7 +340,7 @@ test("allowlisted sort/date/diff with write or exec flags ask, never allow", asy
   // out.txt is a symlink into the agent directory: dest must not be trusted.
   await fs.symlink(path.join(fx.agentDir, "automode.json"), path.join(fx.workspace, "out.txt"));
   for (const command of commands) {
-    const cfg = settings({ allowlist: [{ type: "command", text: command }] });
+    const cfg = settings({ allowlist: [{ text: command }] });
     const { decision } = await decide(fx, "bash", { command }, cfg);
     assert.equal(decision.outcome, "ask", command);
     assert.equal(decision.source, "policy:opaque-shell", command);
@@ -312,7 +350,7 @@ test("allowlisted sort/date/diff with write or exec flags ask, never allow", asy
 test("allowlisted cat is only allowed for the verified system binary on workspace files", async () => {
   const fx = await fixture();
   await fs.writeFile(path.join(fx.workspace, "in.txt"), "x");
-  const cfg = settings({ allowlist: [{ type: "command", text: "cat in.txt" }] });
+  const cfg = settings({ allowlist: [{ text: "cat in.txt" }] });
   const ok = await decide(fx, "bash", { command: "cat in.txt" }, cfg);
   assert.equal(ok.decision.outcome, "allow", ok.decision.reason);
 
@@ -332,7 +370,7 @@ test("allowlisted cat is only allowed for the verified system binary on workspac
   }
 
   // A protected operand asks even though the program is verified.
-  const protCfg = settings({ allowlist: [{ type: "command", text: "cat .env" }] });
+  const protCfg = settings({ allowlist: [{ text: "cat .env" }] });
   const prot = await decide(fx, "bash", { command: "cat .env" }, protCfg);
   assert.equal(prot.decision.outcome, "ask");
 });

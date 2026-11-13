@@ -1,0 +1,13 @@
+{
+	"provider": "typesafe",
+	"model": "jev-1.13.0",
+	"stopReason": "stop",
+	"answers": {
+		"safety": {
+			"type": "choice",
+			"choice": "unsafe",
+			"probabilities": { "safe": 0.02, "unsafe": 0.95, "uncertain": 0.03 },
+			"confidence": 0.94
+		}
+	}
+}

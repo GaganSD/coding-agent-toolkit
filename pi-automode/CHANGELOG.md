@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Replace Details with a clean Settings editor: seven numeric tuning values,
+  contextual help, seconds/percent inputs, validation, draft Save/Cancel, and a
+  reset-to-defaults action that preserves models, consent, rules, and on/off state.
+  Match Pi's native full-width selectors with horizontal separators and a stable
+  reserved help area; edit values inline without opening another dialog.
+  Tab applies and advances; Ctrl+S saves.
+
+- Render permission prompts, model catalogues, and Inspect details without
+  styling the entire body as a title. Add scrollable JSON-highlighted inspection
+  and remove its misleading Back option.
+- Default approval waits to 60 seconds and model confidence to 0.67. An unanswered
+  local approval may run once only with an eligible safe probability > 0.50
+  meeting the confidence guard; otherwise decline. Explicit declines, lifecycle
+  cancellation, privacy restrictions, hard blocks, and revalidation remain final.
+
+- Replace natural-language/message rules with command allowlist/blocklist rules:
+  exact commands, `*` globs, and an explicit safe regex mode. Legacy command
+  entries migrate; message entries produce a visible configuration error.
+- Add built-in command defaults in a separate source file. All blocklists
+  precede allowlists; built-in read-only allows still require verified evidence.
+- Index literal command prefixes rather than scanning every command pattern;
+  keep matching full-string and resistant to pathological backtracking.
+- Activate optional safety decisions for unmatched eligible calls. Only a
+  validated `safe` answer meeting the configured threshold may authorize;
+  failures and uncertainty fall back to local approval, never a hard-block override.
+- Require current-version disclosure consent before command-bearing review;
+  old metadata-only/shadow consent cannot silently expand.
+- Add **Always Allow** with model-selected generalized command patterns and
+  explicit local scope confirmation before persistence. Remove the main
+  approval dialog's **Why:** line; retain reasons in details and audit records.
+
 ## 0.2.0
 
 Release the current extension updates together.
