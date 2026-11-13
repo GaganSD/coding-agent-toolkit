@@ -137,7 +137,7 @@ const Popover = {
     `const appHome = () => "/app";
 const home = () => "/home";
 const theme = () => ({});
-const settings = () => ({});
+const settings = () => globalThis.__insightsTestSettings ?? ({});
 const nextCommand = () => globalThis.__insightsTestHerdr.nextCommand();
 const exec = (...args) => globalThis.__insightsTestHerdr.exec(...args);
 const readTextFile = (...args) => globalThis.__insightsTestHerdr.readTextFile(...args);
@@ -157,7 +157,7 @@ const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
     /^import \{[\s\S]*?\} from "\.\/ui\.js";$/m,
     `const { ${uiNames} } = await import("${uiUrl}");`,
   );
-const { default: Insights, heatmapMetrics, modelLogo, presentationKey, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
+const { default: Insights, fitHeatmapWeeks, heatmapMetrics, modelLogo, presentationKey, providerLogo, usageLogo } = await import(dataUrl(transformedMain));
 
 function optionArgument(args) {
   const index = args.indexOf("--options");
@@ -739,6 +739,27 @@ test("heatmap month labels keep their spans while partial labels cannot wrap", (
   });
 });
 
+test("root size is converted from window pixels to zoomed layout units", () => {
+  const instance = blankInstance();
+  instance.render = Insights.prototype.render;
+  let notified = 0;
+  globalThis.__insightsTestSettings = { zoom: 0.9 };
+  try {
+    const root = instance.render({ notify() {} });
+    const call = root.calls.find(([name]) => name === "on_size_change");
+    assert.ok(call, "the root measures itself");
+    call[1][0]({ width: 810, height: 450 }, { notify() { notified += 1; } });
+    assert.equal(Math.round(instance.width), 900, "810 window px at zoom 0.9 is a 900-wide layout");
+    assert.equal(Math.round(instance.height), 500);
+    assert.equal(notified, 1);
+    assert.equal(heatmapMetrics(instance.width, 53).centered, true,
+      "a 900-wide panel fits all 53 weeks; the raw 810 would wrongly overflow");
+    assert.equal(heatmapMetrics(810, 53).centered, false);
+  } finally {
+    delete globalThis.__insightsTestSettings;
+  }
+});
+
 test("heatmap grows on wide views and prefers the newest weeks when narrow", () => {
   const wide = heatmapMetrics(1600, 53);
   const narrow = heatmapMetrics(480, 53);
@@ -747,11 +768,53 @@ test("heatmap grows on wide views and prefers the newest weeks when narrow", () 
   assert.equal(wide.centered, true);
   assert.equal(narrow.centered, false);
   assert.equal(wide.weekWidth, wide.cell + 2);
-  assert.match(mainSource, /\.when\(metrics\.centered, \(el\) => el\.justify_center\(\)\)/);
-  assert.match(mainSource, /\.when\(!metrics\.centered, \(el\) => el\.justify_end\(\)\)/,
-    "an overflowing grid is end-aligned so recent weeks stay visible");
-  assert.match(mainSource, /h_flex\(\)\.w_full\(\)\.overflow_hidden\(\)[\s\S]{0,200}metrics\.centered/,
-    "the grid is clipped, not scrolled, so end alignment applies");
+  assert.ok(narrow.fitWeeks < 53 && narrow.fitWeeks >= 1, "a narrow view draws fewer weeks instead of overflowing");
+  assert.ok(30 + narrow.fitWeeks * narrow.weekWidth <= 480, "the weeks it draws fit");
+  assert.match(mainSource, /fitHeatmapWeeks\(heatmap, metrics\.fitWeeks\)/);
+});
+
+test("heatmap fits in drawn pixels under app zoom", () => {
+  // At zoom 0.9 a 12-unit cell draws 11 px and a 2-unit gap 2 px: 13 px a week,
+  // not 12.6. Fitting in unrounded units drew one week too many and hid the
+  // current one.
+  const zoomed = heatmapMetrics(494, 53, 0.9);
+  assert.equal(zoomed.cell, 12);
+  assert.equal(zoomed.centered, false);
+  assert.equal(Math.round(zoomed.weekWidth * 0.9), 13);
+  const room = (494 - 24 - 32) * 0.9 - Math.round(30 * 0.9);
+  assert.ok(zoomed.fitWeeks * 13 <= room, "the drawn weeks fit the row");
+  assert.ok((zoomed.fitWeeks + 1) * 13 > room, "and no more would");
+  const wide = heatmapMetrics(1100, 53, 0.9);
+  assert.equal(wide.centered, true);
+  const drawnWeek = Math.round(wide.cell * 0.9) + Math.round(2 * 0.9);
+  assert.ok(53 * drawnWeek <= (1100 - 48 - 32) * 0.9 - Math.round(30 * 0.9), "a centered grid also fits once snapped");
+});
+
+test("heatmap fits the measured card width once known", () => {
+  // At zoom 0.8 a week draws 10 + 2 = 12 px. A card measured at 590 px holds
+  // floor((590 - 24 - 1) / 12) = 47 weeks.
+  const measured = heatmapMetrics(800, 53, 0.8, 590);
+  assert.equal(measured.centered, false);
+  assert.equal(Math.round(measured.weekWidth * 0.8), 12);
+  assert.equal(measured.fitWeeks, 47);
+  assert.ok(Math.round(30 * 0.8) + measured.fitWeeks * 12 <= 590);
+  assert.equal(heatmapMetrics(800, 53, 0.8, 560).fitWeeks, 44, "the measurement, not the padding estimate, decides");
+  assert.equal(heatmapMetrics(800, 53, 0.8, null).fitWeeks, heatmapMetrics(800, 53, 0.8).fitWeeks,
+    "before the first measurement the estimate is used");
+  assert.match(mainSource, /heatmapMetrics\(this\.width, heatmap\.weeks\.length, Number\(settings\(\)\.zoom\) \|\| 1, this\.heatmapRowPx\)/);
+  assert.match(mainSource, /id\("ins-heat-legend"\)[\s\S]{0,200}on_size_change/);
+});
+
+test("fitHeatmapWeeks keeps the newest weeks and trims month spans", () => {
+  const heatmap = buildHeatmap([], { endDay: "2024-01-28", weeks: 53, weekStartsOn: 0 });
+  const all = fitHeatmapWeeks(heatmap, 53);
+  assert.equal(all.weeks, heatmap.weeks);
+  const fit = fitHeatmapWeeks(heatmap, 10);
+  assert.equal(fit.weeks.length, 10);
+  assert.equal(fit.weeks.at(-1), heatmap.weeks.at(-1), "the current week is kept");
+  assert.equal(fit.months.reduce((sum, month) => sum + month.span, 0), 10, "month spans cover exactly the drawn weeks");
+  assert.equal(fit.months[0].week, 0);
+  assert.equal(fit.months.at(-1).label, heatmap.months.at(-1).label);
 });
 
 test("dashboard is divided into token and model usage sections", () => {

@@ -88,19 +88,52 @@ const LEADERBOARD_COLUMN_BASIS = 300;
 /**
  * Heatmap cells stay small on narrow views and grow up to MAX_CELL on wide
  * ones so the grid reads centered instead of pinned to the left edge. When even
- * MIN_CELL cannot fit, the grid overflows; callers keep the newest weeks in
- * view by aligning it to the end.
+ * MIN_CELL cannot fit, only the newest `fitWeeks` weeks are drawn (see
+ * fitHeatmapWeeks), so the grid never overflows its row.
  */
-export function heatmapMetrics(width, weekCount) {
+export function heatmapMetrics(width, weekCount, zoom = 1, rowPx = null) {
   const viewWidth = Number.isFinite(width) ? width : 960;
   const weeks = Math.max(1, weekCount);
+  const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const pagePadding = (viewWidth < 620 ? G.md : viewWidth < 900 ? G.lg : G.xl) * 2;
-  const available = Math.max(320, Math.min(1180, viewWidth - pagePadding) - G.lg * 2);
-  const fitted = Math.floor((available - DAY_LABEL_WIDTH - (weeks - 1) * CELL_GAP) / weeks);
-  const cell = Math.max(MIN_CELL, Math.min(MAX_CELL, fitted));
-  const weekWidth = cell + CELL_GAP;
-  const contentWidth = DAY_LABEL_WIDTH + weeks * weekWidth;
-  return { cell, weekWidth, contentWidth, centered: contentWidth <= available };
+  // The card's inner width: measured (rowPx, window pixels) once the card has
+  // been laid out, estimated from the page and card padding before that.
+  const measured = Number.isFinite(rowPx) && rowPx > 0;
+  const available = measured ? rowPx / z : Math.max(320, Math.min(1180, viewWidth - pagePadding) - G.lg * 2);
+  // Herdr draws each cell and gap on whole window pixels, so under app zoom a
+  // week is round(cell·z) + round(gap·z) px wide rather than (cell + gap)·z; at
+  // zoom 0.9 that is 13 px instead of 12.6, about one column over a year. Fit in
+  // drawn pixels, then express the drawn sizes back in layout units.
+  const drawnWeek = (size) => Math.round(size * z) + Math.round(CELL_GAP * z);
+  // One pixel of slack: a centered grid can start on a fractional offset.
+  const room = available * z - Math.round(DAY_LABEL_WIDTH * z) - 1;
+  let cell = Math.max(MIN_CELL, Math.min(MAX_CELL,
+    Math.floor((available - DAY_LABEL_WIDTH - (weeks - 1) * CELL_GAP) / weeks)));
+  while (cell > MIN_CELL && weeks * drawnWeek(cell) > room) cell -= 1;
+  const centered = weeks * drawnWeek(cell) <= room;
+  const fitWeeks = centered ? weeks : Math.max(1, Math.min(weeks, Math.floor(room / drawnWeek(cell))));
+  const weekWidth = drawnWeek(cell) / z;
+  const contentWidth = Math.round(DAY_LABEL_WIDTH * z) / z + weeks * weekWidth;
+  return { cell, weekWidth, contentWidth, centered, fitWeeks };
+}
+
+/**
+ * The newest `count` weeks of a heatmap, with month spans trimmed to match. A
+ * month cut down to one week keeps its span but, like any one-week month, draws
+ * no label.
+ */
+export function fitHeatmapWeeks(heatmap, count) {
+  const total = heatmap.weeks.length;
+  if (count >= total) return { weeks: heatmap.weeks, months: heatmap.months };
+  const start = total - count;
+  const months = [];
+  for (const month of heatmap.months) {
+    const end = month.week + month.span;
+    if (end <= start) continue;
+    const from = Math.max(month.week, start);
+    months.push({ ...month, week: from - start, span: end - from });
+  }
+  return { weeks: heatmap.weeks.slice(start), months };
 }
 
 /** Categorical chart palette that reads on both dark and light themes. */
@@ -1470,9 +1503,16 @@ export default class Insights extends View {
     return v_flex().id("insights-root").size_full().min_h(0).bg(c.canvas).text_color(c.text)
       .overflow_y_scrollbar()
       .on_size_change((size, sizeCx) => {
-        const changed = Math.abs((this.width || 0) - size.width) >= 1;
-        this.width = size.width;
-        this.height = size.height;
+        // Sizes arrive in window pixels; layout values (w, h, size) are scaled by
+        // the person's app zoom, so convert back before deriving any layout from
+        // them. Without this, zoom < 1 underestimates the width (the heatmap
+        // overflows and clips its newest weeks) and zoom > 1 overestimates it.
+        const zoom = Number(settings().zoom) > 0 ? Number(settings().zoom) : 1;
+        const width = size.width / zoom;
+        const height = size.height / zoom;
+        const changed = Math.abs((this.width || 0) - width) >= 1;
+        this.width = width;
+        this.height = height;
         if (changed) sizeCx.notify();
       })
       .child(h_flex().w_full().justify_center().p(padding)
@@ -1778,12 +1818,16 @@ export default class Insights extends View {
   heatmapCard(c, config, heatmap, selectedDay) {
     const dark = isDarkTheme(c);
     const palette = PALETTES.includes(config.palette) ? config.palette : "blue";
-    const metrics = heatmapMetrics(this.width, heatmap.weeks.length);
+    const metrics = heatmapMetrics(this.width, heatmap.weeks.length, Number(settings().zoom) || 1, this.heatmapRowPx);
     const cell = metrics.cell;
     const weekWidth = metrics.weekWidth;
-    const contentWidth = metrics.contentWidth;
+    // Too narrow for every week: draw only the newest ones that fit, rather than
+    // overflowing the row (an overflowing flex child is not reliably end-aligned,
+    // which hid the current week).
+    const shown = fitHeatmapWeeks(heatmap, metrics.fitWeeks);
+    const contentWidth = metrics.contentWidth - (heatmap.weeks.length - shown.weeks.length) * weekWidth;
     // A one-week leading partial month is narrow, so keep the span but omit text that would wrap.
-    const months = heatmap.months.map((month) => div().w(month.span * weekWidth).flex_none()
+    const months = shown.months.map((month) => div().w(month.span * weekWidth).flex_none()
       .text_size(9.5).text_color(c.dim)
       .when(month.span >= 2, (el) => el.whitespace_nowrap().child(month.label)));
     const weekLabels = weekdayLabels(heatmap.weekStartsOn).map((label) => div().h(cell).text_size(9)
@@ -1805,7 +1849,7 @@ export default class Insights extends View {
           .tooltip(dayCell.tooltip ?? ""))
         .when(dayCell.date === selectedDay, (el) => el.border_1().border_color(c.ring));
     };
-    const weekElements = heatmap.weeks.map((week) => v_flex().gap(CELL_GAP).children(week.days.map(cellElement)));
+    const weekElements = shown.weeks.map((week) => v_flex().gap(CELL_GAP).children(week.days.map(cellElement)));
     const grid = v_flex().w(contentWidth).flex_none().gap(G.xs)
       .child(h_flex().h(15).children([
         div().w(DAY_LABEL_WIDTH).flex_none(),
@@ -1815,7 +1859,14 @@ export default class Insights extends View {
         .child(v_flex().w(DAY_LABEL_WIDTH).flex_none().gap(CELL_GAP).children(weekLabels))
         .child(h_flex().gap(CELL_GAP).children(weekElements)));
 
-    const legend = h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_end()
+    // The legend spans the card's inner width, the same as the grid's row, so
+    // its measured width is what the grid is fitted to.
+    const legend = h_flex().id("ins-heat-legend").w_full().flex_wrap().gap(G.sm).items_center().justify_end()
+      .on_size_change((size, sizeCx) => {
+        if (Math.abs((this.heatmapRowPx || 0) - size.width) < 1) return;
+        this.heatmapRowPx = size.width;
+        sizeCx.notify();
+      })
       .child(mutedText("Less", c))
       .children([0, 1, 2, 3, 4].map((level) => div().size(10).rounded(2)
         .bg(level === 0 ? c.muted : heatColor(level, palette, dark))))
@@ -1833,13 +1884,9 @@ export default class Insights extends View {
           this.heatmapMode = key;
           this.scheduleDashboard(changeCx, { force: true });
         }, c)))
-      // The latest data matters most: when the grid cannot fit, it is clipped on
-      // the left so the visible columns are the most recent weeks. A scroll
-      // container would size to the grid and defeat the end alignment.
-      .child(h_flex().w_full().overflow_hidden()
-        .when(metrics.centered, (el) => el.justify_center())
-        .when(!metrics.centered, (el) => el.justify_end())
-        .child(grid))
+      // The latest data matters most: a narrow view draws only the newest weeks
+      // (fitHeatmapWeeks), so the grid always fits and is simply centered.
+      .child(h_flex().w_full().overflow_hidden().justify_center().child(grid))
       .child(legend);
   }
 
