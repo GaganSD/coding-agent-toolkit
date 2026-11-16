@@ -17,8 +17,9 @@ defaults to `$HERDR_APP_HOME` or `~/.config/herdr-app`. First install creates an
 selects a personal layout whose **Insights** button sits beside the tab bar
 (Herdr's `tabs` or a personal clone of it): after it on macOS, before it on
 Windows and Linux so the bar's own window buttons stay last.
-Reinstall updates owned files without rewriting layouts, so uninstall and install
-again to move a button placed by an older version. Shipped tabs, keys, and
+Reinstall updates owned files without rewriting layouts. To move a button placed
+by an older version: uninstall, select the layout you want the button in (install
+wraps whichever layout is selected), and install again. Shipped tabs, keys, and
 usage data are preserved.
 
 Success requires one `herdr-app check passed` message **and exit code 0**.
