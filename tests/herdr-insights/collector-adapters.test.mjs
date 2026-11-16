@@ -663,3 +663,29 @@ test("Snapshot rows never include transcript bodies", async () => {
   assert.equal(storeText.includes("synthetic prompt"), false);
   assert.equal(storeText.includes("synthetic failure"), false);
 });
+
+async function codexRows(fixture) {
+  const context = await env();
+  await placeFixture(context, `.codex/sessions/2026/03/08/${fixture}`, fixture);
+  const snapshot = await configure(context, [
+    { id: "codex", label: "Codex", adapter: "codex", enabled: true, roots: ["~/.codex/sessions"] },
+  ]);
+  assert.equal(snapshot.stats.errors, 0);
+  return snapshot.rows;
+}
+
+for (const fixture of ["codex-fork-replay-context.jsonl", "codex-fork-replay-bare.jsonl"]) {
+  test(`Codex fork counts only the child's own usage, not the copied parent history (${fixture})`, async () => {
+    const rows = await codexRows(fixture);
+    assert.deepEqual(rows.map((row) => row.model), ["child-model"], "no unknown or parent-model rows");
+    assert.equal(rows[0].session, "codex:019f0000-1000-7000-8000-000000000001");
+    assert.equal(rows[0].tokens.total, 250, "2750 child total minus the 2500 parent baseline");
+  });
+}
+
+test("Codex non-fork session still counts its first cumulative total in full", async () => {
+  const rows = await codexRows("codex-nonfork-prefix.jsonl");
+  const total = rows.reduce((sum, row) => sum + row.tokens.total, 0);
+  assert.equal(total, 2750);
+  assert.ok(rows.some((row) => row.model === "unknown"), "records before any turn_context keep today's behavior");
+});

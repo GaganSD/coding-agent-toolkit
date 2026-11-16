@@ -458,6 +458,24 @@ function codexRecordSession(state, ctx, payload) {
   return codexSession(state, ctx);
 }
 
+function codexUuidV7Ms(id) {
+  const match = /^([0-9a-f]{8})-([0-9a-f]{4})-7/i.exec(id);
+  return match ? Number.parseInt(match[1] + match[2], 16) : null;
+}
+
+// A forked thread's file starts with a copy of its parent's history. Its own
+// work begins with the first turn created after the fork; Codex turn ids are
+// UUIDv7, so a turn older than the forked thread id is copied history.
+function codexEndsForkReplay(state, record, payload) {
+  if (record.type !== "turn_context" && !(record.type === "event_msg" && payload.type === "task_started")) {
+    return false;
+  }
+  const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
+  if (!turnId) return false;
+  const turnMs = codexUuidV7Ms(turnId);
+  return turnMs === null || state.forkStartMs === null || turnMs >= state.forkStartMs;
+}
+
 function codexContext(state, turnId) {
   if (!isPlainObject(state.turns)) state.turns = {};
   if (turnId && isPlainObject(state.turns[turnId])) return state.turns[turnId];
@@ -647,6 +665,7 @@ function parseCodex(record, ctx) {
   const payload = isPlainObject(record.payload) ? record.payload : {};
   const timestamp =
     parseTimestamp(record.timestamp) ?? state.timestamp ?? null;
+  if (state.forkReplay && codexEndsForkReplay(state, record, payload)) state.forkReplay = false;
 
   if (record.type === "session_meta") {
     const threadId = asString(
@@ -654,7 +673,13 @@ function parseCodex(record, ctx) {
       "",
     );
     const firstHeader = !state.session;
-    if (threadId && firstHeader) state.session = threadId;
+    if (threadId && firstHeader) {
+      state.session = threadId;
+      if (asString(payload.forked_from_id ?? payload.parent_thread_id, "")) {
+        state.forkReplay = true;
+        state.forkStartMs = codexUuidV7Ms(threadId);
+      }
+    }
     if (firstHeader || !state.project) {
       state.project = asString(payload.cwd, state.project ?? "unknown");
     }
@@ -691,6 +716,8 @@ function parseCodex(record, ctx) {
   }
 
   if (record.type === "token_usage_record") {
+    // Copied parent usage is already counted from the parent's own file.
+    if (state.forkReplay) return;
     state.modern = true;
     if (timestamp === null) {
       ctx.warn("Codex token usage record has no usable timestamp; skipped");
@@ -803,6 +830,11 @@ function parseCodex(record, ctx) {
         output_tokens: toNonNegInt(totals.output_tokens),
         reasoning_output_tokens: toNonNegInt(totals.reasoning_output_tokens),
       };
+      if (state.forkReplay) {
+        // The child's counters continue from the parent's last total.
+        state.legacyTotals = current;
+        return;
+      }
       const previous = isPlainObject(state.legacyTotals)
         ? state.legacyTotals
         : null;
@@ -824,6 +856,7 @@ function parseCodex(record, ctx) {
         current.reasoning_output_tokens,
       ];
     } else if (isPlainObject(info.last_token_usage)) {
+      if (state.forkReplay) return;
       raw = info.last_token_usage;
       identityTail = [
         "legacy-last",
