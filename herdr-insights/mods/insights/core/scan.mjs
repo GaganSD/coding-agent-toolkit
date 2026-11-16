@@ -32,7 +32,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 7, claude: 2, antigravity: 2 };
+const PARSER_VERSIONS = { pi: 3, codex: 8, claude: 2, antigravity: 2 };
 const PROGRESS_CHUNK_INTERVAL = 64;
 
 export class ScanStopError extends Error {
@@ -949,6 +949,13 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats, options = {}
   return { dirty: true, aborted: false };
 }
 
+function noteCodexForkReplay(entry, sink) {
+  if (entry?.adapter !== "codex") return;
+  if (entry.state.forkReplay || entry.state.forkBoundaryAmbiguous) {
+    sink.note(`codex ${entry.path}: fork replay usage excluded until a strictly newer UUIDv7 turn; missing, non-v7 or equal-millisecond boundaries may exclude child usage.`);
+  }
+}
+
 async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   const sourceSink = {
     warn(message) {
@@ -997,6 +1004,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     && existing.mtimeMs === fileStat.mtimeMs
   ) {
     stats.unchangedFiles += 1;
+    noteCodexForkReplay(existing, sourceSink);
     return { dirty: false, aborted: false };
   }
 
@@ -1065,6 +1073,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     ) {
       stats.unchangedFiles += 1;
       commitStoreTransaction(tx);
+      noteCodexForkReplay(entry, sourceSink);
       return { dirty, aborted: false };
     }
 
@@ -1135,6 +1144,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       if (parserVersion) entry.state[parserKey] = parserVersion;
       delete entry.state.zstdError;
       delete entry.state.scanPending;
+      noteCodexForkReplay(entry, sourceSink);
       return { dirty, aborted: false };
     }
 
@@ -1162,6 +1172,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       entry.mtimeMs = fileStat.mtimeMs;
       delete entry.state.scanPending;
     }
+    noteCodexForkReplay(entry, sourceSink);
     return { dirty, aborted: false, pending: plain.pending };
   } catch (error) {
     rollbackStoreTransaction(tx);

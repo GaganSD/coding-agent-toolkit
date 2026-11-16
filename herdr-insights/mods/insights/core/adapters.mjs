@@ -459,22 +459,23 @@ function codexRecordSession(state, ctx, payload) {
 }
 
 function codexUuidV7Ms(id) {
-  const match = /^([0-9a-f]{8})-([0-9a-f]{4})-7/i.exec(id);
+  const match = /^([0-9a-f]{8})-([0-9a-f]{4})-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.exec(id);
   return match ? Number.parseInt(match[1] + match[2], 16) : null;
 }
 
-// A forked thread's file starts with a copy of its parent's history. Its own
-// work begins with the first UUIDv7 turn created after the fork. Copied
-// history can hold turns with other id versions (goal continuations use
-// UUIDv4), and their bits are not a time, so they never end the copy.
+// Supported fork boundary: a canonical UUIDv7 turn strictly newer than the
+// initial thread's UUIDv7 millisecond. Equal milliseconds cannot distinguish
+// copied from child turns; missing/other-version IDs cannot order them at all.
+// Conservatively exclude that prefix and retain a scanner diagnostic rather
+// than guessing from record timestamps (which can be rewritten during a copy).
 function codexEndsForkReplay(state, record, payload) {
   if (record.type !== "turn_context" && !(record.type === "event_msg" && payload.type === "task_started")) {
     return false;
   }
   const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
-  if (!turnId) return false;
   const turnMs = codexUuidV7Ms(turnId);
-  return turnMs !== null && turnMs >= state.forkStartMs;
+  if (turnMs === null || turnMs === state.forkStartMs) state.forkBoundaryAmbiguous = true;
+  return turnMs !== null && turnMs > state.forkStartMs;
 }
 
 function codexContext(state, turnId) {
@@ -499,6 +500,19 @@ function codexNormalized(raw) {
     cacheWrite,
     reasoning: raw.reasoning_output_tokens,
   });
+}
+
+// Both modern thread_token_usage and legacy total_token_usage use raw Codex
+// counters: input includes cache, output includes reasoning. Never store the
+// normalized (cache-subtracted) vector as the legacy cumulative baseline.
+function codexRawTotals(raw) {
+  return {
+    input_tokens: toNonNegInt(raw.input_tokens),
+    cached_input_tokens: toNonNegInt(raw.cached_input_tokens),
+    cache_write_input_tokens: toNonNegInt(raw.cache_write_input_tokens),
+    output_tokens: toNonNegInt(raw.output_tokens),
+    reasoning_output_tokens: toNonNegInt(raw.reasoning_output_tokens),
+  };
 }
 
 const CODEX_TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "reasoning"];
@@ -720,8 +734,6 @@ function parseCodex(record, ctx) {
   }
 
   if (record.type === "token_usage_record") {
-    // Copied parent usage is already counted from the parent's own file.
-    if (state.forkReplay) return;
     state.modern = true;
     if (timestamp === null) {
       ctx.warn("Codex token usage record has no usable timestamp; skipped");
@@ -752,6 +764,18 @@ function parseCodex(record, ctx) {
           tokens.reasoning,
         ];
     let dedupKey = makeDedupKey("codex", ...identity);
+    if (state.forkReplay) {
+      const observed = codexObserveModern(state, dedupKey, tokens);
+      // A copied THREAD cumulative counter is the raw baseline for a legacy
+      // suffix; a turn counter is not. Without it retain local observations.
+      if (isPlainObject(payload.thread_token_usage)) {
+        state.legacyTotals = codexRawTotals(payload.thread_token_usage);
+        state.modernPending = codexZeroTokens();
+      } else {
+        codexAddPending(state, observed);
+      }
+      return;
+    }
     let mergedTwin = false;
     const twinKey = codexPendingTwinKey(
       state.pendingTwin,
@@ -827,16 +851,11 @@ function parseCodex(record, ctx) {
     let reset = false;
 
     if (totals) {
-      const current = {
-        input_tokens: toNonNegInt(totals.input_tokens),
-        cached_input_tokens: toNonNegInt(totals.cached_input_tokens),
-        cache_write_input_tokens: toNonNegInt(totals.cache_write_input_tokens),
-        output_tokens: toNonNegInt(totals.output_tokens),
-        reasoning_output_tokens: toNonNegInt(totals.reasoning_output_tokens),
-      };
+      const current = codexRawTotals(totals);
       if (state.forkReplay) {
-        // The child's counters continue from the parent's last total.
+        // This baseline also covers any previously copied modern observations.
         state.legacyTotals = current;
+        state.modernPending = codexZeroTokens();
         return;
       }
       const previous = isPlainObject(state.legacyTotals)

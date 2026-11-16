@@ -5,6 +5,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { registerHooks } from "node:module";
 import test from "node:test";
+import { collectSnapshot } from "../../herdr-insights/mods/insights/collector.mjs";
 import { progressWriter } from "../../herdr-insights/mods/insights/core/progress.mjs";
 import { compactDashboard, deriveDashboard } from "../../herdr-insights/mods/insights/analytics.js";
 import { MAX_LINE_BYTES, withStoreLock } from "../../herdr-insights/mods/insights/core/util.mjs";
@@ -74,6 +75,139 @@ test("Codex counter resets reset the entire vector when fields move in different
   assert.equal(snapshotRows(store)[0].tokens.input, 150);
   assert.equal(snapshotRows(store)[0].tokens.output, 30);
 });
+
+// Synthetic fork sequences use the raw counter schema already exercised by
+// codex-modern.jsonl; they establish parser behavior, not production ordering.
+const forkThread = "019f0000-1000-7000-8000-000000000001";
+const copiedTurn = "019f0000-0001-7000-8000-000000000002";
+const childTurn = "019f0000-2000-7000-8000-000000000003";
+const forkParent = { input_tokens: 2000, cached_input_tokens: 800, cache_write_input_tokens: 100,
+  output_tokens: 500, reasoning_output_tokens: 100 };
+const forkChild = { input_tokens: 80, cached_input_tokens: 30, cache_write_input_tokens: 10,
+  output_tokens: 20, reasoning_output_tokens: 5 };
+const forkTotal = Object.fromEntries(Object.keys(forkParent).map((key) => [key, forkParent[key] + forkChild[key]]));
+const forkEncode = (records) => records.map((record) => JSON.stringify(record) + "\n").join("");
+const forkRecord = (type, payload) => ({ type, timestamp: "2026-03-08T08:00:00Z", payload });
+const forkMarker = (turn_id) => forkRecord("turn_context", { turn_id, model: "fork-model" });
+const forkCount = (raw, lastOnly = false) => forkRecord("event_msg", { type: "token_count",
+  info: { [lastOnly ? "last_token_usage" : "total_token_usage"]: raw } });
+const forkModern = (response_id, usage, thread_token_usage, turn_id) => forkRecord("token_usage_record",
+  { response_id, usage, thread_token_usage, turn_token_usage: usage, turn_id });
+function forkHeader(id = forkThread) {
+  return forkRecord("session_meta", { id, forked_from_id: copiedTurn, cwd: "/repo" });
+}
+const forkExpected = { input: 40, output: 20, cacheRead: 30, cacheWrite: 10, reasoning: 5, total: 100 };
+
+for (const carrier of ["modern-mixed", "modern-thread-prefix", "modern-only", "modern-no-thread", "mixed", "legacy-last-only"]) {
+  test(`Codex fork ${carrier}: full and persisted incremental scans agree in every token category`, async (t) => {
+    const root = await fixture(t);
+    const file = path.join(root, "fork.jsonl");
+    const parent = carrier === "legacy-last-only" ? forkCount(forkParent, true)
+      : forkModern("copied", carrier === "modern-thread-prefix" ? forkChild : forkParent,
+        carrier === "modern-no-thread" ? undefined : forkParent, copiedTurn);
+    const child = carrier === "legacy-last-only" ? forkCount(forkChild, true)
+      : forkModern("own", forkChild, forkTotal, childTurn);
+    const copied = carrier === "modern-no-thread" ? [
+      forkModern("copied-first", forkChild, undefined, copiedTurn),
+      forkModern("copied-first", forkChild, undefined, copiedTurn), // repeated response is not pending twice
+      forkModern("copied-rest", Object.fromEntries(Object.keys(forkParent).map((key) =>
+        [key, forkParent[key] - forkChild[key]])), undefined, copiedTurn),
+    ] : [parent];
+    const marker = carrier === "modern-thread-prefix"
+      ? forkRecord("event_msg", { type: "task_started", root_turn_id: childTurn }) : forkMarker(childTurn);
+    const records = [forkHeader(), forkMarker(copiedTurn), ...copied,
+      ...(carrier === "mixed" ? [forkCount(forkParent)] : []), marker, child,
+      ...(["modern-mixed", "modern-thread-prefix", "modern-no-thread", "mixed"].includes(carrier) ? [forkCount(forkTotal)] : [])];
+    await writeFile(file, forkEncode(records));
+    const config = sourceStore(file, "codex").config;
+    const oracle = await collectSnapshot("configure", { home: root, store: path.join(root, "oracle.json"), config });
+    assert.equal(oracle.rows.length, 1);
+    assert.deepEqual(oracle.rows[0].tokens, forkExpected);
+    assert.equal(oracle.rows[0].messages, 1);
+    assert.deepEqual(oracle.warnings, []);
+
+    await writeFile(file, "");
+    const store = path.join(root, "incremental.json");
+    await collectSnapshot("configure", { home: root, store, config });
+    let incremental;
+    for (const record of records) {
+      await appendFile(file, forkEncode([record]));
+      incremental = await collectSnapshot("snapshot", { home: root, store });
+    }
+    assert.deepEqual(incremental.rows, oracle.rows);
+    assert.deepEqual((await collectSnapshot("snapshot", { home: root, store })).rows, oracle.rows);
+    const saved = JSON.parse(await readFile(store, "utf8"));
+    const entry = Object.values(saved.files)[0];
+    assert.equal(entry.state.codexParserVersion, 8);
+    entry.state.codexParserVersion = 7;
+    entry.rows[0].input += 2500; // A stale PR parser contribution must be rebuilt, not retained.
+    await writeFile(store, JSON.stringify(saved));
+    const migrated = await collectSnapshot("snapshot", { home: root, store });
+    assert.equal(migrated.stats.filesRead, 1);
+    assert.deepEqual(migrated.rows, oracle.rows);
+    assert.equal((await collectSnapshot("snapshot", { home: root, store })).stats.filesRead, 0);
+  });
+}
+
+test("Codex fork replay state survives a budget slice before and after the boundary", async (t) => {
+  const root = await fixture(t);
+  const file = path.join(root, "fork.jsonl");
+  const padding = forkEncode([forkRecord("ignored", { padding: "x".repeat(300_000) })]);
+  const prefix = forkEncode([forkHeader(), forkMarker(copiedTurn), forkModern("copied", forkParent, forkParent, copiedTurn)]);
+  const boundary = forkEncode([forkMarker(childTurn)]);
+  const suffix = forkEncode([forkModern("own", forkChild, forkTotal, childTurn), forkCount(forkTotal)]);
+  await writeFile(file, prefix + padding + boundary + padding + suffix);
+  const oracle = sourceStore(file, "codex");
+  await scanSources(oracle, { home: root });
+  const sliced = sourceStore(file, "codex");
+  let result = await scanSources(sliced, { home: root, deadline: Date.now() });
+  assert.equal(result.complete, false);
+  assert.equal(Object.values(sliced.files)[0].state.forkReplay, true);
+  assert.deepEqual(snapshotRows(sliced), []);
+  let sawBoundary = false;
+  for (let i = 0; i < 10 && !result.complete; i += 1) {
+    result = await scanSources(sliced, { home: root, deadline: Date.now() });
+    if (Object.values(sliced.files)[0].state.forkReplay === false && !result.complete) sawBoundary = true;
+  }
+  assert.equal(sawBoundary, true);
+  assert.equal(result.complete, true);
+  assert.deepEqual(snapshotRows(sliced), snapshotRows(oracle));
+});
+
+for (const marker of [undefined, "12345678-1234-4000-8000-000000000001", childTurn.slice(0, 15) + "garbage",
+  "019f0000-1000-7001-8000-000000000004"]) {
+  test(`Codex ambiguous fork boundary ${marker ?? "missing"} stays excluded and diagnosed`, async (t) => {
+    const root = await fixture(t);
+    const file = path.join(root, "fork.jsonl");
+    await writeFile(file, forkEncode([forkHeader(), forkMarker(marker), forkCount(forkParent), forkCount(forkTotal)]));
+    const store = sourceStore(file, "codex");
+    for (let i = 0; i < 2; i += 1) {
+      const result = await scanSources(store, { home: root });
+      assert.deepEqual(snapshotRows(store), []);
+      assert.equal(result.warnings.length, 1, "bounded diagnostic survives unchanged scans");
+      assert.match(result.warnings[0], /may exclude child usage/);
+    }
+    // A newer marker cannot retroactively establish whether the excluded
+    // equal-ms/non-v7 activity was copied or the child's own activity.
+    await appendFile(file, forkEncode([forkMarker(childTurn), forkCount({ ...forkTotal, input_tokens: 2090 })]));
+    const resolved = await scanSources(store, { home: root });
+    assert.equal(snapshotRows(store)[0].tokens.input, 10);
+    assert.equal(resolved.warnings.length, 1);
+  });
+}
+
+for (const initial of ["12345678-1234-4000-8000-000000000001", "019f0000-1000-7not-a-uuid",
+  "019f0000-1000-7000-0000-000000000001"]) {
+  test(`Codex non-v7/malformed initial ID keeps the old accounting path: ${initial}`, async (t) => {
+    const root = await fixture(t);
+    const file = path.join(root, "fork.jsonl");
+    await writeFile(file, forkEncode([forkHeader(initial), forkMarker(copiedTurn), forkCount(forkParent)]));
+    const store = sourceStore(file, "codex");
+    const result = await scanSources(store, { home: root });
+    assert.equal(snapshotRows(store)[0].tokens.total, 2500);
+    assert.deepEqual(result.warnings, []);
+  });
+}
 
 test("Claude fork copies deduplicate task duration even with rewritten session IDs", async (t) => {
   const root = await fixture(t);

@@ -37,6 +37,17 @@ click-state rules. Set `HERDR_APP_HOME` to use a different app home.
 - Open **Settings** to choose sources, edit paths, toggle cached tokens, or
   change the palette and refresh interval.
 
+### Codex fork accounting
+
+For fork headers with canonical UUIDv7 thread IDs, Insights excludes replayed
+usage until a turn ID has a strictly newer UUIDv7 millisecond. Equal-millisecond,
+missing, malformed, or non-v7 turn IDs are ambiguous: child usage can be excluded,
+with a bounded scan warning that remains visible even after a later boundary.
+Non-v7 initial thread IDs retain the previous accounting behavior. Existing
+available Codex files are automatically rescanned once for this parser update.
+Modern thread cumulative counters and legacy totals share the raw baseline;
+turn-only counters are not treated as thread totals.
+
 ## Privacy
 
 No network requests or uploads. The mod runs a local Node helper, reads session

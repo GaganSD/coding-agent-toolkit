@@ -197,27 +197,28 @@ async function overlayLiveProgress(storePath, snapshot) {
   const scan = snapshot?.scan;
   if (!scan || !["running", "partial", "starting"].includes(scan.status)) return snapshot;
   if (!Number.isInteger(scan.generation)) return snapshot;
-  const live = await readLiveProgress(storePath);
-  if (!live) return snapshot;
-  if (live.store !== path.resolve(storePath) || live.generation !== scan.generation) return snapshot;
-  const [claim, owner] = await Promise.all([
+  const [live, claim, owner] = await Promise.all([
+    readLiveProgress(storePath),
     readWorkerClaim(storePath),
     readStoreLockInfo(storePath),
   ]);
-  if (!claim || claim.host !== os.hostname() || !workerClaimActive(claim)) return snapshot;
-  if (claim.pid !== live.pid || claim.generation !== live.generation || claim.token !== live.token) {
-    return snapshot;
-  }
+  if (!claim || claim.host !== os.hostname() || !Number.isInteger(claim.pid)
+    || claim.pid <= 0 || !workerClaimActive(claim)) return snapshot;
+  if (claim.generation !== scan.generation) return snapshot;
   if (!owner || owner.role !== "worker" || owner.host !== os.hostname()) return snapshot;
-  if (owner.pid !== live.pid || Number(owner.generation) !== live.generation) return snapshot;
-  if (Number.isInteger(scan.workerPid) && scan.workerPid !== live.pid) return snapshot;
+  if (owner.pid !== claim.pid || Number(owner.generation) !== scan.generation) return snapshot;
+  if (Number.isInteger(scan.workerPid) && scan.workerPid !== claim.pid) return snapshot;
+  if (live && (live.store !== path.resolve(storePath) || live.generation !== scan.generation
+    || claim.pid !== live.pid || claim.token !== live.token)) return snapshot;
+  // The lock can precede the first running commit/progress publication. The
+  // validated worker is running even then; optional counters are not authority.
   return {
     ...snapshot,
     scan: {
       ...scan,
       status: "running",
-      workerPid: live.pid,
-      live: liveView(live),
+      workerPid: claim.pid,
+      ...(live ? { live: liveView(live) } : {}),
     },
   };
 }
