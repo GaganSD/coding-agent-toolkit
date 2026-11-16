@@ -55,8 +55,11 @@ async function command(appHome, args) {
   return result.stdout;
 }
 
-/** Preserve the original tabs mod and its updates; compose one native button beside it. */
-export function withInsightsToolbar(layout) {
+/**
+ * Preserve the tab bar's mod (Herdr's `tabs` or a personal clone) and its
+ * updates; compose one native button beside it.
+ */
+export function withInsightsToolbar(layout, platform = process.platform) {
   const copy = structuredClone(layout);
   const nodes = [];
   function walk(node) {
@@ -67,9 +70,9 @@ export function withInsightsToolbar(layout) {
   if (nodes.some((node) => node.id === BUTTON_ID || node.id === "insights-original-tabs")) {
     throw new Error("This layout already contains Insights toolbar blocks.");
   }
-  const matches = nodes.filter((node) => node.id === "tabs" && node.type === "block" && node.content?.mod === "tabs");
+  const matches = nodes.filter((node) => node.id === "tabs" && node.type === "block" && typeof node.content?.mod === "string");
   if (matches.length !== 1) {
-    throw new Error('Expected one native "tabs" block. This layout cannot be integrated safely.');
+    throw new Error('Expected one "tabs" block showing a mod. This layout cannot be integrated safely.');
   }
   const tabs = matches[0];
   const content = tabs.content;
@@ -80,6 +83,9 @@ export function withInsightsToolbar(layout) {
     { id: "insights-original-tabs", type: "block", size: { weight: 1 }, content },
     { id: BUTTON_ID, type: "block", size: { px: 104 }, content: { mod: "insights", props: { mode: "toolbar" } } },
   ];
+  // Off macOS the tab bar ends with its own minimize/maximize/close, which must
+  // stay last. On macOS a leading button would sit under the traffic lights.
+  if (platform !== "darwin") tabs.children.reverse();
   return copy;
 }
 
@@ -139,7 +145,7 @@ export async function applyToolbar(plan) {
     try { await command(appHome, ["do", "layout.switch", JSON.stringify({ name: source })]); } catch { /* retain original failure */ }
     throw error;
   }
-  console.log(`Added Insights beside Files/Changes in personal layout ${layout}; Herdr's tabs mod is unchanged.`);
+  console.log(`Added Insights to the tab bar row in personal layout ${layout}; the tab bar's mod is unchanged.`);
 }
 
 export async function prepareToolbarRemoval(appHome) {

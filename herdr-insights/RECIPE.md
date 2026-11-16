@@ -19,7 +19,7 @@ of 1180px. Use Herdr theme colors, 1px borders, 8px card corners, 6px control
 corners, no decorative shadows, and 4/8/12/16/24px spacing. Page padding is 12px
 below 620px, 16px below 900px, and 24px otherwise. Support light and dark themes.
 
-The `insights` mod's toolbar mode draws the **Insights** button after the native
+The `insights` mod's toolbar mode draws the **Insights** button beside the native
 tabs. Match Herdr's panel controls: 26px height, 8px horizontal padding, 5px
 icon/text gap, 6px corners, 12px type, 14px theme-tinted chart icon, chrome
 background, muted text, and native hover colors. Its root matches the tab bar's
@@ -96,9 +96,11 @@ parents; choose a numeric suffix if either the destination layout or its state
 already exists. Never overwrite another layout's state, including leftover state
 from uninstall. Do not edit or remove Herdr-managed click state. In the personal clone only, turn the existing `tabs`
 block into a nonresizable row, keeping its ID, height, paint, and window-drag
-attributes. Its first child is a weight-1 block with the original `content`
-(including its props); its second is a 104px block whose content is
-`{mod: "insights", props: {mode: "toolbar"}}`.
+attributes. Its children are a weight-1 block with the original `content`
+(including its props; any mod, so a personal clone of `tabs` works) and a 104px
+block whose content is `{mod: "insights", props: {mode: "toolbar"}}`. Put the
+button last on macOS and first elsewhere, where the tab bar ends with its own
+minimize/maximize/close and those must stay last.
 Do not copy or modify the shipped `tabs` mod. Refuse unsupported/ambiguous layouts.
 Record the personal layout's name, source, and hash in `toolbar-install.json`.
 Reinstall must not rewrite this layout or switch the user's selected layout.

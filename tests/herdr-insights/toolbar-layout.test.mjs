@@ -13,7 +13,7 @@ test("layout composition keeps the original tabs code and points the toolbar at 
   const tabs = { id: "tabs", type: "block", size: { px: 42 }, window_drag: true, content: { mod: "tabs", props: { custom: true } } };
   const original = { id: "root", type: "column", theme: "ink", children: [tabs, { id: "main", type: "block", content: { tab: "active" } }] };
   const snapshot = structuredClone(original);
-  const integrated = withInsightsToolbar(original);
+  const integrated = withInsightsToolbar(original, "darwin");
   assert.deepEqual(original, snapshot, "input must not be mutated");
   assert.equal(integrated.theme, "ink");
   assert.deepEqual(integrated.children[1], original.children[1]);
@@ -35,4 +35,17 @@ test("layout composition keeps the original tabs code and points the toolbar at 
   assert.throws(() => withInsightsToolbar(integrated), /already contains/);
   assert.throws(() => withInsightsToolbar({ id: "root", type: "row", children: [] }), /cannot be integrated safely/);
   assert.throws(() => withInsightsToolbar({ id: "root", type: "row", children: [tabs, tabs] }), /cannot be integrated safely/);
+  const notMod = { id: "tabs", type: "block", content: { tab: "active" } };
+  assert.throws(() => withInsightsToolbar({ id: "root", type: "row", children: [notMod] }), /cannot be integrated safely/);
+});
+
+test("off macOS the button leads, so a cloned tab bar's own window buttons stay last", () => {
+  const content = { mod: "tabs-graph" };
+  for (const platform of ["win32", "linux"]) {
+    const layout = { id: "root", type: "column", children: [{ id: "tabs", type: "block", content }] };
+    const [button, bar] = withInsightsToolbar(layout, platform).children[0].children;
+    assert.equal(button.id, "insights-toolbar-button", platform);
+    assert.deepEqual(button.content, SINGLE_TOOLBAR_CONTENT);
+    assert.deepEqual(bar, { id: "insights-original-tabs", type: "block", size: { weight: 1 }, content });
+  }
 });
