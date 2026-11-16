@@ -5,7 +5,7 @@
  */
 import { execFile } from "node:child_process";
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -411,7 +411,7 @@ test("host-smoke: an earlier PATH executable cannot hide behind a trusted agent-
 	writeFileSync(join(earlier, "ls"), `#!/bin/sh\nprintf executed > '${marker}'\n`);
 	chmodSync(join(earlier, "ls"), 0o700);
 	writeFileSync(join(env.agentDir, "automode.json"), JSON.stringify({
-		...REAL_GATE_SETTINGS, allowlist: [{ type: "command", text: "ls -la" }],
+		...REAL_GATE_SETTINGS, allowlist: [{ text: "ls -la" }],
 	}));
 	const savedPath = process.env.PATH;
 	const savedAgent = process.env.PI_CODING_AGENT_DIR;
@@ -487,6 +487,53 @@ test("host-smoke: real gate floor-allows a plain workspace write end-to-end", { 
 	}
 	env.cleanup();
 });
+
+for (const probability of [0.999, 0.8]) {
+	test(`host-smoke: native safety reviewer ${probability >= 0.99 ? "authorizes" : "refuses"} real Bash execution at the configured threshold`, { timeout: 60_000 }, async () => {
+		using env = createTempEnv({ agentSettings: fakeEnvSettings() });
+		const endpoint = "https://offline-classifier.example/v1";
+		writeFileSync(join(env.agentDir, "automode.json"), JSON.stringify({ ...REAL_GATE_SETTINGS,
+			decisionModel: { provider: "offline-classifier", model: "safety-test" }, disclosureConsent: "approved", disclosureVersion: 1,
+			disclosureProvider: "offline-classifier", disclosureModel: "safety-test", disclosureEndpoint: endpoint,
+			disclosureWorkspace: realpathSync(env.workspace),
+		}));
+		let classifications = 0;
+		const offlineClassifier: ExtensionFactory = (pi) => {
+			pi.on("session_start", (_event, ctx) => {
+				const model = { provider: "offline-classifier", id: "safety-test", type: "classifier", api: "typesafe-system-one", baseUrl: endpoint };
+				// Trusted, test-only registry seam. Production uses the native registry
+				// unchanged; no network/provider credentials are present in this test.
+				Object.defineProperties(ctx.modelRegistry, {
+					findOfType: { value: () => model },
+					getAvailableOfType: { value: async () => [model] },
+					classify: { value: async (_model: unknown, input: { state: { action?: unknown } }) => {
+						classifications++;
+						assert.equal((input.state.action as { command: string }).command, "echo");
+						return { provider: model.provider, model: model.id, stopReason: "stop", answers: { safety: {
+							type: "choice", choice: "safe", confidence: 0.999,
+							probabilities: { safe: probability, unsafe: (1 - probability) / 2, uncertain: (1 - probability) / 2 },
+						} } };
+					} },
+				});
+			});
+		};
+		const harness = createHarness({ env, extra: [offlineClassifier], turns: [
+			{ kind: "toolCalls", calls: [{ name: "bash", args: { command: "echo" } }] }, { kind: "text", text: "done" },
+		] });
+		harness.deps.createAutomodeExtension = createAutomodeExtension;
+		const { runtime } = await createVerifiedRuntime(harness.deps);
+		try {
+			await runtime.session.bindExtensions({ onError: () => {} });
+			await runtime.session.prompt("run the inert command");
+			assert.equal(classifications, 1);
+			const result = runtime.session.messages.find((message) => message.role === "toolResult");
+			assert.ok(result?.role === "toolResult");
+			assert.equal(result.isError, probability < 0.99);
+			const records = readFileSync(join(env.agentDir, "automode-logs.json"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+			assert.equal(records.some((entry) => entry.outcome === "allow" && entry.source === "native-decision-model:offline-classifier/safety-test"), probability >= 0.99);
+		} finally { await runtime.dispose(); }
+	});
+}
 
 test("host-smoke: real gate never floor-allows an @-prefixed write onto the settings file", { timeout: 60_000 }, async () => {
 	// Regression against the REAL gate: while On, a write to "@" +

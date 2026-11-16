@@ -43,6 +43,22 @@ and print/RPC/standalone hosts are not supported.
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
+### Run deadline
+
+Runs default to 30 minutes. Set `minimalSubagents.timeoutMs` in Pi's user or
+trusted project settings to allow up to six hours, then `/reload` before
+launching new runs:
+
+```json
+{
+  "minimalSubagents": { "timeoutMs": 21600000 }
+}
+```
+
+The accepted range is 1 second–6 hours. This is a per-run deadline, not detached
+execution: reload, session replacement, or agent exit still cancels live work.
+Changing the setting does not extend a run that has already started.
+
 ### Model and thinking selection
 
 Model and thinking resolve from the task, then the profile, then the owning agent.

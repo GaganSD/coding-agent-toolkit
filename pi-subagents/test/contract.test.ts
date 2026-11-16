@@ -52,6 +52,9 @@ test("exact-ID status presents cached context and current tool inside the closed
 test("config is bounded and rejects unknown or unsafe limits", () => {
   assert.deepEqual(parseConfig(undefined), DEFAULT_CONFIG);
   assert.equal(parseConfig({ maxConcurrent: 2 }).maxConcurrent, 2);
+  assert.equal(DEFAULT_CONFIG.timeoutMs, 1_800_000, "the default remains thirty minutes");
+  assert.equal(parseConfig({ timeoutMs: 21_600_000 }).timeoutMs, 21_600_000, "six-hour deadlines are explicit opt-in");
+  assert.throws(() => parseConfig({ timeoutMs: 21_600_001 }), /between 1000 and 21600000/);
   assert.deepEqual(parseConfig({ historyLimit: 1 }), DEFAULT_CONFIG, "retired history settings do not evict exact run IDs");
   for (const value of [{ maxConcurrent: 5 }, { maxRuns: 0 }, { timeoutMs: Infinity }, { timeoutMs: 500 }, { historyLimit: -1 }, { maxRuns: 1.5 }, { asyncByDefault: true }, []]) assert.throws(() => parseConfig(value));
 });

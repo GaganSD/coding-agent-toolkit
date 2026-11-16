@@ -29,10 +29,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isRule(value: unknown): value is Rule {
   if (!isPlainObject(value)) return false;
-  if (value.type !== "message" && value.type !== "command") return false;
+  // Legacy entries may carry type: "command"; message-rule entries are corrupt.
+  if (value.type !== undefined && value.type !== "command") return false;
   if (typeof value.text !== "string") return false;
   if (value.enabled !== undefined && typeof value.enabled !== "boolean") return false;
-  return Object.keys(value).every((k) => k === "type" || k === "text" || k === "enabled");
+  if (value.tool !== undefined && !["bash", "read", "edit", "write"].includes(value.tool as string)) return false;
+  if (value.mode !== undefined && !["glob", "exact", "regex"].includes(value.mode as string)) return false;
+  return Object.keys(value).every((k) => ["type", "text", "enabled", "tool", "mode"].includes(k));
 }
 
 const ENTRY_KEYS = new Set([

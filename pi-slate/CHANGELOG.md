@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.2.1
+
+Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.
+
+### Added
+
+- `/logo` toggles the header between the stock mark and the minimal mark. `/logo original` and `/logo minimal` set one directly.
+
+### Changed
+
+- Improved Fallback handling when Pi updates break the TUI.
+- Improved misc. UX & UI & removed redundant UI in a new session.
+- Sidebar MCP is a requested configuration now. `/mcp` owns validation, auth, and connection health only.
+
+### Fixed
+
+- Edit-preview dividers and truncation marks keep the diff background, so tool and terminal colors no longer bleed in.
+- The sidebar follows the live layout root, including Pi's forwarding proxy, without intercepting `setLayoutRoot`.
+- Disposed image and selection wrappers edit natively again. Paste-to-reveal needs undo and will not collapse text edited after the paste.
+
+### Security
+
+- Transitive `undici` is pinned to 8.12.4.
+
 ## 0.2.0
 
 Four Catppuccin flavors behind a single /theme picker, and edits and writes that keep their diffs visible in collapsed tool cards.

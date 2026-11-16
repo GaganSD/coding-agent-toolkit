@@ -1,9 +1,11 @@
-import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import type { SessionEntry, SlashCommandInfo, Skill } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
-import type { SidebarMcpHost } from "./sidebar-mcp.ts";
+import type { SidebarMcpResult } from "./sidebar-mcp.ts";
+import { record, sidebarText } from "./sidebar-text.ts";
+export { record, sidebarText } from "./sidebar-text.ts";
+export { parseMcpFile, sidebarMcp, SidebarMcpFiles, type SidebarMcp, type SidebarMcpResult } from "./sidebar-mcp.ts";
 
 export type SidebarUsage = {
   input: number | null; output: number | null; cacheRead: number | null;
@@ -12,8 +14,6 @@ export type SidebarUsage = {
 export type SidebarSkill = { name: string; path: string; source: string; loaded: boolean };
 export type SidebarCommand = { name: string; source: string; description?: string };
 export type SidebarPrompt = { name: string; source: string; description?: string };
-export type SidebarMcp = { name: string; enabled: boolean | null; source: string };
-export type SidebarMcpResult = { mcp: SidebarMcp[]; mcpError?: string; mcpWarning?: string };
 export type SidebarResources = { skills: SidebarSkill[]; commands: SidebarCommand[]; prompts: SidebarPrompt[] } & SidebarMcpResult;
 export type SidebarSession = {
   id: string; name?: string; pid: number; cwd: string; model: string; thinking: string;
@@ -24,18 +24,9 @@ export type SidebarSession = {
 export type SidebarFolds = { mcp: boolean; skills: boolean; prompts: boolean };
 export const DEFAULT_SIDEBAR_FOLDS: SidebarFolds = { mcp: false, skills: false, prompts: false };
 
-/** Display-only strings must never inject terminal commands or extra rows. */
-export function sidebarText(value: unknown, max = 512): string {
-  if (typeof value !== "string") return "";
-  return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/[\x00-\x1f\x7f-\x9f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
-}
 export function parseSidebarFolds(value: unknown): SidebarFolds {
   const raw = record(value);
   return { mcp: raw?.mcp === true, skills: raw?.skills === true, prompts: raw?.prompts === true };
-}
-export function record(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 function nonnegative(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
@@ -189,94 +180,4 @@ export class SidebarSkills {
     }
     return skills.sort((a, b) => Number(b.loaded) - Number(a.loaded) || a.name.localeCompare(b.name));
   }
-}
-
-type McpFile = { servers: Record<string, unknown>; error?: string };
-export function parseMcpFile(text: string | undefined, stripBom = false): McpFile {
-  if (text === undefined) return { servers: {} };
-  try {
-    // Match the verified host's file parser; older Pi versions reject a BOM.
-    const raw = record(JSON.parse(stripBom && text.startsWith("\uFEFF") ? text.slice(1) : text));
-    const servers = record(raw?.mcpServers);
-    if (!raw || (raw.mcpServers !== undefined && !servers)) return { servers: {}, error: "MCP config invalid" };
-    return { servers: servers ?? {} };
-  } catch { return { servers: {}, error: "MCP config unreadable" }; }
-}
-
-export function sidebarMcp(
-  registered: readonly { name: string; config: unknown }[], global: McpFile, project?: McpFile, host?: SidebarMcpHost,
-): SidebarMcp[] { return resolveMcp(registered, global, project, host).mcp; }
-
-function resolveMcp(
-  registered: readonly { name: string; config: unknown }[], global: McpFile, project: McpFile | undefined, host: SidebarMcpHost | undefined,
-): SidebarMcpResult {
-  const files = new Map<string, { config: Record<string, unknown>; source: string }>();
-  const invalid = new Map<string, SidebarMcp>();
-  let rejected = false;
-  for (const [source, entries] of [["global", global.servers], ["project", project?.servers ?? {}]] as const) {
-    for (const [name, raw] of Object.entries(entries)) {
-      let value = raw;
-      const entry = record(raw);
-      let reject = false;
-      if (host?.projectOverrides && source === "project" && entry
-        && entry.command === undefined && entry.url === undefined && entry.type === undefined) {
-        const base = files.get(name); // Only an exact-name global file entry, never a registration.
-        reject = !base || Object.keys(entry).some(key => !["enabled", "exposure", "toolExposure"].includes(key));
-        if (base) value = { ...base.config, ...entry };
-      }
-      const config = host && !reject ? record(host.validate(name, value)) : undefined;
-      if (config && host) {
-        reject = (host.projectOverrides && [...files.keys()].some(other => other !== name && host.namespace(other) === host.namespace(name)))
-          || (host.projectOverrides && source === "project" && "url" in config && Boolean(config.auth));
-      }
-      if (!config || reject) {
-        rejected ||= Boolean(host);
-        invalid.set(name, { name: sidebarText(name), source, enabled: null });
-      } else files.set(name, { config, source });
-    }
-  }
-  const rows = new Map<string, SidebarMcp>();
-  for (const server of registered) {
-    if (host && [...files.keys()].some(name => host.namespace(name) === host.namespace(server.name))) continue;
-    const config = host ? record(host.validate(server.name, server.config)) : undefined;
-    rows.set(server.name, { name: sidebarText(server.name), source: "extension", enabled: config ? config.enabled !== false : null });
-  }
-  for (const [name, server] of files) rows.set(name, { name: sidebarText(name), source: server.source, enabled: server.config.enabled !== false });
-  for (const [name, row] of invalid) if (!rows.has(name)) rows.set(name, row);
-  // File errors take precedence; a missing adapter may still warn alongside them.
-  const mcpError = project?.error ?? global.error ?? (rejected ? "MCP configuration has rejected entries" : undefined);
-  const mcpWarning = !host && rows.size > 0 ? "MCP configuration validation unavailable" : undefined;
-  return { mcp: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name)),
-    ...(mcpError ? { mcpError } : {}), ...(mcpWarning ? { mcpWarning } : {}) };
-}
-
-/** File reads are bounded and cached outside render; never evaluate env or credential commands. */
-export class SidebarMcpFiles {
-  private cached = new Map<string, { key: string; value: McpFile }>();
-  private host?: SidebarMcpHost;
-  setHost(host: SidebarMcpHost | undefined): void {
-    if (Boolean(this.host?.stripBom) !== Boolean(host?.stripBom)) this.clear();
-    this.host = host;
-  }
-  read(path: string): McpFile {
-    try {
-      const stat = statSync(path);
-      if (!stat.isFile() || stat.size > 1024 * 1024) return { servers: {}, error: "MCP config unreadable" };
-      const key = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
-      const old = this.cached.get(path);
-      if (old?.key === key) return old.value;
-      const value = parseMcpFile(readFileSync(path, "utf8"), this.host?.stripBom);
-      this.cached.set(path, { key, value });
-      return value;
-    } catch (error) {
-      this.cached.delete(path);
-      return (error as NodeJS.ErrnoException).code === "ENOENT" ? { servers: {} } : { servers: {}, error: "MCP config unreadable" };
-    }
-  }
-  snapshot(agentDir: string, cwd: string, trusted: boolean, registered: readonly { name: string; config: unknown }[]): SidebarMcpResult {
-    const global = this.read(join(agentDir, "mcp.json"));
-    const project = trusted ? this.read(join(cwd, ".pi", "mcp.json")) : undefined;
-    return resolveMcp(registered, global, project, this.host);
-  }
-  clear(): void { this.cached.clear(); }
 }

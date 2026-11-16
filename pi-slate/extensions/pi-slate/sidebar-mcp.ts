@@ -1,35 +1,86 @@
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { record, sidebarText } from "./sidebar-text.ts";
 
-/** Isolated read-only host adapter. Never imports the MCP client or resolves credentials. */
-export type SidebarMcpHost = {
-  validate(name: string, value: unknown): unknown;
-  namespace(name: string): string;
-  projectOverrides: boolean;
-  stripBom: boolean;
-};
+export type SidebarMcp = { name: string; enabled: boolean | null; source: string };
+export type SidebarMcpResult = { mcp: SidebarMcp[]; mcpError?: string };
+type McpFile = { servers: Record<string, unknown>; error?: string };
 
-/** Version only selects legacy parsing exceptions; capabilities determine availability. */
-function hostParsing(version: string): { projectOverrides: boolean; stripBom: boolean } {
-  if (version === "0.99.0" || version === "1.0.0") return { projectOverrides: false, stripBom: false };
-  const release = /^1\.(\d+)\.(\d+)$/.exec(version);
-  const minor = release ? Number(release[1]) : Number.NaN;
-  const patch = release ? Number(release[2]) : Number.NaN;
-  // 1.0.4+ and the released 1.1–1.3 minors merge project overrides and reject a BOM. 1.4+ strips it.
-  if ((minor === 0 && patch >= 4) || (minor >= 1 && minor < 4)) return { projectOverrides: true, stripBom: false };
-  return { projectOverrides: true, stripBom: true };
+/** Read declarations, not Pi's server schema. Never import a client/validator or evaluate credentials. */
+export function parseMcpFile(text: string | undefined): McpFile {
+  if (text === undefined) return { servers: {} };
+  try {
+    const raw = record(JSON.parse(text.startsWith("\uFEFF") ? text.slice(1) : text));
+    const servers = record(raw?.mcpServers);
+    if (!raw || (raw.mcpServers !== undefined && !servers)) return { servers: {}, error: "MCP config invalid" };
+    return { servers: servers ?? {} };
+  } catch { return { servers: {}, error: "MCP config unreadable" }; }
 }
 
-export async function loadSidebarMcpHost(packageDir: string, version: string): Promise<SidebarMcpHost | undefined> {
-  try {
-    const { projectOverrides, stripBom } = hostParsing(version);
-    const native = await import(pathToFileURL(join(packageDir, "dist/core/mcp-servers.js")).href) as {
-      validateMcpServerConfig?: SidebarMcpHost["validate"];
-      mcpNamespace?: SidebarMcpHost["namespace"];
-    };
-    if (typeof native.validateMcpServerConfig !== "function") return undefined;
-    if (projectOverrides && typeof native.mcpNamespace !== "function") return undefined;
-    return { validate: native.validateMcpServerConfig,
-      namespace: projectOverrides ? native.mcpNamespace! : name => name, projectOverrides, stripBom };
-  } catch { return undefined; }
+function configuredEnabled(value: unknown): boolean | null {
+  const config = record(value);
+  if (!config || (config.enabled !== undefined && typeof config.enabled !== "boolean")) return null;
+  return config.enabled !== false;
+}
+const namespace = (name: string): string => name.replace(/-/g, "_");
+
+/** Desired configuration only. Pi owns schema validation, rejection, authentication and live health. */
+export function sidebarMcp(
+  registered: readonly { name: string; config: unknown }[], global: McpFile, project?: McpFile,
+): SidebarMcp[] {
+  const files = new Map<string, { config: unknown; source: string }>();
+  for (const [source, entries] of [["global", global.servers], ["project", project?.servers ?? {}]] as const) {
+    for (const [name, raw] of Object.entries(entries)) {
+      const entry = record(raw);
+      const base = record(files.get(name)?.config);
+      // A flag-only project declaration inherits the exact-name global declaration.
+      // Do not validate other fields or decide which entries Pi will accept.
+      const config = source === "project" && base && entry
+        && entry.command === undefined && entry.url === undefined && entry.type === undefined
+        ? { ...base, ...entry } : raw;
+      files.set(name, { config, source });
+    }
+  }
+  const rows = new Map<string, SidebarMcp>();
+  const fileNamespaces = new Set([...files.keys()].map(namespace));
+  for (const server of registered) {
+    if (!fileNamespaces.has(namespace(server.name))) {
+      rows.set(server.name, { name: sidebarText(server.name), source: "extension", enabled: configuredEnabled(server.config) });
+    }
+  }
+  for (const [name, server] of files) rows.set(name, { name: sidebarText(name), source: server.source, enabled: configuredEnabled(server.config) });
+  return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function mcpDetails(server: SidebarMcp): string {
+  return `${server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled"} (configuration, not connection status)\nSource: ${server.source}\n`
+    + (server.enabled === null ? "Enabled state could not be read from this declaration.\n" : "")
+    + "Slate does not validate MCP server configurations. Use /mcp for validation and live status.";
+}
+
+/** Bounded, cached file reads outside render. No host versions, private imports, connections or commands. */
+export class SidebarMcpFiles {
+  private readonly cached = new Map<string, { key: string; value: McpFile }>();
+  read(path: string): McpFile {
+    try {
+      const stat = statSync(path);
+      if (!stat.isFile() || stat.size > 1024 * 1024) return { servers: {}, error: "MCP config unreadable" };
+      const key = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+      const old = this.cached.get(path);
+      if (old?.key === key) return old.value;
+      const value = parseMcpFile(readFileSync(path, "utf8"));
+      this.cached.set(path, { key, value });
+      return value;
+    } catch (error) {
+      this.cached.delete(path);
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? { servers: {} } : { servers: {}, error: "MCP config unreadable" };
+    }
+  }
+  snapshot(agentDir: string, cwd: string, trusted: boolean, registered: readonly { name: string; config: unknown }[]): SidebarMcpResult {
+    const global = this.read(join(agentDir, "mcp.json"));
+    const project = trusted ? this.read(join(cwd, ".pi", "mcp.json")) : undefined;
+    const mcpError = project?.error ?? global.error;
+    return { mcp: sidebarMcp(registered, global, project), ...(mcpError ? { mcpError } : {}) };
+  }
+  clear(): void { this.cached.clear(); }
 }

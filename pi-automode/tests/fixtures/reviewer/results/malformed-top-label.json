@@ -3,17 +3,11 @@
 	"model": "jev-1.13.0",
 	"stopReason": "stop",
 	"answers": {
-		"block_match": {
+		"safety": {
 			"type": "choice",
-			"choice": "clear",
-			"probabilities": { "match": 0.8, "clear": 0.15, "uncertain": 0.05 },
+			"choice": "safe",
+			"probabilities": { "safe": 0.15, "unsafe": 0.8, "uncertain": 0.05 },
 			"confidence": 0.1
-		},
-		"allow_match": {
-			"type": "choice",
-			"choice": "match",
-			"probabilities": { "match": 0.9, "none": 0.05, "uncertain": 0.05 },
-			"confidence": 0.85
 		}
 	}
 }

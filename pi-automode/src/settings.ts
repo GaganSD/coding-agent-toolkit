@@ -3,6 +3,7 @@ import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
 
 import { canonicalJson } from "./core/canonical-json.js";
+import { compilePattern } from "./core/rules.js";
 import { normalizeDisclosureEndpoint } from "./core/disclosure.js";
 import { DEFAULT_SETTINGS } from "./types.js";
 import type { AutomodeSettings, Rule } from "./types.js";
@@ -37,6 +38,9 @@ const KNOWN_KEYS = new Set([
   "enabled",
   "decisionModel",
   "disclosureConsent",
+  "disclosureVersion",
+  "reviewSafeThreshold",
+  "reviewConfidenceThreshold",
   "disclosureProvider",
   "disclosureModel",
   "disclosureEndpoint",
@@ -80,11 +84,27 @@ function validateText(value: unknown, where: string, max: number): string {
 
 function validateRule(value: unknown, where: string): Rule {
   if (!isPlainObject(value)) fail(`${where}: expected object`);
-  checkKeys(value, new Set(["type", "text", "enabled"]), where);
-  const type = value.type;
-  if (type !== "message" && type !== "command") fail(`${where}: type must be "message" or "command"`);
+  checkKeys(value, new Set(["type", "text", "enabled", "tool", "mode"]), where);
+  // Legacy beta files carried a `type` field. Only command rules survive;
+  // message rules were removed and must be deleted by the operator.
+  if (value.type === "message") {
+    fail(`${where}.type: message rules are no longer supported; remove this rule from automode.json`);
+  }
+  if (value.type !== undefined && value.type !== "command") {
+    fail(`${where}.type: must be "command" when present`);
+  }
   const text = validateText(value.text, `${where}.text`, 4000);
-  const rule: Rule = { type, text };
+  const rule: Rule = { text };
+  if (value.tool !== undefined) {
+    if (!["bash", "read", "edit", "write"].includes(value.tool as string)) fail(`${where}.tool: unsupported tool`);
+    rule.tool = value.tool as Rule["tool"] & string;
+  }
+  if (value.mode !== undefined) {
+    if (!["glob", "exact", "regex"].includes(value.mode as string)) fail(`${where}.mode: expected glob | exact | regex`);
+    rule.mode = value.mode as Rule["mode"] & string;
+  }
+  try { compilePattern(text, rule.mode); }
+  catch (error) { fail(`${where}: ${error instanceof Error ? error.message : String(error)}`); }
   if (value.enabled !== undefined) {
     if (typeof value.enabled !== "boolean") fail(`${where}.enabled: expected boolean`);
     rule.enabled = value.enabled;
@@ -105,6 +125,12 @@ function validateNumber(
     fail(`${where}: ${n} outside [${limits.min}, ${limits.max}]`);
   }
   return n;
+}
+
+function validateProbability(value: unknown, where: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0.5 || value > 1) fail(`${where}: expected a finite probability in [0.5, 1]`);
+  return value;
 }
 
 function validateRuleList(value: unknown, where: string): Rule[] {
@@ -178,6 +204,9 @@ export function validateSettings(input: unknown): AutomodeSettings {
     enabled: input.enabled,
     decisionModel,
     disclosureConsent,
+    disclosureVersion: input.disclosureVersion == null ? null : validateNumber(input.disclosureVersion, "settings.disclosureVersion", { min: 1, max: 1000 }, 1),
+    reviewSafeThreshold: validateProbability(input.reviewSafeThreshold, "settings.reviewSafeThreshold", DEFAULT_SETTINGS.reviewSafeThreshold),
+    reviewConfidenceThreshold: validateProbability(input.reviewConfidenceThreshold, "settings.reviewConfidenceThreshold", DEFAULT_SETTINGS.reviewConfidenceThreshold),
     disclosureProvider,
     disclosureModel,
     disclosureEndpoint,
@@ -503,7 +532,11 @@ export class SettingsStore {
    * SettingsConflictError when the on-disk file changed outside this store
    * since our last read/write (concurrent-edit / external-drift detection).
    */
-  async update(next: AutomodeSettings): Promise<void> {
+  async update(next: AutomodeSettings, options?: { authorize?: () => boolean }): Promise<void> {
+    const authorize = () => {
+      if (options?.authorize && !options.authorize()) throw new SettingsConflictError("settings save authority expired or was invalidated");
+    };
+    authorize();
     const validated = cloneSettings(next);
 
     // Early drift check (fast path), then a LATE check under the store lock
@@ -518,6 +551,7 @@ export class SettingsStore {
     }
 
     await this.#withLock(async () => {
+      authorize();
       if (this.#loaded) await this.#checkDrift();
       await fs.mkdir(dir, { recursive: true, mode: 0o700 });
       const temp = `${this.#filePath}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
@@ -538,6 +572,9 @@ export class SettingsStore {
         await handle.close();
         handle = null;
         await fs.chmod(temp, 0o600);
+        // Re-check asynchronous permission saves after queue, fsync and chmod;
+        // a cancelled/stale confirmation must not commit from a delayed queue.
+        authorize();
         await fs.rename(temp, this.#filePath);
         // Best-effort directory fsync for durability of the rename.
         try {

@@ -53,7 +53,7 @@ A monorepo of benchmarked/minimal overhead tools I've built for Pi & Herdr:
 | [pi-subagents](./pi-subagents/) | Tiny, benchmarked subagent harness with 88% less token overhead ([benchmarks](./benchmarks/README.md)). | `pi install npm:@gagansd/pi-subagents` |
 | [pi-web-search](./pi-web-search/) | Cited public web and code search. Keyless by default with optional ranking. | `pi install npm:@gagansd/pi-web-search` |
 | [pi-ask](./pi-ask/) | Structured interactive TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
-| [pi-automode](./pi-automode/) (beta) | Permission gate for Pi: risky calls stop for a local decision, protected paths block, exact rules cut repeated asks. | `pi install npm:@gagansd/pi-automode` |
+| [pi-automode](./pi-automode/) (beta) | Permission gate for Pi: command/path rules, optional thresholded safety review, local approvals, and protected-path blocks. | `pi install npm:@gagansd/pi-automode` |
 
 ### Install Pi extensions
 

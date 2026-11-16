@@ -152,7 +152,10 @@ test("corrupt lines are skipped and reported, never silently dropped or repaired
 
 test("isDecisionLog validates structure strictly", () => {
   assert.equal(isDecisionLog(entry()), true);
-  assert.equal(isDecisionLog(entry({ matchedRule: { type: "command", text: "ls" } })), true);
+  assert.equal(isDecisionLog(entry({ matchedRule: { text: "ls" } })), true);
+  // Legacy log entries carrying type: "command" still parse; message-rule entries are corrupt.
+  assert.equal(isDecisionLog(entry({ matchedRule: { type: "command", text: "ls" } as never })), true);
+  assert.equal(isDecisionLog(entry({ matchedRule: { type: "message", text: "ls" } as never })), false);
   assert.equal(isDecisionLog(null), false);
   assert.equal(isDecisionLog({}), false);
   assert.equal(isDecisionLog(entry({ outcome: "maybe" as never })), false);

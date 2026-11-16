@@ -7,6 +7,7 @@ import { canonicalJson } from "./core/canonical-json.js";
 import { isWithinOrEqual, piPathExpansionRisk, realpathNearest } from "./core/paths.js";
 import { classifyPath } from "./core/protected.js";
 import { analyzeShell } from "./core/shell.js";
+import { reviewableCommand } from "./core/reviewable-command.js";
 import type { Action, ActionEvidence, FileSnapshot, SnapshotKind } from "./types.js";
 
 /**
@@ -261,6 +262,10 @@ export async function buildEvidence(action: Action, ctx: EvidenceContext): Promi
   // Unknown/custom tools: evidence stays minimal; policy blocks the route.
 
   const complete = problems.length === 0;
+  const reviewableShell = tool === "bash" && problems.length === 1
+    && shell?.opaqueReason !== undefined && problems[0] === `shell evidence incomplete: ${shell.opaqueReason}`
+    && reviewableCommand(String(action.args.command ?? ""))
+    && /^(?:program .*not in the narrowly verified set|interpreter .*execution is opaque)/.test(shell.opaqueReason);
   const reason = complete ? null : problems.join("; ");
   // The fingerprint binds every decision-relevant fact: workspace identity,
   // completeness/reason, and per-target content AND metadata (nlink, dev,
@@ -274,6 +279,7 @@ export async function buildEvidence(action: Action, ctx: EvidenceContext): Promi
     protectedReason: protectedReason ?? null,
     sensitive,
     complete,
+    reviewableShell,
     reason,
     shell: shell ?? null,
     snapshots: snapshots.map((s) => ({
@@ -294,6 +300,7 @@ export async function buildEvidence(action: Action, ctx: EvidenceContext): Promi
     workspace,
     sensitive,
     complete,
+    reviewableShell,
     fingerprint,
     snapshots,
   };

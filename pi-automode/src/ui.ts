@@ -1,4 +1,7 @@
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { ExtensionUIContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { showModelPicker } from "./model-picker.js";
+import { DISCLOSURE_VERSION } from "./core/disclosure.js";
+import { editTuningSettings, TUNING_FIELDS } from "./settings-editor.js";
 import type { AutomodeSettings, DecisionLog, Rule } from "./types.js";
 import { escapeOneLine, escapeTerminal } from "./runtime/escape.js";
 import { ambientShellCustomizations, type HostShellOptions } from "./runtime/host.js";
@@ -6,7 +9,7 @@ import { normalizeDisclosureEndpoint } from "./core/disclosure.js";
 import type { AutomodeHealth } from "./runtime/health.js";
 
 /**
- * Pi-native dialogs: a compact panel, rules, logs and optional shadow review.
+ * Pi-native dialogs: a compact panel, rules, logs and optional active safety review.
  *
  * Authority rules (IMPLEMENTATION.md invariant 6 + B1):
  * - Pi dispatches slash commands BEFORE input hooks and provides no command
@@ -25,6 +28,7 @@ const USAGE = "Usage: /automode [on|off|rules|logs]";
 
 /** Minimal UI surface used by the command layer (subset of ExtensionUIContext). */
 export interface CommandUi {
+	custom?: ExtensionUIContext["custom"];
 	select(
 		title: string,
 		options: string[],
@@ -127,7 +131,7 @@ export function createCommandHandler(deps: UiDeps): (args: string, ctx: CommandC
 	};
 }
 
-/** Keep the footer quiet; diagnostics live in Details. */
+/** Keep the footer quiet; diagnostics live in Settings. */
 export function statusText(deps: UiDeps, theme?: Theme): string {
 	const settings = deps.settings.current;
 	const state = deps.gate.state;
@@ -245,7 +249,7 @@ async function showPanel(deps: UiDeps, ctx: CommandCtx): Promise<void> {
 		if (ctx.mode !== "tui") lines.push("Changes and approvals require the interactive terminal.");
 		if (deps.approval.pendingCount) lines.push(`${deps.approval.pendingCount} awaiting approval`);
 		const toggle = settings?.enabled ? "Toggle OFF" : "Toggle ON";
-		const options = [toggle, "Rules", "Logs", "Decision Models", "Details"];
+		const options = [toggle, "Rules", "Logs", "Decision Models", "Settings"];
 		if (state === "halted") options.unshift("Re-verify configuration");
 		options.push("Close");
 
@@ -259,27 +263,34 @@ async function showPanel(deps: UiDeps, ctx: CommandCtx): Promise<void> {
 		else if (choice === "Rules") await rulesEditor(deps, ctx);
 		else if (choice === "Logs") await logsViewer(deps, ctx);
 		else if (choice === "Decision Models") await decisionModelPicker(deps, ctx);
-		else if (choice === "Details") await showDetails(deps, ctx);
+		else if (choice === "Settings") await showSettings(deps, ctx);
 		else if (choice === "Re-verify configuration") await reverify(deps, ctx);
 		else return;
 		refreshStatus(deps, ctx);
 	}
 }
 
-async function showDetails(deps: UiDeps, ctx: CommandCtx): Promise<void> {
-	const settings = deps.settings.current;
-	const decisionModel = settings.decisionModel;
-	const count = (rules: Rule[]) => rules.filter((r) => r.enabled !== false).length;
-	const lines = [
-		`Tools checked: ${deps.guardedTools.join(", ")}. Other tools and nested calls are blocked while on.`,
-		"Protected writes are blocked. Approved shell commands are not sandboxed.",
-		`Rules: ${count(settings.blocklist)} block, ${count(settings.allowlist)} allow`,
-		`Decision model: ${decisionModel ? `${escapeOneLine(decisionModel.provider)}/${escapeOneLine(decisionModel.model)} (shadow only; consent: ${settings.disclosureConsent})` : "none — local checks only"}`,
-		`Pending: ${deps.gate.pendingManaged} managed, ${deps.approval.pendingCount} awaiting approval`,
-		`Settings: ${escapeOneLine(deps.dirs.agentDir)}/automode.json`,
-		`Logs: local; retained ${settings.logRetentionDays} days, up to ${settings.logMaxEntries} entries`,
-	];
-	await ctx.ui.select(`Automode details\n\n${lines.join("\n")}`, ["Back"]);
+async function showSettings(deps: UiDeps, ctx: CommandCtx): Promise<void> {
+	if (!requireOperator(ctx)) return;
+	const epoch0 = deps.settings.epoch;
+	const current = deps.settings.current;
+	if (!current) {
+		ctx.ui.notify("Automode: no valid configuration; fix automode.json first.", "error");
+		return;
+	}
+	let next: AutomodeSettings | undefined;
+	try {
+		next = await editTuningSettings(ctx.ui, current,
+			`Pending: ${deps.gate.pendingManaged} managed, ${deps.approval.pendingCount} awaiting approval`);
+	} catch {
+		return; // UI failure never persists a partially edited draft.
+	}
+	if (!next) return;
+	if (TUNING_FIELDS.every((field) => next[field.key] === current[field.key])) {
+		ctx.ui.notify("No settings changed.", "info");
+		return;
+	}
+	if (await saveSettings(deps, ctx, next, epoch0)) ctx.ui.notify("Automode settings saved.", "info");
 }
 
 async function reverify(deps: UiDeps, ctx: CommandCtx): Promise<void> {
@@ -301,9 +312,9 @@ async function reverify(deps: UiDeps, ctx: CommandCtx): Promise<void> {
 
 // ---------------------------------------------------------------- rules
 
-function ruleLine(list: "allow" | "block", rule: Rule): string {
+function ruleLine(list: "allowlist" | "blocklist", rule: Rule): string {
 	const flags = rule.enabled === false ? " · disabled" : "";
-	return `[${list} · ${rule.type}${flags}] ${escapeOneLine(rule.text, 120)}`;
+	return `[${list}${flags}] ${rule.tool ?? "bash"}/${rule.mode ?? "glob"} ${escapeOneLine(rule.text, 120)}`;
 }
 
 interface RuleRef {
@@ -334,7 +345,7 @@ async function rulesEditor(deps: UiDeps, ctx: CommandCtx): Promise<void> {
 			rules.forEach((rule, index) => {
 				// Positional prefix: duplicate rule texts produce identical labels,
 				// so selection keys on the unique position, never the label bytes.
-				options.push(`${options.length + 1}. ${ruleLine(list === "allowlist" ? "allow" : "block", rule)}`);
+				options.push(`${options.length + 1}. ${ruleLine(list, rule)}`);
 				refs.push({ list, index, rule });
 			});
 		}
@@ -360,37 +371,34 @@ async function rulesEditor(deps: UiDeps, ctx: CommandCtx): Promise<void> {
 }
 
 async function addRule(deps: UiDeps, ctx: CommandCtx, current: AutomodeSettings, epoch0: number): Promise<void> {
-	const choices = ["Allow command", "Block command", "Allow message", "Block message"];
-	const choice = await ctx.ui.select("Add rule — command rules match exact text", [...choices, CANCEL]);
-	if (!choice || !choices.includes(choice)) return;
-	const effect = choice.startsWith("Allow") ? "allow" : "block";
-	const type: Rule["type"] = choice.endsWith("command") ? "command" : "message";
-	const title = type === "command"
-		? "Exact command — whitespace matters; complex allow commands still ask"
-		: effect === "block"
-			? "Message rule — while enabled, ALL otherwise allowed actions ask for approval"
-			: "Message rule — shadow review only; never auto-approves actions";
-	const text = await ctx.ui.editor(title);
+	const definitions = (["Allowlist", "Blocklist"] as const).flatMap((effect) =>
+		(["bash", "read", "edit", "write"] as const).flatMap((tool) =>
+			(["glob", "exact", "regex"] as const).map((mode) => ({
+				label: `${effect} ${mode === "glob" ? "" : `${mode} `}${tool === "bash" ? "command" : tool}`,
+				tool, mode, list: effect === "Allowlist" ? "allowlist" as const : "blocklist" as const,
+			}))));
+	const choice = await ctx.ui.select("Add rule — command/path patterns, not messages", [...definitions.map((d) => d.label), CANCEL]);
+	const definition = definitions.find((d) => d.label === choice);
+	if (!definition) return;
+	const { tool, mode, list } = definition;
+	const text = await ctx.ui.editor(`${list} ${tool}/${mode} — full ${tool === "bash" ? "command" : "canonical absolute path"}; regex: literals, classes, . * + ? only`);
 	if (text === undefined || text.length === 0) return;
-	const rule: Rule = { type, text };
+	const rule: Rule = { text, ...(tool !== "bash" ? { tool } : {}), ...(mode !== "glob" ? { mode } : {}) };
 	const confirmed = await confirmAuthority(
 		ctx,
 		"Save rule?",
-		`${effect} ${type} rule:\n${escapeTerminal(text, { multiline: true })}`,
+		`${list} rule:\n${escapeTerminal(text, { multiline: true })}`,
 		"Save rule",
 	);
 	if (!confirmed) return;
-	const next: AutomodeSettings =
-		effect === "allow"
-			? { ...current, allowlist: [...current.allowlist, rule] }
-			: { ...current, blocklist: [...current.blocklist, rule] };
+	const next: AutomodeSettings = { ...current, [list]: [...current[list], rule] };
 	if (await saveSettings(deps, ctx, next, epoch0)) ctx.ui.notify("Rule saved.", "info");
 }
 
 async function editRule(deps: UiDeps, ctx: CommandCtx, current: AutomodeSettings, ref: RuleRef, epoch0: number): Promise<void> {
 	const toggleLabel = ref.rule.enabled === false ? "Enable" : "Disable";
 	const moveLabel = ref.list === "allowlist" ? "Move to blocklist" : "Move to allowlist";
-	const choice = await ctx.ui.select(`${ruleLine(ref.list === "allowlist" ? "allow" : "block", ref.rule)}`, [
+	const choice = await ctx.ui.select(`${ruleLine(ref.list, ref.rule)}`, [
 		"Back",
 		"Edit text",
 		toggleLabel,
@@ -420,7 +428,7 @@ async function editRule(deps: UiDeps, ctx: CommandCtx, current: AutomodeSettings
 		const confirmed = await confirmAuthority(
 			ctx,
 			ref.rule.enabled === false ? "Enable rule?" : "Disable rule?",
-			ruleLine(ref.list === "allowlist" ? "allow" : "block", ref.rule),
+			ruleLine(ref.list, ref.rule),
 			ref.rule.enabled === false ? "Enable rule" : "Disable rule",
 		);
 		if (!confirmed) return;
@@ -432,7 +440,7 @@ async function editRule(deps: UiDeps, ctx: CommandCtx, current: AutomodeSettings
 		return;
 	}
 	if (choice === moveLabel) {
-		const confirmed = await confirmAuthority(ctx, "Change rule effect?", ruleLine(ref.list === "allowlist" ? "allow" : "block", ref.rule), "Move rule");
+		const confirmed = await confirmAuthority(ctx, "Move rule?", ruleLine(ref.list, ref.rule), "Move rule");
 		if (!confirmed) return;
 		const next = lists();
 		next[ref.list].splice(ref.index, 1);
@@ -445,7 +453,7 @@ async function editRule(deps: UiDeps, ctx: CommandCtx, current: AutomodeSettings
 		const confirmed = await confirmAuthority(
 			ctx,
 			"Delete rule?",
-			ruleLine(ref.list === "allowlist" ? "allow" : "block", ref.rule),
+			ruleLine(ref.list, ref.rule),
 			"Delete rule",
 		);
 		if (!confirmed) return;
@@ -479,7 +487,7 @@ function logDetail(entry: DecisionLog): string {
 		`cwd: ${escapeTerminal(entry.action.cwd)}`,
 	];
 	if (entry.matchedRule) {
-		lines.push(`matched rule: [${entry.matchedRule.type}] ${escapeTerminal(entry.matchedRule.text, { multiline: true })}`);
+		lines.push(`matched rule: ${escapeTerminal(entry.matchedRule.text, { multiline: true })}`);
 	}
 	lines.push(
 		entry.decisionModel !== undefined
@@ -666,17 +674,24 @@ async function decisionModelPicker(deps: UiDeps, ctx: CommandCtx): Promise<void>
 	const options = [PICKER_RULES_ONLY, ...rows.map((row) => row.painted)];
 	// Selection grants consent, so show the exact normalized destination before
 	// the decision. Never render rejected URLs: they may contain credentials.
-	const title = [
-		"Decision Models — shadow review",
-		"Only bounded metadata (tool name, argument key names, path metadata, message-rule text; never argument values or file bodies) may go to the selected endpoint; reviews never approve actions.",
+	const disclosure = "Selecting a model approves current disclosure: exact bounded bash commands, tool/path metadata and proposed permission patterns may go to this endpoint. File bodies and other argument values never leave. Safe judgments above the configured thresholds may approve unmatched actions. Hard blocks remain final.";
+	const items = [
+		{ value: PICKER_RULES_ONLY, label: PICKER_RULES_ONLY, description: "Nothing is uploaded." },
 		...rows.map((row) => {
 			const endpoint = normalizeDisclosureEndpoint(typeof row.model.baseUrl === "string" ? row.model.baseUrl : "");
-			return `${row.plain} → ${endpoint === null ? "invalid endpoint (selection unavailable)" : escapeTerminal(endpoint)}`;
+			return { value: row.plain, label: row.painted, description: `Endpoint: ${endpoint === null ? "invalid endpoint (selection unavailable)" : escapeTerminal(endpoint)}` };
 		}),
-	].join("\n");
+	];
 	let choice: string | undefined;
 	try {
-		choice = await ctx.ui.select(title, options);
+		if (ctx.ui.custom) {
+			choice = await showModelPicker({ custom: ctx.ui.custom.bind(ctx.ui) }, disclosure, items);
+		} else {
+			const title = ["Decision Models — active safety review", disclosure,
+				...items.slice(1).map((item) => `${item.value} → ${item.description.slice("Endpoint: ".length)}`),
+			].join("\n");
+			choice = await ctx.ui.select(title, options);
+		}
 	} catch {
 		return;
 	}
@@ -693,6 +708,7 @@ async function decisionModelPicker(deps: UiDeps, ctx: CommandCtx): Promise<void>
 			...current,
 			decisionModel: null,
 			disclosureConsent: "none",
+			disclosureVersion: null,
 			disclosureProvider: null,
 			disclosureModel: null,
 			disclosureEndpoint: null,
@@ -715,11 +731,12 @@ async function decisionModelPicker(deps: UiDeps, ctx: CommandCtx): Promise<void>
 		...current,
 		decisionModel: { provider: model.provider, model: model.id },
 		disclosureConsent: "approved",
+		disclosureVersion: DISCLOSURE_VERSION,
 		disclosureProvider: model.provider,
 		disclosureModel: model.id,
 		disclosureEndpoint: endpoint,
 		disclosureWorkspace: deps.dirs.workspace,
 	};
 	if (!(await saveSettings(deps, ctx, next, epoch0))) return;
-	ctx.ui.notify(`Shadow review: ${escapeOneLine(model.provider)}/${escapeOneLine(model.id)}.`, "info");
+	ctx.ui.notify(`Active safety review: ${escapeOneLine(model.provider)}/${escapeOneLine(model.id)}.`, "info");
 }

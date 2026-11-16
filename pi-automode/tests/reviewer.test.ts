@@ -248,62 +248,58 @@ test("decision model absent from registry: unavailable", async () => {
 	assert.equal(registry.classifyCalls, 0);
 });
 
-// --- Happy path and shadow invariant ----------------------------------------
+// --- Happy path -------------------------------------------------------------
 
 test("completed review captures validated typed output, usage, identity, endpoint", async () => {
 	const reviewer = new NativeReviewer();
 	const registry = new StubRegistry();
 	const receipt = await review(reviewer, registry);
 	assert.equal(receipt.status, "completed");
-	assert.equal(receipt.shadow, true);
+	assert.equal("shadow" in receipt, false, "receipts are typed judgments, not shadow-only records");
 	assert.equal(receipt.source, "native-decision-model:typesafe/jev-1.13.0");
 	assert.deepEqual(receipt.decisionModel, {
 		provider: "typesafe",
 		model: "jev-1.13.0",
 		endpoint: "https://api.typesafe.ai/v1",
 	});
-	assert.equal(receipt.output?.block_match?.choice, "clear");
-	assert.equal(receipt.output?.allow_match?.choice, "match");
-	assert.equal(receipt.output?.block_match?.confidence, 0.925);
+	assert.equal(receipt.output?.safety?.choice, "safe");
+	assert.equal(receipt.output?.safety?.probabilities.safe, 0.93);
+	assert.equal(receipt.output?.safety?.confidence, 0.925);
 	assert.equal(receipt.usage?.input, 328);
 	assert.equal(receipt.usage?.cost.total, 0.0000138);
 	assert.ok(receipt.input);
-	assert.deepEqual(Object.keys(receipt.input.questions).sort(), ["allow_match", "block_match"]);
+	assert.deepEqual(Object.keys(receipt.input.questions), ["safety"]);
 	assert.equal(reviewer.requestsUsed, 1);
 	assert.equal(reviewer.breakerOpen, false);
 });
 
-test("shadow-only: even a confident allow_match match grants nothing", async () => {
+test("a confident safe answer is inert data until the gate applies its threshold", async () => {
 	const registry = new StubRegistry();
 	const receipt = await review(new NativeReviewer(), registry);
 	assert.equal(receipt.status, "completed");
-	assert.equal(receipt.shadow, true);
-	for (const key of ["outcome", "decision", "allow", "approved", "clearBlock", "grant"]) {
+	for (const key of ["outcome", "decision", "allow", "approved", "clearBlock", "grant", "shadow"]) {
 		assert.equal(key in receipt, false, `receipt must not expose ${key}`);
 	}
 });
 
-test("state sent is bounded, metadata-only, and carries message rules as written", async () => {
+test("state sent is bounded and carries the exact bash command under review", async () => {
 	const registry = new StubRegistry();
 	await review(new NativeReviewer(), registry);
 	const state = firstContext(registry).state;
 	assert.deepEqual(Object.keys(state).sort(), [
 		"action",
-		"allow_rules",
-		"block_rules",
 		"envelope_version",
 		"evidence",
 		"question_version",
 		"target",
 	]);
 	const serialized = JSON.stringify(state);
-	assert.ok(serialized.includes("Never deploy to production"));
-	assert.ok(serialized.includes("Run the parser test suite"));
-	// Argument VALUES never leave the machine; only key names are sent.
-	assert.ok(!serialized.includes("npm test -- parser"));
+	// The bash command is the action under judgment and is sent byte-exact.
+	assert.ok(serialized.includes("npm test -- parser"));
 	const action = state.action as Record<string, unknown>;
-	assert.deepEqual(Object.keys(action).sort(), ["argument_keys", "cwd", "tool"]);
+	assert.deepEqual(Object.keys(action).sort(), ["argument_keys", "command", "cwd", "tool"]);
 	assert.deepEqual(action.argument_keys, ["command"]);
+	assert.equal(action.command, "npm test -- parser");
 	// No environment, credentials, or conversation content is present.
 	assert.ok(!serialized.includes(process.env.HOME ?? "no-such-home"));
 	const evidenceState = state.evidence as Record<string, unknown>;
@@ -409,13 +405,14 @@ test("a throwing snapshot getter resolves to an error receipt; review() never re
 	assert.equal(registry.classifyCalls, 0, "malformed evidence never reaches the provider");
 });
 
-test("valid block match is captured as data, still shadow", async () => {
+test("an unsafe judgment is captured as validated typed data", async () => {
 	const registry = new StubRegistry();
-	registry.classifyImpl = async () => resultFixture("valid-block-match");
+	registry.classifyImpl = async () => resultFixture("valid-unsafe");
 	const receipt = await review(new NativeReviewer(), registry);
 	assert.equal(receipt.status, "completed");
-	assert.equal(receipt.output?.block_match?.choice, "match");
-	assert.equal(receipt.shadow, true);
+	assert.equal(receipt.output?.safety?.choice, "unsafe");
+	assert.equal(receipt.output?.safety?.probabilities.unsafe, 0.95);
+	assert.equal("shadow" in receipt, false);
 });
 
 test("malformed usage is dropped, not clamped to zero", async () => {
@@ -728,13 +725,13 @@ test("secret values inside ordinary argument fields never leave the machine", as
 	const registry = new StubRegistry();
 	const receipt = await review(new NativeReviewer(), registry, approved(), evidenceFixture("secret-arg"));
 	// Metadata omission is the protection, not a scanner: the review proceeds
-	// and no argument value (suspicious key or not) is ever transmitted.
+	// and only the bash command under judgment leaves the machine.
 	assert.equal(receipt.status, "completed");
 	const action = firstContext(registry).state.action as Record<string, unknown>;
 	assert.deepEqual(action.argument_keys, ["api_key", "command"]);
 	const serialized = JSON.stringify(firstContext(registry).state);
+	assert.equal(action.command, "deploy");
 	assert.ok(!serialized.includes("sk-fixture-not-real"));
-	assert.ok(!serialized.includes('"deploy"'));
 });
 
 test("write/edit payload bodies (content, old/new text) are never transmitted", async () => {
@@ -776,8 +773,11 @@ test("write/edit payload bodies (content, old/new text) are never transmitted", 
 
 test("oversized evidence skips rather than truncating decisively", async () => {
 	const registry = new StubRegistry();
-	const settings = { ...approved(), blocklist: [{ type: "message" as const, text: `never ${"x".repeat(64 * 1024)}` }] };
-	const receipt = await review(new NativeReviewer(), registry, settings);
+	const evidence = {
+		...basic(),
+		snapshots: [{ path: `/workspace/project/${"x".repeat(64 * 1024)}`, kind: "missing" }],
+	};
+	const receipt = await review(new NativeReviewer(), registry, approved(), evidence);
 	assert.equal(receipt.status, "skipped");
 	assert.match(receipt.reason ?? "", /bounded state budget/i);
 	assert.equal(registry.classifyCalls, 0);
@@ -786,24 +786,18 @@ test("oversized evidence skips rather than truncating decisively", async () => {
 test("state budget is enforced in UTF-8 bytes, not UTF-16 code units", async () => {
 	// 100 Han characters: 100 UTF-16 code units, 300 UTF-8 bytes. A code-unit
 	// count would fit the 400-byte budget; the honest byte count does not.
-	const settings = { ...approved(), blocklist: [{ type: "message" as const, text: "严".repeat(100) }] };
+	const evidence = {
+		...basic(),
+		snapshots: [{ path: `/workspace/project/${"严".repeat(100)}`, kind: "missing" }],
+	};
 	const registry = new StubRegistry();
-	const receipt = await review(new NativeReviewer({ maxStateBytes: 400 }), registry, settings);
+	const receipt = await review(new NativeReviewer({ maxStateBytes: 400 }), registry, approved(), evidence);
 	assert.equal(receipt.status, "skipped");
 	assert.match(receipt.reason ?? "", /UTF-8 bytes/i);
 	assert.equal(registry.classifyCalls, 0);
 	// With the default budget the same evidence is reviewed normally.
-	const ok = await review(new NativeReviewer(), new StubRegistry(), settings);
+	const ok = await review(new NativeReviewer(), new StubRegistry(), approved(), evidence);
 	assert.equal(ok.status, "completed");
-});
-
-test("no message rules means no decision model request", async () => {
-	const registry = new StubRegistry();
-	const settings = { ...approved(), allowlist: [], blocklist: [{ type: "command" as const, text: "git push --force" }] };
-	const receipt = await review(new NativeReviewer(), registry, settings);
-	assert.equal(receipt.status, "skipped");
-	assert.match(receipt.reason ?? "", /no message rules/i);
-	assert.equal(registry.classifyCalls, 0);
 });
 
 // --- Injection and multilingual ------------------------------------------------
@@ -819,19 +813,21 @@ test("prototype injection payloads stay local; only inert key names are sent", a
 	assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
 
-test("multilingual rules are transmitted byte-exact as written", async () => {
+test("multilingual command text is transmitted byte-exact as proposed", async () => {
 	const registry = new StubRegistry();
-	const receipt = await review(new NativeReviewer(), registry, settingsFixture("multilingual"));
+	const evidence = basic();
+	evidence.action = {
+		requestId: "req-unicode",
+		tool: "bash",
+		args: { command: "echo 你好世界 🚀" },
+		cwd: "/workspace/project",
+	};
+	const receipt = await review(new NativeReviewer(), registry, approved(), evidence);
 	assert.equal(receipt.status, "completed");
 	const input = firstContext(registry);
 	const serialized = JSON.stringify(input.state);
-	assert.ok(serialized.includes("永远不要部署到生产环境"));
-	assert.ok(serialized.includes("运行解析器测试套件"));
-	// Disabled rules are not sent.
-	assert.ok(!serialized.includes("Do not run anything"));
-	// Command rules are not semantic message rules.
-	assert.ok(!serialized.includes("git push --force"));
-	assert.deepEqual(Object.keys(input.questions).sort(), ["allow_match", "block_match"]);
+	assert.ok(serialized.includes("你好世界 🚀"));
+	assert.deepEqual(Object.keys(input.questions), ["safety"]);
 });
 
 // --- Atomic dispatch gate: budget/breaker re-check at actual dispatch ---------
@@ -1010,24 +1006,17 @@ test("a probability tie at the top is accepted, never clamped", async () => {
 		model: MODEL.id,
 		stopReason: "stop",
 		answers: {
-			block_match: {
+			safety: {
 				type: "choice",
-				choice: "match",
-				probabilities: { match: 0.5, clear: 0.5, uncertain: 0 },
-				confidence: 0.5,
-			},
-			allow_match: {
-				type: "choice",
-				choice: "none",
-				probabilities: { match: 0, none: 0.5, uncertain: 0.5 },
+				choice: "safe",
+				probabilities: { safe: 0.5, unsafe: 0.5, uncertain: 0 },
 				confidence: 0.5,
 			},
 		},
 	});
 	const receipt = await review(new NativeReviewer(), registry);
 	assert.equal(receipt.status, "completed");
-	assert.equal(receipt.output?.block_match?.choice, "match");
-	assert.equal(receipt.output?.allow_match?.choice, "none");
+	assert.equal(receipt.output?.safety?.choice, "safe");
 });
 
 test("only the exact requested model echo passes; a resolved pin is rejected", async () => {
@@ -1058,7 +1047,7 @@ test("unknown provider output fields (reasoning/cot) are stripped from receipts"
 	const serialized = JSON.stringify(receipt);
 	assert.ok(!serialized.includes("chain-of-thought-must-never-be-logged"));
 	assert.ok(!serialized.includes("hidden cot"));
-	assert.deepEqual(Object.keys(receipt.output?.block_match ?? {}).sort(), [
+	assert.deepEqual(Object.keys(receipt.output?.safety ?? {}).sort(), [
 		"choice",
 		"confidence",
 		"probabilities",

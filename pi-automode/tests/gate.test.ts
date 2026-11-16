@@ -401,7 +401,7 @@ test("a block rule added while its approval dialog is open stops that action", a
 	// lifecycle epoch; the settings epoch revalidation must catch it).
 	await h.settings.update({
 		...h.settings.current,
-		blocklist: [{ type: "command", text: "make deploy" }],
+		blocklist: [{ text: "make deploy" }],
 	});
 	h.pendingSelects.shift()?.("Allow once");
 	await assert.rejects(pending, /invalidated|policy or session changed/);
@@ -526,6 +526,7 @@ async function askHarness(consent: Partial<AutomodeSettings>, baseUrl?: string) 
 		settings: {
 			enabled: true,
 			decisionModel: { provider: "typesafe", model: "jev-1.13.2" },
+			disclosureVersion: 1,
 			// Consent binds provider+model too; tests override to drift them.
 			disclosureProvider: "typesafe",
 			disclosureModel: "jev-1.13.2",

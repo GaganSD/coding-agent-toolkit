@@ -1,6 +1,6 @@
 # Verified SDK launcher
 
-`bin/pi-automode.js` starts Pi **1.1.0** through the exported SDK
+`bin/pi-automode.js` starts Pi (currently tested with **1.3.0**) through the exported SDK
 (`createAgentSessionRuntime` + `InteractiveMode` from
 `@earendil-works/pi-coding-agent`) instead of spawning `pi -e` and trusting a
 badge. The gate is verified before the TUI starts and after every runtime

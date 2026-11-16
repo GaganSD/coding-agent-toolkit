@@ -149,17 +149,21 @@ export function installEditorPatch(
   const originalPaste = instance.handlePaste;
   const originalHandleInput = instance.handleInput;
   const originalHandleMouse = instance.handleMouse;
+  let disposed = false;
   const rewrite = (editor: CustomEditor, text: string) => rewriteClipboardPaths(text, nextImageNumber(editor.getText()), store);
   function insertPatch(this: CustomEditor, text: string) {
+    if (disposed) return originalInsert.call(this, text);
     const result = originalInsert.call(this, rewrite(this, text));
     onTokensChanged();
     return result;
   }
   function pastePatch(this: CustomEditor, text: string) {
+    if (disposed) { originalPaste.call(this, text); return; }
     originalPaste.call(this, rewrite(this, text));
     onTokensChanged();
   }
   function handleInputPatch(this: CustomEditor, data: string) {
+    if (disposed) return originalHandleInput.call(this, data);
     if (!instance.isInPaste) {
       // Snap before the keystroke so a printable char cannot land inside a token
       // and break atomic delete.
@@ -201,6 +205,7 @@ export function installEditorPatch(
     return result;
   }
   function handleMousePatch(this: CustomEditor, event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (disposed) return originalHandleMouse.call(this, event);
     const result = originalHandleMouse.call(this, event);
     // A click can land anywhere in the text; never inside a token.
     snapCaretOutOfToken(this, originalHandleInput);
@@ -211,6 +216,7 @@ export function installEditorPatch(
   instance.handleInput = handleInputPatch;
   instance.handleMouse = handleMousePatch;
   return () => {
+    disposed = true;
     if (instance.insertTextAtCursor === insertPatch) instance.insertTextAtCursor = originalInsert;
     if (instance.handlePaste === pastePatch) instance.handlePaste = originalPaste;
     if (instance.handleInput === handleInputPatch) instance.handleInput = originalHandleInput;

@@ -1,5 +1,5 @@
 /**
- * Native decision model reviewer (shadow-only beta).
+ * Native decision model reviewer with bounded, version-consented disclosure.
  *
  * Talks to a decision-model-typed model (Pi's `classifier` model type) exclusively through Pi's own model
  * registry: `findOfType("classifier", provider, id)`,
@@ -8,17 +8,17 @@
  * credentials, and provider errors. There is no SDK, no HTTP client, no
  * chat-model review, and no provider cascade or fallback of any kind.
  *
- * SHADOW ONLY: a ReviewReceipt is evidence for logs and future calibration.
- * No receipt — at any status, label, or confidence — authorizes an action,
- * and a decision model result can never clear an unresolved message-rule block.
- * The gate treats receipts as shadow records only.
+ * The adapter returns validated typed evidence. The gate owns permission:
+ * only a completed safe result meeting configured thresholds can settle an
+ * eligible Ask. Hard policy Blocks are never lifted.
  *
  * Consent: a request is sent only when settings bind an approved disclosure
  * consent to the exact selected provider/model, the canonical credential-free
  * endpoint (`URL.origin + URL.pathname`; userinfo/query/fragment refuse), and
  * the canonical workspace. Approved-but-unbound consent, endpoint drift, and
- * workspace drift all stay local. Sensitive, incomplete, opaque, oversized,
- * or secret-bearing evidence stays local with no truncation fiction.
+ * workspace drift all stay local. Sensitive, protected, oversized or broken
+ * filesystem evidence stays local. Simple opaque programs may be reviewed as
+ * opaque metadata, never misrepresented as verified execution proof.
  *
  * Bounds: an outer end-to-end deadline (settings.reviewTimeoutMs) covers
  * availability, queue wait, and classification even when the registry is
@@ -50,6 +50,7 @@ import type {
 	ReviewerSettings,
 	ValidatedChoiceAnswer,
 } from "./decision-model/contract.js";
+import { DISCLOSURE_VERSION } from "./core/disclosure.js";
 import { buildReviewInput, type EnvelopeResult } from "./decision-model/envelope.js";
 import { sanitizeReason, validateAnswers, validateIdentity, validateUsage } from "./decision-model/validate.js";
 
@@ -65,7 +66,7 @@ export type {
 	Rule,
 	ValidatedChoiceAnswer,
 } from "./decision-model/contract.js";
-export { ALLOW_QUESTION_ID, BLOCK_QUESTION_ID, QUESTION_VERSION } from "./decision-model/questions.js";
+export { QUESTION_VERSION } from "./decision-model/questions.js";
 export { ENVELOPE_VERSION } from "./decision-model/envelope.js";
 
 export type ReviewStatus =
@@ -77,11 +78,11 @@ export type ReviewStatus =
 	| "aborted";
 
 /**
- * Shadow evidence of one review attempt. `shadow` is always true: this record
- * cannot authorize an action and cannot clear an unresolved block.
+ * Typed evidence of one review attempt. The receipt alone authorizes nothing:
+ * the gate applies its own threshold and precedence (a Block is never lifted)
+ * before letting a completed `safe` judgment settle an Ask.
  */
 export interface ReviewReceipt {
-	readonly shadow: true;
 	readonly status: ReviewStatus;
 	/** `native-decision-model:<provider>/<model>` when a decision model is selected. */
 	readonly source: string;
@@ -346,11 +347,16 @@ export class NativeReviewer {
 	 * @param registry  Pi's model registry (structural subset is sufficient).
 	 * @param signal    Caller cancellation (policy drift, Off, abort, shutdown).
 	 */
+	async propose(evidence: ReviewerEvidence, settings: ReviewerSettings, registry: DecisionModelRegistryLike, signal?: AbortSignal): Promise<ReviewReceipt> {
+		return this.review(evidence, settings, registry, signal, "pattern");
+	}
+
 	async review(
 		evidence: ReviewerEvidence,
 		settings: ReviewerSettings,
 		registry: DecisionModelRegistryLike,
 		signal?: AbortSignal,
+		purpose: "safety" | "pattern" = "safety",
 	): Promise<ReviewReceipt> {
 		const startedAt = this.#now();
 		const done = (
@@ -364,7 +370,6 @@ export class NativeReviewer {
 				usage?: DecisionModelUsage;
 			} = {},
 		): ReviewReceipt => ({
-			shadow: true,
 			status,
 			source: fields.source ?? "native-decision-model:none",
 			...(fields.reason !== undefined ? { reason: fields.reason } : {}),
@@ -385,6 +390,10 @@ export class NativeReviewer {
 			return done("skipped", { source, reason: "disclosure consent is not approved; review stays local" });
 		}
 
+		if (settings.disclosureVersion !== DISCLOSURE_VERSION) {
+			return done("skipped", { source, reason: "disclosure scope changed; reselect the decision model before uploading commands" });
+		}
+
 		// The workspace is serialized into the sent state and compared against
 		// the consent binding; a missing/non-string value can never upload.
 		if (typeof evidence.workspace !== "string" || evidence.workspace.length === 0) {
@@ -396,7 +405,7 @@ export class NativeReviewer {
 		// malformed shape must surface as an error receipt, never a throw.
 		let built: EnvelopeResult;
 		try {
-			built = buildReviewInput(evidence, settings, { maxStateBytes: this.#maxStateBytes });
+			built = buildReviewInput(evidence, { maxStateBytes: this.#maxStateBytes, purpose });
 		} catch (error) {
 			return done("error", {
 				source,

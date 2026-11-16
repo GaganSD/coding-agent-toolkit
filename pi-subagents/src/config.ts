@@ -10,7 +10,7 @@ export function parseConfig(value: unknown): Config {
   const source = object(value, "minimalSubagents");
   const result = { ...DEFAULT_CONFIG };
   // Accept the retired history limit without rewriting anyone's settings.
-  const bounds = { maxConcurrent: [1, 4], maxRuns: [1, 256], timeoutMs: [1000, 7200000], historyLimit: [1, 200] } as const;
+  const bounds = { maxConcurrent: [1, 4], maxRuns: [1, 256], timeoutMs: [1000, 21600000], historyLimit: [1, 200] } as const;
   keys(source, Object.keys(bounds), "minimalSubagents");
   for (const key of Object.keys(bounds) as (keyof typeof bounds)[]) {
     const value = source[key];

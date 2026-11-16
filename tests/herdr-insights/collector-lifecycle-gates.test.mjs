@@ -353,7 +353,7 @@ test("configure during a slow worker fences the old generation and commits only 
   }
 });
 
-test("presenter prepare/status stay fast, running and truthful while a worker holds the lock", async (t) => {
+test("presenter prepare/status stay fast, running and truthful while a worker holds the lock", { skip: process.platform === "win32" && "requires POSIX worker suspension" }, async (t) => {
   const ctx = await context("insights-lifecycle-presenter-");
   let workerPid = null;
   t.after(async () => {
@@ -381,10 +381,14 @@ test("presenter prepare/status stay fast, running and truthful while a worker ho
       return info?.pid === workerPid ? info : null;
     });
     assert.ok(owner, "worker owns the writer lock");
-    await waitFor(async () => {
-      const store = await readStore(ctx.store);
-      return store?.scan?.status === "running" ? store : null;
+    const running = await waitFor(async () => {
+      const snapshot = await collectSnapshot("status", { store: ctx.store });
+      return snapshot.scan.status === "running" && snapshot.scan.workerPid === workerPid ? snapshot : null;
     }, { timeoutMs: 5_000 });
+    assert.ok(running, "the worker published its running state");
+    // Preserve the writer lock while measuring readers, rather than racing a finite scan.
+    process.kill(workerPid, "SIGSTOP");
+    assert.equal((await readStoreLockInfo(ctx.store))?.pid, workerPid);
 
     const samples = [];
     for (const command of ["prepare", "status", "prepare", "status", "prepare"]) {
@@ -417,6 +421,9 @@ test("presenter prepare/status stay fast, running and truthful while a worker ho
     const median = [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)];
     assert.ok(median < 1_000, `median ${median}ms stays under the hard local limit`);
   } finally {
-    if (workerPid) await stopWorker(workerPid);
+    if (workerPid) {
+      try { process.kill(workerPid, "SIGCONT"); } catch { /* worker already exited */ }
+      await stopWorker(workerPid);
+    }
   }
 });

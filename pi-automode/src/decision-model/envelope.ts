@@ -2,12 +2,15 @@
  * Bounded review envelope: the only data this adapter may transmit.
  *
  * Privacy rules (fail closed, stay local):
- * - Sensitive, incomplete, or protected-target evidence is never transmitted.
- * - Action argument VALUES are never transmitted. A scanner cannot prove an
- *   arbitrary payload (write content, edit old/new text, opaque command,
- *   raw command string) is free of secrets whose keys look ordinary, so the
- *   envelope is a metadata-only whitelist: tool name, cwd, and the argument
- *   key names — never the payloads.
+ * - Sensitive/protected or incomplete filesystem evidence stays local. Explicitly
+ *   reviewable simple opaque commands may be judged without deterministic proof.
+ * - The bash command under review IS transmitted: it is the action being
+ *   judged and a safety judgment without it would be fiction. It is sent
+ *   only after the privacy/eligibility gates above pass. Every
+ *   OTHER argument value is never transmitted: a scanner cannot prove an
+ *   arbitrary payload (write content, edit old/new text) is free of
+ *   secrets whose keys look ordinary, so the rest of the envelope is a
+ *   metadata-only whitelist — tool name, cwd, and argument key names.
  * - Shell opaque-reason text is never transmitted: core embeds raw command
  *   tokens (flags, operands, executable names) in it. Only the boolean fact
  *   and the canonical resolved executable path leave the machine.
@@ -15,8 +18,8 @@
  *   credentials are never part of the envelope; snapshots contribute only
  *   whitelisted scalar metadata, exactly the core FileSnapshot metadata
  *   fields (no drift, no bodies).
- * - Operator-saved message rule texts are the policy under evaluation and
- *   are sent byte-exact as written; command rules never leave the machine.
+ * - Operator rules never leave the machine: allowlist/blocklist entries are
+ *   matched locally and are not review input.
  * - The serialized state is byte-bounded in UTF-8 (not UTF-16 code units),
  *   with a pre-serialization estimate so oversized evidence is refused
  *   before a large serialization is ever allocated. Oversized or
@@ -32,12 +35,13 @@ import type {
 	JsonValueLike,
 	ReviewInput,
 	ReviewerEvidence,
-	ReviewerSettings,
 } from "./contract.js";
-import { buildQuestions, enabledMessageRules, QUESTION_VERSION } from "./questions.js";
+import { patternCandidates, patternQuestions } from "./patterns.js";
+import { reviewableCommand } from "../core/reviewable-command.js";
+import { buildQuestions, QUESTION_VERSION } from "./questions.js";
 
 /** Bump on any shape change; recorded in every envelope. */
-export const ENVELOPE_VERSION = 2;
+export const ENVELOPE_VERSION = 4;
 
 /** Serialized-state UTF-8 byte budget; far under any per-request budget. */
 export const DEFAULT_MAX_STATE_BYTES = 16_000;
@@ -118,25 +122,21 @@ function estimateSerializedBytes(value: JsonValueLike): number {
  */
 export function buildReviewInput(
 	evidence: ReviewerEvidence,
-	settings: ReviewerSettings,
-	options?: { maxStateBytes?: number },
+	options?: { maxStateBytes?: number; purpose?: "safety" | "pattern" },
 ): EnvelopeResult {
 	if (evidence.sensitive) {
 		return { ok: false, reason: "sensitive evidence is never transmitted; review stays local" };
 	}
-	if (!evidence.complete) {
+	if (!evidence.complete && !(evidence.reviewableShell === true && evidence.action.tool === "bash" && typeof evidence.action.args.command === "string" && reviewableCommand(evidence.action.args.command))) {
 		return { ok: false, reason: "incomplete evidence is never transmitted; review stays local" };
 	}
 	if (typeof evidence.protectedReason === "string" && evidence.protectedReason.length > 0) {
 		return { ok: false, reason: "protected-target evidence is never transmitted; review stays local" };
 	}
 
-	const blockRules = enabledMessageRules(settings.blocklist);
-	const allowRules = enabledMessageRules(settings.allowlist);
-	if (blockRules.length === 0 && allowRules.length === 0) {
-		return { ok: false, reason: "no message rules to evaluate; no decision model request is needed" };
-	}
-	const questions: Record<string, DecisionModelChoiceQuestionLike> = buildQuestions(settings);
+	const candidates = options?.purpose === "pattern" ? patternCandidates(evidence) : [];
+	if (options?.purpose === "pattern" && candidates.length === 0) return { ok: false, reason: "no suitable generalized pattern candidates; stayed local" };
+	const questions: Record<string, DecisionModelChoiceQuestionLike> = options?.purpose === "pattern" ? patternQuestions(candidates) : buildQuestions();
 
 	if (!isRecord(evidence.action) || typeof evidence.action.tool !== "string" || typeof evidence.action.cwd !== "string") {
 		return { ok: false, reason: "action identity is malformed; review stays local" };
@@ -145,6 +145,11 @@ export function buildReviewInput(
 	if (!Array.isArray(evidence.snapshots)) {
 		return { ok: false, reason: "evidence snapshots are malformed; review stays local" };
 	}
+	// The bash command is the action under judgment and is included exactly as
+	// proposed; every other argument stays key-names-only (see header).
+	const command = evidence.action.tool === "bash" && typeof args.command === "string"
+		? args.command
+		: undefined;
 	const shell = evidence.shell;
 	const shellFacts: Record<string, JsonValueLike> = {};
 	if (shell !== undefined) {
@@ -162,6 +167,7 @@ export function buildReviewInput(
 		action: {
 			tool: evidence.action.tool,
 			argument_keys: argumentKeys(args),
+			...(command !== undefined ? { command } : {}),
 			cwd: evidence.action.cwd,
 		},
 		target: {
@@ -169,6 +175,8 @@ export function buildReviewInput(
 			...(typeof evidence.canonicalPath === "string" ? { canonical_path: evidence.canonicalPath } : {}),
 		},
 		evidence: {
+			deterministic_complete: evidence.complete,
+			reviewable_opaque_program: evidence.reviewableShell === true,
 			// evidence.reason embeds raw command tokens and path spellings from
 			// local analysis; like the shell opaque-reason text it never leaves
 			// the machine.
@@ -176,9 +184,11 @@ export function buildReviewInput(
 			snapshots: evidence.snapshots.map(snapshotMetadata),
 		},
 	};
-	if (blockRules.length > 0) state.block_rules = blockRules.map((rule) => ({ rule: rule.text }));
-	if (allowRules.length > 0) state.allow_rules = allowRules.map((rule) => ({ rule: rule.text }));
-
+	if (options?.purpose === "pattern") {
+		state.review_purpose = "operator-confirmed-reusable-permission";
+		state.pattern_candidates = candidates.map((candidate) => ({ id: candidate.id,
+			rules: candidate.rules.map((rule) => ({ tool: rule.tool ?? "bash", mode: rule.mode ?? "glob", text: rule.text })) }));
+	}
 	const maxStateBytes = options?.maxStateBytes ?? DEFAULT_MAX_STATE_BYTES;
 	// Refuse before allocating a large serialization (estimate is a lower bound).
 	if (estimateSerializedBytes(state) > maxStateBytes) {

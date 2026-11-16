@@ -235,22 +235,23 @@ test("no local TUI means no approval: rpc hasUI is not authority", async () => {
 test("inspect shows escaped detail and returns to the dialog", async () => {
 	const epochs = new EpochController();
 	const manager = new ApprovalManager({ settings: fakeSettings(), epochs });
-	const fake = fakeUi(["Inspect details", "Back", "Allow once"]);
+	const fake = fakeUi(["Inspect details", "", "Allow once"]);
 	const outcome = await manager.request({ ...TUI, ui: fake.ui }, makeRequest());
 	assert.equal(outcome.kind, "allow-once");
 	assert.equal(fake.calls.length, 3);
 	assert.match(fake.calls[1]?.title ?? "", /Inspect/);
-	assert.deepEqual(fake.calls[1]?.options, ["Back"]);
+	assert.deepEqual(fake.calls[1]?.options, []);
+	assert.match(fake.calls[1]?.title ?? "", /Esc close/);
 });
 
-test("approval summary escapes the reason and leaves internal sources in details", async () => {
+test("approval summary omits Why and reasons; inspect retains escaped detail", async () => {
 	const manager = new ApprovalManager({ settings: fakeSettings(), epochs: new EpochController() });
 	const fake = fakeUi(["Decline"]);
 	const req = makeRequest();
 	req.decision.reason = "needs approval\x1b[31m";
 	await manager.request({ ...TUI, ui: fake.ui }, req);
 	assert.ok(!fake.calls[0]?.title.includes("\x1b"));
-	assert.match(fake.calls[0]?.title ?? "", /needs approval\\e\[31m/);
+	assert.doesNotMatch(fake.calls[0]?.title ?? "", /Why:|needs approval/);
 	assert.doesNotMatch(fake.calls[0]?.title ?? "", /Source:/);
 });
 

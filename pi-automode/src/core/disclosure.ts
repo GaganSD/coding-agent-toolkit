@@ -12,6 +12,9 @@ import type { AutomodeSettings } from "../types.js";
  * stay local / are refused rather than leaked to.
  */
 
+/** Current scope includes exact commands, candidate patterns and active decisions. */
+export const DISCLOSURE_VERSION = 1;
+
 /** Normalize an endpoint URL, or return null when it is not safe to bind. */
 export function normalizeDisclosureEndpoint(raw: string): string | null {
   let url: URL;
@@ -53,6 +56,9 @@ export function checkDisclosureConsent(
       consented: false,
       reason: `disclosure consent is '${settings.disclosureConsent}', not 'approved'`,
     };
+  }
+  if (settings.disclosureVersion !== DISCLOSURE_VERSION) {
+    return { consented: false, reason: "disclosure scope changed; reselect the decision model to approve command-bearing active review" };
   }
   if (
     settings.disclosureProvider === null ||

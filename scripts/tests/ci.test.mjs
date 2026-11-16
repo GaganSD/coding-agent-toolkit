@@ -150,6 +150,19 @@ test("workflow wires routing, full sweeps, and unconditional dependency-free rel
   assert.match(workflow, / {2}secrets:\n {4}uses: .\/\.github\/workflows\/secret-scan.yml/);
 });
 
+test("Slate gates packed-artifact latest-host compatibility in PRs and daily upstream checks", () => {
+  const workflow = read("../../.github/workflows/ci.yml");
+  assert.match(workflow, /if: matrix.package == 'pi-slate'\n\s+name: Real interactive compatibility with latest Pi and packed Slate\n\s+run: npm run test:compat:latest --prefix pi-slate/);
+  assert(workflow.indexOf("Build and smoke-test npm artifact") < workflow.indexOf("Real interactive compatibility with latest Pi"));
+  const daily = read("../../.github/workflows/slate-compat.yml");
+  assert.match(daily, /schedule:\n\s+- cron: '19 6 \* \* \*'/);
+  assert.match(daily, /npm run test:compat --prefix pi-slate/);
+  assert.match(daily, /npm run build --prefix pi-slate/);
+  assert.match(daily, /npm run test:compat:latest --prefix pi-slate/);
+  assert.doesNotMatch(daily, /continue-on-error/);
+  assert(packages["pi-slate"].integration.includes("host-compat.test.mjs"));
+});
+
 test("the matrix is exactly one combined leg per affected package", () => {
   assert.deepEqual(ciMatrix(["pi-ask"]), [{ package: "pi-ask" }]);
   assert.deepEqual(ciMatrix(["pi-ask", "pi-web-search"]), [{ package: "pi-ask" }, { package: "pi-web-search" }]);
