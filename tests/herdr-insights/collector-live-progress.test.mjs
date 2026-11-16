@@ -159,6 +159,73 @@ test("prepare/status/read overlay only allowlisted live worker metadata", async 
   }
 });
 
+test("a validated worker lock reports running before its first commit or progress sidecar", async () => {
+  const ctx = await fixture();
+  try {
+    const loaded = emptyStore(normalizeConfig({ sources: [] }));
+    loaded.generation = 4;
+    await saveStore(ctx.storePath, loaded, { status: "partial" });
+    const before = await readCommittedSnapshot(ctx.storePath);
+    assert.equal(before.scan.status, "partial");
+    await withStoreLock(ctx.storePath, async () => {
+      for (const command of ["prepare", "status"]) {
+        const result = await runPresenter([command, "--store", ctx.storePath]);
+        assert.equal(result.exitCode, 0);
+        const snapshot = JSON.parse(result.stdout).snapshot;
+        assert.equal(snapshot.scan.status, "running");
+        assert.equal(snapshot.scan.workerPid, process.pid);
+        assert.equal(snapshot.scan.live, undefined, "no invented progress counters");
+      }
+      const snapshot = await readCommittedSnapshot(ctx.storePath);
+      assert.deepEqual(snapshot.rows, before.rows);
+      assert.deepEqual(snapshot.stats, before.stats);
+      for (const overrides of [{ generation: 3 }, { pid: 999_999_999 }, { host: "foreign-host" }]) {
+        await atomicWriteJson(workerClaimPath(ctx.storePath), {
+          version: 1, token: WORKER_TOKEN, pid: process.pid, host: hostname(), generation: 4, ...overrides,
+        });
+        assert.equal((await readCommittedSnapshot(ctx.storePath)).scan.status, "partial");
+      }
+    }, { meta: { role: "worker", generation: 4 } });
+  } finally {
+    await rm(ctx.root, { recursive: true, force: true });
+  }
+});
+
+for (const committedPid of [null, 999_999_999]) {
+  test(`a replacement worker overrides partial status and stale sidecar/committed pid ${committedPid}`, async () => {
+    const ctx = await fixture();
+    try {
+      const loaded = emptyStore(normalizeConfig({ sources: [] }));
+      loaded.generation = 4;
+      loaded.scan = { ...loaded.scan, workerPid: committedPid };
+      await saveStore(ctx.storePath, loaded, { status: "partial" });
+      const before = await readCommittedSnapshot(ctx.storePath);
+      assert.equal(before.scan.status, "partial");
+      assert.equal(before.scan.workerPid, committedPid);
+      await writeProgress(ctx.storePath, { pid: 999_999_999, workerPid: 999_999_999, token: "old-worker" });
+      await withStoreLock(ctx.storePath, async () => {
+        for (const command of ["prepare", "status"]) {
+          const result = await runPresenter([command, "--store", ctx.storePath]);
+          assert.equal(result.exitCode, 0);
+          const snapshot = JSON.parse(result.stdout).snapshot;
+          assert.equal(snapshot.scan.status, "running");
+          assert.equal(snapshot.scan.workerPid, process.pid);
+          assert.equal(snapshot.scan.live, undefined);
+        }
+        const snapshot = await readCommittedSnapshot(ctx.storePath);
+        assert.deepEqual(snapshot.rows, before.rows);
+        assert.deepEqual(snapshot.stats, before.stats);
+        await writeProgress(ctx.storePath);
+        const matching = await readCommittedSnapshot(ctx.storePath);
+        assert.equal(matching.scan.workerPid, process.pid);
+        assert.equal(matching.scan.live.decodedBytes, 123_456, "stale committed pid cannot veto current counters");
+      }, { meta: { role: "worker", generation: 4 } });
+    } finally {
+      await rm(ctx.root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("stale job pid, generation, token, store, or non-worker lock reject live progress", async () => {
   const ctx = await fixture();
   try {
@@ -173,15 +240,19 @@ test("stale job pid, generation, token, store, or non-worker lock reject live pr
         await writeProgress(ctx.storePath, overrides);
         const snapshot = await readCommittedSnapshot(ctx.storePath);
         assert.equal(snapshot.scan.live, undefined, label);
-        assert.equal(snapshot.scan.workerPid, null, label);
+        assert.equal(snapshot.scan.status, "running", label);
+        assert.equal(snapshot.scan.workerPid, process.pid, label);
       }
     }, { timeoutMs: 2_000, meta: { role: "worker", generation: 4 } });
 
-    await withStoreLock(ctx.storePath, async () => {
-      await writeProgress(ctx.storePath);
-      const snapshot = await readCommittedSnapshot(ctx.storePath);
-      assert.equal(snapshot.scan.live, undefined, "a non-worker lock owner rejects progress");
-    }, { timeoutMs: 2_000, meta: { role: "collector", generation: 4 } });
+    for (const meta of [{ role: "collector", generation: 4 }, { role: "worker", generation: 3 }]) {
+      await withStoreLock(ctx.storePath, async () => {
+        await writeProgress(ctx.storePath);
+        const snapshot = await readCommittedSnapshot(ctx.storePath);
+        assert.equal(snapshot.scan.live, undefined, "non-worker or wrong-generation lock rejects progress");
+        assert.equal(snapshot.scan.workerPid, null, "invalid lock cannot establish worker identity");
+      }, { timeoutMs: 2_000, meta });
+    }
   } finally {
     await rm(ctx.root, { recursive: true, force: true });
   }
