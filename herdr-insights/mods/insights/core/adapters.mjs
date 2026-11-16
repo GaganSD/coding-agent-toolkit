@@ -593,6 +593,16 @@ function codexCumulativeTwin(entry, cumulative) {
   return codexSameTokens(known, cumulative);
 }
 
+// Replay-only fallback matches are not proof of a shared response. Keep the
+// existing twin policy, but expose uncertain attribution instead of claiming
+// exact accounting for carrier shapes without a shared identity.
+function codexNoteReplayTwin(state, candidate, timestamp, responseId) {
+  if (state?.forkReplay && !(responseId && responseId === candidate.responseId)
+    && !(Number.isFinite(timestamp) && timestamp === candidate.timestamp)) {
+    state.forkUsageAmbiguous = true;
+  }
+}
+
 function codexPendingTwinKey(
   pending,
   tokens,
@@ -600,6 +610,7 @@ function codexPendingTwinKey(
   cumulative,
   responseId,
   turnId,
+  state,
 ) {
   if (
     !isPlainObject(pending) ||
@@ -620,6 +631,7 @@ function codexPendingTwinKey(
     return null;
   }
   if (turnId && pending.turnId && turnId !== pending.turnId) return null;
+  codexNoteReplayTwin(state, pending, timestamp, responseId);
   return pending.key;
 }
 
@@ -668,6 +680,7 @@ function codexTakeModernTwin(
       (!turnId || !candidate.turnId || turnId === candidate.turnId)
     ) {
       state.modernRecent.splice(index, 1);
+      codexNoteReplayTwin(state, candidate, timestamp, responseId);
       return candidate.key;
     }
   }
@@ -680,7 +693,14 @@ function parseCodex(record, ctx) {
   const payload = isPlainObject(record.payload) ? record.payload : {};
   const timestamp =
     parseTimestamp(record.timestamp) ?? state.timestamp ?? null;
-  if (state.forkReplay && codexEndsForkReplay(state, record, payload)) state.forkReplay = false;
+  // A header timestamp is an emission fallback, not an exact carrier identity.
+  const twinTimestamp = state.forkReplay ? parseTimestamp(record.timestamp) : timestamp;
+  if (state.forkReplay && codexEndsForkReplay(state, record, payload)) {
+    state.forkReplay = false;
+    // Copied twins must never absorb an equal-sized child response.
+    state.pendingTwin = null;
+    state.modernRecent = [];
+  }
 
   if (record.type === "session_meta") {
     const threadId = asString(
@@ -735,7 +755,13 @@ function parseCodex(record, ctx) {
 
   if (record.type === "token_usage_record") {
     state.modern = true;
+    // A raw copied baseline does not require an emit-ready per-turn record.
+    if (state.forkReplay && isPlainObject(payload.thread_token_usage)) {
+      state.legacyTotals = codexRawTotals(payload.thread_token_usage);
+      state.modernPending = codexZeroTokens();
+    }
     if (timestamp === null) {
+      if (state.forkReplay && !isPlainObject(payload.thread_token_usage)) state.forkUsageAmbiguous = true;
       ctx.warn("Codex token usage record has no usable timestamp; skipped");
       return;
     }
@@ -764,26 +790,15 @@ function parseCodex(record, ctx) {
           tokens.reasoning,
         ];
     let dedupKey = makeDedupKey("codex", ...identity);
-    if (state.forkReplay) {
-      const observed = codexObserveModern(state, dedupKey, tokens);
-      // A copied THREAD cumulative counter is the raw baseline for a legacy
-      // suffix; a turn counter is not. Without it retain local observations.
-      if (isPlainObject(payload.thread_token_usage)) {
-        state.legacyTotals = codexRawTotals(payload.thread_token_usage);
-        state.modernPending = codexZeroTokens();
-      } else {
-        codexAddPending(state, observed);
-      }
-      return;
-    }
     let mergedTwin = false;
     const twinKey = codexPendingTwinKey(
       state.pendingTwin,
       tokens,
-      timestamp,
+      twinTimestamp,
       cumulative,
       responseId,
       turnId,
+      state,
     );
     if (
       responseId &&
@@ -801,6 +816,14 @@ function parseCodex(record, ctx) {
         if (!isPlainObject(state.responseKeys)) state.responseKeys = {};
         state.responseKeys[responseId] = dedupKey;
       }
+    }
+    if (state.forkReplay) {
+      const observed = codexObserveModern(state, dedupKey, tokens);
+      // Thread baselines already cover the observation; turn counters do not.
+      if (!isPlainObject(payload.thread_token_usage) && !twinKey) codexAddPending(state, observed);
+      state.pendingTwin = null;
+      codexRememberModern(state, dedupKey, tokens, twinTimestamp, { thread, turn, responseId, turnId });
+      return;
     }
     const result = ctx.addUsage(
       metaFor(
@@ -838,13 +861,33 @@ function parseCodex(record, ctx) {
     record.type === "event_msg" &&
     payload.type === "token_count"
   ) {
-    if (timestamp === null) return;
-    state.pendingTwin = null;
     const info = isPlainObject(payload.info) ? payload.info : {};
     const totals = isPlainObject(info.total_token_usage)
       ? info.total_token_usage
       : null;
     const session = codexRecordSession(state, ctx, payload);
+    if (state.forkReplay && totals) {
+      // Baselines need neither a usable timestamp nor per-response usage.
+      state.legacyTotals = codexRawTotals(totals);
+      state.modernPending = codexZeroTokens();
+      state.pendingTwin = null;
+      if (isPlainObject(info.last_token_usage)) {
+        const last = codexNormalized(info.last_token_usage);
+        const key = makeDedupKey("codex", session, "legacy", record.timestamp ?? ctx.lineHash,
+          ...Object.values(state.legacyTotals));
+        const identity = { thread: codexCumulativeVector(totals), turn: null,
+          responseId: asString(payload.response_id, ""), turnId: asString(payload.turn_id ?? payload.root_turn_id, "") };
+        codexRememberModern(state, key, last, twinTimestamp, identity);
+        state.pendingTwin = { key, tokens: codexTokenVector(last), timestamp: twinTimestamp,
+          cumulative: identity.thread, responseId: identity.responseId, turnId: identity.turnId };
+      }
+      return;
+    }
+    if (timestamp === null) {
+      if (state.forkReplay && isPlainObject(info.last_token_usage)) state.forkUsageAmbiguous = true;
+      return;
+    }
+    state.pendingTwin = null;
     const context = codexContext(state, asString(payload.turn_id, ""));
     let raw;
     let identityTail;
@@ -852,12 +895,6 @@ function parseCodex(record, ctx) {
 
     if (totals) {
       const current = codexRawTotals(totals);
-      if (state.forkReplay) {
-        // This baseline also covers any previously copied modern observations.
-        state.legacyTotals = current;
-        state.modernPending = codexZeroTokens();
-        return;
-      }
       const previous = isPlainObject(state.legacyTotals)
         ? state.legacyTotals
         : null;
@@ -879,7 +916,6 @@ function parseCodex(record, ctx) {
         current.reasoning_output_tokens,
       ];
     } else if (isPlainObject(info.last_token_usage)) {
-      if (state.forkReplay) return;
       raw = info.last_token_usage;
       identityTail = [
         "legacy-last",
@@ -904,13 +940,16 @@ function parseCodex(record, ctx) {
     }
     if (!tokens.nonzero) return;
 
-    let dedupKey = makeDedupKey("codex", session, ...identityTail);
+    let dedupKey = state.forkReplay && asString(payload.response_id, "")
+      ? makeDedupKey("codex", "response", payload.response_id)
+      : makeDedupKey("codex", session, ...identityTail);
+    const observationKey = dedupKey;
     let usedModernTwin = false;
     if (!reset) {
       const modernKey = codexTakeModernTwin(
         state,
         tokens,
-        timestamp,
+        twinTimestamp,
         cumulative,
         asString(payload.response_id, ""),
         asString(payload.turn_id ?? payload.root_turn_id, ""),
@@ -919,6 +958,26 @@ function parseCodex(record, ctx) {
         dedupKey = modernKey;
         usedModernTwin = true;
       }
+    }
+    if (state.forkReplay) {
+      const observed = codexObserveModern(state, dedupKey, tokens);
+      // Remember the exact legacy identity too, so repeated echoes remain
+      // observed after the consumable cross-carrier twin has been taken.
+      if (usedModernTwin && observationKey !== dedupKey) codexObserveModern(state, observationKey, tokens);
+      if (!usedModernTwin && CODEX_TOKEN_FIELDS.some((field) => observed[field] > 0)) {
+        if (isPlainObject(state.legacyTotals)) {
+          // Without a matching last/response identity this may already be in
+          // the copied total. Preserve that baseline, do not subtract twice.
+          state.forkUsageAmbiguous = true;
+        } else {
+          codexAddPending(state, observed);
+        }
+      }
+      // Keep a consumed copied twin available for a later modern echo too.
+      state.pendingTwin = { key: dedupKey, tokens: codexTokenVector(tokens), timestamp: twinTimestamp,
+        cumulative, responseId: asString(payload.response_id, ""),
+        turnId: asString(payload.turn_id ?? payload.root_turn_id, "") };
+      return;
     }
     const result = ctx.addUsage(
       metaFor(

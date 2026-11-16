@@ -207,9 +207,8 @@ async function overlayLiveProgress(storePath, snapshot) {
   if (claim.generation !== scan.generation) return snapshot;
   if (!owner || owner.role !== "worker" || owner.host !== os.hostname()) return snapshot;
   if (owner.pid !== claim.pid || Number(owner.generation) !== scan.generation) return snapshot;
-  if (Number.isInteger(scan.workerPid) && scan.workerPid !== claim.pid) return snapshot;
-  if (live && (live.store !== path.resolve(storePath) || live.generation !== scan.generation
-    || claim.pid !== live.pid || claim.token !== live.token)) return snapshot;
+  const matchingLive = live && live.store === path.resolve(storePath)
+    && live.generation === scan.generation && claim.pid === live.pid && claim.token === live.token;
   // The lock can precede the first running commit/progress publication. The
   // validated worker is running even then; optional counters are not authority.
   return {
@@ -218,7 +217,7 @@ async function overlayLiveProgress(storePath, snapshot) {
       ...scan,
       status: "running",
       workerPid: claim.pid,
-      ...(live ? { live: liveView(live) } : {}),
+      ...(matchingLive ? { live: liveView(live) } : {}),
     },
   };
 }

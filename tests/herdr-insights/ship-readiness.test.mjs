@@ -149,6 +149,152 @@ for (const carrier of ["modern-mixed", "modern-thread-prefix", "modern-only", "m
   });
 }
 
+// Missing/last-only carriers are compatibility inputs, not the required paired
+// cumulative fields in current upstream Codex TokenUsageRecord/TokenUsageInfo.
+async function checkForkCompatibility(t, records, { ambiguous = false, timestampWarning = false } = {}) {
+  const root = await fixture(t);
+  const file = path.join(root, "compatibility.jsonl");
+  await writeFile(file, forkEncode(records));
+  const config = sourceStore(file, "codex").config;
+  const store = path.join(root, "full.json");
+  const full = await collectSnapshot("configure", { home: root, store, config });
+  if (!ambiguous) {
+    assert.equal(full.rows.length, 1);
+    assert.deepEqual(full.rows[0].tokens, forkExpected);
+    assert.equal(full.rows[0].messages, 1);
+  }
+  assert.equal(full.warnings.filter((message) => /lack a reliable shared identity/.test(message)).length, ambiguous ? 1 : 0);
+  assert.equal(full.warnings.length, Number(ambiguous) + Number(timestampWarning));
+  await writeFile(file, "");
+  const incrementalStore = path.join(root, "incremental.json");
+  await collectSnapshot("configure", { home: root, store: incrementalStore, config });
+  let incremental;
+  for (const record of records) {
+    await appendFile(file, forkEncode([record]));
+    incremental = await collectSnapshot("snapshot", { home: root, store: incrementalStore });
+  }
+  assert.deepEqual(incremental.rows, full.rows);
+  const unchanged = await collectSnapshot("snapshot", { home: root, store: incrementalStore });
+  assert.deepEqual(unchanged.rows, full.rows);
+  assert.equal(unchanged.warnings.filter((message) => /lack a reliable shared identity/.test(message)).length, ambiguous ? 1 : 0);
+}
+
+for (const shape of ["zero-usage", "missing-usage", "modern-missing-time", "modern-invalid-time", "legacy-missing-time", "legacy-invalid-time"]) {
+  test(`Codex replay raw cumulative baseline survives ${shape}`, async (t) => {
+    const header = forkHeader();
+    const modern = !shape.startsWith("legacy");
+    const parent = modern ? forkModern("copied", forkParent, forkParent, copiedTurn) : forkCount(forkParent);
+    if (shape === "zero-usage") parent.payload.usage = {};
+    if (shape === "missing-usage") delete parent.payload.usage;
+    if (shape.endsWith("time")) {
+      delete header.timestamp;
+      if (shape.includes("invalid")) parent.timestamp = "not-a-timestamp";
+      else delete parent.timestamp;
+    }
+    await checkForkCompatibility(t, [header, forkMarker(copiedTurn), parent, forkMarker(childTurn), forkCount(forkTotal)],
+      { timestampWarning: modern && shape.endsWith("time") });
+  });
+}
+
+for (const shape of ["zero-usage", "missing-usage", "missing-time", "invalid-time"]) {
+  test(`Codex own usage validation still skips ${shape} without consuming its baseline`, async (t) => {
+    const root = await fixture(t);
+    const file = path.join(root, "own.jsonl");
+    const header = forkHeader("non-v7-thread");
+    delete header.timestamp;
+    const record = forkModern("own-invalid", forkParent, forkParent, childTurn);
+    if (shape === "zero-usage") record.payload.usage = {};
+    if (shape === "missing-usage") delete record.payload.usage;
+    if (shape === "missing-time") delete record.timestamp;
+    if (shape === "invalid-time") record.timestamp = "invalid";
+    await writeFile(file, forkEncode([header, record]));
+    const store = sourceStore(file, "codex");
+    await scanSources(store, { home: root });
+    assert.deepEqual(snapshotRows(store), []);
+    assert.equal(Object.values(store.files)[0].state.legacyTotals, undefined);
+    await appendFile(file, forkEncode([forkCount(forkParent)]));
+    await scanSources(store, { home: root });
+    assert.equal(snapshotRows(store)[0].tokens.total, 2500);
+  });
+}
+
+for (const shape of ["last-to-total", "repeated-exact-last", "repeated-response", "distinct-equal-last", "distinct-equal-response",
+  "modern-last", "last-modern", "modern-thread-last", "last-modern-thread", "response-modern-last", "response-last-modern",
+  "total-last", "last-total-last", "total-last-modern", "total-modern-last", "equal-child-modern"]) {
+  test(`Codex copied compatibility observations reconcile ${shape} in full and append scans`, async (t) => {
+    const last = forkCount(forkParent, true);
+    const modern = forkModern("copied", forkParent, undefined, copiedTurn);
+    const total = forkCount(forkParent);
+    total.payload.info.last_token_usage = forkParent;
+    let prefix = [last];
+    if (shape === "repeated-exact-last") prefix = [last, last, last];
+    if (shape === "repeated-response") prefix = [
+      { ...last, payload: { ...last.payload, response_id: "copied" } },
+      { ...last, timestamp: "2026-03-08T08:00:01Z", payload: { ...last.payload, response_id: "copied" } },
+    ];
+    if (shape === "distinct-equal-last" || shape === "distinct-equal-response") {
+      const half = Object.fromEntries(Object.entries(forkParent).map(([key, value]) => [key, value / 2]));
+      prefix = [forkCount(half, true), { ...forkCount(half, true), timestamp: "2026-03-08T08:00:01Z" }];
+      if (shape === "distinct-equal-response") {
+        prefix[0].payload.response_id = "first";
+        prefix[1].payload.response_id = "second";
+        prefix[1].timestamp = prefix[0].timestamp;
+      }
+    }
+    if (shape === "modern-last") prefix = [modern, last, last];
+    if (shape === "last-modern") prefix = [last, modern, modern];
+    if (shape === "modern-thread-last" || shape === "last-modern-thread") {
+      modern.payload.thread_token_usage = forkParent;
+      prefix = shape === "modern-thread-last" ? [modern, last, last] : [last, modern, modern];
+    }
+    if (shape === "response-modern-last" || shape === "response-last-modern") {
+      last.payload.response_id = "copied";
+      last.timestamp = "2026-03-08T08:00:01Z";
+      prefix = shape === "response-modern-last" ? [modern, last, last] : [last, modern, modern];
+    }
+    if (shape === "total-last") prefix = [total, last, last];
+    if (shape === "last-total-last") prefix = [last, total, last];
+    if (shape === "total-last-modern") prefix = [total, last, modern];
+    if (shape === "total-modern-last") prefix = [total, modern, last];
+    const suffix = shape === "equal-child-modern"
+      ? [forkModern("own", forkChild, undefined, childTurn), forkCount(forkTotal)] : [forkCount(forkTotal)];
+    if (shape === "equal-child-modern") {
+      // An equal-sized copied twin cannot consume a distinct child response.
+      const rest = Object.fromEntries(Object.keys(forkParent).map((key) => [key, forkParent[key] - forkChild[key]]));
+      prefix = [forkCount(rest, true), { ...forkCount(forkChild, true), timestamp: "2026-03-08T08:00:01Z" }];
+    }
+    await checkForkCompatibility(t, [forkHeader(), forkMarker(copiedTurn), ...prefix, forkMarker(childTurn), ...suffix]);
+  });
+}
+
+for (const shape of ["unidentified-total-last", "weak-modern-last", "weak-last-modern", "inferred-time-modern-last"]) {
+  test(`Codex unsupported copied attribution ${shape} preserves a bounded persistent diagnostic`, async (t) => {
+    const last = { ...forkCount(forkParent, true), timestamp: "2026-03-08T08:00:01Z" };
+    const modern = forkModern("copied", forkParent, undefined, copiedTurn);
+    const prefix = shape === "unidentified-total-last" ? [forkCount(forkParent), last, last]
+      : shape === "weak-last-modern" ? [last, modern] : [modern, last];
+    if (shape === "inferred-time-modern-last") {
+      delete modern.timestamp;
+      delete last.timestamp;
+    }
+    await checkForkCompatibility(t, [forkHeader(), forkMarker(copiedTurn), ...prefix,
+      forkMarker(childTurn), forkCount(forkTotal)], { ambiguous: true });
+  });
+}
+
+for (const carrier of ["last-only", "modern-no-thread"]) {
+  test(`Codex timestamp-free copied ${carrier} retains an accounting diagnostic`, async (t) => {
+    const header = forkHeader();
+    delete header.timestamp;
+    const copied = carrier === "last-only" ? forkCount(forkParent, true)
+      : forkModern("copied", forkParent, undefined, copiedTurn);
+    delete copied.timestamp;
+    await checkForkCompatibility(t, [header, forkMarker(copiedTurn), copied,
+      forkMarker(childTurn), forkCount(forkTotal)],
+    { ambiguous: true, timestampWarning: carrier === "modern-no-thread" });
+  });
+}
+
 test("Codex fork replay state survives a budget slice before and after the boundary", async (t) => {
   const root = await fixture(t);
   const file = path.join(root, "fork.jsonl");
@@ -163,10 +309,12 @@ test("Codex fork replay state survives a budget slice before and after the bound
   let result = await scanSources(sliced, { home: root, deadline: Date.now() });
   assert.equal(result.complete, false);
   assert.equal(Object.values(sliced.files)[0].state.forkReplay, true);
+  assert.deepEqual(result.warnings, [], "unfinished healthy prefix is not an ambiguous boundary");
   assert.deepEqual(snapshotRows(sliced), []);
   let sawBoundary = false;
   for (let i = 0; i < 10 && !result.complete; i += 1) {
     result = await scanSources(sliced, { home: root, deadline: Date.now() });
+    assert.deepEqual(result.warnings, []);
     if (Object.values(sliced.files)[0].state.forkReplay === false && !result.complete) sawBoundary = true;
   }
   assert.equal(sawBoundary, true);
@@ -208,6 +356,33 @@ for (const initial of ["12345678-1234-4000-8000-000000000001", "019f0000-1000-7n
     assert.deepEqual(result.warnings, []);
   });
 }
+
+test("Codex fork notes count bounded overflow without inflating errors", async (t) => {
+  const root = await fixture(t);
+  const records = forkEncode([forkHeader(), forkMarker(undefined), forkCount(forkParent)]);
+  await Promise.all(Array.from({ length: 53 }, (_, index) => writeFile(path.join(root, `${index}.jsonl`), records)));
+  const store = sourceStore(root, "codex");
+  for (let i = 0; i < 2; i += 1) {
+    const result = await scanSources(store, { home: root });
+    assert.equal(result.stats.errors, 0);
+    assert.equal(result.sourceStats.codex.errors, 0);
+    assert.equal(result.warnings.length, 51);
+    assert.equal(result.warnings[50], "3 additional scan warnings were not shown.");
+  }
+});
+
+test("Codex replay reaching EOF without a boundary remains diagnosed", async (t) => {
+  const root = await fixture(t);
+  const file = path.join(root, "fork.jsonl");
+  await writeFile(file, forkEncode([forkHeader(), forkMarker(copiedTurn), forkCount(forkParent)]));
+  const store = sourceStore(file, "codex");
+  for (let i = 0; i < 2; i += 1) {
+    const result = await scanSources(store, { home: root });
+    assert.equal(result.complete, true);
+    assert.equal(result.warnings.length, 1);
+    assert.match(result.warnings[0], /may exclude child usage/);
+  }
+});
 
 test("Claude fork copies deduplicate task duration even with rewritten session IDs", async (t) => {
   const root = await fixture(t);

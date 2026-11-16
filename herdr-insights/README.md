@@ -43,8 +43,22 @@ For fork headers with canonical UUIDv7 thread IDs, Insights excludes replayed
 usage until a turn ID has a strictly newer UUIDv7 millisecond. Equal-millisecond,
 missing, malformed, or non-v7 turn IDs are ambiguous: child usage can be excluded,
 with a bounded scan warning that remains visible even after a later boundary.
-Non-v7 initial thread IDs retain the previous accounting behavior. Existing
-available Codex files are automatically rescanned once for this parser update.
+Non-v7 initial thread IDs retain the previous accounting behavior. A healthy
+unfinished scan slice is not itself an ambiguous boundary; reaching EOF without
+a boundary is diagnosed. Existing available Codex files are automatically
+rescanned once for this parser update.
+
+Current upstream Codex (`090be4df0724cdef5758e6a0934ba557af8b6bbe`) requires
+per-response, turn, and thread usage together, and pairs legacy total and last
+usage. Missing-cumulative/last-only records remain compatibility inputs, not an
+established current native rollout format. Copied last-only observations use
+response IDs or exact legacy record identities, never just equal amounts within
+a turn. Mixed carriers lacking a reliable shared identity can be indistinguishable
+from distinct responses: Insights retains a bounded diagnostic that accounting
+may be inaccurate, preserves trustworthy copied cumulative baselines, and does
+not subtract an unidentified last-only echo from them twice. Exact repeated
+records are recognized; rewritten echoes without identity cannot be guaranteed.
+Production ordering of these historical/imported shapes remains unverified.
 Modern thread cumulative counters and legacy totals share the raw baseline;
 turn-only counters are not treated as thread totals.
 
