@@ -674,7 +674,7 @@ async function codexRows(fixture) {
   return snapshot.rows;
 }
 
-for (const fixture of ["codex-fork-replay-context.jsonl", "codex-fork-replay-bare.jsonl"]) {
+for (const fixture of ["codex-fork-replay-context.jsonl", "codex-fork-replay-bare.jsonl", "codex-fork-replay-v4-turn.jsonl"]) {
   test(`Codex fork counts only the child's own usage, not the copied parent history (${fixture})`, async () => {
     const rows = await codexRows(fixture);
     assert.deepEqual(rows.map((row) => row.model), ["child-model"], "no unknown or parent-model rows");

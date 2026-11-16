@@ -464,8 +464,9 @@ function codexUuidV7Ms(id) {
 }
 
 // A forked thread's file starts with a copy of its parent's history. Its own
-// work begins with the first turn created after the fork; Codex turn ids are
-// UUIDv7, so a turn older than the forked thread id is copied history.
+// work begins with the first UUIDv7 turn created after the fork. Copied
+// history can hold turns with other id versions (goal continuations use
+// UUIDv4), and their bits are not a time, so they never end the copy.
 function codexEndsForkReplay(state, record, payload) {
   if (record.type !== "turn_context" && !(record.type === "event_msg" && payload.type === "task_started")) {
     return false;
@@ -473,7 +474,7 @@ function codexEndsForkReplay(state, record, payload) {
   const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
   if (!turnId) return false;
   const turnMs = codexUuidV7Ms(turnId);
-  return turnMs === null || state.forkStartMs === null || turnMs >= state.forkStartMs;
+  return turnMs !== null && turnMs >= state.forkStartMs;
 }
 
 function codexContext(state, turnId) {
@@ -675,9 +676,12 @@ function parseCodex(record, ctx) {
     const firstHeader = !state.session;
     if (threadId && firstHeader) {
       state.session = threadId;
-      if (asString(payload.forked_from_id ?? payload.parent_thread_id, "")) {
+      const forkStartMs = codexUuidV7Ms(threadId);
+      // Without a time-ordered thread id there is no safe boundary; keep
+      // the previous behavior rather than risk dropping the child's usage.
+      if (forkStartMs !== null && asString(payload.forked_from_id ?? payload.parent_thread_id, "")) {
         state.forkReplay = true;
-        state.forkStartMs = codexUuidV7Ms(threadId);
+        state.forkStartMs = forkStartMs;
       }
     }
     if (firstHeader || !state.project) {
