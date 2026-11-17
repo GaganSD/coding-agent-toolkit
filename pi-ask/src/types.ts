@@ -93,6 +93,8 @@ export interface AskResult {
 	/** Why the user cancelled, when they said. */
 	comment?: string;
 	error?: AskValidationError;
+	/** Forms waiting for an answer, this one included (`queued` only). */
+	pending?: number;
 	/** Question ids whose answer is an auto-applied fallback (`expired` only). */
 	expired?: string[];
 	questions: AskQuestionSummary[];

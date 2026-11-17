@@ -68,7 +68,7 @@ export function summarizeResult(result: AskResult): string {
 	// Receipts carry their own rules so the guidance costs tokens only when
 	// it applies, instead of living in the recurring prompt guidelines.
 	if (result.status === "queued") {
-		return askStrings().queuedSummary(result.requestId ?? "");
+		return askStrings().queuedSummary(result.requestId ?? "", result.pending);
 	}
 	if (result.status === "deferred") {
 		return askStrings().deferredSummary(result.requestId ?? "");

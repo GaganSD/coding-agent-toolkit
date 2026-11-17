@@ -69,19 +69,47 @@ type AskFlowParams = AskParams &
 	};
 
 export interface AskFlowOptions {
+	/**
+	 * Offer "answer later" on a blocking form: the flow then resolves with a
+	 * `deferred` result and the caller moves the form to the queue.
+	 */
+	allowDefer?: boolean;
 	/** Answers to restore, e.g. from the journal of an interrupted form. */
 	draft?: AskDraftSnapshot;
+	/** Called for every key the form receives, before it is handled. */
+	onInput?: (data: string) => void;
 	/** Called after every state change while the form is open. */
 	onStateChange?: (state: AskState) => void;
+	/**
+	 * Set when the form is drawn in the background panel. There the cancel
+	 * and "answer later" keys only put the panel away (`onHide`); the form is
+	 * cancelled with the dismiss key or from the review tab.
+	 */
+	panel?: { onHide: () => void };
+}
+
+/** The form as a TUI component, for hosts other than `ctx.ui.custom`. */
+export interface AskFlowComponent {
+	dispose(): void;
+	focused: boolean;
+	/** The live form state, including unsaved editor text. */
+	getState(): AskState;
+	handleInput(data: string): void;
+	invalidate(): void;
+	render(width: number): string[];
 }
 
 interface AskFlowController {
+	allowDefer: boolean;
 	config: AskConfig;
 	configNotice?: string;
 	ctx: ExtensionContext;
 	done: Done;
 	editor: Editor;
+	focused: boolean;
+	onInput?: (data: string) => void;
 	onStateChange?: (state: AskState) => void;
+	panel?: { onHide: () => void };
 	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
@@ -116,22 +144,26 @@ export async function runAskFlow(
 	);
 }
 
-function createAskFlowController(
+export function createAskFlowController(
 	[tui, theme, _keybindings, done]: [
 		Tui,
 		Theme,
-		Keybindings,
+		Keybindings | undefined,
 		(result: AskResult) => void,
 	],
 	params: AskFlowParams
-) {
+): AskFlowComponent {
 	const controller: AskFlowController = {
+		allowDefer: params.allowDefer === true,
 		config: params.config,
 		configNotice: params.configNotice,
 		ctx: params.ctx,
 		done,
 		editor: createEditor(tui, theme, params.cwd),
+		focused: false,
+		onInput: params.onInput,
 		onStateChange: params.onStateChange,
+		panel: params.panel,
 		settingsOpen: false,
 		state: applyDraftSnapshot(createInitialState(params), params.draft),
 		suppressAutoInputForSelection: false,
@@ -165,16 +197,22 @@ function createAskFlowController(
 
 	return {
 		get focused() {
-			return controller.editor.focused;
+			return controller.focused;
 		},
 		set focused(value: boolean) {
+			controller.focused = value;
 			controller.editor.focused = value;
 		},
+		getState: () =>
+			isEditingView(controller.state)
+				? saveEditorDraft(controller.state, controller.editor.getText())
+				: controller.state,
 		render: (width: number) => renderController(controller, width),
 		invalidate() {
 			controller.editor.invalidate();
 		},
 		handleInput(data: string) {
+			controller.onInput?.(data);
 			handleControllerInput(controller, data);
 		},
 		dispose() {
@@ -193,6 +231,9 @@ function renderController(
 		footerNotice: getFooterNotice(controller),
 		reviewShortcutHint: getActiveReviewShortcutHint(controller),
 		state: controller.state,
+		surface: controller.panel
+			? { panel: { focused: controller.focused } }
+			: { defer: controller.allowDefer },
 		theme: controller.theme,
 		width,
 	});
@@ -230,6 +271,10 @@ function handleEditingCommand(
 ) {
 	if (command.kind === "dismiss") {
 		handleExitFlow(controller, dismissFlow(controller.state));
+		return;
+	}
+	if (command.kind === "later") {
+		answerLater(controller);
 		return;
 	}
 	if (command.kind === "showSettings") {
@@ -296,7 +341,16 @@ function handleNavigationCommand(
 		case "cancel":
 			clearReviewShortcutPending(controller);
 			clearQuestionTypeChangePending(controller);
+			if (controller.panel) {
+				// Hiding cancels nothing; the form waits in the queue.
+				answerLater(controller);
+				return;
+			}
 			handleExitFlow(controller, cancelFlow(controller.state));
+			return;
+		case "later":
+			clearPendingConfirms(controller);
+			answerLater(controller);
 			return;
 		case "numberShortcut":
 			if (handleReviewShortcutNumber(controller, command.digit)) {
@@ -425,6 +479,29 @@ function closeEditor(controller: AskFlowController) {
 	controller.suppressAutoInputForSelection = nextState.view.kind !== "input";
 	controller.state = nextState;
 	refresh(controller);
+}
+
+/**
+ * "Answer later". Typed text is saved into the draft first. In the panel
+ * the form stays open and only the panel goes away; a blocking form ends
+ * with a `deferred` receipt.
+ */
+function answerLater(controller: AskFlowController) {
+	if (!(controller.panel || controller.allowDefer)) {
+		return;
+	}
+	// The draft keeps typed text; the open editor itself is left as it is.
+	const saved = isEditingView(controller.state)
+		? saveEditorDraft(controller.state, controller.editor.getText())
+		: controller.state;
+	controller.pendingDiscardConfirm = false;
+	controller.onStateChange?.(saved);
+	if (controller.panel) {
+		controller.tui.requestRender();
+		controller.panel.onHide();
+		return;
+	}
+	controller.done(toAskResult(saved, "deferred"));
 }
 
 function handleExitFlow(controller: AskFlowController, nextState: AskState) {
