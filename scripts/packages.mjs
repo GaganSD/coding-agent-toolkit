@@ -2,8 +2,9 @@
 export const packages = {
   "pi-ask": {
     name: "@gagansd/pi-ask", tests: "tests",
-    integration: ["contract.test.ts", "ask-tool.test.ts", "answer-commands.test.ts", "config-store.test.ts", "token-ceiling.test.ts"],
+    integration: ["contract.test.ts", "ask-tool.test.ts", "answer-commands.test.ts", "config-store.test.ts", "token-ceiling.test.ts", "recovery.test.ts"],
     commands: ["answer", "ask-settings"], tools: ["ask_user"],
+    hooks: ["session_start", "session_tree", "session_shutdown"],
   },
   "pi-automode": {
     name: "@gagansd/pi-automode", tests: "tests",

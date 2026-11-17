@@ -6,7 +6,9 @@ import {
 	createQuestionWaitingNotification,
 	notifyQuestionWaiting,
 } from "../notifications.ts";
+import type { AskDraftSnapshot } from "../journal/entries.ts";
 import { createInitialState } from "../state/create.ts";
+import { applyDraftSnapshot } from "../state/draft.ts";
 import {
 	getEditorDraft,
 	saveEditorDraft,
@@ -59,11 +61,19 @@ type Theme = CustomCallbackArgs[1];
 type Keybindings = CustomCallbackArgs[2];
 type Done = (result: AskResult) => void;
 type AskFlowParams = AskParams &
-	Pick<ExtensionContext, "cwd"> & {
+	Pick<ExtensionContext, "cwd"> &
+	AskFlowOptions & {
 		config: AskConfig;
 		configNotice?: string;
 		ctx: ExtensionContext;
 	};
+
+export interface AskFlowOptions {
+	/** Answers to restore, e.g. from the journal of an interrupted form. */
+	draft?: AskDraftSnapshot;
+	/** Called after every state change while the form is open. */
+	onStateChange?: (state: AskState) => void;
+}
 
 interface AskFlowController {
 	config: AskConfig;
@@ -71,6 +81,7 @@ interface AskFlowController {
 	ctx: ExtensionContext;
 	done: Done;
 	editor: Editor;
+	onStateChange?: (state: AskState) => void;
 	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
@@ -85,7 +96,8 @@ interface AskFlowController {
 
 export async function runAskFlow(
 	ctx: ExtensionContext,
-	params: AskParams
+	params: AskParams,
+	options: AskFlowOptions = {}
 ): Promise<AskResult> {
 	const store = getAskConfigStore();
 	const { config, notice } = await store.ensureLoaded();
@@ -95,6 +107,7 @@ export async function runAskFlow(
 	return ctx.ui.custom<AskResult>((...args) =>
 		createAskFlowController(args, {
 			...params,
+			...options,
 			config,
 			configNotice: notice?.text,
 			cwd: ctx.cwd,
@@ -118,8 +131,9 @@ function createAskFlowController(
 		ctx: params.ctx,
 		done,
 		editor: createEditor(tui, theme, params.cwd),
+		onStateChange: params.onStateChange,
 		settingsOpen: false,
-		state: createInitialState(params),
+		state: applyDraftSnapshot(createInitialState(params), params.draft),
 		suppressAutoInputForSelection: false,
 		pendingDiscardConfirm: false,
 		pendingQuestionTypeChangeQuestionId: undefined,
@@ -528,6 +542,8 @@ function showSettingsModal(controller: AskFlowController) {
 }
 
 function refresh(controller: AskFlowController) {
+	// Every state change ends in a refresh, so this is the one observation point.
+	controller.onStateChange?.(controller.state);
 	controller.tui.requestRender();
 }
 

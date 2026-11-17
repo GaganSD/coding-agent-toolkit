@@ -35,6 +35,12 @@ export interface AskStrings {
 	deferredSummary: (requestId: string) => string;
 	/** Trailer returned to the model after the time limit lapsed. */
 	expiredSummary: (fallbackLabels: string[]) => string;
+	/** Heading of the follow-up message that carries a late answer. */
+	answerDelivered: (requestId: string, title?: string) => string;
+	/** Follow-up message for a form cancelled after its tool call ended. */
+	cancelDelivered: (requestId: string, title?: string) => string;
+	/** Shown to the user when an interrupted form reopens. */
+	recoveredNotice: string;
 	/** Short transcript labels for the non-answer statuses. */
 	queuedLabel: string;
 	deferredLabel: string;
@@ -45,6 +51,10 @@ const EN_RECEIPT_RULES =
 	"This is a receipt, not an answer or approval. Continue only with work that does not depend on it; the answer arrives in a later message. Do not ask again.";
 const ZH_RECEIPT_RULES =
 	"这只是回执，不是回答，也不是批准。只继续不依赖该回答的工作；回答会在之后的消息中送达。不要重复提问。";
+
+function formRef(requestId: string, title?: string): string {
+	return title ? `${requestId} (${title})` : requestId;
+}
 
 const EN_STRINGS: AskStrings = {
 	backTo: (label) => `← Back to ${label}`,
@@ -71,6 +81,11 @@ const EN_STRINGS: AskStrings = {
 				: "No fallback was applied.",
 			"A fallback is your own assumption, not user approval; keep irreversible actions blocked. The user may still correct it.",
 		].join(" "),
+	answerDelivered: (requestId, title) =>
+		`User answered your earlier ask_user form ${formRef(requestId, title)}:`,
+	cancelDelivered: (requestId, title) =>
+		`User cancelled your earlier ask_user form ${formRef(requestId, title)}. Cancellation is not approval; keep risky actions blocked.`,
+	recoveredNotice: "Reopened a question left unanswered when Pi last stopped",
 	queuedLabel: "Queued",
 	deferredLabel: "Answer later",
 	expiredLabel: "Expired",
@@ -100,6 +115,11 @@ const ZH_STRINGS: AskStrings = {
 				: "没有应用任何备选项。",
 			"备选项只是你自己的假设，不是用户批准；不可逆的操作仍须保持阻止。用户之后仍可更正。",
 		].join(""),
+	answerDelivered: (requestId, title) =>
+		`用户回答了你之前的 ask_user 表单 ${formRef(requestId, title)}：`,
+	cancelDelivered: (requestId, title) =>
+		`用户取消了你之前的 ask_user 表单 ${formRef(requestId, title)}。取消不代表批准；有风险的操作仍须保持阻止。`,
+	recoveredNotice: "已重新打开上次 Pi 停止时未回答的问题",
 	queuedLabel: "已排队",
 	deferredLabel: "稍后回答",
 	expiredLabel: "已超时",

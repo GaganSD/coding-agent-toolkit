@@ -48,15 +48,14 @@ export function invalidPayloadResponse(
 }
 
 export function nonInteractiveResponse(
-	state: ReturnType<typeof createInitialState>
+	state: ReturnType<typeof createInitialState>,
+	details: AskResult = toAskResult(state, "unavailable")
 ) {
 	return {
 		content: [
 			{ type: "text" as const, text: formatNonInteractiveMessage(state) },
 		],
-		details: {
-			...toAskResult(state, "unavailable"),
-		},
+		details,
 	};
 }
 
