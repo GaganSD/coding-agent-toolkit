@@ -23,7 +23,7 @@ export const ALL_ASK_FEATURES: AskFeatures = {
  * change that makes the tool honour the field; config can only narrow this.
  */
 export const SHIPPED_ASK_FEATURES: AskFeatures = {
-	background: false,
+	background: true,
 	expiry: false,
 };
 

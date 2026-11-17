@@ -34,7 +34,7 @@ const DESCRIPTION_LINE_COUNT = 3;
 const COMPACT_WIDTH = 40;
 const RESET_CONFIRMATION_MS = 2000;
 
-type SettingSection = "Actions" | "Live settings";
+type SettingSection = "Actions" | "Live settings" | "After /reload";
 type ToggleSettingKey = keyof AskConfig["behaviour"] | "notifications.enabled";
 
 interface BaseSetting {
@@ -93,6 +93,14 @@ const SETTINGS = [
 		key: "showFooterHints",
 		section: "Live settings",
 		label: "Show footer hints",
+		type: "toggle",
+	},
+	{
+		description:
+			"Let the agent ask a question in the background and keep working while it waits. Changing this takes effect after /reload.",
+		key: "background",
+		section: "After /reload",
+		label: "Background questions",
 		type: "toggle",
 	},
 	{
