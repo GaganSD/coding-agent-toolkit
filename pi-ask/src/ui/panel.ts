@@ -65,6 +65,11 @@ export interface AskPanel {
 	): boolean;
 	/** Drop the loaded form without telling anyone; nothing more is called. */
 	discard(): void;
+	/**
+	 * Drop the loaded form if it is `requestId`, keeping the widget and the
+	 * keyboard where they are. Its unsent text is not reported.
+	 */
+	drop(requestId: string): boolean;
 	/** Drop the loaded form unless it is one of `requestIds`. */
 	retain(requestIds: readonly string[]): void;
 	/** The loaded form's live state, including unsaved editor text. */
@@ -226,6 +231,15 @@ export function createAskPanel(callbacks: AskPanelCallbacks): AskPanel {
 		discard() {
 			unmount();
 			unloadForm();
+		},
+		drop(requestId) {
+			if (form?.requestId !== requestId) {
+				return false;
+			}
+			const loaded = form;
+			form = undefined;
+			loaded.component.detach();
+			return true;
 		},
 		retain(requestIds) {
 			if (form && !requestIds.includes(form.requestId)) {

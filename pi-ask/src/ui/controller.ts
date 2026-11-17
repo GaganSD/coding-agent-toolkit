@@ -104,6 +104,11 @@ export interface AskFlowOptions {
 
 /** The form as a TUI component, for hosts other than `ctx.ui.custom`. */
 export interface AskFlowComponent {
+	/**
+	 * Drops the form like `dispose` but without reporting the unsent editor
+	 * text: the form belongs to a branch the session has left.
+	 */
+	detach(): void;
 	/** Closes the form. Typed text not yet reported is reported first. */
 	dispose(): void;
 	focused: boolean;
@@ -252,6 +257,11 @@ export function createAskFlowController(
 			controller.expiry?.interact();
 			controller.onInput?.(data);
 			handleControllerInput(controller, data);
+		},
+		detach() {
+			cancelDraftTimer(controller);
+			controller.onStateChange = undefined;
+			this.dispose();
 		},
 		dispose() {
 			flushDraft(controller);

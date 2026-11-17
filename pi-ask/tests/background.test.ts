@@ -926,6 +926,32 @@ test("an editor still open when Pi quits is journalled on dispose", async () => 
 	assert.match(later.panelText(), /draft text/);
 });
 
+test("a tree move rebuilds a kept form from the branch, dropping rolled-back answers", async () => {
+	const session = SessionManager.inMemory();
+	session.appendMessage({ role: "user", content: "start", timestamp: Date.now() });
+	const host = boot(session);
+	await start(host, "startup");
+	await host.askInBackground();
+	const formEntry = session.getBranch().at(-1)?.id;
+	assert.ok(formEntry);
+	host.type(KEY.enter);
+	assert.match(host.panelText(), /Which cache\?/, "DB answered, cache is next");
+	assert.deepEqual(kinds(host), ["form", "draft"]);
+
+	// Back to the moment the form was asked: the answer is not on this branch.
+	session.branch(formEntry);
+	host.emit("session_tree");
+	await tick();
+	assert.deepEqual(kinds(host), ["form"]);
+	assert.match(host.panelText(), /Which database\?/, "the rolled-back answer is gone");
+	assert.ok(host.focusIs("editor"), "a rebuild never takes the keyboard");
+
+	host.type(KEY.focus, ...SUBMIT_TWO);
+	await tick();
+	assert.match(host.sent[0]?.message.content ?? "", /db "Which database\?": Postgres/);
+	assert.deepEqual(kinds(host), ["form", "draft", "draft", "outcome"]);
+});
+
 test("a tree move to the same branch keeps the form, with its unsent text", async () => {
 	const host = boot();
 	await start(host, "startup");

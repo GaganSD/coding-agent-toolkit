@@ -39,7 +39,11 @@ import {
 } from "./journal/replay.ts";
 import type { AskRuntime } from "./runtime.ts";
 import { createInitialState } from "./state/create.ts";
-import { applyDraftSnapshot } from "./state/draft.ts";
+import {
+	applyDraftSnapshot,
+	draftContentKey,
+	toDraftSnapshot,
+} from "./state/draft.ts";
 import {
 	createExpiryTimer,
 	type ExpiryTimer,
@@ -159,6 +163,9 @@ export function createAskBackground(
 		deps.newTimer ?? ((seconds) => createExpiryTimer(seconds, clock));
 	const delivery = createAskDelivery(pi);
 	const recorders = new Map<string, (state: AskState) => void>();
+	// Content key of the draft each loaded form last started from or wrote,
+	// to tell whether a re-read branch still agrees with what is on screen.
+	const shown = new Map<string, string>();
 	// Countdowns of background forms created in THIS process. A form from an
 	// earlier process (restart, resume, fork, reload) never has one: the user
 	// had no fair chance to see its clock, so it waits like a normal form.
@@ -207,6 +214,7 @@ export function createAskBackground(
 				return;
 			}
 			recorderFor(requestId)(formState);
+			shown.set(requestId, draftContentKey(toDraftSnapshot(formState)));
 			updateIndicator();
 		},
 	});
@@ -255,6 +263,31 @@ export function createAskBackground(
 			queue: pending.map((record) => record.requestId),
 			hidden: journalState.panelHidden,
 		};
+	}
+
+	/**
+	 * The session moved (resume, tree jump): the journal of the new branch
+	 * is the truth. A form kept on screen from the old branch is rebuilt from
+	 * it when its draft differs, so answers rolled back are not shown or sent.
+	 */
+	function reconcileBranch(current: ExtensionContext) {
+		try {
+			recorders.clear();
+			readQueue(current);
+			for (const requestId of [...shown.keys()]) {
+				const record = records.get(requestId);
+				const branchKey = record
+					? draftContentKey(record.draft ?? { answers: {} })
+					: undefined;
+				if (branchKey === shown.get(requestId)) {
+					continue;
+				}
+				shown.delete(requestId);
+				panel.drop(requestId);
+			}
+		} catch {
+			// A stale context: the next lifecycle event rebuilds.
+		}
 	}
 
 	function releaseTimer(requestId: string, timer = timers.get(requestId)) {
@@ -347,6 +380,7 @@ export function createAskBackground(
 			ctx.ui.notify(askStrings().recoveredNotice, "info");
 		}
 		const expired = record.outcome?.result.status === "expired";
+		shown.set(requestId, draftContentKey(record.draft ?? { answers: {} }));
 		return {
 			requestId,
 			config,
@@ -532,6 +566,7 @@ export function createAskBackground(
 			if (!adopt(next)) {
 				return;
 			}
+			reconcileBranch(next);
 			refresh((queue, hidden) => ({ type: "sync", queue, hidden }));
 			delivery.attach();
 			poke(next);
