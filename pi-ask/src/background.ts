@@ -530,7 +530,7 @@ export function createAskBackground(
 				return;
 			}
 			refresh((queue, hidden) => ({ type: "sync", queue, hidden }));
-			delivery.post();
+			delivery.attach();
 			poke(next);
 		},
 		poke,

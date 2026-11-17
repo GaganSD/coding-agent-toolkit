@@ -57,6 +57,11 @@ export interface AskDelivery {
 	/** An outcome was just journalled with channel `message`. */
 	post(): void;
 	/**
+	 * The branch was (re)built. A foreground answer whose tool result never
+	 * landed is adopted as a follow-up message, once.
+	 */
+	attach(): void;
+	/**
 	 * A run started. A send the branch still lacks never made it into a run,
 	 * so the answer is no longer held back; the next pump retries it.
 	 */
@@ -173,12 +178,18 @@ export function createAskDelivery(
 	// False while the branch is known to have nothing pending, so that turn
 	// boundaries of an ordinary run cost nothing.
 	let watching = true;
+	// The next plan was reached by rebuilding a session, where a foreground
+	// answer without its tool result can be adopted as a message.
+	let recovering = false;
 
 	function plan(ctx: DeliveryContext, situation: AskDeliverySituation) {
 		if (!watching) {
 			return;
 		}
-		const pending = undeliveredOutcomes(readAskJournal(ctx));
+		const pending = undeliveredOutcomes(readAskJournal(ctx), {
+			unrecordedTool: recovering,
+		});
+		recovering = false;
 		if (pending.length === 0) {
 			watching = false;
 			return;
@@ -236,6 +247,10 @@ export function createAskDelivery(
 	return {
 		post() {
 			watching = true;
+		},
+		attach() {
+			watching = true;
+			recovering = true;
 		},
 		started(ctx) {
 			// A run that did start has not recorded its own starting message

@@ -63,7 +63,12 @@ export function quietConfig() {
 /** One extension runtime ("process") attached to a session. */
 export function fakePi(
 	session: SessionManager = SessionManager.inMemory(),
-	options: { mode?: string; persistSentMessages?: boolean } = {}
+	options: {
+		mode?: string;
+		/** Model a process that dies before Pi records a tool result. */
+		persistToolResults?: boolean;
+		persistSentMessages?: boolean;
+	} = {}
 ) {
 	const handlers = new Map<string, Array<(...args: any[]) => unknown>>();
 	const tools: any[] = [];
@@ -80,6 +85,7 @@ export function fakePi(
 	// Messages the host has accepted but not yet written to the session.
 	const wakes: SentMessage["message"][] = [];
 	const heldCustom: SentMessage["message"][] = [];
+	const persistToolResults = options.persistToolResults ?? true;
 	let idle = true;
 	// The next triggered send is accepted but its run fails to start before
 	// recording the message, as a failed pre-run compaction would.
@@ -131,8 +137,28 @@ export function fakePi(
 			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
 			return () => {};
 		},
-		registerTool(tool: unknown) {
-			tools.push(tool);
+		registerTool(tool: any) {
+			const run = tool.execute;
+			tools.push({
+				...tool,
+				async execute(...args: any[]) {
+					const result = await run(...args);
+					if (persistToolResults) {
+						session.appendMessage({
+							role: "toolResult",
+							toolCallId: String(args[0]),
+							toolName: tool.name,
+							content: result.content ?? [],
+							...(result.details === undefined
+								? {}
+								: { details: result.details }),
+							isError: false,
+							timestamp: Date.now(),
+						});
+					}
+					return result;
+				},
+			});
 		},
 		registerCommand(name: string, command: unknown) {
 			commands.set(name, command);

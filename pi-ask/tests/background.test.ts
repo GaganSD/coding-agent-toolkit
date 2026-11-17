@@ -35,7 +35,11 @@ const SUBMIT_ONE = [KEY.enter, KEY.enter];
 /** One Pi process: the extension wired as `src/index.ts` wires it. */
 function boot(
 	session?: SessionManager,
-	options: { background?: boolean; mode?: string } = {}
+	options: {
+		background?: boolean;
+		mode?: string;
+		persistToolResults?: boolean;
+	} = {}
 ) {
 	const host = fakePi(session, options);
 	const runtime = createAskRuntime(host.pi);
@@ -612,6 +616,50 @@ test("an outcome journalled but never recorded is delivered on the next start, o
 	host.settle();
 	await start(host, "reload");
 	assert.equal(host.sent.length, 1);
+});
+
+test("an answer whose tool result never reached the branch is delivered on attach", async () => {
+	// The process died after the outcome was journalled but before Pi wrote
+	// the tool result: the branch has the answer, the agent never saw it.
+	const dying = boot(undefined, { persistToolResults: false });
+	const pending = dying.ask();
+	await tick();
+	dying.forms[0]?.press(...SUBMIT_TWO);
+	const response = await pending;
+	assert.equal(response.details.status, "submitted");
+	assert.equal(dying.answers().length, 0);
+	assert.equal(dying.journal().at(-1)?.channel, "tool");
+
+	const host = boot(dying.session);
+	await start(host, "resume");
+	assert.equal(host.sent.length, 1);
+	assert.equal(host.sent[0]?.message.details.requestId, response.details.requestId);
+	assert.deepEqual(host.sent[0]?.options, { triggerTurn: true });
+
+	host.recordWake();
+	await start(host, "reload");
+	assert.equal(host.sent.length, 1, "the answer message proves delivery");
+	assert.equal(host.answers().length, 1);
+});
+
+test("a tool result on the branch proves the answer was delivered", async () => {
+	const dying = boot(undefined, { persistToolResults: false });
+	const pending = dying.ask();
+	await tick();
+	dying.forms[0]?.press(...SUBMIT_TWO);
+	await pending;
+	dying.session.appendMessage({
+		role: "toolResult",
+		toolCallId: "call-1",
+		toolName: "ask_user",
+		content: [{ type: "text", text: "answered" }],
+		isError: false,
+		timestamp: Date.now(),
+	});
+
+	const host = boot(dying.session);
+	await start(host, "resume");
+	assert.deepEqual(host.sent, []);
 });
 
 test("a cancellation is recorded as context and never wakes or aborts the agent", async () => {

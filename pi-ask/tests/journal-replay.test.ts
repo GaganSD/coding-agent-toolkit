@@ -110,6 +110,35 @@ test("a tool outcome completes the form and needs no delivery", () => {
 	assert.deepEqual(interruptedForms(state), []);
 	assert.deepEqual(undeliveredOutcomes(state), []);
 	assert.equal(getRecord(state, requestId)?.outcome?.result.status, "submitted");
+	assert.equal(getRecord(state, requestId)?.toolResultOnBranch, false);
+});
+
+test("a tool outcome whose tool result never landed is recovered as a message", () => {
+	const b = branch();
+	const requestId = b.form();
+	b.journal.recordOutcome(requestId, result(), "tool");
+	const state = replayJournal(b.entries);
+
+	// Only a rebuild may adopt it: a live call could still write the result.
+	assert.deepEqual(undeliveredOutcomes(state), []);
+	assert.deepEqual(
+		undeliveredOutcomes(state, { unrecordedTool: true }).map(
+			(record) => record.requestId
+		),
+		[requestId]
+	);
+
+	// The tool result on the branch proves the answer was delivered.
+	b.entries.push({
+		type: "message",
+		message: { role: "toolResult", toolCallId: "call-1" },
+	});
+	const withResult = replayJournal(b.entries);
+	assert.equal(getRecord(withResult, requestId)?.toolResultOnBranch, true);
+	assert.deepEqual(
+		undeliveredOutcomes(withResult, { unrecordedTool: true }),
+		[]
+	);
 });
 
 test("a message outcome stays undelivered until its marker is written", () => {

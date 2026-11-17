@@ -45,6 +45,11 @@ export interface AskJournalRecord {
 	 * went on without it.
 	 */
 	supersededByMessage: boolean;
+	/**
+	 * Pi recorded the tool result for this foreground call. False means the
+	 * process may have died between journalling the answer and the result.
+	 */
+	toolResultOnBranch: boolean;
 	toolCallId?: string;
 }
 
@@ -65,6 +70,17 @@ export function replayJournal(
 	const records = new Map<string, MutableRecord>();
 	const deliveredOutcomeIds = new Map<string, string>();
 	let panelHidden = false;
+	const toolResults = new Set<string>();
+	for (const entry of entries) {
+		if (
+			entry.type === "message" &&
+			isRecord(entry.message) &&
+			entry.message.role === "toolResult" &&
+			typeof entry.message.toolCallId === "string"
+		) {
+			toolResults.add(entry.message.toolCallId);
+		}
+	}
 
 	for (const entry of entries) {
 		if (entry.type === "custom_message") {
@@ -100,6 +116,9 @@ export function replayJournal(
 					mode: journalEntry.mode === "background" ? "background" : "foreground",
 					form: journalEntry.form,
 					toolCallId: journalEntry.toolCallId,
+					toolResultOnBranch:
+						!!journalEntry.toolCallId &&
+						toolResults.has(journalEntry.toolCallId),
 					deferred: false,
 					clockStopped: false,
 					offerDismissed: false,
@@ -223,13 +242,22 @@ export function reopenableForms(
 
 /** Records whose latest outcome still has to be sent as a follow-up. */
 export function undeliveredOutcomes(
-	state: AskJournalState
+	state: AskJournalState,
+	options: { unrecordedTool?: boolean } = {}
 ): Array<AskJournalRecord & { outcome: AskOutcomeEntry }> {
 	return state.records.filter(
 		(record): record is AskJournalRecord & { outcome: AskOutcomeEntry } =>
 			!!record.outcome &&
-			record.outcome.channel === "message" &&
-			!record.delivered.has(record.outcome.outcomeId)
+			!record.delivered.has(record.outcome.outcomeId) &&
+			(record.outcome.channel === "message" ||
+				// A foreground call's answer is its tool result. If the branch has
+				// no result for the call, the process died before Pi wrote it, so
+				// the answer is only in the journal and must be sent instead. This
+				// is only safe on a rebuild: a live call may still be writing it.
+				(options.unrecordedTool === true &&
+					record.outcome.channel === "tool" &&
+					!!record.toolCallId &&
+					!record.toolResultOnBranch))
 	);
 }
 
