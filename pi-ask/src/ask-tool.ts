@@ -12,13 +12,20 @@ import {
 	successfulResponse,
 	validateParams,
 } from "./ask-tool-helpers.ts";
-import { AskParamsSchema, stripSchemaDescriptions } from "./schema.ts";
+import { type AskFeatures, NO_ASK_FEATURES } from "./features.ts";
+import { buildAskParamsSchema, stripSchemaDescriptions } from "./schema.ts";
 import { prepareAskParams } from "./state/normalize.ts";
 import type { AskParams } from "./types.ts";
 import { runAskFlow } from "./ui/controller.ts";
 import { runRpcAskFlow } from "./ui/rpc-flow.ts";
 
-export function registerAskTool(pi: ExtensionAPI) {
+export interface AskToolOptions {
+	/** Optional schema fields to register; see `resolveAskFeatures`. */
+	features?: AskFeatures;
+}
+
+export function registerAskTool(pi: ExtensionAPI, options: AskToolOptions = {}) {
+	const features = options.features ?? NO_ASK_FEATURES;
 	pi.registerTool({
 		name: "ask_user",
 		label: "Ask User",
@@ -27,7 +34,7 @@ export function registerAskTool(pi: ExtensionAPI) {
 			"Interview the user to clarify gaps in context or requirements, get missing authorization, or brainstorm",
 		promptGuidelines: [...ASK_TOOL_PROMPT_GUIDELINES],
 		// Field prose lives in the guidelines; the registered schema stays lean.
-		parameters: stripSchemaDescriptions(AskParamsSchema),
+		parameters: stripSchemaDescriptions(buildAskParamsSchema(features)),
 		prepareArguments: (args) => prepareAskParams(args) as AskParams,
 		execute: (_toolCallId, params, signal, _onUpdate, ctx) =>
 			executeAskTool(params as AskParams, ctx, signal),

@@ -1,6 +1,9 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
+const QUESTIONS_DESCRIPTION =
+	"Questions to ask in the interactive clarification flow";
+
 export const AskOptionSchema = Type.Object({
 	value: Type.String({
 		description:
@@ -58,9 +61,66 @@ export const AskParamsSchema = Type.Object({
 		})
 	),
 	questions: Type.Array(AskQuestionSchema, {
-		description: "Questions to ask in the interactive clarification flow",
+		description: QUESTIONS_DESCRIPTION,
 	}),
 });
+
+/** Which optional model-facing fields the registered schema carries. */
+export interface AskSchemaFeatures {
+	/** `background` on the call. */
+	background: boolean;
+	/** `timeoutSeconds` on the call and `fallback` on each question. */
+	expiry: boolean;
+}
+
+const AskQuestionWithFallbackSchema = Type.Object({
+	...AskQuestionSchema.properties,
+	fallback: Type.Optional(
+		Type.String({
+			description:
+				"Option value applied if timeoutSeconds lapses; omit to leave the question unanswered",
+		})
+	),
+});
+
+/** Every optional field present; `buildAskParamsSchema` narrows it. */
+export const AskParamsFullSchema = Type.Object({
+	title: AskParamsSchema.properties.title,
+	questions: Type.Array(AskQuestionWithFallbackSchema, {
+		description: QUESTIONS_DESCRIPTION,
+	}),
+	background: Type.Optional(
+		Type.Boolean({
+			description:
+				"Queue the form and return a receipt at once; the answer arrives later",
+		})
+	),
+	timeoutSeconds: Type.Optional(
+		Type.Number({
+			description:
+				"Time limit in seconds, counted from when the form is on screen",
+		})
+	),
+});
+
+/**
+ * Parameter schema for the given features. A disabled feature's fields are
+ * absent, not merely ignored, so they cost no recurring context. Statically
+ * it is the full shape, since every gated field is optional.
+ */
+export function buildAskParamsSchema(
+	features: AskSchemaFeatures
+): typeof AskParamsFullSchema {
+	const { title, questions, background, timeoutSeconds } =
+		AskParamsFullSchema.properties;
+	const properties = {
+		title,
+		questions: features.expiry ? questions : AskParamsSchema.properties.questions,
+		...(features.background ? { background } : {}),
+		...(features.expiry ? { timeoutSeconds } : {}),
+	};
+	return Type.Object(properties) as unknown as typeof AskParamsFullSchema;
+}
 
 const AnswerExtractionQuestionSchema = Type.Object({
 	id: Type.String({ description: "Stable snake_case question identifier" }),
