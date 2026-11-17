@@ -104,6 +104,7 @@ export interface AskFlowOptions {
 
 /** The form as a TUI component, for hosts other than `ctx.ui.custom`. */
 export interface AskFlowComponent {
+	/** Closes the form. Typed text not yet reported is reported first. */
 	dispose(): void;
 	focused: boolean;
 	/** The live form state, including unsaved editor text. */
@@ -122,10 +123,14 @@ interface AskFlowController {
 	done: Done;
 	editor: Editor;
 	expiry?: ExpiryTimer;
+	/** Set once the form has its result; nothing is journalled after that. */
+	finished: boolean;
 	focused: boolean;
 	onInput?: (data: string) => void;
 	onStateChange?: (state: AskState) => void;
 	panel?: { onHide: () => void };
+	/** Trailing timer for draft reports made while the user types. */
+	pendingDraftTimer?: ReturnType<typeof setTimeout>;
 	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
@@ -137,6 +142,9 @@ interface AskFlowController {
 	tui: Tui;
 	unsubscribeConfig: () => void;
 }
+
+/** Typing is reported to the journal after this much quiet. */
+export const DRAFT_TYPING_DEBOUNCE_MS = 750;
 
 export async function runAskFlow(
 	ctx: ExtensionContext,
@@ -175,9 +183,13 @@ export function createAskFlowController(
 		config: params.config,
 		configNotice: params.configNotice,
 		ctx: params.ctx,
-		done,
+		done: (result) => {
+			controller.finished = true;
+			done(result);
+		},
 		editor: createEditor(tui, theme, params.cwd),
 		expiry: params.expiry?.timer,
+		finished: false,
 		focused: false,
 		onInput: params.onInput,
 		onStateChange: params.onStateChange,
@@ -230,10 +242,7 @@ export function createAskFlowController(
 			controller.focused = value;
 			controller.editor.focused = value;
 		},
-		getState: () =>
-			isEditingView(controller.state)
-				? saveEditorDraft(controller.state, controller.editor.getText())
-				: controller.state,
+		getState: () => snapshotState(controller),
 		render: (width: number) => renderController(controller, width),
 		invalidate() {
 			controller.editor.invalidate();
@@ -245,10 +254,47 @@ export function createAskFlowController(
 			handleControllerInput(controller, data);
 		},
 		dispose() {
+			flushDraft(controller);
 			unsubscribeExpiry();
 			controller.unsubscribeConfig();
 		},
 	};
+}
+
+/** The state with the open editor's text folded in; the live state stays. */
+function snapshotState(controller: AskFlowController): AskState {
+	return isEditingView(controller.state)
+		? saveEditorDraft(controller.state, controller.editor.getText())
+		: controller.state;
+}
+
+function cancelDraftTimer(controller: AskFlowController) {
+	if (controller.pendingDraftTimer !== undefined) {
+		clearTimeout(controller.pendingDraftTimer);
+		controller.pendingDraftTimer = undefined;
+	}
+}
+
+/** Reports the current draft now, including unsent editor text. */
+function flushDraft(controller: AskFlowController) {
+	cancelDraftTimer(controller);
+	if (!controller.finished) {
+		controller.onStateChange?.(snapshotState(controller));
+	}
+}
+
+/** Keystrokes in an editor are reported once typing pauses, not one by one. */
+function scheduleDraft(controller: AskFlowController) {
+	if (!controller.onStateChange) {
+		return;
+	}
+	cancelDraftTimer(controller);
+	const timer = setTimeout(() => {
+		controller.pendingDraftTimer = undefined;
+		flushDraft(controller);
+	}, DRAFT_TYPING_DEBOUNCE_MS);
+	timer.unref?.();
+	controller.pendingDraftTimer = timer;
 }
 
 /** Redraws on each tick; a form that owns its clock also finishes on expiry. */
@@ -356,7 +402,7 @@ function handleEditingCommand(
 	}
 	if (command.kind === "delegateToEditor") {
 		controller.editor.handleInput(data);
-		refresh(controller);
+		refresh(controller, { typing: true });
 	}
 }
 
@@ -558,10 +604,9 @@ function answerLater(controller: AskFlowController) {
 		return;
 	}
 	// The draft keeps typed text; the open editor itself is left as it is.
-	const saved = isEditingView(controller.state)
-		? saveEditorDraft(controller.state, controller.editor.getText())
-		: controller.state;
+	const saved = snapshotState(controller);
 	controller.pendingDiscardConfirm = false;
+	cancelDraftTimer(controller);
 	controller.onStateChange?.(saved);
 	if (controller.panel) {
 		controller.tui.requestRender();
@@ -685,9 +730,17 @@ function showSettingsModal(controller: AskFlowController) {
 	});
 }
 
-function refresh(controller: AskFlowController) {
-	// Every state change ends in a refresh, so this is the one observation point.
-	controller.onStateChange?.(controller.state);
+function refresh(
+	controller: AskFlowController,
+	options: { typing?: boolean } = {}
+) {
+	// Every state change ends in a refresh, so this is the one observation
+	// point. Unsaved editor text is part of what it reports.
+	if (options.typing) {
+		scheduleDraft(controller);
+	} else {
+		flushDraft(controller);
+	}
 	controller.tui.requestRender();
 }
 

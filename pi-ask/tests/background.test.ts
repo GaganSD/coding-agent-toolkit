@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test, { beforeEach } from "node:test";
+import test, { beforeEach, mock } from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { registerAskTool } from "../src/ask-tool.ts";
 import { registerAskBackground } from "../src/background.ts";
@@ -877,4 +877,63 @@ test("the queue is TUI-only and a torn-down runtime writes nothing", async () =>
 	assert.deepEqual(host.sent, []);
 	assert.deepEqual(kinds(host), ["form", "draft"]);
 	assert.equal(host.turnEnd().entries.length, 0);
+});
+
+const TEXT_FORM = {
+	title: "Notes",
+	questions: [{ id: "dir", label: "DIR", prompt: "Which directory?", type: "text" }],
+};
+
+test("text typed in an editor survives a restart, written once typing pauses", async () => {
+	const host = boot();
+	await start(host, "startup");
+	await host.askInBackground(TEXT_FORM);
+	assert.ok(host.focusIs("panel"), "a new form takes the idle keyboard");
+
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		host.type(..."src/ui");
+		assert.deepEqual(kinds(host), ["form"], "keystrokes are not written one by one");
+		mock.timers.tick(5000);
+	} finally {
+		mock.timers.reset();
+	}
+	assert.deepEqual(kinds(host), ["form", "draft"], "one draft for the burst");
+
+	// A key that ends the typing writes at once, with the text folded in.
+	host.type("/");
+	host.type(KEY.escape);
+	assert.deepEqual(kinds(host), ["form", "draft", "draft"]);
+
+	const later = boot(host.session);
+	await start(later);
+	await later.command("ask-panel");
+	assert.match(later.panelText(), /src\/ui\//, "the unfinished answer came back");
+});
+
+test("an editor still open when Pi quits is journalled on dispose", async () => {
+	const host = boot();
+	await start(host, "startup");
+	await host.askInBackground(TEXT_FORM);
+	host.type(..."draft text");
+	assert.deepEqual(kinds(host), ["form"]);
+	host.emit("session_shutdown", { reason: "quit" });
+	assert.deepEqual(kinds(host), ["form", "draft"]);
+
+	const later = boot(host.session);
+	await start(later);
+	await later.command("ask-panel");
+	assert.match(later.panelText(), /draft text/);
+});
+
+test("a tree move to the same branch keeps the form, with its unsent text", async () => {
+	const host = boot();
+	await start(host, "startup");
+	await host.askInBackground(TEXT_FORM);
+	host.type(..."keep");
+	host.emit("session_tree");
+	await tick();
+	assert.match(host.panelText(), /keep/);
+	host.type(KEY.focus, ..."me");
+	assert.match(host.panelText(), /keepme/);
 });
