@@ -51,13 +51,30 @@ A background question, a form you deferred, and a form left open when Pi last st
 
 Both keys are `keymaps.global.later` and `keymaps.global.panelFocus` in the config file.
 
+### Questions that expire
+
+An agent that expects you to be away can give a call `timeoutSeconds` and mark one option per question as its `fallback`. If you do not respond in time, the form resolves as `expired`: declared fallbacks are applied and the rest stay unanswered. A fallback is the agent's own assumption, never your approval; the result says so and keeps irreversible or risky actions blocked.
+
+The clock is built to be hard to trip:
+
+- It runs only while the form is on screen, after the notification has fired. A form waiting behind another, or in a hidden panel, does not count down. The form shows the countdown and marks the fallback option.
+- **Any key you press in the form stops it for good**, as does opening or focusing the panel on purpose. A stopped form waits like a normal one, and the stop is journalled, so a reload cannot restart it. Typing in the input beside an unfocused panel does not stop it: the countdown is on screen.
+- Hiding the panel, deferring, or a blocking form taking over also stops a running clock for good. Nothing pauses and resumes.
+- A form that comes back after Pi restarted (resume, fork, reload) never counts down. You had no fair chance to see its clock.
+- `expiry.minSeconds` (30) is a floor: shorter requests are raised, never rejected.
+- A background form that expires is delivered like an answer, and it wakes an idle agent: the agent asked for a time-boxed fallback so that an unattended run finishes. A cancellation still never wakes it.
+- With expiry off (`expiry.enabled: false`, applies on `/reload`) both fields are absent from the schema, and a stale call that still carries them waits indefinitely.
+- Hosts without the custom TUI (RPC cards, ACP) have no countdown. The call waits as it does today.
+
+**Late override.** An expired form stays reopenable: a line under the input says so, and `/ask-panel` brings it back with a notice. Submitting sends a correction as a follow-up that names the request, says it replaces the timed-out result (fallbacks included), and is delivered once. `Ctrl+C` on the reopened form without a comment dismisses it silently and leaves the agent's earlier result as it was. The offer ends when you correct or dismiss it, or one hour after the expiry.
+
 ### Commands
 
 | Command | What it does |
 | --- | --- |
 | `/answer` | Turn the latest completed assistant message into a form |
 | `/ask-settings` | Settings overlay. `?` inside a form opens the same overlay |
-| `/ask-panel` | Show the waiting questions and move the keyboard to them |
+| `/ask-panel` | Show the waiting questions, and any timed-out ones you can still answer, and move the keyboard to them |
 
 Hosts without the custom TUI (RPC subagents, ACP clients) get the same interview as sequential select/input cards with back navigation and a review card; a background call blocks there, and there is no "answer later". Callers with no dialog UI at all get `status: "unavailable"`.
 
@@ -98,7 +115,7 @@ Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the curren
 
 Schema settings apply on `/reload`, not live. A disabled field is absent from the schema, not ignored.
 
-> Unreleased: this is the 0.2.0 contract. `background`, `queued` and `deferred` work on this branch; `timeoutSeconds`, `fallback` and `expired` are not registered yet.
+> Unreleased: this is the 0.2.0 contract. `background`, `queued`, `deferred`, `timeoutSeconds`, `fallback` and `expired` work on this branch. `/ask-settings` toggles expiry (after `/reload`) and shows the floor.
 
 ## Context footprint
 
