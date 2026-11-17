@@ -33,6 +33,8 @@ export interface AskStrings {
 	queuedSummary: (requestId: string, pending?: number) => string;
 	/** Receipt returned to the model when the user chose "answer later". */
 	deferredSummary: (requestId: string) => string;
+	/** Appended to an answer the tool applied itself after the limit lapsed. */
+	fallbackMark: string;
 	/** Trailer returned to the model after the time limit lapsed. */
 	expiredSummary: (fallbackLabels: string[]) => string;
 	/** Heading of the follow-up message that carries a late answer. */
@@ -97,13 +99,14 @@ const EN_STRINGS: AskStrings = {
 		}. ${EN_RECEIPT_RULES}`,
 	deferredSummary: (requestId) =>
 		`User will answer later (${requestId}). ${EN_RECEIPT_RULES}`,
+	fallbackMark: "[fallback: not chosen by the user]",
 	expiredSummary: (fallbackLabels) =>
 		[
-			"No response within the time limit.",
+			"The user did not respond within the time limit.",
 			fallbackLabels.length > 0
 				? `Fallback applied for: ${fallbackLabels.join(", ")}.`
 				: "No fallback was applied.",
-			"A fallback is your own assumption, not user approval; keep irreversible actions blocked. The user may still correct it.",
+			"A fallback is your own assumption, not user approval; keep irreversible and risky actions blocked. The user may still correct it.",
 		].join(" "),
 	answerDelivered: (requestId, title) =>
 		`User answered your earlier ask_user form ${formRef(requestId, title)}:`,
@@ -151,13 +154,14 @@ const ZH_STRINGS: AskStrings = {
 		}。${ZH_RECEIPT_RULES}`,
 	deferredSummary: (requestId) =>
 		`用户稍后回答（${requestId}）。${ZH_RECEIPT_RULES}`,
+	fallbackMark: "[备选项：并非用户所选]",
 	expiredSummary: (fallbackLabels) =>
 		[
 			"用户未在时限内回应。",
 			fallbackLabels.length > 0
 				? `已对以下问题应用备选项：${fallbackLabels.join("、")}。`
 				: "没有应用任何备选项。",
-			"备选项只是你自己的假设，不是用户批准；不可逆的操作仍须保持阻止。用户之后仍可更正。",
+			"备选项只是你自己的假设，不是用户批准；不可逆和有风险的操作仍须保持阻止。用户之后仍可更正。",
 		].join(""),
 	answerDelivered: (requestId, title) =>
 		`用户回答了你之前的 ask_user 表单 ${formRef(requestId, title)}：`,

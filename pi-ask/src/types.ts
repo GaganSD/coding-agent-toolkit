@@ -118,9 +118,13 @@ export interface AskState {
 	activeSubmitActionIndex: number;
 	activeTabIndex: number;
 	answers: Record<string, AskStateAnswer>;
+	/** Why the user cancelled, typed on the review tab. */
+	cancelComment?: string;
 	cancelled: boolean;
 	completed: boolean;
 	questions: AskQuestion[];
+	/** Questions the user declined one by one; their answers were dropped. */
+	skipped?: string[];
 	title?: string;
 	view: ViewState;
 }

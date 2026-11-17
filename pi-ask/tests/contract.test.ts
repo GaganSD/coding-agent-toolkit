@@ -318,7 +318,9 @@ test("expired results name applied fallbacks and deny approval", () => {
 	assert.ok(text.includes("DB: SQLite"));
 	assert.ok(text.includes("Fallback applied for: DB."));
 	assert.ok(text.includes("not user approval"));
-	assert.ok(text.includes("keep irreversible actions blocked"));
+	assert.ok(text.includes("did not respond"));
+	assert.ok(text.includes("keep irreversible and risky actions blocked"));
+	assert.ok(text.includes("DB: SQLite [fallback"));
 
 	const none = summarizeResult(receipt({ status: "expired", expired: [] }));
 	assert.ok(none.includes("DB: (no answer)"));

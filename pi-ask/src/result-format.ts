@@ -1,3 +1,4 @@
+import { askStrings } from "./i18n.ts";
 import { isCustomOnlyAnswer } from "./state/answers.ts";
 import type { AskResult } from "./types.ts";
 
@@ -8,6 +9,7 @@ export function formatResultLines(
 	const lines: string[] = [];
 
 	let hasPresentationOverride = false;
+	const fallbacks = new Set(result.expired ?? []);
 
 	for (const question of result.questions) {
 		const answer = result.answers[question.id];
@@ -18,7 +20,9 @@ export function formatResultLines(
 
 		const answerLine = formatAnswerLine(question.label, answer, options.mode);
 		lines.push(
-			answerLine ?? formatUnansweredLine(question.label, options.mode)
+			answerLine
+				? markFallback(answerLine, fallbacks.has(question.id))
+				: formatUnansweredLine(question.label, options.mode)
 		);
 
 		if (hasPresentedTypeOverride(question.type, question.presentedType)) {
@@ -42,6 +46,11 @@ export function formatResultLines(
 	}
 
 	return lines;
+}
+
+/** An auto-applied answer says so on its own line, wherever it is read. */
+function markFallback(line: string, isFallback: boolean): string {
+	return isFallback ? `${line} ${askStrings().fallbackMark}` : line;
 }
 
 function formatUnansweredLine(
