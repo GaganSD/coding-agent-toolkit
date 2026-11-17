@@ -449,6 +449,49 @@ test("no duplicate when the woken run reaches its turn boundary before the messa
 	assert.equal(host.answers().length, 1);
 });
 
+test("a wake whose run never starts is retried instead of losing the answer", async () => {
+	const { host, requestId } = await withBackgroundForm();
+	host.failNextWake();
+	host.type(...SUBMIT_TWO);
+	await tick();
+	assert.equal(host.sent.length, 1);
+	assert.equal(host.answers().length, 0, "the failed wake never reached the branch");
+	assert.equal(host.isIdle(), true, "the run failed to start");
+
+	// The host reports the run settled: the branch still lacks the answer, so
+	// the in-flight send was never delivered and must be offered again.
+	host.settle();
+	await tick();
+	assert.equal(host.sent.length, 2);
+	assert.deepEqual(host.sent[1]?.options, { triggerTurn: true });
+	assert.equal(host.sent[1]?.message.details.requestId, requestId);
+
+	host.recordWake();
+	host.settle();
+	await start(host, "reload");
+	assert.equal(host.answers().length, 1, "the branch proves exactly one delivery");
+	assert.equal(host.sent.length, 2);
+});
+
+test("a new run releases an answer whose wake never started, and delivers it once", async () => {
+	const { host, requestId } = await withBackgroundForm();
+	host.failNextWake();
+	host.type(...SUBMIT_TWO);
+	await tick();
+	assert.equal(host.sent.length, 1);
+
+	// Another run starts. The answer joins it at its first turn boundary.
+	host.setIdle(false);
+	host.emit("agent_start");
+	const boundary = host.turnEnd();
+	assert.equal(boundary.entries.length, 1);
+	assert.equal(boundary.entries[0].details.requestId, requestId);
+	host.settle();
+	await start(host, "reload");
+	assert.equal(host.answers().length, 1);
+	assert.equal(host.sent.length, 1, "no second wake was needed");
+});
+
 test("a working agent gets the answer at the next turn boundary, once, with no extra turn started", async () => {
 	const { host, requestId } = await withBackgroundForm();
 	host.setIdle(false);

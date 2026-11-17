@@ -110,6 +110,8 @@ export interface AskBackground {
 	reopen(ctx: ExtensionContext): void;
 	/** The agent run is over; `aborted` when the user stopped it. */
 	settled(ctx: ExtensionContext, aborted?: boolean): void;
+	/** A run started: sends that never reached the branch are retried. */
+	started(ctx: ExtensionContext): void;
 }
 
 export function registerAskBackground(
@@ -122,6 +124,7 @@ export function registerAskBackground(
 	pi.on("session_start", (_event, ctx) => background.attach(ctx));
 	pi.on("session_tree", (_event, ctx) => background.attach(ctx));
 	pi.on("session_shutdown", () => background.dispose());
+	pi.on("agent_start", (_event, ctx) => background.started(ctx));
 	pi.on("turn_end", (event, ctx) => background.boundary(ctx, event) as never);
 	pi.on(
 		"agent_before_settle",
@@ -611,6 +614,16 @@ export function createAskBackground(
 			}
 			try {
 				delivery.pump(next, { trigger: "settled", aborted });
+			} catch {
+				// A stale context: the next event tries again.
+			}
+		},
+		started(next) {
+			if (disposed) {
+				return;
+			}
+			try {
+				delivery.started(next);
 			} catch {
 				// A stale context: the next event tries again.
 			}

@@ -81,6 +81,9 @@ export function fakePi(
 	const wakes: SentMessage["message"][] = [];
 	const heldCustom: SentMessage["message"][] = [];
 	let idle = true;
+	// The next triggered send is accepted but its run fails to start before
+	// recording the message, as a failed pre-run compaction would.
+	let failWake = false;
 	let aborts = 0;
 
 	const editor: FakeComponent & { text: string } = {
@@ -144,6 +147,10 @@ export function fakePi(
 			sent.push({ message, options: sendOptions });
 			if (sendOptions?.triggerTurn) {
 				if (idle) {
+					if (failWake) {
+						failWake = false;
+						return;
+					}
 					idle = false;
 					wakes.push(message);
 				} else {
@@ -263,6 +270,10 @@ export function fakePi(
 		},
 		setIdle(value: boolean) {
 			idle = value;
+		},
+		/** The next triggered send never reaches a run, so it is not recorded. */
+		failNextWake() {
+			failWake = true;
 		},
 		isIdle: () => idle,
 		/** Dispatch a lifecycle event; returns what the handlers returned. */

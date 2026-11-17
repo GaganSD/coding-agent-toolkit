@@ -56,6 +56,11 @@ export interface AskDelivery {
 	): AskBoundaryResult | undefined;
 	/** An outcome was just journalled with channel `message`. */
 	post(): void;
+	/**
+	 * A run started. A send the branch still lacks never made it into a run,
+	 * so the answer is no longer held back; the next pump retries it.
+	 */
+	started(ctx: DeliveryContext): void;
 	/** Deliver what can be delivered now. `settled`: the run is over. */
 	pump(
 		ctx: DeliveryContext,
@@ -204,11 +209,43 @@ export function createAskDelivery(
 		}
 	}
 
+	/**
+	 * Forgets sends the branch still shows as pending. Pi's `sendMessage` is
+	 * fire-and-forget: when the run it starts fails before recording the
+	 * message, nothing lands and nothing reports the failure. Left in flight,
+	 * that answer would be held for the rest of the process. Only called when
+	 * no run can still be writing the message (the host is idle, or a run just
+	 * started): the branch itself is the proof of what was delivered.
+	 */
+	function release(ctx: DeliveryContext) {
+		if (inFlight.size === 0) {
+			return;
+		}
+		const pending = new Set(
+			undeliveredOutcomes(readAskJournal(ctx)).map(
+				({ outcome }) => outcome.outcomeId
+			)
+		);
+		for (const outcomeId of [...inFlight]) {
+			if (pending.has(outcomeId)) {
+				inFlight.delete(outcomeId);
+			}
+		}
+	}
+
 	return {
 		post() {
 			watching = true;
 		},
+		started(ctx) {
+			// A run that did start has not recorded its own starting message
+			// yet, so do not send here: the next boundary sees it on the branch.
+			release(ctx);
+		},
 		pump(ctx, situation = {}) {
+			if (ctx.isIdle()) {
+				release(ctx);
+			}
 			const planned = plan(ctx, {
 				trigger: situation.trigger ?? "now",
 				aborted: situation.aborted,
