@@ -45,6 +45,8 @@ export interface AskJournalRecord {
 }
 
 export interface AskJournalState {
+	/** The user put the background panel away on this branch. */
+	panelHidden: boolean;
 	/** In request order. */
 	records: AskJournalRecord[];
 }
@@ -58,6 +60,7 @@ export function replayJournal(
 ): AskJournalState {
 	const records = new Map<string, MutableRecord>();
 	const deliveredOutcomeIds = new Map<string, string>();
+	let panelHidden = false;
 
 	for (const entry of entries) {
 		if (entry.type === "custom_message") {
@@ -79,6 +82,10 @@ export function replayJournal(
 		}
 		const journalEntry = parseJournalEntry(entry.data);
 		if (!journalEntry) {
+			continue;
+		}
+		if (journalEntry.kind === "panel") {
+			panelHidden = journalEntry.hidden;
 			continue;
 		}
 		if (journalEntry.kind === "form") {
@@ -122,7 +129,7 @@ export function replayJournal(
 	for (const [outcomeId, requestId] of deliveredOutcomeIds) {
 		records.get(requestId)?.delivered.add(outcomeId);
 	}
-	return { records: [...records.values()] };
+	return { panelHidden, records: [...records.values()] };
 }
 
 export function getRecord(
@@ -157,6 +164,23 @@ export function queuedForms(state: AskJournalState): AskJournalRecord[] {
 		(record) =>
 			isOpen(record) && (record.mode === "background" || record.deferred)
 	);
+}
+
+/**
+ * Everything the background panel shows, first asked first: queued forms
+ * plus interrupted foreground forms. `live` are the blocking forms on screen
+ * in this process, which are open but not interrupted.
+ */
+export function pendingForms(
+	state: AskJournalState,
+	live: ReadonlySet<string> = new Set()
+): AskJournalRecord[] {
+	const waiting = new Set(
+		[...queuedForms(state), ...interruptedForms(state)]
+			.filter((record) => record.deferred || !live.has(record.requestId))
+			.map((record) => record.requestId)
+	);
+	return state.records.filter((record) => waiting.has(record.requestId));
 }
 
 /** Expired forms: resolved by fallback, still open to a late correction. */

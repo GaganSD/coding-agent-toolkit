@@ -1,7 +1,8 @@
 /**
  * Session journal entry shapes. Every `ask_user` form, draft and outcome is
  * appended to the session as a custom entry (never model context), so the
- * state of any form can be rebuilt by replaying the active branch.
+ * state of any form, and of the panel that shows them, can be rebuilt by
+ * replaying the active branch.
  *
  * Entries are append-only and versioned; `replayJournal` ignores anything it
  * does not recognise, so new kinds can be added without breaking old sessions.
@@ -92,12 +93,22 @@ export interface AskDeliveredEntry extends AskJournalEntryBase {
 	outcomeId: string;
 }
 
+/**
+ * The user put the background panel away (`hidden: true`) or brought it
+ * back. Latest wins; `requestId` is the form that was showing, if any.
+ */
+export interface AskPanelEntry extends AskJournalEntryBase {
+	hidden: boolean;
+	kind: "panel";
+}
+
 export type AskJournalEntry =
 	| AskFormEntry
 	| AskDraftEntry
 	| AskDeferEntry
 	| AskOutcomeEntry
-	| AskDeliveredEntry;
+	| AskDeliveredEntry
+	| AskPanelEntry;
 
 /** `details` of the follow-up message; also proves delivery on replay. */
 export interface AskAnswerMessageDetails {
@@ -106,7 +117,14 @@ export interface AskAnswerMessageDetails {
 	result: AskResult;
 }
 
-const ENTRY_KINDS = new Set(["form", "draft", "defer", "outcome", "delivered"]);
+const ENTRY_KINDS = new Set([
+	"form",
+	"draft",
+	"defer",
+	"outcome",
+	"delivered",
+	"panel",
+]);
 
 /** Journal data from a session entry, or undefined if it is not usable. */
 export function parseJournalEntry(data: unknown): AskJournalEntry | undefined {
@@ -137,6 +155,10 @@ export function parseJournalEntry(data: unknown): AskJournalEntry | undefined {
 		case "delivered":
 			return typeof data.outcomeId === "string"
 				? (data as unknown as AskDeliveredEntry)
+				: undefined;
+		case "panel":
+			return typeof data.hidden === "boolean"
+				? (data as unknown as AskPanelEntry)
 				: undefined;
 		default:
 			return data as unknown as AskDeferEntry;

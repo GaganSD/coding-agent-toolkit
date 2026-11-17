@@ -10,6 +10,7 @@ import {
 	type BranchEntryLike,
 	getRecord,
 	interruptedForms,
+	pendingForms,
 	queuedForms,
 	reopenableForms,
 	replayJournal,
@@ -244,4 +245,48 @@ test("replay ignores foreign, malformed and orphaned entries", () => {
 		[[requestId, "foreground"]]
 	);
 	assert.deepEqual(undeliveredOutcomes(state), []);
+});
+
+test("the panel queue merges queued and interrupted forms in request order", () => {
+	const b = branch();
+	const interrupted = b.form();
+	const background = b.form("background");
+	const live = b.form();
+	const deferred = b.form();
+	b.journal.recordDefer(deferred);
+	const answered = b.form("background");
+	b.journal.recordOutcome(answered, result("submitted"), "message");
+
+	const ids = (liveIds: string[] = []) =>
+		pendingForms(replayJournal(b.entries), new Set(liveIds)).map(
+			(record) => record.requestId
+		);
+	assert.deepEqual(ids(), [interrupted, background, live, deferred]);
+	// A blocking form on screen is open, not interrupted; once deferred it
+	// is queued even while its tool call is still unwinding.
+	assert.deepEqual(ids([live, deferred]), [interrupted, background, deferred]);
+
+	// The conversation moving on drops interrupted forms, never queued ones.
+	b.message("user");
+	assert.deepEqual(ids(), [background, deferred]);
+});
+
+test("panel visibility follows the latest panel entry on the branch", () => {
+	const b = branch();
+	assert.equal(replayJournal(b.entries).panelHidden, false);
+	const requestId = b.form("background");
+	b.journal.recordPanel(true, requestId);
+	assert.equal(replayJournal(b.entries).panelHidden, true);
+	// A sibling branch that ends before the entry never hid the panel.
+	assert.equal(replayJournal(b.entries.slice(0, 1)).panelHidden, false);
+	b.journal.recordPanel(false);
+	assert.equal(replayJournal(b.entries).panelHidden, false);
+	assert.equal(replayJournal(b.entries).records.length, 1, "not a form record");
+
+	const malformed = {
+		type: "custom",
+		customType: ASK_JOURNAL_ENTRY_TYPE,
+		data: { v: 1, kind: "panel", requestId: "", at: 1, hidden: "yes" },
+	};
+	assert.equal(replayJournal([...b.entries, malformed]).panelHidden, false);
 });

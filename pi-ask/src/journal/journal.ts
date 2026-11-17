@@ -30,10 +30,16 @@ export interface AskJournal {
 		requestId: string,
 		initial?: AskDraftSnapshot
 	): (state: AskState) => void;
-	/** Marks a `message` outcome as having reached the agent. */
+	/**
+	 * Marks a `message` outcome as having reached the agent. Delivery does
+	 * not write it: the answer message on the branch is the proof. Replay
+	 * still honours it for a host that confirms delivery some other way.
+	 */
 	recordDelivered(requestId: string, outcomeId: string): void;
 	/** A foreground form moved to the queue ("answer later"). */
 	recordDefer(requestId: string): void;
+	/** The user hid or reopened the panel; `requestId` is the form shown. */
+	recordPanel(hidden: boolean, requestId?: string): void;
 	/** Saves an accepted form and returns its new request id. */
 	recordForm(input: {
 		form: AskFormSnapshot;
@@ -101,6 +107,9 @@ export function createAskJournal(
 		},
 		recordDefer(requestId) {
 			write({ kind: "defer", requestId });
+		},
+		recordPanel(hidden, requestId = "") {
+			write({ kind: "panel", requestId, hidden });
 		},
 		recordOutcome(requestId, result, channel) {
 			return write({
