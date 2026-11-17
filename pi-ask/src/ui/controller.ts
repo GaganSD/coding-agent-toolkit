@@ -4,6 +4,8 @@ import type { AskConfig } from "../config/schema.ts";
 import { getAskConfigStore } from "../config/store.ts";
 import {
 	createQuestionWaitingNotification,
+	type NotificationAttempt,
+	notificationSucceeded,
 	notifyQuestionWaiting,
 } from "../notifications.ts";
 import type { AskDraftSnapshot } from "../journal/entries.ts";
@@ -209,11 +211,16 @@ export function createAskFlowController(
 	syncSelection(controller);
 	const unsubscribeExpiry = bindExpiry(controller, params.expiry?.owned === true);
 	notifyCurrentQuestion(controller)
-		.catch(() => {
-			// Notification failures are best-effort and must not affect the ask flow.
+		.then((attempts) => {
+			// The clock starts only after the user has been told a question waits.
+			if (notificationSucceeded(attempts)) {
+				controller.expiry?.arm();
+			}
 		})
-		// The clock starts only after the user has been told a question waits.
-		.then(() => controller.expiry?.arm());
+		.catch(() => {
+			// Notification failures are best-effort and leave the clock unarmed:
+			// nobody was told, so the form waits like one behind another.
+		});
 
 	return {
 		get focused() {
@@ -686,12 +693,12 @@ function refresh(controller: AskFlowController) {
 
 async function notifyCurrentQuestion(
 	controller: AskFlowController
-): Promise<void> {
+): Promise<NotificationAttempt[]> {
 	const question = getCurrentQuestion(controller.state);
 	if (!question) {
-		return;
+		return [];
 	}
-	await notifyQuestionWaiting(
+	return notifyQuestionWaiting(
 		controller.config,
 		createQuestionWaitingNotification(question)
 	);

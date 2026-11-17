@@ -177,6 +177,26 @@ test("the clock waits for the notification before it starts", async () => {
 	assert.equal(host.time.pending, 1);
 });
 
+test("a failed notification leaves the clock unarmed", async () => {
+	getAskConfigStore().setConfig({
+		...DEFAULT_ASK_CONFIG,
+		notifications: {
+			channels: [{ command: "pi-ask-missing-notify", type: "command" }],
+			enabled: true,
+		},
+	});
+	const host = boot();
+	host.ask(TIMED).catch(() => {});
+	// Let the command notification fail; the user was never told.
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	assert.equal(
+		host.time.pending,
+		0,
+		"a form nobody was told about must not count down"
+	);
+	assert.equal(host.forms.length, 1);
+});
+
 test("a question with no declared fallback expires with nothing applied", async () => {
 	const host = boot();
 	const pending = host.ask({ ...PLAIN, timeoutSeconds: 30 });
