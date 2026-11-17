@@ -31,12 +31,6 @@ export interface AskJournal {
 		requestId: string,
 		initial?: AskDraftSnapshot
 	): (state: AskState) => void;
-	/**
-	 * Marks a `message` outcome as having reached the agent. Delivery does
-	 * not write it: the answer message on the branch is the proof. Replay
-	 * still honours it for a host that confirms delivery some other way.
-	 */
-	recordDelivered(requestId: string, outcomeId: string): void;
 	/** A foreground form moved to the queue ("answer later"). */
 	recordDefer(requestId: string): void;
 	/** The user closed an expired form without correcting it. */
@@ -132,9 +126,6 @@ export function createAskJournal(
 		},
 		recordExpiryStop(requestId, reason) {
 			write({ kind: "expiry", requestId, reason });
-		},
-		recordDelivered(requestId, outcomeId) {
-			write({ kind: "delivered", requestId, outcomeId });
 		},
 	};
 }

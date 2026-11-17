@@ -54,7 +54,7 @@ function boot(
 	const ask = (params: object) =>
 		host.tools[0].execute(`call-${++calls}`, params, undefined, () => {}, host.ctx);
 	const askInBackground = (params: object) => ask({ ...params, background: true });
-	return { ...host, host, time, ask, askInBackground };
+	return { ...host, host, time, runtime, ask, askInBackground };
 }
 
 type Host = ReturnType<typeof boot>;
@@ -195,6 +195,24 @@ test("a failed notification leaves the clock unarmed", async () => {
 		"a form nobody was told about must not count down"
 	);
 	assert.equal(host.forms.length, 1);
+});
+
+test("a stop recorded in the journal is never given back to a live timer", async () => {
+	const host = boot();
+	await start(host);
+	const receipt = await host.askInBackground(TIMED);
+	await tick();
+	assert.equal(host.time.pending, 1);
+
+	// The stop was journalled without this process stopping its timer, e.g.
+	// by a rebuild that read another process's entry.
+	host.runtime.journal.recordExpiryStop(
+		receipt.details.requestId,
+		"interaction"
+	);
+	host.emit("session_tree");
+	await tick();
+	assert.equal(host.time.pending, 0, "a stopped countdown stays stopped");
 });
 
 test("a question with no declared fallback expires with nothing applied", async () => {

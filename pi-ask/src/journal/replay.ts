@@ -151,9 +151,6 @@ export function replayJournal(
 			case "dismiss":
 				record.offerDismissed = true;
 				break;
-			case "delivered":
-				deliveredOutcomeIds.set(journalEntry.outcomeId, journalEntry.requestId);
-				break;
 			default:
 				break;
 		}

@@ -266,7 +266,10 @@ export function createAskBackground(
 	function syncTimers() {
 		const view = panelView(state);
 		for (const [requestId, timer] of timers) {
-			if (view.visible && view.formId === requestId) {
+			// A stop the journal recorded is final, even if a timer somehow
+			// survived the rebuild that read it.
+			const stopped = records.get(requestId)?.clockStopped === true;
+			if (!stopped && view.visible && view.formId === requestId) {
 				timer.show();
 			} else {
 				timer.hide();

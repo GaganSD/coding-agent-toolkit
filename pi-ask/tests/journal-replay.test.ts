@@ -141,7 +141,7 @@ test("a tool outcome whose tool result never landed is recovered as a message", 
 	);
 });
 
-test("a message outcome stays undelivered until its marker is written", () => {
+test("a message outcome stays undelivered until its answer is on the branch", () => {
 	const b = branch();
 	const requestId = b.form();
 	const outcome = b.journal.recordOutcome(requestId, result(), "message");
@@ -150,14 +150,6 @@ test("a message outcome stays undelivered until its marker is written", () => {
 		[requestId]
 	);
 
-	b.journal.recordDelivered(requestId, outcome.outcomeId);
-	assert.deepEqual(undeliveredOutcomes(replayJournal(b.entries)), []);
-});
-
-test("a persisted answer message proves delivery without a marker", () => {
-	const b = branch();
-	const requestId = b.form();
-	const outcome = b.journal.recordOutcome(requestId, result(), "message");
 	b.entries.push({
 		type: "custom_message",
 		customType: ASK_ANSWER_MESSAGE_TYPE,
@@ -174,7 +166,11 @@ test("delivery is tracked per outcome, so a late correction is delivered again",
 		result("expired"),
 		"message"
 	);
-	b.journal.recordDelivered(requestId, expired.outcomeId);
+	b.entries.push({
+		type: "custom_message",
+		customType: ASK_ANSWER_MESSAGE_TYPE,
+		details: { requestId, outcomeId: expired.outcomeId },
+	});
 	let state = replayJournal(b.entries);
 	assert.deepEqual(undeliveredOutcomes(state), []);
 	assert.deepEqual(

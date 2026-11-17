@@ -23,8 +23,8 @@ export type AskFormMode = "foreground" | "background";
 
 /**
  * How an outcome reaches the agent. `tool`: it was the tool call's own result.
- * `message`: the tool call is gone (or returned a receipt), so the outcome
- * must be sent as a follow-up message and tracked with a `delivered` entry.
+ * `message`: the tool call is gone (or returned a receipt), so the outcome is
+ * sent as a follow-up; the `pi-ask:answer` message on the branch proves it.
  */
 export type AskOutcomeChannel = "tool" | "message";
 
@@ -89,15 +89,6 @@ export interface AskOutcomeEntry extends AskJournalEntryBase {
 }
 
 /**
- * Exactly-once marker for a `message` outcome. Independent of queue state:
- * it names the outcome, so a correction to an expired form is a new delivery.
- */
-export interface AskDeliveredEntry extends AskJournalEntryBase {
-	kind: "delivered";
-	outcomeId: string;
-}
-
-/**
  * The user put the background panel away (`hidden: true`) or brought it
  * back. Latest wins; `requestId` is the form that was showing, if any.
  */
@@ -131,7 +122,6 @@ export type AskJournalEntry =
 	| AskDraftEntry
 	| AskDeferEntry
 	| AskOutcomeEntry
-	| AskDeliveredEntry
 	| AskPanelEntry
 	| AskExpiryEntry
 	| AskDismissEntry;
@@ -150,7 +140,6 @@ const ENTRY_KINDS = new Set([
 	"draft",
 	"defer",
 	"outcome",
-	"delivered",
 	"panel",
 	"expiry",
 	"dismiss",
@@ -181,10 +170,6 @@ export function parseJournalEntry(data: unknown): AskJournalEntry | undefined {
 		case "outcome":
 			return typeof data.outcomeId === "string" && isRecord(data.result)
 				? (data as unknown as AskOutcomeEntry)
-				: undefined;
-		case "delivered":
-			return typeof data.outcomeId === "string"
-				? (data as unknown as AskDeliveredEntry)
 				: undefined;
 		case "panel":
 			return typeof data.hidden === "boolean"
