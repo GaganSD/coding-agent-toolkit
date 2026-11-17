@@ -105,11 +105,7 @@ export function renderAskToolResult(
 	}
 	const text = renderResultText(details);
 	return new Text(
-		details.status === "invalid" ||
-			details.status === "cancelled" ||
-			details.status === "unavailable"
-			? theme.fg("warning", text)
-			: text,
+		details.status === "submitted" ? text : theme.fg("warning", text),
 		0,
 		0
 	);

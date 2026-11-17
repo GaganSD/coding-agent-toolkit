@@ -65,9 +65,28 @@ export function summarizeResult(result: AskResult): string {
 	if (result.status === "invalid") {
 		return "Invalid tool payload";
 	}
+	// Receipts carry their own rules so the guidance costs tokens only when
+	// it applies, instead of living in the recurring prompt guidelines.
+	if (result.status === "queued") {
+		return askStrings().queuedSummary(result.requestId ?? "");
+	}
+	if (result.status === "deferred") {
+		return askStrings().deferredSummary(result.requestId ?? "");
+	}
 
 	const lines = formatResultLines(result, { mode: "summary" });
+	if (result.status === "expired") {
+		lines.push(askStrings().expiredSummary(expiredLabels(result)));
+		return lines.join("\n");
+	}
 	return lines.join("\n") || askStrings().submittedSummary;
+}
+
+function expiredLabels(result: AskResult): string[] {
+	const expired = new Set(result.expired ?? []);
+	return result.questions
+		.filter((question) => expired.has(question.id))
+		.map((question) => question.label);
 }
 
 export function hasAnswerContent(state: AskState, questionId: string): boolean {

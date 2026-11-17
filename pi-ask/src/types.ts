@@ -8,6 +8,8 @@ export interface AskOption {
 }
 
 export interface AskQuestionInput {
+	/** Option `value` applied if the call's time limit lapses. Never on `text`. */
+	fallback?: string;
 	id: string;
 	label?: string;
 	options?: AskOption[];
@@ -16,7 +18,11 @@ export interface AskQuestionInput {
 }
 
 export interface AskParams {
+	/** Queue the form and return a `queued` receipt at once. */
+	background?: boolean;
 	questions: AskQuestionInput[];
+	/** Time limit in seconds, counted from when the form is on screen. */
+	timeoutSeconds?: number;
 	title?: string;
 }
 
@@ -69,16 +75,31 @@ export interface AskQuestionSummary {
 	type: AskQuestionType;
 }
 
+/**
+ * `queued` and `deferred` are receipts, not answers: the form is still open
+ * and its answer arrives later. `expired` carries declared fallbacks only.
+ */
 export type AskResultStatus =
 	| "submitted"
 	| "cancelled"
 	| "unavailable"
-	| "invalid";
+	| "invalid"
+	| "queued"
+	| "deferred"
+	| "expired";
 
 export interface AskResult {
 	answers: Record<string, AskResultAnswer>;
+	/** Why the user cancelled, when they said. */
+	comment?: string;
 	error?: AskValidationError;
+	/** Question ids whose answer is an auto-applied fallback (`expired` only). */
+	expired?: string[];
 	questions: AskQuestionSummary[];
+	/** Journal id of the form; ties receipts to the answer delivered later. */
+	requestId?: string;
+	/** Question ids the user explicitly declined. Skipped is not approval. */
+	skipped?: string[];
 	status: AskResultStatus;
 	title?: string;
 	unanswered: string[];

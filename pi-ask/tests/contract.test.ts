@@ -12,12 +12,12 @@ import { serializeAnswer } from "../src/state/answers.ts";
 import { createInitialState } from "../src/state/create.ts";
 import { collectValidationIssues } from "../src/state/normalize.ts";
 import { cycleCurrentQuestionType } from "../src/state/question-type.ts";
-import { toAskResult } from "../src/state/result.ts";
+import { summarizeResult, toAskResult } from "../src/state/result.ts";
 import {
 	confirmCurrentSelection,
 	toggleCurrentMultiOption,
 } from "../src/state/transitions.ts";
-import type { AskParams } from "../src/types.ts";
+import type { AskParams, AskResult } from "../src/types.ts";
 
 function registerMockTool() {
 	const tools: Record<string, unknown>[] = [];
@@ -224,4 +224,103 @@ test("commands and config path are first-party", () => {
 	assert.equal(DEFAULT_ASK_CONFIG.behaviour.confirmDismissWhenDirty, true);
 	assert.equal(DEFAULT_ASK_CONFIG.behaviour.doublePressReviewShortcuts, true);
 	assert.deepEqual(DEFAULT_ASK_CONFIG.keymaps.main.changeQuestionType, ["t"]);
+});
+
+const CHOICE = {
+	id: "db",
+	label: "DB",
+	prompt: "Which database?",
+	options: [
+		{ value: "pg", label: "Postgres" },
+		{ value: "sqlite", label: "SQLite" },
+	],
+};
+
+test("fallback must name an option value and is refused on text questions", () => {
+	assert.deepEqual(
+		collectValidationIssues({ questions: [{ ...CHOICE, fallback: "sqlite" }] }),
+		[]
+	);
+	assert.deepEqual(
+		collectValidationIssues({
+			questions: [{ ...CHOICE, fallback: "mysql" }],
+		}).map((issue) => issue.path),
+		["questions[0].fallback"]
+	);
+	assert.deepEqual(
+		collectValidationIssues({
+			questions: [
+				{ id: "why", prompt: "Why?", type: "text", fallback: "because" },
+			],
+		}).map((issue) => issue.path),
+		["questions[0].fallback"]
+	);
+	assert.equal(
+		createInitialState({ questions: [{ ...CHOICE, fallback: " sqlite " }] })
+			.questions[0]?.fallback,
+		"sqlite"
+	);
+});
+
+test("timeoutSeconds must be positive and finite; background must be boolean", () => {
+	for (const timeoutSeconds of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+		assert.deepEqual(
+			collectValidationIssues({ questions: [CHOICE], timeoutSeconds }).map(
+				(issue) => issue.path
+			),
+			["timeoutSeconds"]
+		);
+	}
+	assert.deepEqual(
+		collectValidationIssues({
+			questions: [CHOICE],
+			timeoutSeconds: 45,
+			background: true,
+		}),
+		[]
+	);
+	assert.deepEqual(
+		collectValidationIssues({
+			questions: [CHOICE],
+			background: "yes",
+		} as unknown as AskParams).map((issue) => issue.path),
+		["background"]
+	);
+});
+
+function receipt(overrides: Partial<AskResult>): AskResult {
+	return {
+		...toAskResult(createInitialState({ questions: [CHOICE] })),
+		requestId: "ask-1",
+		...overrides,
+	};
+}
+
+test("queued and deferred results are receipts that carry their own rules", () => {
+	for (const status of ["queued", "deferred"] as const) {
+		const text = summarizeResult(receipt({ status }));
+		assert.ok(text.includes("ask-1"));
+		assert.ok(text.includes("not an answer or approval"));
+		assert.ok(text.includes("Do not ask again"));
+		assert.ok(!text.includes("(no answer)"));
+	}
+});
+
+test("expired results name applied fallbacks and deny approval", () => {
+	const text = summarizeResult(
+		receipt({
+			status: "expired",
+			answers: { db: { values: ["sqlite"], labels: ["SQLite"] } },
+			unanswered: [],
+			expired: ["db"],
+		})
+	);
+	assert.ok(text.includes("DB: SQLite"));
+	assert.ok(text.includes("Fallback applied for: DB."));
+	assert.ok(text.includes("not user approval"));
+	assert.ok(text.includes("keep irreversible actions blocked"));
+
+	const none = summarizeResult(receipt({ status: "expired", expired: [] }));
+	assert.ok(none.includes("DB: (no answer)"));
+	assert.ok(none.includes("No fallback was applied."));
 });

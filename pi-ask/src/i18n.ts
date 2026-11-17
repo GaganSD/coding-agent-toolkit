@@ -29,7 +29,22 @@ export interface AskStrings {
 	cancelledSummary: string;
 	/** One-line summary returned to the model when the user submits. */
 	submittedSummary: string;
+	/** Receipt returned to the model for a background call. */
+	queuedSummary: (requestId: string) => string;
+	/** Receipt returned to the model when the user chose "answer later". */
+	deferredSummary: (requestId: string) => string;
+	/** Trailer returned to the model after the time limit lapsed. */
+	expiredSummary: (fallbackLabels: string[]) => string;
+	/** Short transcript labels for the non-answer statuses. */
+	queuedLabel: string;
+	deferredLabel: string;
+	expiredLabel: string;
 }
+
+const EN_RECEIPT_RULES =
+	"This is a receipt, not an answer or approval. Continue only with work that does not depend on it; the answer arrives in a later message. Do not ask again.";
+const ZH_RECEIPT_RULES =
+	"这只是回执，不是回答，也不是批准。只继续不依赖该回答的工作；回答会在之后的消息中送达。不要重复提问。";
 
 const EN_STRINGS: AskStrings = {
 	backTo: (label) => `← Back to ${label}`,
@@ -44,6 +59,21 @@ const EN_STRINGS: AskStrings = {
 	recommendedMarker: "(Recommended)",
 	cancelledSummary: "User cancelled the ask flow",
 	submittedSummary: "User submitted the ask flow",
+	queuedSummary: (requestId) =>
+		`Queued as ${requestId}. ${EN_RECEIPT_RULES}`,
+	deferredSummary: (requestId) =>
+		`User will answer later (${requestId}). ${EN_RECEIPT_RULES}`,
+	expiredSummary: (fallbackLabels) =>
+		[
+			"No response within the time limit.",
+			fallbackLabels.length > 0
+				? `Fallback applied for: ${fallbackLabels.join(", ")}.`
+				: "No fallback was applied.",
+			"A fallback is your own assumption, not user approval; keep irreversible actions blocked. The user may still correct it.",
+		].join(" "),
+	queuedLabel: "Queued",
+	deferredLabel: "Answer later",
+	expiredLabel: "Expired",
 };
 
 const ZH_STRINGS: AskStrings = {
@@ -59,6 +89,20 @@ const ZH_STRINGS: AskStrings = {
 	recommendedMarker: "（推荐）",
 	cancelledSummary: "用户取消了提问流程",
 	submittedSummary: "用户提交了提问流程",
+	queuedSummary: (requestId) => `已排队，编号 ${requestId}。${ZH_RECEIPT_RULES}`,
+	deferredSummary: (requestId) =>
+		`用户稍后回答（${requestId}）。${ZH_RECEIPT_RULES}`,
+	expiredSummary: (fallbackLabels) =>
+		[
+			"用户未在时限内回应。",
+			fallbackLabels.length > 0
+				? `已对以下问题应用备选项：${fallbackLabels.join("、")}。`
+				: "没有应用任何备选项。",
+			"备选项只是你自己的假设，不是用户批准；不可逆的操作仍须保持阻止。用户之后仍可更正。",
+		].join(""),
+	queuedLabel: "已排队",
+	deferredLabel: "稍后回答",
+	expiredLabel: "已超时",
 };
 
 /** Strings for PI_ASK_LOCALE; any zh* tag picks Simplified Chinese. */

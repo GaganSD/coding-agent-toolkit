@@ -26,10 +26,18 @@ export function collectValidationIssues(
 ): AskValidationIssue[] {
 	const collector = createIssueCollector();
 	validateQuestions(params.questions, collector);
+	validateCallOptions(params, collector);
 	return collector.issues;
 }
 
-const QUESTION_SHAPE_KEYS = ["id", "label", "prompt", "type", "options"];
+const QUESTION_SHAPE_KEYS = [
+	"id",
+	"label",
+	"prompt",
+	"type",
+	"options",
+	"fallback",
+];
 
 export function prepareAskParams(input: unknown): unknown {
 	if (!isRecord(input)) {
@@ -119,12 +127,14 @@ function normalizeQuestion(
 	index: number
 ): AskQuestion {
 	const type = normalizeQuestionType(question.type);
+	const fallback = normalizeFallback(question.fallback);
 	return {
 		id: question.id.trim(),
 		label: question.label?.trim() || `Q${index + 1}`,
 		prompt: question.prompt.trim(),
 		type,
 		options: type === "text" ? [] : (question.options ?? []).map(normalizeOption),
+		...(fallback === undefined ? {} : { fallback }),
 	};
 }
 
@@ -137,6 +147,30 @@ function normalizeOption(option: AskOption): AskOption {
 			? {}
 			: { recommended: option.recommended }),
 	};
+}
+
+function normalizeFallback(value: unknown): string | undefined {
+	return typeof value === "string" ? value.trim() : undefined;
+}
+
+function validateCallOptions(params: AskParams, collector: IssueCollector) {
+	const { background, timeoutSeconds } = params;
+	if (background !== undefined && typeof background !== "boolean") {
+		collector.add("background", "background must be true or false");
+	}
+	if (
+		timeoutSeconds !== undefined &&
+		!(
+			typeof timeoutSeconds === "number" &&
+			Number.isFinite(timeoutSeconds) &&
+			timeoutSeconds > 0
+		)
+	) {
+		collector.add(
+			"timeoutSeconds",
+			"timeoutSeconds must be a positive number of seconds"
+		);
+	}
 }
 
 function validateQuestions(
@@ -199,6 +233,12 @@ function validateQuestion(
 				`Question ${questionNumber}: text questions have no options`
 			);
 		}
+		if (question.fallback !== undefined) {
+			collector.add(
+				`${questionPath}.fallback`,
+				`Question ${questionNumber}: text questions cannot have a fallback`
+			);
+		}
 		return;
 	}
 
@@ -219,6 +259,16 @@ function validateQuestion(
 			questionNumber,
 			collector,
 			`${questionPath}.options[${optionIndex}]`
+		);
+	}
+
+	if (
+		question.fallback !== undefined &&
+		!optionValues.has(normalizeFallback(question.fallback) ?? "")
+	) {
+		collector.add(
+			`${questionPath}.fallback`,
+			`Question ${questionNumber}: fallback ${JSON.stringify(question.fallback)} must match an option value`
 		);
 	}
 }
