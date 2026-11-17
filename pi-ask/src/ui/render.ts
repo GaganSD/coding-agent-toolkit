@@ -56,7 +56,7 @@ export function renderAskScreen(args: {
 	});
 
 	if (isSubmitTab(state)) {
-		renderSubmitScreen(lines, state, theme, width, reviewShortcutHint);
+		renderSubmitScreen(lines, state, theme, width, reviewShortcutHint, editor);
 	} else if (question) {
 		renderQuestionScreen({
 			lines,

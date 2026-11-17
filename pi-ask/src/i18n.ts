@@ -29,6 +29,14 @@ export interface AskStrings {
 	cancelledSummary: string;
 	/** One-line summary returned to the model when the user submits. */
 	submittedSummary: string;
+	/** The user cancelled and said why. */
+	cancelledWithComment: (comment: string) => string;
+	/** Appended to an answer line for a question the user skipped. */
+	skippedMark: string;
+	/** Trailer naming the skipped questions and what a skip means. */
+	skippedSummary: (labels: string[]) => string;
+	/** The reason line of a delivered cancellation. */
+	cancelReason: (comment: string) => string;
 	/** Receipt returned to the model for a background call. */
 	queuedSummary: (requestId: string, pending?: number) => string;
 	/** Receipt returned to the model when the user chose "answer later". */
@@ -94,6 +102,10 @@ function count(value: number, noun: string): string {
 	return `${value} ${noun}${value === 1 ? "" : "s"}`;
 }
 
+function oneLine(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
 function formRef(requestId: string, title?: string): string {
 	return title ? `${requestId} (${title})` : requestId;
 }
@@ -111,6 +123,12 @@ const EN_STRINGS: AskStrings = {
 	recommendedMarker: "(Recommended)",
 	cancelledSummary: "User cancelled the ask flow",
 	submittedSummary: "User submitted the ask flow",
+	cancelledWithComment: (comment) =>
+		`User cancelled the ask flow. Reason: "${oneLine(comment)}". Cancellation is not approval; keep risky actions blocked.`,
+	skippedMark: "(skipped by the user)",
+	skippedSummary: (labels) =>
+		`The user skipped: ${labels.join(", ")}. A skip declines the question: it is not approval and not an answer, so do not assume one.`,
+	cancelReason: (comment) => `The user's reason: "${oneLine(comment)}".`,
 	queuedSummary: (requestId, pending) =>
 		`Queued as ${requestId}${
 			pending && pending > 1 ? ` (${pending} forms waiting)` : ""
@@ -184,6 +202,12 @@ const ZH_STRINGS: AskStrings = {
 	recommendedMarker: "（推荐）",
 	cancelledSummary: "用户取消了提问流程",
 	submittedSummary: "用户提交了提问流程",
+	cancelledWithComment: (comment) =>
+		`用户取消了提问流程。原因：“${oneLine(comment)}”。取消不代表批准；有风险的操作仍须保持阻止。`,
+	skippedMark: "（用户已跳过）",
+	skippedSummary: (labels) =>
+		`用户跳过了：${labels.join("、")}。跳过表示拒绝回答该问题：它不是批准，也不是回答，不要自行假定答案。`,
+	cancelReason: (comment) => `用户给出的原因：“${oneLine(comment)}”。`,
 	queuedSummary: (requestId, pending) =>
 		`已排队，编号 ${requestId}${
 			pending && pending > 1 ? `（共 ${pending} 个表单待回答）` : ""

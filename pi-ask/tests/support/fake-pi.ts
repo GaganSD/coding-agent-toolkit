@@ -92,6 +92,7 @@ export function fakePi(
 	};
 	let focus: FakeComponent | null = editor;
 	const tui = {
+		terminal: { rows: 40, columns: 80 },
 		requestRender() {},
 		getFocusedComponent: () => focus,
 		setFocus(component: FakeComponent | null) {

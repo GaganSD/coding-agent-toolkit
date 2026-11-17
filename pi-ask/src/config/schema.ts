@@ -30,6 +30,7 @@ const AskConfigKeymapsSchema = Type.Object({
 	}),
 	main: Type.Object({
 		cancel: Type.Optional(AskKeyBindingSchema),
+		cancelComment: Type.Optional(AskKeyBindingSchema),
 		changeQuestionType: Type.Optional(AskKeyBindingSchema),
 		confirm: Type.Optional(AskKeyBindingSchema),
 		nextOption: Type.Optional(AskKeyBindingSchema),
@@ -38,6 +39,7 @@ const AskConfigKeymapsSchema = Type.Object({
 		previousOption: Type.Optional(AskKeyBindingSchema),
 		previousTab: Type.Optional(AskKeyBindingSchema),
 		questionNote: Type.Optional(AskKeyBindingSchema),
+		skip: Type.Optional(AskKeyBindingSchema),
 		toggle: Type.Optional(AskKeyBindingSchema),
 	}),
 	editor: Type.Object({
@@ -124,6 +126,8 @@ export interface AskConfigKeymaps {
 	};
 	main: {
 		cancel: string[];
+		/** Review tab: cancel the form and say why. */
+		cancelComment: string[];
 		changeQuestionType: string[];
 		confirm: string[];
 		nextOption: string[];
@@ -132,6 +136,8 @@ export interface AskConfigKeymaps {
 		previousOption: string[];
 		previousTab: string[];
 		questionNote: string[];
+		/** Skip just the current question. Never fires inside a text editor. */
+		skip: string[];
 		toggle: string[];
 	};
 	noteEditor: {

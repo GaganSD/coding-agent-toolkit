@@ -10,9 +10,14 @@ export function formatResultLines(
 
 	let hasPresentationOverride = false;
 	const fallbacks = new Set(result.expired ?? []);
+	const skipped = new Set(result.skipped ?? []);
 
 	for (const question of result.questions) {
 		const answer = result.answers[question.id];
+		if (skipped.has(question.id)) {
+			lines.push(formatSkippedLine(question.label, options.mode));
+			continue;
+		}
 		if (!answer) {
 			lines.push(formatUnansweredLine(question.label, options.mode));
 			continue;
@@ -51,6 +56,16 @@ export function formatResultLines(
 /** An auto-applied answer says so on its own line, wherever it is read. */
 function markFallback(line: string, isFallback: boolean): string {
 	return isFallback ? `${line} ${askStrings().fallbackMark}` : line;
+}
+
+function formatSkippedLine(
+	questionLabel: string,
+	mode: "summary" | "render"
+): string {
+	const mark = askStrings().skippedMark;
+	return mode === "summary"
+		? `${questionLabel}: ${mark}`
+		: `⊘ ${questionLabel}: ${mark}`;
 }
 
 function formatUnansweredLine(

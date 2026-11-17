@@ -9,6 +9,7 @@ export function toDraftSnapshot(state: AskState): AskDraftSnapshot {
 	);
 	return {
 		answers: structuredClone(state.answers),
+		...(state.skipped?.length ? { skipped: [...state.skipped] } : {}),
 		activeTabIndex: state.activeTabIndex,
 		...(typeChanged ? { questions: structuredClone(state.questions) } : {}),
 	};
@@ -42,10 +43,12 @@ export function applyDraftSnapshot(
 		typeof tab === "number" && Number.isInteger(tab)
 			? Math.max(0, Math.min(tab, ids.length))
 			: state.activeTabIndex;
+	const skipped = ids.filter((id) => draft.skipped?.includes(id));
 	return {
 		...state,
 		questions,
 		answers: structuredClone(answers),
+		...(skipped.length > 0 ? { skipped } : {}),
 		activeTabIndex,
 		view: activeTabIndex >= ids.length ? submitView() : navigateView(),
 	};
@@ -53,5 +56,9 @@ export function applyDraftSnapshot(
 
 /** Changes in this key are worth a journal entry; cursor moves are not. */
 export function draftContentKey(draft: AskDraftSnapshot): string {
-	return JSON.stringify([draft.answers, draft.questions ?? null]);
+	return JSON.stringify([
+		draft.answers,
+		draft.questions ?? null,
+		draft.skipped ?? null,
+	]);
 }

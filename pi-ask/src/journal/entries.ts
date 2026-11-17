@@ -39,6 +39,8 @@ export interface AskFormSnapshot {
 export interface AskDraftSnapshot {
 	activeTabIndex?: number;
 	answers: Record<string, AskStateAnswer>;
+	/** Question ids the user skipped. */
+	skipped?: string[];
 	/** Present only when the user changed a question's presented type. */
 	questions?: AskQuestion[];
 }

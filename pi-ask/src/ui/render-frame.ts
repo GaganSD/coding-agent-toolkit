@@ -72,7 +72,11 @@ function renderTabs(state: AskState, theme: Theme, width: number): string {
 	const tabs = state.questions.map((question, index) => {
 		const active = state.activeTabIndex === index;
 		const answered = isQuestionAnswered(state, question.id);
-		const marker = answered ? "☒" : "☐";
+		const skipped = state.skipped?.includes(question.id) === true;
+		let marker = answered ? "☒" : "☐";
+		if (skipped) {
+			marker = "⊘";
+		}
 		const text = ` ${marker} ${question.label} `;
 		return {
 			text,
@@ -209,6 +213,8 @@ function renderFooter(
 	let context: FooterKeymapContext;
 	if (state.view.kind === "input") {
 		context = "input";
+	} else if (state.view.kind === "comment") {
+		context = "comment";
 	} else if (state.view.kind === "note") {
 		context = "note";
 	} else if (isSubmitTab(state)) {

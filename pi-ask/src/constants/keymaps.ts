@@ -80,6 +80,7 @@ export interface AskKeyBinding {
 }
 
 export type FooterKeymapContext =
+	| "comment"
 	| "default"
 	| "multi"
 	| "submit"
@@ -104,6 +105,8 @@ export const DEFAULT_ASK_KEYMAPS: AskConfigKeymaps = {
 		previousOption: ["up"],
 		optionNote: ["n"],
 		questionNote: ["shift+n"],
+		skip: ["s"],
+		cancelComment: ["c"],
 	},
 	editor: {
 		submit: ["enter"],
@@ -147,6 +150,8 @@ const DESCRIPTIONS: Record<AskKeymapContext, Record<string, string>> = {
 		previousOption: "Move to previous option/action",
 		optionNote: "Edit selected option note",
 		questionNote: "Edit question note",
+		skip: "Skip the current question without cancelling",
+		cancelComment: "Cancel the form with a comment (review tab)",
 	},
 	editor: {
 		submit: "Submit custom answer",
@@ -318,6 +323,10 @@ export function renderFooterKeymaps(
 			footerHint(editor.close, "close"),
 			footerHint(global.settings, "settings"),
 		],
+		comment: [
+			footerHint(noteEditor.save, "cancel with comment"),
+			footerHint(noteEditor.close, "back"),
+		],
 		note: [
 			footerHint(noteEditor.save, "save"),
 			footerHint(noteEditor.close, "close"),
@@ -326,12 +335,14 @@ export function renderFooterKeymaps(
 		submit: [
 			footerHint(main.confirm, "confirm"),
 			footerHint(main.cancel, "cancel"),
+			footerHint(main.cancelComment, "cancel with comment"),
 			footerHint(global.settings, "settings"),
 		],
 		multi: [
 			footerHint(main.toggle, "toggle"),
 			footerHint(main.confirm, "continue"),
 			footerHint(main.optionNote, "note", noteNavigationLabel),
+			footerHint(main.skip, "skip"),
 			footerHint(main.cancel, "dismiss"),
 			footerHint(
 				main.changeQuestionType,
@@ -343,6 +354,7 @@ export function renderFooterKeymaps(
 		default: [
 			footerHint(main.confirm, "confirm"),
 			footerHint(main.optionNote, "note", noteNavigationLabel),
+			footerHint(main.skip, "skip"),
 			footerHint(main.cancel, "dismiss"),
 			footerHint(
 				main.changeQuestionType,

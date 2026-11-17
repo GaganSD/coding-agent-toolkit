@@ -24,7 +24,7 @@ export type ReviewAnswer = AskResult["answers"][string] & {
 
 export function toAskResult(
 	state: AskState,
-	status?: AskResultStatus
+	requested?: AskResultStatus
 ): AskResult {
 	const answers = Object.fromEntries(
 		Object.entries(state.answers)
@@ -33,13 +33,24 @@ export function toAskResult(
 			)
 			.filter(([, answer]) => !isResultAnswerEmpty(answer))
 	);
+	const skipped = state.questions
+		.map((question) => question.id)
+		.filter((id) => state.skipped?.includes(id));
+	// Skipped is a decision, not a gap: the two lists never overlap.
 	const unanswered = state.questions
-		.filter((question) => !isResultAnswerCommitted(answers[question.id] ?? emptyResultAnswer()))
+		.filter(
+			(question) =>
+				!(
+					skipped.includes(question.id) ||
+					isResultAnswerCommitted(answers[question.id] ?? emptyResultAnswer())
+				)
+		)
 		.map((question) => question.id);
+	const status = requested ?? resultStatusFromState(state);
 
 	return {
 		title: state.title,
-		status: status ?? resultStatusFromState(state),
+		status,
 		questions: state.questions.map((question) => ({
 			id: question.id,
 			label: question.label,
@@ -52,12 +63,18 @@ export function toAskResult(
 		})),
 		answers,
 		unanswered,
+		...(skipped.length > 0 ? { skipped } : {}),
+		...(status === "cancelled" && state.cancelComment
+			? { comment: state.cancelComment }
+			: {}),
 	};
 }
 
 export function summarizeResult(result: AskResult): string {
 	if (result.status === "cancelled") {
-		return askStrings().cancelledSummary;
+		return result.comment
+			? askStrings().cancelledWithComment(result.comment)
+			: askStrings().cancelledSummary;
 	}
 	if (result.status === "unavailable") {
 		return "Needs user input";
@@ -75,11 +92,21 @@ export function summarizeResult(result: AskResult): string {
 	}
 
 	const lines = formatResultLines(result, { mode: "summary" });
+	if (result.skipped?.length) {
+		lines.push(askStrings().skippedSummary(skippedLabels(result)));
+	}
 	if (result.status === "expired") {
 		lines.push(askStrings().expiredSummary(expiredLabels(result)));
 		return lines.join("\n");
 	}
 	return lines.join("\n") || askStrings().submittedSummary;
+}
+
+function skippedLabels(result: AskResult): string[] {
+	const skipped = new Set(result.skipped ?? []);
+	return result.questions
+		.filter((question) => skipped.has(question.id))
+		.map((question) => question.label);
 }
 
 function expiredLabels(result: AskResult): string[] {

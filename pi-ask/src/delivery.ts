@@ -83,6 +83,7 @@ export function formatDeliveredOutcome(
 		heading = strings.expiredDelivered(requestId, result.title);
 	}
 	const fallbacks = new Set(result.expired ?? []);
+	const skipped = new Set(result.skipped ?? []);
 	// Each question is named by id and prompt: the call that asked may be
 	// far back in the context, or compacted away.
 	const lines = result.questions.map((question) => {
@@ -90,10 +91,13 @@ export function formatDeliveredOutcome(
 		if (cancelled) {
 			return asked;
 		}
+		if (skipped.has(question.id)) {
+			return `${asked}: ${strings.skippedMark}`;
+		}
 		const answer = formatAnswer(result.answers[question.id]);
 		return `${asked}: ${answer}${fallbacks.has(question.id) ? ` ${strings.fallbackMark}` : ""}`;
 	});
-	const trailer = expired
+	const trailer: string[] = expired
 		? [
 				strings.expiredSummary(
 					result.questions
@@ -102,7 +106,18 @@ export function formatDeliveredOutcome(
 				),
 			]
 		: [];
-	return [heading, ...lines, ...trailer].join("\n");
+	if (skipped.size > 0 && !cancelled) {
+		trailer.push(
+			strings.skippedSummary(
+				result.questions
+					.filter((question) => skipped.has(question.id))
+					.map((question) => question.label)
+			)
+		);
+	}
+	const reason =
+		cancelled && result.comment ? [strings.cancelReason(result.comment)] : [];
+	return [heading, ...reason, ...lines, ...trailer].join("\n");
 }
 
 function formatAnswer(answer: AskResultAnswer | undefined): string {

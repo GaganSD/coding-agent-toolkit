@@ -11,7 +11,9 @@ export function renderResultText(result: AskResult): string {
 		return "Invalid tool payload";
 	}
 	if (result.status === "cancelled") {
-		return CANCELLED_RESULT_TEXT;
+		return result.comment
+			? `${CANCELLED_RESULT_TEXT}: ${result.comment}`
+			: CANCELLED_RESULT_TEXT;
 	}
 	if (result.status === "unavailable") {
 		return "Needs user input";

@@ -111,7 +111,9 @@ export type ViewState =
 	| { kind: "navigate" }
 	| { kind: "submit" }
 	| { kind: "input"; questionId: string }
-	| { kind: "note"; questionId: string; optionValue?: string };
+	| { kind: "note"; questionId: string; optionValue?: string }
+	/** Typing why the form is being cancelled, on the review tab. */
+	| { kind: "comment" };
 
 export interface AskState {
 	activeOptionIndex: number;

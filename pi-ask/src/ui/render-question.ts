@@ -22,6 +22,17 @@ export function renderQuestionScreen(context: QuestionRenderContext) {
 	const model = buildQuestionScreenModel(context);
 
 	pushWrappedText(lines, question.prompt, width, theme, "text", " ", " ");
+	if (context.state.skipped?.includes(question.id)) {
+		pushWrappedText(
+			lines,
+			UI_TEXT.skippedQuestion,
+			width,
+			theme,
+			"warning",
+			" ",
+			" "
+		);
+	}
 	renderQuestionNote(lines, model.questionNote, context);
 
 	for (const row of model.rows) {

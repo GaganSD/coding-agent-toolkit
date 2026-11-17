@@ -19,6 +19,8 @@ export type AskInputCommand =
 	| { kind: "confirm" }
 	| { kind: "cancel" }
 	| { kind: "changeQuestionType" }
+	| { kind: "skipQuestion" }
+	| { kind: "cancelWithComment" }
 	| { kind: "dismiss" }
 	| { kind: "later" }
 	| { kind: "showSettings" }
@@ -50,7 +52,7 @@ export function getInputCommand(
 	if (state.view.kind === "input") {
 		return getAnswerEditorInputCommand(config, data, editingText);
 	}
-	if (state.view.kind === "note") {
+	if (state.view.kind === "note" || state.view.kind === "comment") {
 		return getNoteEditorInputCommand(config, data, editingText);
 	}
 
@@ -157,6 +159,15 @@ function getNavigationInputCommand(
 	}
 	if (matchesBinding(data, bindings.optionNote)) {
 		return { kind: "openOptionNote" };
+	}
+
+	// Plain keys, so only here: no text editor is open in this view.
+	if (isSubmitTab(state)) {
+		if (matchesBinding(data, bindings.cancelComment)) {
+			return { kind: "cancelWithComment" };
+		}
+	} else if (matchesBinding(data, bindings.skip)) {
+		return { kind: "skipQuestion" };
 	}
 
 	if (!isSubmitTab(state)) {

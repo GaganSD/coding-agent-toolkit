@@ -16,5 +16,9 @@ export function shouldConfirmDirtyDismiss(args: {
 }
 
 export function hasDirtyFlowState(state: AskState, editingText = ""): boolean {
-	return Object.keys(state.answers).length > 0 || editingText.length > 0;
+	return (
+		Object.keys(state.answers).length > 0 ||
+		(state.skipped?.length ?? 0) > 0 ||
+		editingText.length > 0
+	);
 }

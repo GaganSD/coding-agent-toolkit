@@ -32,8 +32,10 @@ import {
 import {
 	applyNumberShortcut,
 	confirmCurrentSelection,
+	enterCancelComment,
 	enterOptionNoteMode,
 	enterQuestionNoteMode,
+	skipCurrentQuestion,
 	toggleCurrentMultiOption,
 } from "../state/transitions.ts";
 import { isEditingView } from "../state/view.ts";
@@ -303,7 +305,10 @@ function isNativeEditorSubmitEnabled(controller: AskFlowController): boolean {
 	if (controller.state.view.kind === "input") {
 		return controller.config.keymaps.editor.submit.includes("enter");
 	}
-	if (controller.state.view.kind === "note") {
+	if (
+		controller.state.view.kind === "note" ||
+		controller.state.view.kind === "comment"
+	) {
 		return controller.config.keymaps.noteEditor.save.includes("enter");
 	}
 	return true;
@@ -368,6 +373,16 @@ function handleNavigationCommand(
 		case "changeQuestionType":
 			clearPendingConfirms(controller, { keepTypeChange: true });
 			handleChangeQuestionType(controller);
+			return;
+		case "skipQuestion":
+			clearPendingConfirms(controller);
+			commitState(controller, skipCurrentQuestion(controller.state));
+			return;
+		case "cancelWithComment":
+			clearPendingConfirms(controller);
+			commitState(controller, enterCancelComment(controller.state), {
+				syncSelection: false,
+			});
 			return;
 		case "openQuestionNote":
 			clearPendingConfirms(controller);
