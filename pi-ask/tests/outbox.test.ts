@@ -134,3 +134,29 @@ test("a delivered cancellation lists what was asked and none of the draft", () =
 	);
 	assert.doesNotMatch(text, /Postgres|boring/);
 });
+
+test("a form that timed out is delivered with its fallbacks marked and denied as approval", () => {
+	const text = formatDeliveredOutcome({
+		...RESULT,
+		status: "expired",
+		expired: ["db"],
+		answers: { db: { values: ["pg"], labels: ["Postgres"] } },
+	});
+	assert.match(text, /^Your earlier ask_user form ask-1 \(Storage\) timed out\./);
+	assert.match(text, /- db "Which database\?": Postgres \[pg\] \[fallback: not chosen by the user\]/);
+	assert.match(text, /did not respond/);
+	assert.match(text, /not user approval; keep irreversible and risky actions blocked/);
+});
+
+test("a late correction says it replaces the timed-out result", () => {
+	const answered = formatDeliveredOutcome(RESULT, { correction: true });
+	assert.match(answered, /^CORRECTION: the user answered your earlier ask_user form ask-1 \(Storage\) after it timed out/);
+	assert.match(answered, /replaces the timed-out result, fallbacks included/);
+	assert.match(answered, /\(no answer\)/);
+	const cancelled = formatDeliveredOutcome(
+		{ ...RESULT, status: "cancelled" },
+		{ correction: true }
+	);
+	assert.match(cancelled, /^CORRECTION: the user cancelled/);
+	assert.match(cancelled, /fallback you applied is withdrawn/);
+});

@@ -82,6 +82,8 @@ export interface AskOutcomeEntry extends AskJournalEntryBase {
 	kind: "outcome";
 	outcomeId: string;
 	result: AskResult;
+	/** The expired outcome this one corrects (late override). */
+	supersedes?: string;
 }
 
 /**
@@ -102,16 +104,40 @@ export interface AskPanelEntry extends AskJournalEntryBase {
 	kind: "panel";
 }
 
+/** Why a form's countdown will never fire; see `state/expiry.ts`. */
+export type AskExpiryStopReason = "interaction" | "hidden";
+
+/**
+ * The form's countdown was stopped by the user. It is never restarted: a
+ * reload, resume or fork must not give a form back a clock the user stopped.
+ */
+export interface AskExpiryEntry extends AskJournalEntryBase {
+	kind: "expiry";
+	reason: AskExpiryStopReason;
+}
+
+/**
+ * The user closed an expired form without correcting it. It is no longer
+ * offered for a late override; the agent's earlier result stands.
+ */
+export interface AskDismissEntry extends AskJournalEntryBase {
+	kind: "dismiss";
+}
+
 export type AskJournalEntry =
 	| AskFormEntry
 	| AskDraftEntry
 	| AskDeferEntry
 	| AskOutcomeEntry
 	| AskDeliveredEntry
-	| AskPanelEntry;
+	| AskPanelEntry
+	| AskExpiryEntry
+	| AskDismissEntry;
 
 /** `details` of the follow-up message; also proves delivery on replay. */
 export interface AskAnswerMessageDetails {
+	/** The message corrects an earlier expired result. */
+	correction?: boolean;
 	outcomeId: string;
 	requestId: string;
 	result: AskResult;
@@ -124,6 +150,8 @@ const ENTRY_KINDS = new Set([
 	"outcome",
 	"delivered",
 	"panel",
+	"expiry",
+	"dismiss",
 ]);
 
 /** Journal data from a session entry, or undefined if it is not usable. */
@@ -160,6 +188,12 @@ export function parseJournalEntry(data: unknown): AskJournalEntry | undefined {
 			return typeof data.hidden === "boolean"
 				? (data as unknown as AskPanelEntry)
 				: undefined;
+		case "expiry":
+			return data.reason === "interaction" || data.reason === "hidden"
+				? (data as unknown as AskExpiryEntry)
+				: undefined;
+		case "dismiss":
+			return data as unknown as AskDismissEntry;
 		default:
 			return data as unknown as AskDeferEntry;
 	}

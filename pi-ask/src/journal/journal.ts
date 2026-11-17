@@ -13,6 +13,7 @@ import {
 	ASK_JOURNAL_ENTRY_TYPE,
 	ASK_JOURNAL_VERSION,
 	type AskDraftSnapshot,
+	type AskExpiryStopReason,
 	type AskFormMode,
 	type AskFormSnapshot,
 	type AskJournalEntry,
@@ -38,6 +39,10 @@ export interface AskJournal {
 	recordDelivered(requestId: string, outcomeId: string): void;
 	/** A foreground form moved to the queue ("answer later"). */
 	recordDefer(requestId: string): void;
+	/** The user closed an expired form without correcting it. */
+	recordDismiss(requestId: string): void;
+	/** The user stopped a form's countdown. It never restarts. */
+	recordExpiryStop(requestId: string, reason: AskExpiryStopReason): void;
 	/** The user hid or reopened the panel; `requestId` is the form shown. */
 	recordPanel(hidden: boolean, requestId?: string): void;
 	/** Saves an accepted form and returns its new request id. */
@@ -53,7 +58,8 @@ export interface AskJournal {
 	recordOutcome(
 		requestId: string,
 		result: AskResult,
-		channel: AskOutcomeChannel
+		channel: AskOutcomeChannel,
+		supersedes?: string
 	): AskOutcomeEntry;
 }
 
@@ -111,14 +117,21 @@ export function createAskJournal(
 		recordPanel(hidden, requestId = "") {
 			write({ kind: "panel", requestId, hidden });
 		},
-		recordOutcome(requestId, result, channel) {
+		recordOutcome(requestId, result, channel, supersedes) {
 			return write({
 				kind: "outcome",
 				requestId,
 				outcomeId: newId(),
 				channel,
 				result: { ...result, requestId },
+				...(supersedes ? { supersedes } : {}),
 			}) as AskOutcomeEntry;
+		},
+		recordDismiss(requestId) {
+			write({ kind: "dismiss", requestId });
+		},
+		recordExpiryStop(requestId, reason) {
+			write({ kind: "expiry", requestId, reason });
 		},
 		recordDelivered(requestId, outcomeId) {
 			write({ kind: "delivered", requestId, outcomeId });

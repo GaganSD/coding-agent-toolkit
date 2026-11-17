@@ -64,21 +64,45 @@ export interface AskDelivery {
 }
 
 /** Model-facing text of the follow-up message. */
-export function formatDeliveredOutcome(result: AskResult): string {
+export function formatDeliveredOutcome(
+	result: AskResult,
+	options: { correction?: boolean } = {}
+): string {
 	const requestId = result.requestId ?? "";
+	const strings = askStrings();
 	const cancelled = result.status === "cancelled";
-	const heading = cancelled
-		? askStrings().cancelDelivered(requestId, result.title)
-		: askStrings().answerDelivered(requestId, result.title);
+	const expired = result.status === "expired";
+	let heading = strings.answerDelivered(requestId, result.title);
+	if (options.correction) {
+		heading = cancelled
+			? strings.correctionCancelDelivered(requestId, result.title)
+			: strings.correctionDelivered(requestId, result.title);
+	} else if (cancelled) {
+		heading = strings.cancelDelivered(requestId, result.title);
+	} else if (expired) {
+		heading = strings.expiredDelivered(requestId, result.title);
+	}
+	const fallbacks = new Set(result.expired ?? []);
 	// Each question is named by id and prompt: the call that asked may be
 	// far back in the context, or compacted away.
 	const lines = result.questions.map((question) => {
 		const asked = `- ${question.id} "${oneLine(question.prompt)}"`;
-		return cancelled
-			? asked
-			: `${asked}: ${formatAnswer(result.answers[question.id])}`;
+		if (cancelled) {
+			return asked;
+		}
+		const answer = formatAnswer(result.answers[question.id]);
+		return `${asked}: ${answer}${fallbacks.has(question.id) ? ` ${strings.fallbackMark}` : ""}`;
 	});
-	return [heading, ...lines].join("\n");
+	const trailer = expired
+		? [
+				strings.expiredSummary(
+					result.questions
+						.filter((question) => fallbacks.has(question.id))
+						.map((question) => question.label)
+				),
+			]
+		: [];
+	return [heading, ...lines, ...trailer].join("\n");
 }
 
 function formatAnswer(answer: AskResultAnswer | undefined): string {
@@ -105,14 +129,16 @@ function oneLine(text: string): string {
 }
 
 function answerMessage(outcome: AskOutcomeEntry) {
+	const correction = !!outcome.supersedes;
 	const details: AskAnswerMessageDetails = {
+		...(correction ? { correction } : {}),
 		requestId: outcome.requestId,
 		outcomeId: outcome.outcomeId,
 		result: outcome.result,
 	};
 	return {
 		customType: ASK_ANSWER_MESSAGE_TYPE,
-		content: formatDeliveredOutcome(outcome.result),
+		content: formatDeliveredOutcome(outcome.result, { correction }),
 		display: true,
 		details,
 	};
@@ -230,10 +256,14 @@ export function renderAskAnswerMessage(
 		return;
 	}
 	const strings = askStrings();
-	const label =
-		result.status === "cancelled"
-			? strings.cancelledCardLabel
-			: strings.answeredCardLabel;
+	let label = strings.answeredCardLabel;
+	if (details?.correction) {
+		label = strings.correctedCardLabel;
+	} else if (result.status === "cancelled") {
+		label = strings.cancelledCardLabel;
+	} else if (result.status === "expired") {
+		label = strings.expiredCardLabel;
+	}
 	const subject = result.title ?? result.requestId ?? details?.requestId ?? "";
 	const heading =
 		theme.fg("toolTitle", theme.bold("ask_user ")) +

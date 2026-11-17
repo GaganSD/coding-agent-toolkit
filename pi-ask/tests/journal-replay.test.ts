@@ -290,3 +290,68 @@ test("panel visibility follows the latest panel entry on the branch", () => {
 	};
 	assert.equal(replayJournal([...b.entries, malformed]).panelHidden, false);
 });
+
+test("an expired form joins the queue only when the user reopened it", () => {
+	const b = branch();
+	const requestId = b.form("background");
+	b.journal.recordOutcome(requestId, result("expired"), "message");
+	const state = replayJournal(b.entries);
+	assert.deepEqual(pendingForms(state), []);
+	assert.deepEqual(
+		pendingForms(state, new Set(), new Set([requestId])).map(
+			(record) => record.requestId
+		),
+		[requestId]
+	);
+});
+
+test("a dismissed or stale expired form is no longer offered", () => {
+	const b = branch();
+	const dismissed = b.form("background");
+	const stale = b.form("background");
+	const fresh = b.form("background");
+	b.journal.recordOutcome(dismissed, result("expired"), "message");
+	b.journal.recordOutcome(stale, result("expired"), "message");
+	const staleAt = b.entries.length;
+	for (let index = 0; index < 5000; index++) {
+		b.message("user");
+	}
+	b.journal.recordOutcome(fresh, result("expired"), "message");
+	b.journal.recordDismiss(dismissed);
+	const state = replayJournal(b.entries);
+	const offered = (now: number, maxAgeMs: number) =>
+		reopenableForms(state, { now, maxAgeMs }).map((record) => record.requestId);
+	const freshAt = 1000 + b.entries.length - 2;
+	assert.ok(staleAt < freshAt);
+	assert.deepEqual(offered(freshAt + 1, 3000), [fresh]);
+	assert.deepEqual(offered(freshAt + 1, 10_000), [stale, fresh]);
+	assert.deepEqual(
+		reopenableForms(state).map((record) => record.requestId),
+		[stale, fresh],
+		"without an offer window only dismissal ends it"
+	);
+});
+
+test("a correction names the outcome it supersedes and ends the offer", () => {
+	const b = branch();
+	const requestId = b.form("background");
+	const expired = b.journal.recordOutcome(requestId, result("expired"), "message");
+	const correction = b.journal.recordOutcome(
+		requestId,
+		result(),
+		"message",
+		expired.outcomeId
+	);
+	const state = replayJournal(b.entries);
+	assert.equal(getRecord(state, requestId)?.outcome?.supersedes, expired.outcomeId);
+	assert.equal(correction.supersedes, expired.outcomeId);
+	assert.deepEqual(reopenableForms(state), []);
+});
+
+test("a stopped countdown is remembered across a rebuild", () => {
+	const b = branch();
+	const requestId = b.form("background");
+	assert.equal(getRecord(replayJournal(b.entries), requestId)?.clockStopped, false);
+	b.journal.recordExpiryStop(requestId, "interaction");
+	assert.equal(getRecord(replayJournal(b.entries), requestId)?.clockStopped, true);
+});

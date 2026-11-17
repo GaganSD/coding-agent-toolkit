@@ -27,11 +27,15 @@ export interface AskJournalRecord {
 	createdAt: number;
 	/** A foreground form the user sent to the queue with "answer later". */
 	deferred: boolean;
+	/** The user stopped this form's countdown; it never runs again. */
+	clockStopped: boolean;
 	/** Outcome ids that already reached the agent as a follow-up message. */
 	delivered: ReadonlySet<string>;
 	draft?: AskDraftSnapshot;
 	form: AskFormSnapshot;
 	mode: AskFormMode;
+	/** The user closed an expired form without correcting it. */
+	offerDismissed: boolean;
 	/** Latest outcome; undefined while the form is still open. */
 	outcome?: AskOutcomeEntry;
 	requestId: string;
@@ -97,6 +101,8 @@ export function replayJournal(
 					form: journalEntry.form,
 					toolCallId: journalEntry.toolCallId,
 					deferred: false,
+					clockStopped: false,
+					offerDismissed: false,
 					delivered: new Set(),
 					supersededByMessage: false,
 				});
@@ -117,6 +123,14 @@ export function replayJournal(
 				break;
 			case "outcome":
 				record.outcome = journalEntry;
+				// A new outcome is a new life: an earlier dismissal does not carry.
+				record.offerDismissed = false;
+				break;
+			case "expiry":
+				record.clockStopped = true;
+				break;
+			case "dismiss":
+				record.offerDismissed = true;
 				break;
 			case "delivered":
 				deliveredOutcomeIds.set(journalEntry.outcomeId, journalEntry.requestId);
@@ -173,20 +187,37 @@ export function queuedForms(state: AskJournalState): AskJournalRecord[] {
  */
 export function pendingForms(
 	state: AskJournalState,
-	live: ReadonlySet<string> = new Set()
+	live: ReadonlySet<string> = new Set(),
+	reopened: ReadonlySet<string> = new Set()
 ): AskJournalRecord[] {
 	const waiting = new Set(
 		[...queuedForms(state), ...interruptedForms(state)]
 			.filter((record) => record.deferred || !live.has(record.requestId))
 			.map((record) => record.requestId)
 	);
+	// An expired form joins the queue only once the user asked for it.
+	for (const record of reopenableForms(state)) {
+		if (reopened.has(record.requestId)) {
+			waiting.add(record.requestId);
+		}
+	}
 	return state.records.filter((record) => waiting.has(record.requestId));
 }
 
-/** Expired forms: resolved by fallback, still open to a late correction. */
-export function reopenableForms(state: AskJournalState): AskJournalRecord[] {
+/**
+ * Expired forms: resolved by fallback, still open to a late correction. They
+ * are offered until the user corrects or dismisses them, or `offer` runs out
+ * (`maxAgeMs` after the expiry, as stamped on the outcome).
+ */
+export function reopenableForms(
+	state: AskJournalState,
+	offer?: { maxAgeMs: number; now: number }
+): AskJournalRecord[] {
 	return state.records.filter(
-		(record) => record.outcome?.result.status === "expired"
+		(record) =>
+			record.outcome?.result.status === "expired" &&
+			!record.offerDismissed &&
+			(!offer || offer.now - record.outcome.at <= offer.maxAgeMs)
 	);
 }
 

@@ -41,6 +41,12 @@ export interface AskStrings {
 	answerDelivered: (requestId: string, title?: string) => string;
 	/** Follow-up message for a form cancelled after its tool call ended. */
 	cancelDelivered: (requestId: string, title?: string) => string;
+	/** Heading of the follow-up message for a form that timed out while queued. */
+	expiredDelivered: (requestId: string, title?: string) => string;
+	/** Heading when the user answers a form that had timed out (late override). */
+	correctionDelivered: (requestId: string, title?: string) => string;
+	/** Heading when the user cancels a form that had timed out. */
+	correctionCancelDelivered: (requestId: string, title?: string) => string;
 	/** Shown to the user when an interrupted form reopens. */
 	recoveredNotice: string;
 	/** Line under the editor while forms wait in the queue. */
@@ -61,6 +67,8 @@ export interface AskStrings {
 	/** Transcript card headings for a delivered answer or cancellation. */
 	answeredCardLabel: string;
 	cancelledCardLabel: string;
+	correctedCardLabel: string;
+	expiredCardLabel: string;
 	/** Short transcript labels for the non-answer statuses. */
 	queuedLabel: string;
 	deferredLabel: string;
@@ -112,6 +120,12 @@ const EN_STRINGS: AskStrings = {
 		`User answered your earlier ask_user form ${formRef(requestId, title)}:`,
 	cancelDelivered: (requestId, title) =>
 		`User cancelled your earlier ask_user form ${formRef(requestId, title)}. Cancellation is not approval; keep risky actions blocked.`,
+	expiredDelivered: (requestId, title) =>
+		`Your earlier ask_user form ${formRef(requestId, title)} timed out.`,
+	correctionDelivered: (requestId, title) =>
+		`CORRECTION: the user answered your earlier ask_user form ${formRef(requestId, title)} after it timed out. This replaces the timed-out result, fallbacks included. A question marked (no answer) has none: do not rely on a fallback for it.`,
+	correctionCancelDelivered: (requestId, title) =>
+		`CORRECTION: the user cancelled your earlier ask_user form ${formRef(requestId, title)} after it timed out. Any fallback you applied is withdrawn. Cancellation is not approval; keep risky actions blocked.`,
 	recoveredNotice: "Reopened a question left unanswered when Pi last stopped",
 	pendingIndicator: ({ focused, forms, key, questions }) =>
 		[
@@ -130,6 +144,8 @@ const EN_STRINGS: AskStrings = {
 		"This Pi version cannot focus the question panel; update Pi to answer queued questions",
 	answeredCardLabel: "answered",
 	cancelledCardLabel: "cancelled",
+	correctedCardLabel: "corrected",
+	expiredCardLabel: "timed out",
 	queuedLabel: "Queued",
 	deferredLabel: "Answer later",
 	expiredLabel: "Expired",
@@ -167,6 +183,12 @@ const ZH_STRINGS: AskStrings = {
 		`用户回答了你之前的 ask_user 表单 ${formRef(requestId, title)}：`,
 	cancelDelivered: (requestId, title) =>
 		`用户取消了你之前的 ask_user 表单 ${formRef(requestId, title)}。取消不代表批准；有风险的操作仍须保持阻止。`,
+	expiredDelivered: (requestId, title) =>
+		`你之前的 ask_user 表单 ${formRef(requestId, title)} 已超时。`,
+	correctionDelivered: (requestId, title) =>
+		`更正：用户在你之前的 ask_user 表单 ${formRef(requestId, title)} 超时后作出了回答。此回答取代超时结果（包括备选项）。标为（无回答）的问题没有回答，不要依赖其备选项。`,
+	correctionCancelDelivered: (requestId, title) =>
+		`更正：用户在你之前的 ask_user 表单 ${formRef(requestId, title)} 超时后取消了它。你应用过的备选项一律撤回。取消不代表批准；有风险的操作仍须保持阻止。`,
 	recoveredNotice: "已重新打开上次 Pi 停止时未回答的问题",
 	pendingIndicator: ({ focused, forms, key, questions }) =>
 		[
@@ -184,6 +206,8 @@ const ZH_STRINGS: AskStrings = {
 	panelFocusUnsupported: "当前 Pi 版本无法聚焦问题面板；请更新 Pi 以回答排队的问题",
 	answeredCardLabel: "已回答",
 	cancelledCardLabel: "已取消",
+	correctedCardLabel: "已更正",
+	expiredCardLabel: "已超时",
 	queuedLabel: "已排队",
 	deferredLabel: "稍后回答",
 	expiredLabel: "已超时",
