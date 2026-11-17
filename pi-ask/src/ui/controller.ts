@@ -100,6 +100,12 @@ export interface AskFlowOptions {
 	 * cancelled with the dismiss key or from the review tab.
 	 */
 	panel?: { onHide: () => void };
+	/**
+	 * The user was already told about this form in this process; it is only
+	 * being rebuilt. No second notification, and the clock is left to the
+	 * first build, whose notification arms the shared timer once it succeeds.
+	 */
+	rebuilt?: boolean;
 }
 
 /** The form as a TUI component, for hosts other than `ctx.ui.custom`. */
@@ -227,17 +233,19 @@ export function createAskFlowController(
 	controller.editor.onSubmit = (value) => submitEditor(controller, value);
 	syncSelection(controller);
 	const unsubscribeExpiry = bindExpiry(controller, params.expiry?.owned === true);
-	notifyCurrentQuestion(controller)
-		.then((attempts) => {
-			// The clock starts only after the user has been told a question waits.
-			if (notificationSucceeded(attempts)) {
-				controller.expiry?.arm();
-			}
-		})
-		.catch(() => {
-			// Notification failures are best-effort and leave the clock unarmed:
-			// nobody was told, so the form waits like one behind another.
-		});
+	if (params.rebuilt !== true) {
+		notifyCurrentQuestion(controller)
+			.then((attempts) => {
+				// The clock starts only after the user has been told a question waits.
+				if (notificationSucceeded(attempts)) {
+					controller.expiry?.arm();
+				}
+			})
+			.catch(() => {
+				// Notification failures are best-effort and leave the clock unarmed:
+				// nobody was told, so the form waits like one behind another.
+			});
+	}
 
 	return {
 		get focused() {

@@ -166,6 +166,8 @@ export function createAskBackground(
 	// Content key of the draft each loaded form last started from or wrote,
 	// to tell whether a re-read branch still agrees with what is on screen.
 	const shown = new Map<string, string>();
+	// Forms put on screen at least once here: their user was already told.
+	const seen = new Set<string>();
 	// Countdowns of background forms created in THIS process. A form from an
 	// earlier process (restart, resume, fork, reload) never has one: the user
 	// had no fair chance to see its clock, so it waits like a normal form.
@@ -381,7 +383,10 @@ export function createAskBackground(
 		}
 		const expired = record.outcome?.result.status === "expired";
 		shown.set(requestId, draftContentKey(record.draft ?? { answers: {} }));
+		const rebuilt = seen.has(requestId);
+		seen.add(requestId);
 		return {
+			rebuilt,
 			requestId,
 			config,
 			draft: record.draft,

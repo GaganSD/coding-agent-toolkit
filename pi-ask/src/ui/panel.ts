@@ -35,6 +35,8 @@ export interface AskPanelForm {
 	/** Counts down while this form is on screen; see `state/expiry.ts`. */
 	expiry?: ExpiryTimer;
 	params: AskParams;
+	/** Shown before in this process: built again, e.g. after a tree move. */
+	rebuilt?: boolean;
 	requestId: string;
 }
 
@@ -275,6 +277,7 @@ function createPanelForm(
 			onInput: (data) => callbacks.onInput?.(requestId, data),
 			onStateChange: (state) => callbacks.onStateChange(requestId, state),
 			panel: { onHide: () => callbacks.onHide(requestId) },
+			rebuilt: form.rebuilt,
 		}
 	);
 }

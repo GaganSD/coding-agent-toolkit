@@ -3,6 +3,8 @@ import test, { beforeEach, mock } from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { registerAskTool } from "../src/ask-tool.ts";
 import { registerAskBackground } from "../src/background.ts";
+import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
+import { getAskConfigStore } from "../src/config/store.ts";
 import { ASK_ANSWER_MESSAGE_TYPE } from "../src/journal/entries.ts";
 import { createAskRuntime } from "../src/runtime.ts";
 import { fakePi, KEY, quietConfig, tick } from "./support/fake-pi.ts";
@@ -962,4 +964,33 @@ test("a tree move to the same branch keeps the form, with its unsent text", asyn
 	assert.match(host.panelText(), /keep/);
 	host.type(KEY.focus, ..."me");
 	assert.match(host.panelText(), /keepme/);
+});
+
+test("a form rebuilt after a tree move does not notify the user again", async () => {
+	getAskConfigStore().setConfig({
+		...DEFAULT_ASK_CONFIG,
+		notifications: { channels: ["bell"], enabled: true },
+	});
+	const bells = () => writes.mock.calls.filter((call) => call.arguments[0] === "\x07").length;
+	const writes = mock.method(process.stdout, "write", () => true);
+	try {
+		const session = SessionManager.inMemory();
+		session.appendMessage({ role: "user", content: "start", timestamp: Date.now() });
+		const host = boot(session);
+		await start(host, "startup");
+		await host.askInBackground();
+		await tick();
+		assert.equal(bells(), 1, "the user is told once, when the form first appears");
+		const formEntry = session.getBranch().at(-1)?.id;
+		assert.ok(formEntry);
+		host.type(KEY.enter);
+
+		session.branch(formEntry);
+		host.emit("session_tree");
+		await tick();
+		assert.match(host.panelText(), /Which database\?/, "the form was rebuilt");
+		assert.equal(bells(), 1, "a rebuilt form is not announced again");
+	} finally {
+		writes.mock.restore();
+	}
 });
