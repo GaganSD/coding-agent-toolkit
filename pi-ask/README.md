@@ -33,6 +33,8 @@ The agent calls `ask_user`. `/answer` if it asked in prose instead.
 | Understand a choice first | Notes |
 | The question is the wrong shape | `t` switches `single` ↔ `multi` |
 | Answer later | `Ctrl+L` on a blocking form. The agent carries on; the form waits in the panel |
+| Decline one question | `s` on that question. Its answer and notes are dropped; the rest of the form carries on |
+| Say why you are cancelling | `c` on the review tab, type a short reason, `Enter`. `Esc` goes back without cancelling |
 
 ### Questions that do not block
 
@@ -50,6 +52,14 @@ A background question, a form you deferred, and a form left open when Pi last st
 - Queue, drafts and whether the panel is hidden follow the active session branch.
 
 Both keys are `keymaps.global.later` and `keymaps.global.panelFocus` in the config file.
+
+### Skip and cancel with a comment
+
+**Skip** declines a single question without cancelling the form. The tab and the review mark it as skipped (not "unanswered"), the result lists `skipped: id[]` in question order, and the result text says a skip is neither an answer nor approval. Answering a skipped question takes the skip back. Skipping every question still ends on the review tab: nothing is sent until you submit, whatever `autoSubmitWhenAnsweredWithoutNotes` says. The key is plain `s`, so it only works where no text editor is open. A text question opens its editor at once; press `Esc` first to skip it.
+
+**Cancel with a comment** attaches a short reason (500 characters at most) to a cancellation. The `cancelled` result carries `comment`, and the text gives the agent your reason while still saying cancellation is not approval. An empty comment cancels nothing. Cancelling without a comment behaves as it always did. For a background form the comment is delivered with the cancellation, which still never wakes the agent.
+
+Both keys are `keymaps.main.skip` and `keymaps.main.cancelComment` in the config file; a config written before they existed gains them, unless you already bound that key to something else.
 
 ### Questions that expire
 
@@ -98,6 +108,8 @@ Output:
 - `requestId`: ties a receipt to the answer delivered later
 - `pending`: forms waiting, this one included (`queued` only)
 - `expired: id[]`: answers that are auto-applied fallbacks
+- `skipped: id[]`: questions the user declined one by one, in question order. Not unanswered, not approval
+- `comment`: why the user cancelled, when they said (`cancelled` only)
 
 `queued` (background call) and `deferred` (you chose "answer later") are receipts, not answers. `expired` means nobody responded: a fallback is the agent's assumption, never approval. The rules ride in those results, so they cost context only when they happen.
 
