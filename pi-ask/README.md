@@ -133,13 +133,13 @@ Schema settings apply on `/reload`, not live. A disabled field is absent from th
 
 Recurring model-facing contribution of `ask_user`, measured with `npm run tokens` (character proxy: `ceil(chars / 4)`, not provider billing):
 
-| Part | Chars | Est. tokens |
+| Part | Default, all enabled (chars / tokens) | Expiry off (chars / tokens) |
 | --- | ---: | ---: |
-| description | 148 | 37 |
-| prompt snippet | 103 | 26 |
-| prompt guidelines | 723 | 181 |
-| parameter schema | 560 | 140 |
-| **total** | **1,534** | **384** |
+| description | 148 / 37 | 148 / 37 |
+| prompt snippet | 103 / 26 | 103 / 26 |
+| prompt guidelines | 723 / 181 | 723 / 181 |
+| parameter schema | 624 / 156 | 560 / 140 |
+| **total** | **1,598 / 400** | **1,534 / 384** |
 
 Field-level prose lives in the guidelines; the registered schema ships without `description` keys.
 
