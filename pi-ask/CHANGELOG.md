@@ -12,7 +12,7 @@
 - **Cancel with a comment and skip.** `c` on the review tab attaches a short reason to a cancellation. `s` declines one question without cancelling the form; skipped is neither an answer nor approval.
 - **Configuration and keys.** New keys `behaviour.background`, `expiry.enabled` and `expiry.minSeconds`, plus keymaps `global.later`, `global.panelFocus`, `main.skip` and `main.cancelComment`. `/ask-settings` exposes the expiry toggles; schema changes apply on `/reload`. `/ask-panel` shows waiting and expired forms.
 - **Hosts without the custom TUI** keep the blocking card flow: `background` blocks there and there is no countdown.
-- The default `ask_user` context footprint is 1,598 tokens, or 1,534 with expiry off, within the existing 450/420 ceilings.
+- The default `ask_user` context footprint is 1,598 chars (≈ 400 tokens), or 1,534 (≈ 384) with expiry off, within the existing 450/420 token ceilings.
 
 ## 0.1.5
 
