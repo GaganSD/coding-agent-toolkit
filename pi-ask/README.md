@@ -44,20 +44,39 @@ Hosts without the custom TUI (RPC subagents, ACP clients) get the same interview
 
 ## Contract
 
-Input: `{ title?, questions: [{ id, label?, prompt, type: single\|multi\|text, options? }] }`.
+Input: `{ title?, background?, timeoutSeconds?, questions: [{ id, label?, prompt, type: single\|multi\|text, options?, fallback? }] }`.
 
 - `text` questions have no options.
 - `single` / `multi` need real options. Do not invent filler.
 - Recommended options get a `description`. Never preselected.
 - Typed text is never merged into option `values`.
+- `background: true` queues the form and returns a receipt at once. The answer arrives later as a message.
+- `timeoutSeconds` is a time limit, counted from when the form is on screen. Any keypress stops it for good.
+- `fallback` is the option `value` applied when the limit lapses. It must match an option. Never on `text`. No `fallback`, no answer.
 
 Output:
 
-- `status`: `submitted` | `cancelled` | `unavailable` | `invalid`
+- `status`: `submitted` | `cancelled` | `unavailable` | `invalid` | `queued` | `deferred` | `expired`
 - `answers[id]`: `{ values, labels, customText?, note?, optionNotes? }`
 - `unanswered: id[]`
+- `requestId`: ties a receipt to the answer delivered later
+- `expired: id[]`: answers that are auto-applied fallbacks
+
+`queued` (background call) and `deferred` (you chose "answer later") are receipts, not answers. `expired` means nobody responded: a fallback is the agent's assumption, never approval. The rules ride in those results, so they cost context only when they happen.
+
+Every form, draft and outcome is journalled in the session. A form left open when Pi quit reopens on startup, resume or fork with its draft, and its answer reaches the agent once. The journal follows the active branch.
 
 Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the current chat model unless `answer.extractionModels` is set. `PI_ASK_LOCALE=zh` localizes the dialog cards and result summaries (Simplified Chinese).
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `expiry.enabled` | `true` | `false` drops `timeoutSeconds` and `fallback` from the schema |
+| `expiry.minSeconds` | `30` | Shorter limits are raised to this floor |
+| `behaviour.background` | `true` | `false` drops `background`; every call blocks |
+
+Schema settings apply on `/reload`, not live. A disabled field is absent from the schema, not ignored.
+
+> Unreleased: `background`, `timeoutSeconds`, `fallback` and the `queued` / `deferred` / `expired` statuses are the 0.2.0 contract and are not registered yet.
 
 ## Context footprint
 
@@ -72,3 +91,5 @@ Recurring model-facing contribution of `ask_user`, measured with `npm run tokens
 | **total** | **1,502** | **376** |
 
 Field-level prose lives in the guidelines; the registered schema ships without `description` keys.
+
+A test holds the total to 450 with every optional field registered and 420 with expiry disabled.
