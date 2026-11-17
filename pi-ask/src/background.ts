@@ -35,10 +35,16 @@ import {
 	getRecord,
 	isOpen,
 	pendingForms,
+	reopenableForms,
 } from "./journal/replay.ts";
 import type { AskRuntime } from "./runtime.ts";
 import { createInitialState } from "./state/create.ts";
 import { applyDraftSnapshot } from "./state/draft.ts";
+import {
+	createExpiryTimer,
+	type ExpiryTimer,
+	toExpiredResult,
+} from "./state/expiry.ts";
 import {
 	type AskPanelEvent,
 	EMPTY_PANEL,
@@ -52,9 +58,20 @@ import { type AskPanel, createAskPanel } from "./ui/panel.ts";
 
 export const ASK_PENDING_WIDGET_KEY = "pi-ask:pending";
 
+/**
+ * How long an expired form is offered for a late correction: it shows in the
+ * pending indicator and `/ask-panel`, measured from the expiry. After that
+ * the agent's result stands and nothing nags.
+ */
+export const EXPIRED_OFFER_MS = 60 * 60 * 1000;
+
 export interface AskBackgroundDeps {
 	/** Runs `task` after the current lifecycle dispatch has finished. */
 	defer?: (task: () => void) => void;
+	/** Clock for the countdown of queued forms; tests inject their own. */
+	newTimer?: (seconds: number) => ExpiryTimer;
+	/** Epoch milliseconds; used for the late-override offer window. */
+	now?: () => number;
 }
 
 export interface AskBackground {
@@ -74,13 +91,19 @@ export interface AskBackground {
 	enqueue(
 		ctx: ExtensionContext,
 		requestId: string,
-		origin: "background" | "deferred"
+		origin: "background" | "deferred",
+		options?: { timeoutSeconds?: number }
 	): number;
 	/**
 	 * Runs a blocking form. It owns the keyboard: the panel is off screen
 	 * until `run` settles, then returns with the focus it had.
 	 */
 	foreground<T>(ctx: ExtensionContext, run: () => Promise<T>): Promise<T>;
+	/**
+	 * A blocking form just got its outcome (e.g. it expired): refresh the
+	 * queue and the late-override offer.
+	 */
+	formEnded(ctx: ExtensionContext): void;
 	/** Pi may have become idle without a run settling: deliver if so. */
 	poke(ctx: ExtensionContext): void;
 	/** `/ask-panel`: show the panel and give it the keyboard. */
@@ -124,12 +147,22 @@ export function registerAskBackground(
 
 export function createAskBackground(
 	pi: Pick<ExtensionAPI, "sendMessage">,
-	{ journal, live }: AskRuntime,
+	{ clock, journal, live }: AskRuntime,
 	deps: AskBackgroundDeps = {}
 ): AskBackground {
 	const defer = deps.defer ?? ((task) => setTimeout(task, 0));
+	const now = deps.now ?? clock?.now ?? Date.now;
+	const newTimer =
+		deps.newTimer ?? ((seconds) => createExpiryTimer(seconds, clock));
 	const delivery = createAskDelivery(pi);
 	const recorders = new Map<string, (state: AskState) => void>();
+	// Countdowns of background forms created in THIS process. A form from an
+	// earlier process (restart, resume, fork, reload) never has one: the user
+	// had no fair chance to see its clock, so it waits like a normal form.
+	const timers = new Map<string, ExpiryTimer>();
+	// Expired forms the user asked to reopen, and those still on offer.
+	const reopened = new Set<string>();
+	let offers: string[] = [];
 	// Recovered forms announced in this process.
 	const announced = new Set<string>();
 	let state = EMPTY_PANEL;
@@ -191,17 +224,66 @@ export function createAskBackground(
 
 	function readQueue(current: ExtensionContext) {
 		const journalState = readAskJournal(current);
-		const pending = pendingForms(journalState, live);
+		const pending = pendingForms(journalState, live, reopened);
 		records = new Map(pending.map((record) => [record.requestId, record]));
 		for (const requestId of recorders.keys()) {
 			if (!records.has(requestId)) {
 				recorders.delete(requestId);
 			}
 		}
+		for (const requestId of [...reopened]) {
+			if (!records.has(requestId)) {
+				reopened.delete(requestId);
+			}
+		}
+		for (const [requestId, timer] of [...timers]) {
+			// Gone from this branch: nothing is left to count down.
+			if (!records.has(requestId)) {
+				releaseTimer(requestId, timer);
+			}
+		}
+		offers = reopenableForms(journalState, {
+			now: now(),
+			maxAgeMs: EXPIRED_OFFER_MS,
+		})
+			.map((record) => record.requestId)
+			.filter((requestId) => !reopened.has(requestId));
 		return {
 			queue: pending.map((record) => record.requestId),
 			hidden: journalState.panelHidden,
 		};
+	}
+
+	function releaseTimer(requestId: string, timer = timers.get(requestId)) {
+		timer?.dispose();
+		timers.delete(requestId);
+	}
+
+	/** A form counts down only while it is the one on screen. */
+	function syncTimers() {
+		const view = panelView(state);
+		for (const [requestId, timer] of timers) {
+			if (view.visible && view.formId === requestId) {
+				timer.show();
+			} else {
+				timer.hide();
+			}
+		}
+	}
+
+	/** The limit lapsed with the form still on screen, untouched. */
+	function expire(requestId: string) {
+		const record = records.get(requestId);
+		if (!(record && isQueued(requestId))) {
+			return;
+		}
+		const formState =
+			panel.state(requestId) ??
+			applyDraftSnapshot(
+				createInitialState(formToParams(record.form)),
+				record.draft
+			);
+		complete(requestId, toExpiredResult(formState));
 	}
 
 	function dispatch(event: AskPanelEvent) {
@@ -231,6 +313,7 @@ export function createAskBackground(
 		try {
 			panel.retain(state.queue);
 			const focusedOk = panel.apply(ctx, panelView(state), loadForm);
+			syncTimers();
 			if (!focusedOk) {
 				state = reducePanel(state, { type: "blurred" });
 				if (!focusWarned) {
@@ -257,11 +340,14 @@ export function createAskBackground(
 			announced.add(requestId);
 			ctx.ui.notify(askStrings().recoveredNotice, "info");
 		}
+		const expired = record.outcome?.result.status === "expired";
 		return {
 			requestId,
 			config,
 			draft: record.draft,
 			params: formToParams(record.form),
+			expiry: timers.get(requestId),
+			...(expired ? { banner: askStrings().lateOverrideBanner } : {}),
 		};
 	}
 
@@ -270,7 +356,7 @@ export function createAskBackground(
 			return;
 		}
 		const forms = state.queue.length;
-		const text =
+		const lines = [
 			forms === 0
 				? undefined
 				: askStrings().pendingIndicator({
@@ -281,14 +367,21 @@ export function createAskBackground(
 						),
 						key: getGlobalBindings(config).panelFocus.label,
 						focused: panelView(state).focused,
-					});
+					}),
+			offers.length === 0
+				? undefined
+				: askStrings().expiredIndicator(offers.length),
+		].filter((line): line is string => line !== undefined);
+		const text = lines.length === 0 ? undefined : lines.join("\n");
 		if (text === indicator) {
 			return;
 		}
 		indicator = text;
 		ctx.ui.setWidget(
 			ASK_PENDING_WIDGET_KEY,
-			text === undefined ? undefined : [ctx.ui.theme.fg("dim", text)],
+			text === undefined
+				? undefined
+				: lines.map((line) => ctx?.ui.theme.fg("dim", line) ?? line),
 			{ placement: "belowEditor" }
 		);
 	}
@@ -317,19 +410,37 @@ export function createAskBackground(
 			// The journal, not memory, says whether this branch still waits for
 			// this form: a form from another branch writes nothing here.
 			const record = getRecord(readAskJournal(current), requestId);
+			// A reopened expired form is open to one correction.
+			const expiredOutcome =
+				record && reopened.has(requestId) && !record.offerDismissed
+					? record.outcome
+					: undefined;
+			const correcting = expiredOutcome?.result.status === "expired";
 			if (
 				record &&
-				isOpen(record) &&
+				(isOpen(record) || correcting) &&
 				isQueued(requestId) &&
 				result.status !== "unavailable"
 			) {
-				journal.recordOutcome(requestId, result, "message");
-				delivery.post();
-				delivery.pump(current);
+				if (correcting && result.status === "cancelled" && !result.comment) {
+					// Closing it without a word leaves the agent's result as it is.
+					journal.recordDismiss(requestId);
+				} else {
+					journal.recordOutcome(
+						requestId,
+						result,
+						"message",
+						correcting ? expiredOutcome?.outcomeId : undefined
+					);
+					delivery.post();
+					delivery.pump(current);
+				}
 			}
 		} catch {
 			// A stale context: nothing is written.
 		}
+		releaseTimer(requestId);
+		reopened.delete(requestId);
 		refresh((queue) => ({ type: "removed", queue }));
 	}
 
@@ -353,7 +464,16 @@ export function createAskBackground(
 		});
 	}
 
+	/** The user opened or focused the panel on purpose: they are here. */
+	function userEngaged() {
+		const head = state.queue[0];
+		if (head !== undefined) {
+			timers.get(head)?.stop("interaction");
+		}
+	}
+
 	function toggleFocus() {
+		userEngaged();
 		if (state.hidden) {
 			journal.recordPanel(false, state.queue[0]);
 		}
@@ -411,9 +531,22 @@ export function createAskBackground(
 			poke(next);
 		},
 		poke,
-		enqueue(next, requestId, origin) {
+		formEnded(next) {
+			if (adopt(next)) {
+				refresh((queue) => ({ type: "removed", queue }));
+			}
+		},
+		enqueue(next, requestId, origin, options = {}) {
 			if (!adopt(next)) {
 				return 0;
+			}
+			if (origin === "background" && options.timeoutSeconds !== undefined) {
+				const timer = newTimer(options.timeoutSeconds);
+				timer.subscribe({
+					stop: (reason) => journal.recordExpiryStop(requestId, reason),
+					expire: () => expire(requestId),
+				});
+				timers.set(requestId, timer);
 			}
 			if (origin === "deferred") {
 				// "Later" means the keyboard goes back to the input.
@@ -445,11 +578,18 @@ export function createAskBackground(
 				next.ui.notify(askStrings().panelNeedsTui, "error");
 				return;
 			}
+			// Timed-out forms the agent has already moved past come back here,
+			// on request only. Read the branch first: the offers may be new.
+			refresh((queue) => ({ type: "removed", queue }));
+			for (const requestId of offers) {
+				reopened.add(requestId);
+			}
 			refresh((queue) => ({ type: "removed", queue }));
 			if (state.queue.length === 0) {
 				next.ui.notify(askStrings().nothingPending, "info");
 				return;
 			}
+			userEngaged();
 			if (state.hidden) {
 				journal.recordPanel(false, state.queue[0]);
 			}
@@ -486,6 +626,9 @@ export function createAskBackground(
 				// The UI is already gone.
 			}
 			disposed = true;
+			for (const [requestId, timer] of [...timers]) {
+				releaseTimer(requestId, timer);
+			}
 			ctx = undefined;
 			unbindInput?.();
 			unsubscribeConfig();

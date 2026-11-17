@@ -4,6 +4,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { UI_DIMENSIONS, UI_TEXT } from "../constants/ui.ts";
+import { askStrings } from "../i18n.ts";
 import {
 	pushSavedNote,
 	pushWrappedText,
@@ -166,7 +167,8 @@ function renderEditorWithIndent(args: {
 }
 
 function formatOptionLabel(row: OptionRowModel): string {
-	return `${row.prefix}${row.label}`;
+	const label = `${row.prefix}${row.label}`;
+	return row.fallback ? `${label} ${askStrings().fallbackOptionMarker}` : label;
 }
 
 function renderInteractiveCustomOption(

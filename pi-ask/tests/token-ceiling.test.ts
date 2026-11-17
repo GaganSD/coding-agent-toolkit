@@ -45,7 +45,6 @@ test("ask_user footprint stays under the lower ceiling with expiry disabled", ()
 	for (const features of [
 		{ ...ALL_ASK_FEATURES, expiry: false },
 		NO_ASK_FEATURES,
-		SHIPPED_ASK_FEATURES,
 	]) {
 		const { totalTokens } = measureAskToolFootprint({ features });
 		assert.ok(
@@ -53,6 +52,14 @@ test("ask_user footprint stays under the lower ceiling with expiry disabled", ()
 			`${totalTokens} est. tokens exceeds the ${CEILING_EXPIRY_DISABLED} ceiling`
 		);
 	}
+});
+
+test("everything that ships fits the all-enabled ceiling", () => {
+	assert.deepEqual(SHIPPED_ASK_FEATURES, ALL_ASK_FEATURES);
+	const { totalTokens } = measureAskToolFootprint({
+		features: SHIPPED_ASK_FEATURES,
+	});
+	assert.ok(totalTokens <= CEILING_ALL_ENABLED);
 });
 
 test("a disabled feature is absent from the registered schema", () => {

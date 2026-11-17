@@ -35,7 +35,10 @@ const COMPACT_WIDTH = 40;
 const RESET_CONFIRMATION_MS = 2000;
 
 type SettingSection = "Actions" | "Live settings" | "After /reload";
-type ToggleSettingKey = keyof AskConfig["behaviour"] | "notifications.enabled";
+type ToggleSettingKey =
+	| keyof AskConfig["behaviour"]
+	| "notifications.enabled"
+	| "expiry.enabled";
 
 interface BaseSetting {
 	description: string;
@@ -53,7 +56,13 @@ interface ToggleSetting extends BaseSetting {
 	type: "toggle";
 }
 
-type Setting = ActionSetting | ToggleSetting;
+/** A value shown for reference; it is edited in the config file. */
+interface InfoSetting extends BaseSetting {
+	key: "expiry.minSeconds";
+	type: "info";
+}
+
+type Setting = ActionSetting | ToggleSetting | InfoSetting;
 
 const SETTINGS = [
 	{
@@ -102,6 +111,22 @@ const SETTINGS = [
 		section: "After /reload",
 		label: "Background questions",
 		type: "toggle",
+	},
+	{
+		description:
+			"Let the agent set a time limit on a question, with a declared fallback applied if you do not answer. Any key press stops the countdown. Changing this takes effect after /reload.",
+		key: "expiry.enabled",
+		section: "After /reload",
+		label: "Question expiry",
+		type: "toggle",
+	},
+	{
+		description:
+			"Shortest time limit a question can have; shorter requests are raised to it. Edit expiry.minSeconds in the config file to change it.",
+		key: "expiry.minSeconds",
+		section: "After /reload",
+		label: "Expiry minimum",
+		type: "info",
 	},
 	{
 		description:
@@ -331,6 +356,9 @@ export class AskSettingsList {
 				selected
 			);
 		}
+		if (setting.type === "info") {
+			return this.renderValue(`${this.config.expiry.minSeconds}s`, selected);
+		}
 		return this.renderValue(this.getSettingValue(setting.key), selected);
 	}
 
@@ -343,9 +371,13 @@ export class AskSettingsList {
 	}
 
 	private getSettingValue(key: SettingKey): boolean {
-		return key === "notifications.enabled"
-			? this.config.notifications.enabled
-			: this.config.behaviour[key];
+		if (key === "notifications.enabled") {
+			return this.config.notifications.enabled;
+		}
+		if (key === "expiry.enabled") {
+			return this.config.expiry.enabled;
+		}
+		return this.config.behaviour[key];
 	}
 
 	private moveFocus(delta: 1 | -1): void {
@@ -365,6 +397,9 @@ export class AskSettingsList {
 			return;
 		}
 		this.resetConfirmUntil = 0;
+		if (setting.type === "info") {
+			return;
+		}
 		this.saveSetting(setting.key, !this.getSettingValue(setting.key));
 		this.tui.requestRender();
 	}
@@ -384,23 +419,24 @@ export class AskSettingsList {
 	}
 
 	private saveSetting(key: SettingKey, enabled: boolean): void {
-		const nextConfig =
-			key === "notifications.enabled"
-				? {
-						...this.config,
-						notifications: {
-							...this.config.notifications,
-							enabled,
-						},
-					}
-				: {
-						...this.config,
-						behaviour: {
-							...this.config.behaviour,
-							[key]: enabled,
-						},
-					};
-		this.saveConfig(nextConfig);
+		if (key === "notifications.enabled") {
+			this.saveConfig({
+				...this.config,
+				notifications: { ...this.config.notifications, enabled },
+			});
+			return;
+		}
+		if (key === "expiry.enabled") {
+			this.saveConfig({
+				...this.config,
+				expiry: { ...this.config.expiry, enabled },
+			});
+			return;
+		}
+		this.saveConfig({
+			...this.config,
+			behaviour: { ...this.config.behaviour, [key]: enabled },
+		});
 	}
 
 	private saveConfig(nextConfig: AskConfig): void {

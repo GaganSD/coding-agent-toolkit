@@ -47,6 +47,16 @@ export interface AskStrings {
 	correctionDelivered: (requestId: string, title?: string) => string;
 	/** Heading when the user cancels a form that had timed out. */
 	correctionCancelDelivered: (requestId: string, title?: string) => string;
+	/** Form header while the limit counts down. */
+	countdownRunning: (remaining: string, hasFallback: boolean) => string;
+	/** Form header after the user stopped the countdown. */
+	countdownStopped: string;
+	/** Marks the option the agent declared as its fallback. */
+	fallbackOptionMarker: string;
+	/** Form header when an expired form is reopened for a correction. */
+	lateOverrideBanner: string;
+	/** Under the editor: expired forms that can still be answered. */
+	expiredIndicator: (count: number) => string;
 	/** Shown to the user when an interrupted form reopens. */
 	recoveredNotice: string;
 	/** Line under the editor while forms wait in the queue. */
@@ -126,6 +136,16 @@ const EN_STRINGS: AskStrings = {
 		`CORRECTION: the user answered your earlier ask_user form ${formRef(requestId, title)} after it timed out. This replaces the timed-out result, fallbacks included. A question marked (no answer) has none: do not rely on a fallback for it.`,
 	correctionCancelDelivered: (requestId, title) =>
 		`CORRECTION: the user cancelled your earlier ask_user form ${formRef(requestId, title)} after it timed out. Any fallback you applied is withdrawn. Cancellation is not approval; keep risky actions blocked.`,
+	countdownRunning: (remaining, hasFallback) =>
+		hasFallback
+			? `⏱ No reply in ${remaining}: the marked fallback will be applied. Press any key to stop the countdown.`
+			: `⏱ Times out in ${remaining} with no answer applied. Press any key to stop the countdown.`,
+	countdownStopped: "Countdown stopped; this form now waits for you.",
+	fallbackOptionMarker: "(fallback)",
+	lateOverrideBanner:
+		"This form timed out. Your answer is sent to the agent as a correction.",
+	expiredIndicator: (count) =>
+		`↺ ${count === 1 ? "1 timed-out form" : `${count} timed-out forms`} can still be answered · /ask-panel`,
 	recoveredNotice: "Reopened a question left unanswered when Pi last stopped",
 	pendingIndicator: ({ focused, forms, key, questions }) =>
 		[
@@ -189,6 +209,15 @@ const ZH_STRINGS: AskStrings = {
 		`更正：用户在你之前的 ask_user 表单 ${formRef(requestId, title)} 超时后作出了回答。此回答取代超时结果（包括备选项）。标为（无回答）的问题没有回答，不要依赖其备选项。`,
 	correctionCancelDelivered: (requestId, title) =>
 		`更正：用户在你之前的 ask_user 表单 ${formRef(requestId, title)} 超时后取消了它。你应用过的备选项一律撤回。取消不代表批准；有风险的操作仍须保持阻止。`,
+	countdownRunning: (remaining, hasFallback) =>
+		hasFallback
+			? `⏱ ${remaining} 内无回复：将应用标记的备选项。按任意键停止倒计时。`
+			: `⏱ ${remaining} 后超时，不会应用任何答案。按任意键停止倒计时。`,
+	countdownStopped: "倒计时已停止；此表单现在等你回答。",
+	fallbackOptionMarker: "（备选项）",
+	lateOverrideBanner: "此表单已超时。你的回答会作为更正发送给代理。",
+	expiredIndicator: (count) =>
+		`↺ ${count} 个已超时的表单仍可回答 · /ask-panel`,
 	recoveredNotice: "已重新打开上次 Pi 停止时未回答的问题",
 	pendingIndicator: ({ focused, forms, key, questions }) =>
 		[

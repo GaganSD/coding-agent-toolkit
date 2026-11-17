@@ -1,9 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AskBackground } from "./background.ts";
 import { type AskJournal, createSessionAskJournal } from "./journal/journal.ts";
+import type { ExpiryClock } from "./state/expiry.ts";
 
 /** State shared by the tool and the lifecycle handlers of one extension load. */
 export interface AskRuntime {
+	/** Time and timers for countdowns; the system clock when absent. */
+	clock?: ExpiryClock;
 	/**
 	 * Queue, panel and delivery for forms no tool call waits for. Absent when
 	 * only the tool is registered: every call then blocks.
@@ -18,7 +21,12 @@ export interface AskRuntime {
 }
 
 export function createAskRuntime(
-	pi: Pick<ExtensionAPI, "appendEntry">
+	pi: Pick<ExtensionAPI, "appendEntry">,
+	clock?: ExpiryClock
 ): AskRuntime {
-	return { journal: createSessionAskJournal(pi), live: new Set() };
+	return {
+		clock,
+		journal: createSessionAskJournal(pi, clock && { now: clock.now }),
+		live: new Set(),
+	};
 }

@@ -24,7 +24,7 @@ export const ALL_ASK_FEATURES: AskFeatures = {
  */
 export const SHIPPED_ASK_FEATURES: AskFeatures = {
 	background: true,
-	expiry: false,
+	expiry: true,
 };
 
 /** Read once at registration, so a config change applies on reload only. */

@@ -8,6 +8,7 @@ import {
 } from "../notifications.ts";
 import type { AskDraftSnapshot } from "../journal/entries.ts";
 import { createInitialState } from "../state/create.ts";
+import { type ExpiryTimer, toExpiredResult } from "../state/expiry.ts";
 import { applyDraftSnapshot } from "../state/draft.ts";
 import {
 	getEditorDraft,
@@ -74,8 +75,17 @@ export interface AskFlowOptions {
 	 * `deferred` result and the caller moves the form to the queue.
 	 */
 	allowDefer?: boolean;
+	/** Shown under the tabs, e.g. that this form timed out earlier. */
+	banner?: string;
 	/** Answers to restore, e.g. from the journal of an interrupted form. */
 	draft?: AskDraftSnapshot;
+	/**
+	 * The form's time limit. The flow shows the countdown and stops it on
+	 * the first key. With `owned` it also starts the clock when the form
+	 * opens and finishes with the `expired` result; otherwise the host that
+	 * owns the form's visibility does both.
+	 */
+	expiry?: { owned?: boolean; timer: ExpiryTimer };
 	/** Called for every key the form receives, before it is handled. */
 	onInput?: (data: string) => void;
 	/** Called after every state change while the form is open. */
@@ -101,11 +111,13 @@ export interface AskFlowComponent {
 
 interface AskFlowController {
 	allowDefer: boolean;
+	banner?: string;
 	config: AskConfig;
 	configNotice?: string;
 	ctx: ExtensionContext;
 	done: Done;
 	editor: Editor;
+	expiry?: ExpiryTimer;
 	focused: boolean;
 	onInput?: (data: string) => void;
 	onStateChange?: (state: AskState) => void;
@@ -155,11 +167,13 @@ export function createAskFlowController(
 ): AskFlowComponent {
 	const controller: AskFlowController = {
 		allowDefer: params.allowDefer === true,
+		banner: params.banner,
 		config: params.config,
 		configNotice: params.configNotice,
 		ctx: params.ctx,
 		done,
 		editor: createEditor(tui, theme, params.cwd),
+		expiry: params.expiry?.timer,
 		focused: false,
 		onInput: params.onInput,
 		onStateChange: params.onStateChange,
@@ -191,9 +205,13 @@ export function createAskFlowController(
 
 	controller.editor.onSubmit = (value) => submitEditor(controller, value);
 	syncSelection(controller);
-	notifyCurrentQuestion(controller).catch(() => {
-		// Notification failures are best-effort and must not affect the ask flow.
-	});
+	const unsubscribeExpiry = bindExpiry(controller, params.expiry?.owned === true);
+	notifyCurrentQuestion(controller)
+		.catch(() => {
+			// Notification failures are best-effort and must not affect the ask flow.
+		})
+		// The clock starts only after the user has been told a question waits.
+		.then(() => controller.expiry?.arm());
 
 	return {
 		get focused() {
@@ -212,13 +230,38 @@ export function createAskFlowController(
 			controller.editor.invalidate();
 		},
 		handleInput(data: string) {
+			// One key means the user is here: the countdown ends for good.
+			controller.expiry?.interact();
 			controller.onInput?.(data);
 			handleControllerInput(controller, data);
 		},
 		dispose() {
+			unsubscribeExpiry();
 			controller.unsubscribeConfig();
 		},
 	};
+}
+
+/** Redraws on each tick; a form that owns its clock also finishes on expiry. */
+function bindExpiry(controller: AskFlowController, owned: boolean) {
+	const timer = controller.expiry;
+	if (!timer) {
+		return () => {
+			// nothing to release
+		};
+	}
+	const unsubscribe = timer.subscribe({
+		change: () => controller.tui.requestRender(),
+		expire: () => {
+			if (owned && !controller.state.completed) {
+				controller.done(toExpiredResult(controller.state));
+			}
+		},
+	});
+	if (owned) {
+		timer.show();
+	}
+	return unsubscribe;
 }
 
 function renderController(
@@ -226,6 +269,8 @@ function renderController(
 	width: number
 ): string[] {
 	return renderAskScreen({
+		banner: controller.banner,
+		countdown: controller.expiry?.view(),
 		config: controller.config,
 		editor: controller.editor,
 		footerNotice: getFooterNotice(controller),

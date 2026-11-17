@@ -243,3 +243,33 @@ test("settings list closes with configured keys and dispose idempotently", () =>
 	list.dispose();
 	assert.equal(closed, 1);
 });
+
+test("settings list toggles expiry, notes it applies on reload, and shows the floor", async () => {
+	const saves: AskConfig[] = [];
+	const list = createList({
+		onSave: (config) => {
+			saves.push(config);
+			return Promise.resolve(config);
+		},
+	});
+	const text = list.render(72).join("\n");
+	assert(text.includes("After /reload"));
+	assert(text.includes("Question expiry"));
+	assert(text.includes("Expiry minimum"));
+	assert(text.includes("[30s]"));
+
+	for (let index = 0; index < 6; index++) {
+		list.handleInput("\u001b[B");
+	}
+	assert(list.render(72).join("\n").includes("takes effect after /reload"));
+	list.handleInput(" ");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(saves.at(-1)?.expiry.enabled, false);
+	assert.equal(saves.at(-1)?.expiry.minSeconds, 30);
+
+	// The floor is shown for reference; toggling it saves nothing.
+	list.handleInput("\u001b[B");
+	list.handleInput(" ");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(saves.length, 1);
+});

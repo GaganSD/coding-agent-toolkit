@@ -9,6 +9,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AskConfig } from "../config/schema.ts";
 import type { AskDraftSnapshot } from "../journal/entries.ts";
+import type { ExpiryTimer } from "../state/expiry.ts";
 import type { AskPanelView } from "../state/panel.ts";
 import type { AskParams, AskResult, AskState } from "../types.ts";
 import { type AskFlowComponent, createAskFlowController } from "./controller.ts";
@@ -28,8 +29,11 @@ type TuiComponent = Parameters<Tui["setFocus"]>[0];
 type FocusAwareTui = Tui & { getFocusedComponent?: () => TuiComponent };
 
 export interface AskPanelForm {
+	banner?: string;
 	config: AskConfig;
 	draft?: AskDraftSnapshot;
+	/** Counts down while this form is on screen; see `state/expiry.ts`. */
+	expiry?: ExpiryTimer;
 	params: AskParams;
 	requestId: string;
 }
@@ -248,10 +252,12 @@ function createPanelForm(
 		[tui, theme, undefined, (result) => callbacks.onDone(requestId, result)],
 		{
 			...form.params,
+			banner: form.banner,
 			config: form.config,
 			ctx,
 			cwd: ctx.cwd,
 			draft: form.draft,
+			expiry: form.expiry && { timer: form.expiry },
 			onInput: (data) => callbacks.onInput?.(requestId, data),
 			onStateChange: (state) => callbacks.onStateChange(requestId, state),
 			panel: { onHide: () => callbacks.onHide(requestId) },

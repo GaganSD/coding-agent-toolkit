@@ -24,6 +24,8 @@ export interface OptionRowModel {
 	color: "accent" | "text" | "success";
 	description?: string;
 	detail?: OptionDetailModel;
+	/** The agent's declared fallback, while its countdown runs. */
+	fallback: boolean;
 	index: number;
 	isCustom: boolean;
 	isFreeformOnly: boolean;
@@ -79,6 +81,10 @@ function buildOptionRowModel(
 		color: getOptionColor(answered, selected),
 		description: option.description,
 		detail: buildOptionDetailModel(context, option, selected),
+		fallback:
+			context.fallbackMarked === true &&
+			!option.isCustomOption &&
+			question.fallback === option.value,
 		index,
 		isCustom: !!option.isCustomOption,
 		isFreeformOnly: !!option.isFreeformOnlyOption,

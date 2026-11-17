@@ -17,10 +17,11 @@ import type { Theme } from "./render-types.ts";
 export function renderFrameHeader(args: {
 	lines: string[];
 	state: AskState;
+	status?: string;
 	theme: Theme;
 	width: number;
 }) {
-	const { lines, state, theme, width } = args;
+	const { lines, state, status, theme, width } = args;
 	const add = (text = "") => lines.push(truncateToWidth(text, width));
 
 	add(theme.fg("accent", "─".repeat(Math.max(1, width))));
@@ -30,6 +31,12 @@ export function renderFrameHeader(args: {
 	}
 	add(renderTabs(state, theme, width));
 	add();
+	if (status) {
+		for (const line of wrapText(status, Math.max(1, width - 2))) {
+			add(` ${theme.fg("warning", line)}`);
+		}
+		add();
+	}
 }
 
 export function renderFrameFooter(args: {
