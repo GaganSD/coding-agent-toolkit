@@ -154,7 +154,7 @@ export function registerAskBackground(
 
 export function createAskBackground(
 	pi: Pick<ExtensionAPI, "sendMessage">,
-	{ clock, journal, live }: AskRuntime,
+	{ clock, flushers, journal, live }: AskRuntime,
 	deps: AskBackgroundDeps = {}
 ): AskBackground {
 	const defer = deps.defer ?? ((task) => setTimeout(task, 0));
@@ -674,6 +674,14 @@ export function createAskBackground(
 		dispose() {
 			if (disposed) {
 				return;
+			}
+			// Blocking forms are not in the panel: report their typing first.
+			for (const flush of [...flushers]) {
+				try {
+					flush();
+				} catch {
+					// The journal is gone; nothing more can be kept.
+				}
 			}
 			try {
 				panel.discard();

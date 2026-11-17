@@ -62,7 +62,7 @@ export function registerAskTool(pi: ExtensionAPI, options: AskToolOptions = {}) 
 }
 
 async function executeAskTool(
-	{ background, clock, journal, live }: AskRuntime,
+	{ background, clock, flushers, journal, live }: AskRuntime,
 	features: AskFeatures,
 	toolCallId: string,
 	params: AskParams,
@@ -131,6 +131,10 @@ async function executeAskTool(
 			allowDefer: !!background,
 			expiry: timer && { owned: true, timer },
 			onStateChange: journal.draftRecorder(requestId),
+			registerFlush: (flush) => {
+				flushers.add(flush);
+				return () => flushers.delete(flush);
+			},
 		});
 	let result: AskResult;
 	ctx.ui.setWorkingVisible(false);

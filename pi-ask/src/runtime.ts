@@ -12,6 +12,12 @@ export interface AskRuntime {
 	 * only the tool is registered: every call then blocks.
 	 */
 	background?: AskBackground;
+	/**
+	 * Reports the pending draft of each blocking form on screen. Run when
+	 * the extension shuts down: a form's typing timer must not decide whether
+	 * the last keystrokes are kept.
+	 */
+	flushers: Set<() => void>;
 	journal: AskJournal;
 	/**
 	 * Request ids whose blocking form is on screen in this process. The queue
@@ -26,6 +32,7 @@ export function createAskRuntime(
 ): AskRuntime {
 	return {
 		clock,
+		flushers: new Set(),
 		journal: createSessionAskJournal(pi, clock && { now: clock.now }),
 		live: new Set(),
 	};

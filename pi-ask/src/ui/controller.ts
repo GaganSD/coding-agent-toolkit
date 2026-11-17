@@ -106,6 +106,11 @@ export interface AskFlowOptions {
 	 * first build, whose notification arms the shared timer once it succeeds.
 	 */
 	rebuilt?: boolean;
+	/**
+	 * Hands the host a way to report the pending draft now (shutdown), and
+	 * gets back a call that withdraws it when the form is over.
+	 */
+	registerFlush?: (flush: () => void) => () => void;
 }
 
 /** The form as a TUI component, for hosts other than `ctx.ui.custom`. */
@@ -188,6 +193,9 @@ export function createAskFlowController(
 	],
 	params: AskFlowParams
 ): AskFlowComponent {
+	let unregisterFlush = () => {
+		// replaced once the controller exists
+	};
 	const controller: AskFlowController = {
 		allowDefer: params.allowDefer === true,
 		banner: params.banner,
@@ -196,6 +204,7 @@ export function createAskFlowController(
 		ctx: params.ctx,
 		done: (result) => {
 			controller.finished = true;
+			unregisterFlush();
 			done(result);
 		},
 		editor: createEditor(tui, theme, params.cwd),
@@ -230,6 +239,8 @@ export function createAskFlowController(
 		maybeFinish(controller);
 	});
 
+	unregisterFlush =
+		params.registerFlush?.(() => flushDraft(controller)) ?? unregisterFlush;
 	controller.editor.onSubmit = (value) => submitEditor(controller, value);
 	syncSelection(controller);
 	const unsubscribeExpiry = bindExpiry(controller, params.expiry?.owned === true);
@@ -273,6 +284,7 @@ export function createAskFlowController(
 		},
 		dispose() {
 			flushDraft(controller);
+			unregisterFlush();
 			unsubscribeExpiry();
 			controller.unsubscribeConfig();
 		},

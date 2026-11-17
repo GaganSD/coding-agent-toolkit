@@ -994,3 +994,40 @@ test("a form rebuilt after a tree move does not notify the user again", async ()
 		writes.mock.restore();
 	}
 });
+
+test("a blocking form's last keystrokes are journalled on shutdown", async () => {
+	const host = boot();
+	await start(host, "startup");
+	const pending = host.ask(TEXT_FORM);
+	pending.catch(() => {});
+	await tick();
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		host.forms[0]?.press(..."src/ui");
+		assert.deepEqual(kinds(host), ["form"], "typing waits for the pause");
+		// Pi quits before the typing timer fires.
+		host.emit("session_shutdown", { reason: "quit" });
+		assert.deepEqual(kinds(host), ["form", "draft"]);
+		mock.timers.tick(5000);
+	} finally {
+		mock.timers.reset();
+	}
+	assert.deepEqual(kinds(host), ["form", "draft"], "nothing is written twice");
+
+	const later = boot(host.session);
+	await start(later);
+	await later.command("ask-panel");
+	assert.match(later.panelText(), /src\/ui/, "the unfinished answer came back");
+});
+
+test("a finished blocking form is not flushed again on shutdown", async () => {
+	const host = boot();
+	await start(host, "startup");
+	const pending = host.ask(PARAMS);
+	await tick();
+	host.forms[0]?.press(...SUBMIT_TWO);
+	await pending;
+	const before = kinds(host);
+	host.emit("session_shutdown", { reason: "quit" });
+	assert.deepEqual(kinds(host), before);
+});
