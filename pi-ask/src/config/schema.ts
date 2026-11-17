@@ -76,9 +76,16 @@ export const AskConfigFileSchema = Type.Object({
 	behaviour: Type.Optional(
 		Type.Object({
 			autoSubmitWhenAnsweredWithoutNotes: Type.Optional(Type.Boolean()),
+			background: Type.Optional(Type.Boolean()),
 			confirmDismissWhenDirty: Type.Optional(Type.Boolean()),
 			doublePressReviewShortcuts: Type.Optional(Type.Boolean()),
 			showFooterHints: Type.Optional(Type.Boolean()),
+		})
+	),
+	expiry: Type.Optional(
+		Type.Object({
+			enabled: Type.Optional(Type.Boolean()),
+			minSeconds: Type.Optional(Type.Number()),
 		})
 	),
 	keymaps: Type.Optional(AskConfigKeymapsSchema),
@@ -145,9 +152,17 @@ export interface AskConfig {
 	};
 	behaviour: {
 		autoSubmitWhenAnsweredWithoutNotes: boolean;
+		/** `false` removes `background` from the schema; every call blocks. */
+		background: boolean;
 		confirmDismissWhenDirty: boolean;
 		doublePressReviewShortcuts: boolean;
 		showFooterHints: boolean;
+	};
+	expiry: {
+		/** `false` removes `timeoutSeconds` and `fallback` from the schema. */
+		enabled: boolean;
+		/** Shorter requested limits are raised to this floor. */
+		minSeconds: number;
 	};
 	keymaps: AskConfigKeymaps;
 	notifications: {

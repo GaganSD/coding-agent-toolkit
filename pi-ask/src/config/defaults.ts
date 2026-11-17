@@ -12,6 +12,7 @@ import type {
 const DEFAULT_EXTRACTION_RETRIES = 1;
 const MAX_EXTRACTION_RETRIES = 3;
 const DEFAULT_EXTRACTION_TIMEOUT_MS = 30_000;
+const DEFAULT_EXPIRY_MIN_SECONDS = 30;
 
 export const DEFAULT_ASK_CONFIG: AskConfig = {
 	answer: {
@@ -21,9 +22,14 @@ export const DEFAULT_ASK_CONFIG: AskConfig = {
 	},
 	behaviour: {
 		autoSubmitWhenAnsweredWithoutNotes: false,
+		background: true,
 		confirmDismissWhenDirty: true,
 		doublePressReviewShortcuts: true,
 		showFooterHints: true,
+	},
+	expiry: {
+		enabled: true,
+		minSeconds: DEFAULT_EXPIRY_MIN_SECONDS,
 	},
 	keymaps: structuredClone(DEFAULT_ASK_KEYMAPS),
 	notifications: {
@@ -55,6 +61,9 @@ export function normalizeAskConfig(
 			autoSubmitWhenAnsweredWithoutNotes:
 				config?.behaviour?.autoSubmitWhenAnsweredWithoutNotes ??
 				DEFAULT_ASK_CONFIG.behaviour.autoSubmitWhenAnsweredWithoutNotes,
+			background:
+				config?.behaviour?.background ??
+				DEFAULT_ASK_CONFIG.behaviour.background,
 			confirmDismissWhenDirty:
 				config?.behaviour?.confirmDismissWhenDirty ??
 				DEFAULT_ASK_CONFIG.behaviour.confirmDismissWhenDirty,
@@ -64,6 +73,13 @@ export function normalizeAskConfig(
 			showFooterHints:
 				config?.behaviour?.showFooterHints ??
 				DEFAULT_ASK_CONFIG.behaviour.showFooterHints,
+		},
+		expiry: {
+			enabled: config?.expiry?.enabled ?? DEFAULT_ASK_CONFIG.expiry.enabled,
+			minSeconds: positiveNumberOrDefault(
+				config?.expiry?.minSeconds,
+				DEFAULT_EXPIRY_MIN_SECONDS
+			),
 		},
 		keymaps: mergeKeymaps(config?.keymaps),
 		notifications: {
@@ -87,10 +103,15 @@ export function toAskConfigFile(config: AskConfig): AskConfigFile {
 		behaviour: {
 			autoSubmitWhenAnsweredWithoutNotes:
 				normalized.behaviour.autoSubmitWhenAnsweredWithoutNotes,
+			background: normalized.behaviour.background,
 			confirmDismissWhenDirty: normalized.behaviour.confirmDismissWhenDirty,
 			doublePressReviewShortcuts:
 				normalized.behaviour.doublePressReviewShortcuts,
 			showFooterHints: normalized.behaviour.showFooterHints,
+		},
+		expiry: {
+			enabled: normalized.expiry.enabled,
+			minSeconds: normalized.expiry.minSeconds,
 		},
 		keymaps: structuredClone(normalized.keymaps),
 		notifications: {

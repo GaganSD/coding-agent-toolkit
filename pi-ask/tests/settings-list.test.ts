@@ -12,10 +12,12 @@ const savedConfig: AskConfig = {
 	},
 	behaviour: {
 		autoSubmitWhenAnsweredWithoutNotes: false,
+		background: true,
 		confirmDismissWhenDirty: true,
 		doublePressReviewShortcuts: true,
 		showFooterHints: true,
 	},
+	expiry: { ...DEFAULT_ASK_CONFIG.expiry },
 	keymaps: DEFAULT_ASK_CONFIG.keymaps,
 	notifications: {
 		channels: ["bell"],
