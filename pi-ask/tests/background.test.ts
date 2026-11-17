@@ -88,6 +88,21 @@ async function withBackgroundForm(params: object = PARAMS) {
 	return { host, receipt, requestId: receipt.details.requestId as string };
 }
 
+/**
+ * A session whose blocking form was answered, but where Pi died before it
+ * wrote the tool result: the answer exists only in the journal.
+ */
+async function unrecordedToolSession() {
+	const first = boot(undefined, { persistToolResults: false });
+	const pending = first.ask();
+	await tick();
+	first.forms[0]?.press(...SUBMIT_TWO);
+	await pending;
+	assert.equal(first.journal().at(-1)?.channel, "tool");
+	assert.equal(first.answers().length, 0);
+	return first.session;
+}
+
 beforeEach(quietConfig);
 
 // --- The tool call ---------------------------------------------------------
@@ -469,6 +484,29 @@ test("a wake whose run never starts is retried instead of losing the answer", as
 	assert.equal(host.sent.length, 2);
 	assert.deepEqual(host.sent[1]?.options, { triggerTurn: true });
 	assert.equal(host.sent[1]?.message.details.requestId, requestId);
+
+	host.recordWake();
+	host.settle();
+	await start(host, "reload");
+	assert.equal(host.answers().length, 1, "the branch proves exactly one delivery");
+	assert.equal(host.sent.length, 2);
+});
+
+test("an adopted tool answer whose wake never starts is retried here, once", async () => {
+	const session = await unrecordedToolSession();
+	const host = boot(session, { persistToolResults: false });
+	host.failNextWake();
+	await start(host);
+	assert.equal(host.sent.length, 1, "the rebuild adopts the answer as a wake");
+	assert.equal(host.answers().length, 0, "the failed wake never reached the branch");
+	assert.equal(host.isIdle(), true, "the run failed to start");
+
+	// The branch still lacks the adopted answer, so it must be offered again
+	// in this process instead of waiting for the next reload or fork.
+	host.settle();
+	await tick();
+	assert.equal(host.sent.length, 2, "the failed adoption is retried");
+	assert.deepEqual(host.sent[1]?.options, { triggerTurn: true });
 
 	host.recordWake();
 	host.settle();

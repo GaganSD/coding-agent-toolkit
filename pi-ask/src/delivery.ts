@@ -189,7 +189,11 @@ export function createAskDelivery(
 		const pending = undeliveredOutcomes(readAskJournal(ctx), {
 			unrecordedTool: recovering,
 		});
-		recovering = false;
+		// Only a plan that can act on an adopted answer clears the adoption. One
+		// that can only hold it leaves the next plan able to adopt and send it.
+		if (situation.trigger !== "now" || situation.idle) {
+			recovering = false;
+		}
 		if (pending.length === 0) {
 			watching = false;
 			return;
@@ -232,14 +236,24 @@ export function createAskDelivery(
 		if (inFlight.size === 0) {
 			return;
 		}
-		const pending = new Set(
-			undeliveredOutcomes(readAskJournal(ctx)).map(
-				({ outcome }) => outcome.outcomeId
+		// An adopted tool outcome counts here too: neither call site has a live
+		// call that could still be writing its result, so the branch proves it
+		// was never sent.
+		const pending = new Map(
+			undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true }).map(
+				({ outcome }) => [outcome.outcomeId, outcome]
 			)
 		);
 		for (const outcomeId of [...inFlight]) {
-			if (pending.has(outcomeId)) {
-				inFlight.delete(outcomeId);
+			const outcome = pending.get(outcomeId);
+			if (!outcome) {
+				continue;
+			}
+			inFlight.delete(outcomeId);
+			// The adopted answer never reached the branch, so adopt it again and
+			// let the next plan retry it in this process.
+			if (outcome.channel === "tool") {
+				recovering = true;
 			}
 		}
 	}
