@@ -1,4 +1,5 @@
 import type { AskConfig } from "../config/schema.ts";
+import type { FooterSurface } from "../constants/keymaps.ts";
 import {
 	getCurrentQuestion,
 	getRenderableOptions,
@@ -15,6 +16,7 @@ export function renderAskScreen(args: {
 	footerNotice?: string;
 	reviewShortcutHint?: string;
 	state: AskState;
+	surface?: FooterSurface;
 	theme: Theme;
 	width: number;
 	editor: QuestionRenderContext["editor"];
@@ -24,6 +26,7 @@ export function renderAskScreen(args: {
 		footerNotice,
 		reviewShortcutHint,
 		state,
+		surface,
 		theme,
 		width,
 		editor,
@@ -48,6 +51,14 @@ export function renderAskScreen(args: {
 		});
 	}
 
-	renderFrameFooter({ config, footerNotice, lines, state, theme, width });
+	renderFrameFooter({
+		config,
+		footerNotice,
+		lines,
+		state,
+		surface,
+		theme,
+		width,
+	});
 	return lines;
 }

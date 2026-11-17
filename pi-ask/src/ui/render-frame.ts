@@ -1,6 +1,10 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
-import { renderFooterKeymaps } from "../constants/keymaps.ts";
+import {
+	type FooterKeymapContext,
+	type FooterSurface,
+	renderFooterKeymaps,
+} from "../constants/keymaps.ts";
 import {
 	getCurrentQuestion,
 	isQuestionAnswered,
@@ -33,12 +37,13 @@ export function renderFrameFooter(args: {
 	footerNotice?: string;
 	lines: string[];
 	state: AskState;
+	surface?: FooterSurface;
 	theme: Theme;
 	width: number;
 }) {
-	const { config, footerNotice, lines, state, theme, width } = args;
+	const { config, footerNotice, lines, state, surface, theme, width } = args;
 	const add = (text = "") => lines.push(truncateToWidth(text, width));
-	const footer = renderFooter(config, state, width);
+	const footer = renderFooter(config, state, width, surface);
 	const noticeLines = footerNotice ? wrapText(footerNotice, width) : [];
 	if (noticeLines.length > 0 || footer.length > 0) {
 		add();
@@ -188,26 +193,26 @@ function applyTabGrowth(
 function renderFooter(
 	config: AskConfig,
 	state: AskState,
-	width: number
+	width: number,
+	surface?: FooterSurface
 ): string[] {
 	if (!config.behaviour.showFooterHints) {
 		return [];
 	}
-	let footer: string;
+	let context: FooterKeymapContext;
 	if (state.view.kind === "input") {
-		footer = renderFooterKeymaps(config, "input");
+		context = "input";
 	} else if (state.view.kind === "note") {
-		footer = renderFooterKeymaps(config, "note");
+		context = "note";
 	} else if (isSubmitTab(state)) {
-		footer = renderFooterKeymaps(config, "submit");
+		context = "submit";
 	} else {
-		const question = getCurrentQuestion(state);
-		footer = renderFooterKeymaps(
-			config,
-			question?.type === "multi" ? "multi" : "default"
-		);
+		context = getCurrentQuestion(state)?.type === "multi" ? "multi" : "default";
 	}
-	return wrapDelimitedFooterHints(footer, width);
+	return wrapDelimitedFooterHints(
+		renderFooterKeymaps(config, context, surface),
+		width
+	);
 }
 
 function wrapDelimitedFooterHints(footer: string, width: number): string[] {

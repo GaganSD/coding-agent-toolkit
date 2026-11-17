@@ -24,6 +24,8 @@ const AskKeyBindingSchema = Type.Union([
 const AskConfigKeymapsSchema = Type.Object({
 	global: Type.Object({
 		dismiss: Type.Optional(AskKeyBindingSchema),
+		later: Type.Optional(AskKeyBindingSchema),
+		panelFocus: Type.Optional(AskKeyBindingSchema),
 		settings: Type.Optional(AskKeyBindingSchema),
 	}),
 	main: Type.Object({
@@ -114,6 +116,10 @@ export interface AskConfigKeymaps {
 	};
 	global: {
 		dismiss: string[];
+		/** "Answer later": defer a blocking form, or hide the panel. */
+		later: string[];
+		/** Switch keyboard focus between the panel and the normal input. */
+		panelFocus: string[];
 		settings: string[];
 	};
 	main: {

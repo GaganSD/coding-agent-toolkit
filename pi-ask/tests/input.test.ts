@@ -427,3 +427,24 @@ test("custom configured note shortcuts are used at runtime", () => {
 		kind: "openQuestionNote",
 	});
 });
+
+test("the later key is a command in every view, even with text typed", () => {
+	const later = "\x0c";
+	const navigation = createInitialState({
+		questions: [
+			{ id: "q1", prompt: "Question?", options: [{ value: "a", label: "A" }] },
+		],
+	});
+	assert.deepEqual(getInputCommand(navigation, DEFAULT_ASK_CONFIG, later), {
+		kind: "later",
+	});
+	assert.deepEqual(
+		getInputCommand(inputState(), DEFAULT_ASK_CONFIG, later, "typed text"),
+		{ kind: "later" }
+	);
+	const unbound = structuredClone(DEFAULT_ASK_CONFIG);
+	unbound.keymaps.global.later = [];
+	assert.notDeepEqual(getInputCommand(navigation, unbound, later), {
+		kind: "later",
+	});
+});
