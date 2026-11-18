@@ -10,7 +10,8 @@ export { parseMcpFile, sidebarMcp, SidebarMcpFiles, type SidebarMcp, type Sideba
 
 export type SidebarUsage = {
   input: number | null; output: number | null; cacheRead: number | null;
-  cacheWrite: number | null; total: number | null; cost: number | null;
+  cacheWrite: number | null; uncached: number | null; total: number | null; cost: number | null;
+  cacheSeen: boolean;
 };
 export type SidebarSkill = { name: string; path: string; source: string; loaded: boolean };
 export type SidebarCommand = { name: string; source: string; description?: string };
@@ -19,7 +20,7 @@ export type SidebarResources = { skills: SidebarSkill[]; commands: SidebarComman
 export type SidebarSession = {
   id: string; name?: string; pid: number; cwd: string; model: string; thinking: string;
   tokens: number | null; percent: number | null; contextWindow: number | null;
-  estimated: boolean; rate: number | null; startedAt: number; lastTurnMs: number | null;
+  estimated: boolean; rate: number | null; startedAt: number; lastTurnMs: number | null; streaming: boolean;
   /** Wall-clock start of the running turn; absent or null when idle. */
   turnStartedAt?: number | null;
   working: boolean; turns: number; messages: number; usage: SidebarUsage;
@@ -32,7 +33,7 @@ export function parseSidebarFolds(value: unknown): SidebarFolds {
   const raw = record(value);
   return { mcp: raw?.mcp === true, skills: raw?.skills === true, prompts: raw?.prompts === true };
 }
-function nonnegative(value: unknown): number | null {
+export function nonnegative(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
@@ -41,6 +42,7 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
   const sums = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const missing = new Set<keyof typeof sums>();
   const seen = new Set<string>();
+  let cacheSeen = false;
   for (const entry of entries) {
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
@@ -61,7 +63,11 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
     for (const key of Object.keys(sums) as Array<keyof typeof sums>) {
       const value = nonnegative(key === "cost" ? record(raw.cost)?.total : raw[key]);
       if (value === null) missing.add(key);
-      else { sums[key] += value; if (!Number.isFinite(sums[key])) missing.add(key); }
+      else {
+        sums[key] += value;
+        if (!Number.isFinite(sums[key])) missing.add(key);
+        if ((key === "cacheRead" || key === "cacheWrite") && value > 0) cacheSeen = true;
+      }
     }
   }
   // Pi's input is uncached input; cacheRead/cacheWrite are separate categories.
@@ -69,7 +75,8 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
     ? null : nonnegative(sums.input + sums.cacheRead + sums.cacheWrite);
   const output = missing.has("output") ? null : sums.output;
   return {
-    input: inbound, output,
+    input: inbound, output, cacheSeen,
+    uncached: missing.has("input") ? null : sums.input,
     cacheRead: missing.has("cacheRead") ? null : sums.cacheRead,
     cacheWrite: missing.has("cacheWrite") ? null : sums.cacheWrite,
     total: inbound === null || output === null ? null : nonnegative(inbound + output),

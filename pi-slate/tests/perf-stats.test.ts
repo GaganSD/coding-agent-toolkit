@@ -20,15 +20,13 @@ test("empty branch yields null facts", () => {
   const perf = branchPerf([], opts);
   assert.deepEqual(perf.rates, []);
   assert.equal(perf.requests, 0); assert.equal(perf.peak, null); assert.equal(perf.turn, null);
-  assert.equal(perf.cache.seen, false); assert.equal(perf.cache.lastActivityAt, null);
-  assert.equal(perf.cache.read, 0);
-  assert.deepEqual(EMPTY_PERF.live, perf.live);
+  assert.deepEqual(perf.cache, EMPTY_PERF.cache);
 });
 
 test("legacy messages without durationMs are not timed", () => {
   const perf = branchPerf([user(), asst({ durationMs: undefined })], opts);
   assert.equal(perf.requests, 0); assert.equal(perf.turn, null); assert.deepEqual(perf.rates, []);
-  assert.equal(perf.cache.uncached, 10);
+  assert.equal(perf.cache.lastHit, 0);
 });
 
 test("error, aborted and deferred are excluded from speed and turn", () => {
@@ -38,8 +36,8 @@ test("error, aborted and deferred are excluded from speed and turn", () => {
 
 test("tiny outputs count in the turn but not in rates or peak", () => {
   const perf = branchPerf([user(), asst({}, usageOf({ output: 10 })), asst({ durationMs: 100 }, usageOf({ output: 500 })), asst({}, usageOf({ output: 100 }))], opts);
-  assert.deepEqual(perf.rates, [100]); assert.equal(perf.peak, 100); assert.equal(perf.lastRate, 100);
-  assert.equal(perf.turn?.requests, 3); assert.equal(perf.turn?.output, 610);
+  assert.deepEqual(perf.rates, [100]); assert.equal(perf.peak, 100);
+  assert.equal(perf.turn?.output, 610);
   assert.equal(perf.turn?.rate, 100, "turn average uses the same eligibility as rates and peak");
   const onlyTiny = branchPerf([user(), asst({}, usageOf({ output: 10 }))], opts);
   assert.equal(onlyTiny.turn?.output, 10); assert.equal(onlyTiny.turn?.rate, null); assert.equal(onlyTiny.peak, null);
@@ -77,25 +75,14 @@ test("5,000 requests process quickly", () => {
   assert.equal(perf.requests, 5000); assert.equal(perf.rates.length, PERF_MAX_RATES);
 });
 
-test("cache hit math uses Pi's uncached input", () => {
+test("cache hit uses the latest assistant's uncached input, cache read and write", () => {
+  const tool = entry({ type: "message", message: { role: "toolResult", usage: usageOf({ cacheRead: 99 }) } });
   const perf = branchPerf([
     asst({}, usageOf({ input: 100, cacheRead: 700, cacheWrite: 200 })),
-    asst({}, usageOf({ input: 50, cacheRead: 150, cacheWrite: 0 })),
+    asst({}, usageOf({ input: 50, cacheRead: 150, cacheWrite: 50 })),
+    tool, entry({ type: "compaction" }),
   ], opts);
-  assert.equal(perf.cache.lastHit, 0.75);
-  assert.equal(perf.cache.read, 850); assert.equal(perf.cache.write, 200); assert.equal(perf.cache.uncached, 150);
-  assert.equal(perf.cache.sessionHit, 850 / 1200);
-  assert.equal(perf.cache.seen, true);
-});
-
-test("cache totals reconcile with tool results and summaries, and go null when unknown", () => {
-  const tool = entry({ type: "message", message: { role: "toolResult", usage: usageOf({ input: 5, cacheRead: 5, cacheWrite: 5 }) } });
-  const summary = entry({ type: "compaction", usage: usageOf({ input: 1, cacheRead: 2, cacheWrite: 3 }) });
-  const ok = branchPerf([asst({}, usageOf({ input: 1, cacheRead: 1, cacheWrite: 1 })), tool, summary], opts);
-  assert.equal(ok.cache.read, 8); assert.equal(ok.cache.write, 9); assert.equal(ok.cache.uncached, 7);
-  const legacy = branchPerf([asst({}, usageOf({ input: 1, cacheRead: 1 })), entry({ type: "compaction" })], opts);
-  assert.equal(legacy.cache.read, null); assert.equal(legacy.cache.sessionHit, null);
-  assert.equal(branchPerf([entry({ type: "message", message: { role: "assistant", timestamp: 1, durationMs: 1 } })], opts).cache.uncached, null);
+  assert.equal(perf.cache.lastHit, 0.6);
 });
 
 test("saved estimates handle mixed models, skip unpriceable requests and zero prices", () => {
@@ -139,7 +126,7 @@ test("cacheWarmth warm, cold, unknown and clock skew", () => {
 test("NaN, negative and infinite usage never leak", () => {
   const bad = asst({}, usageOf({ input: NaN, output: -5, cacheRead: Infinity, cacheWrite: -1 }, { input: NaN }));
   const perf = branchPerf([user(), bad, asst({ durationMs: NaN }), asst({ timestamp: NaN })], opts);
-  assert.equal(perf.cache.read, null); assert.equal(perf.cache.sessionHit, null); assert.equal(perf.cache.saved, null);
+  assert.equal(perf.cache.saved, null);
   assert.equal(branchPerf([bad], opts).cache.lastHit, null);
   assert.deepEqual(perf.rates, []); assert.equal(perf.turn, null);
   assert.equal(perf.requests, 1);

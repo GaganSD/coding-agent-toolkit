@@ -8,15 +8,15 @@ import { visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-t
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
 import { perfFixture } from "./perf-fixture.ts";
 import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
-import { SidebarMcpFiles, type SidebarResources, type SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
-import { sessionSidebarSlots } from "../extensions/pi-slate/sidebar-layout.ts";
+import { SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts";
 
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
-const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, cost: 0.12 }, perf: perfFixture(1000) };
+const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, streaming: false, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12 }, perf: perfFixture(1000) };
+const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null };
 const resources: SidebarResources = {
   mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
   skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
@@ -143,9 +143,6 @@ test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny t
       assert.equal(lines.length, height);
       assert(lines.every(line => visibleWidth(line) <= width), `${width}×${height}`);
       assert(lines.every(line => !line.includes("\x1b[2J") && !line.includes("\n")));
-      const slots = sessionSidebarSlots(height, 4, true);
-      assert.equal(Object.values(slots).reduce((a, b) => a + b, 0), height);
-      assert(Object.values(slots).every(x => x >= 0));
     }
   }
 });
@@ -155,7 +152,7 @@ test("speed and cache replace the usage lane; full accounting stays in details",
   for (const width of [18, 28, 40, 80]) {
     const text = plain(sidebar.render(width)).join("\n");
     assert(text.includes("CACHE") && text.includes("SPEED"));
-    if (width >= 28) for (const value of ["108k", "$0.12", "92%"]) assert(text.includes(value), value);
+    if (width >= 28) for (const value of ["6.1k", "$0.12", "92%"]) assert(text.includes(value), value);
     assert(!/\bCached\b|Uncached|\bPID\b/.test(text), "old usage rows are gone");
   }
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
@@ -166,15 +163,16 @@ test("speed and cache replace the usage lane; full accounting stays in details",
 });
 
 test("header height follows the terminal tier and its divider closes the header", () => {
-  const { sidebar } = fixture();
+  const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16], [29, 6], [20, 6], [19, 4]] as const)
-    assert.equal(sessionSidebarSlots(rows, 0, false).header, header, `rows ${rows}`);
+  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16], [29, 6], [20, 6], [19, 4]] as const) {
+    terminal.rows = rows;
+    assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), header, `rows ${rows}`);
+  }
+  terminal.rows = 60;
   const lines = plain(sidebar.render(40));
   assert.match(lines[0]!, /^┌─+┐$/, "top bar");
   assert.match(lines.at(-1)!, /^└─+┘$/, "bottom bar");
-  const hairline = lines.findIndex((line, i) => i > 0 && i < lines.length - 1 && /^├─+┤$/.test(line));
-  assert.equal(hairline, 21, "hairline closes a 21-row header under the top bar");
   assert.match(lines[1]!, /^○ Idle|^● Working/);
   assert(lines[2]!.startsWith("Slate session title") && lines[2]!.endsWith("session-"));
   assert(lines[5]!.startsWith("CONTEXT") && lines[5]!.includes("16%") && lines[5]!.includes("31.6k/200k"));
@@ -222,7 +220,7 @@ test("context meter fill follows the theme accent and shifts to the warning tone
 test("context rows keep the branch usage inspect action; nulls render as dashes", () => {
   const { sidebar } = fixture(); const inspected: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: title => inspected.push(title) });
-  sidebar.setSession({ ...session, estimated: true, usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null } });
+  sidebar.setSession({ ...session, estimated: true, usage: noUsage });
   const heading = row(sidebar, "~31.6k/200k");
   sidebar.handleMouse(mouse(heading));
   sidebar.handleMouse(mouse(heading + 1));
@@ -411,7 +409,7 @@ test("clock and theme changes invalidate cached output; pure repeated render is 
 
 test("unknown values and invalid MCP config remain explicit even when folded", () => {
   const { sidebar } = fixture();
-  sidebar.setSession({ ...session, percent: null, tokens: null, contextWindow: null, usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null } });
+  sidebar.setSession({ ...session, percent: null, tokens: null, contextWindow: null, usage: noUsage });
   sidebar.setResources({ ...resources, mcpError: "MCP config unreadable" });
   const lines = plain(sidebar.render(80));
   assert(lines.some(line => /^CONTEXT\s+—\s+—\/—$/.test(line)));
@@ -509,7 +507,7 @@ test("working status shows the running turn's elapsed time and ticks each second
 
 test("empty speed and cache sections collapse and give their rows to the resource list", () => {
   const { sidebar } = fixture(46);
-  sidebar.setSession({ ...session, perf: EMPTY_PERF });
+  sidebar.setSession({ ...session, usage: noUsage, perf: EMPTY_PERF });
   const empty = plain(sidebar.render(44));
   const mcpEmpty = empty.findIndex(line => line.includes("MCP"));
   assert(empty.some(line => line.includes("waiting for first response")));

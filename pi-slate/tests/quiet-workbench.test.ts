@@ -7,7 +7,7 @@ import { loadThemeFromPath, SYSTEM_THEME_NAME } from "../node_modules/@earendil-
 import { ComposerEditor, type ComposerSource } from "../extensions/pi-slate/composer.ts";
 import { dashboardColumnWidth, formatCompactTokenCount, parseSlateArgs } from "../extensions/pi-slate/layout.ts";
 import { SLATE_NATIVE_THEME, SLATE_THEME } from "../extensions/pi-slate/install-defaults.ts";
-import { sessionSidebarSlots, sidebarCost, sidebarRate } from "../extensions/pi-slate/sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarCost } from "../extensions/pi-slate/sidebar-layout.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
 import { perfFixture } from "./perf-fixture.ts";
 import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
@@ -15,8 +15,8 @@ import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
 const theme = loadThemeFromPath(new URL("../themes/tokyo-night.json", import.meta.url).pathname, "truecolor");
 const session: SidebarSession = { id: "example-session", pid: 8421, cwd: "/tmp/project",
   model: "sample-model", thinking: "medium", tokens: 55000, percent: 11, contextWindow: 500000,
-  estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 14000, working: true, turns: 4, messages: 8,
-  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, cost: 1.24 }, perf: perfFixture(1000) };
+  estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 14000, working: true, streaming: false, turns: 4, messages: 8,
+  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, uncached: 12400, cacheSeen: true, cost: 1.24 }, perf: perfFixture(1000) };
 
 test("bundled default Tokyo Night loads with the native validator and restrained backgrounds", () => {
   assert.equal(SLATE_THEME, "tokyo-night"); assert.equal(theme.name, SLATE_THEME);
@@ -49,10 +49,10 @@ test("compact viewport hides the rail without changing stored width or focus", (
 
 test("empty shelves allocate zero rows and all allocations remain bounded", () => {
   for (let height = 0; height < 80; height++) {
-    const empty = sessionSidebarSlots(height, 0, false);
+    const empty = sessionSidebarSlots(height, 11, 0, false);
     assert.equal(empty.tasks, 0); assert.equal(empty.image, 0);
     for (const tasks of [0, 1, 10]) for (const image of [false, true]) {
-      const values = Object.values(sessionSidebarSlots(height, tasks, image));
+      const values = Object.values(sessionSidebarSlots(height, 11, tasks, image));
       assert.equal(values.reduce((a, b) => a + b, 0), height);
       assert(values.every(n => n >= 0));
     }
@@ -76,16 +76,12 @@ test("growing usage and money keep a stable label lane and value edge with the r
   assert.equal(sidebarCost(null), "—"); assert.equal(sidebarCost(Number.NaN), "—");
   assert.equal(sidebarCost(-1), "—"); assert.equal(sidebarCost(1.24), "$1.24");
   assert.equal(sidebarCost(1e308), "$1.0e+308");
-  assert.equal(sidebarRate(33.4), "~33 t/s"); assert.equal(sidebarRate(300), "~300 t/s");
-  assert.equal(sidebarRate(null), "—"); assert.equal(sidebarRate(Number.NaN), "—");
-  assert.equal(sidebarRate(-1), "—"); assert.equal(sidebarRate(Infinity), "—");
   sidebar.dispose();
 });
 
 test("short terminals keep the CONTEXT heading row grammar with the real theme", () => {
   const sidebar = new Sidebar(() => 10000);
   sidebar.attach({ terminal: { rows: 24, columns: 140 }, requestRender() {} } as unknown as TUI, theme);
-  assert.equal(sessionSidebarSlots(24, 0, false).header, 6, "mini tier keeps a one-row context summary");
   for (const width of [28, 40, 80]) {
     sidebar.setSession(session);
     const rows = sidebar.render(width);

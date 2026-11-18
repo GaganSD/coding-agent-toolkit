@@ -336,7 +336,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries),
         perf: branchPerf(entries, { promptCache: ctx.model?.promptCache, retentionLong: process.env.PI_CACHE_RETENTION === "long" }) };
     }
-    const liveRate = tokenRate.rate();
+    const rate = tokenRate.rate();
     const mcpCount = resources.mcp.filter(server => server.enabled === true).length;
     if (owns("sidebar") && !sidebarYielded) {
       sidebar.setSession({
@@ -344,13 +344,13 @@ export default function piSlate(pi: ExtensionAPI): void {
         name: ctx.sessionManager.getSessionName?.(),
         pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(ctx.model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
         tokens, percent, contextWindow, estimated,
-        rate: tokenRate.rate() > 0 ? tokenRate.rate() : null, startedAt: sessionStartedAt, lastTurnMs, turnStartedAt: turnStartedAt ?? null,
+        rate: rate > 0 ? rate : null, startedAt: sessionStartedAt, lastTurnMs, turnStartedAt: turnStartedAt ?? null,
         working: typeof ctx.isIdle === "function" && !ctx.isIdle(), ...branchFacts.counts, usage: branchFacts.usage,
-        perf: { ...branchFacts.perf, live: { streaming: liveStreaming, rate: liveStreaming && liveRate > 0 ? liveRate : null } },
+        perf: branchFacts.perf, streaming: liveStreaming,
       });
     }
     contextEdge = {
-      tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
+      tokens: formatFocusedContextTokens(percent, rate, contextWindow),
       resources: formatFocusedContextResources(percent, estimated, mcpCount),
     };
   };

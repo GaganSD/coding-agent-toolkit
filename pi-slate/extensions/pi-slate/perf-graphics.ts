@@ -5,6 +5,7 @@
  */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatCompactTokenCount } from "./layout.ts";
+import type { SidebarUsage } from "./sidebar-data.ts";
 import { sidebarCost, type SidebarTier } from "./sidebar-layout.ts";
 import { cacheWarmth, type SidebarPerf } from "./perf-stats.ts";
 
@@ -17,24 +18,11 @@ export type PerfPaint = {
 const finite = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n);
 const nonneg = (n: number | null | undefined): n is number => finite(n) && n >= 0;
 
-/** tok/s: <100 one decimal, <1000 integer, then compact (1.2k, 12.3k, 123k, 1.2M). */
+/** tok/s: one decimal below 100, otherwise use the session's compact token notation. */
 export function formatRate(n: number | null | undefined): string {
   if (!nonneg(n)) return "—";
   const tenth = Math.round(n * 10) / 10;
-  if (tenth < 100) return tenth.toFixed(1);
-  const whole = Math.round(n);
-  if (whole < 1000) return `${whole}`;
-  if (whole < 999_500) {
-    const k = whole / 1000;
-    return `${k >= 100 ? Math.round(k) : (Math.round(k * 10) / 10).toFixed(1)}k`;
-  }
-  if (whole < 1e15) {
-    const unit = whole >= 1e12 ? 1e12 : whole >= 1e9 ? 1e9 : 1e6;
-    const suffix = unit === 1e12 ? "T" : unit === 1e9 ? "B" : "M";
-    const v = whole / unit;
-    return `${v >= 100 ? Math.round(v) : (Math.round(v * 10) / 10).toFixed(1)}${suffix}`;
-  }
-  return whole.toExponential(1);
+  return tenth < 100 ? tenth.toFixed(1) : formatCompactTokenCount(n);
 }
 
 /** m:ss, or h:mm:ss from one hour. Unknown/negative clamps to 0:00. */
@@ -50,7 +38,7 @@ const FONT: Record<string, readonly [string, string, string]> = {
   "0": ["█▀█", "█ █", "▀▀▀"], "1": ["▀█ ", " █ ", "▀▀▀"], "2": ["▀▀█", "█▀▀", "▀▀▀"], "3": ["▀▀█", " ▀█", "▀▀▀"],
   "4": ["█ █", "▀▀█", "  ▀"], "5": ["█▀▀", "▀▀█", "▀▀▀"], "6": ["█▀▀", "█▀█", "▀▀▀"], "7": ["▀▀█", "  █", "  ▀"],
   "8": ["█▀█", "█▀█", "▀▀▀"], "9": ["█▀█", "▀▀█", "▀▀▀"], ".": [" ", " ", "▀"],
-  "k": ["█ ▄", "██ ", "█ ▀"], "~": ["   ", "▄▀▄", "   "], " ": ["  ", "  ", "  "],
+  "k": ["█ ▄", "██ ", "█ ▀"], " ": ["  ", "  ", "  "],
 };
 
 /** Three rows of block-drawn text; unknown characters render as blank. Glyphs joined by one space. */
@@ -58,10 +46,6 @@ export function bigDigits(text: string): string[] {
   const glyphs = [...text].map(ch => FONT[ch] ?? FONT[" "]!);
   return [0, 1, 2].map(r => glyphs.map(g => g[r]!).join(" "));
 }
-export function bigDigitsWidth(text: string): number {
-  return visibleWidth(bigDigits(text)[0]!);
-}
-
 const DOT = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]] as const;
 
 /**
@@ -97,40 +81,22 @@ export function brailleBars(values: readonly number[], width: number, rows: numb
   return lines;
 }
 
-const BLOCKS = "▁▂▃▄▅▆▇█";
-/** One-row zero-based sparkline, left-aligned, padded with spaces; shows the newest `width` values. */
-export function sparkBlocks(values: readonly number[], width: number): string {
-  const w = Math.max(0, Math.floor(width));
-  if (w === 0) return "";
-  const shown = values.slice(-w).map(v => nonneg(v) ? v : 0);
-  const max = shown.reduce((a, b) => Math.max(a, b), 0);
-  const body = shown.map(v => v > 0 && max > 0 ? BLOCKS[Math.max(0, Math.min(7, Math.round(v / max * 7)))]! : BLOCKS[0]!).join("");
-  return body + " ".repeat(w - shown.length);
-}
-
-/**
- * Split `width` cells among `parts` by largest remainder: counts sum exactly to `width` (when any part is
- * positive) and every positive part gets at least one cell when the width allows.
- */
+/** Reserve a cell per positive segment if possible, then round the proportional boundaries. */
 export function stackedBar(parts: readonly number[], width: number): number[] {
   const w = Math.max(0, Math.floor(width));
-  const p = parts.map(v => nonneg(v) ? v : 0);
-  const sum = p.reduce((a, b) => a + b, 0);
-  const out = p.map(() => 0);
-  if (w === 0 || sum <= 0) return out;
-  const exact = p.map(v => v / sum * w);
-  exact.forEach((v, i) => { out[i] = Math.floor(v); });
-  let left = w - out.reduce((a, b) => a + b, 0);
-  const order = exact.map((v, i) => ({ i, frac: v - Math.floor(v) })).sort((a, b) => b.frac - a.frac || a.i - b.i);
-  for (let k = 0; left > 0; k = (k + 1) % order.length) { out[order[k]!.i]! += 1; left -= 1; }
-  const positive = p.map((v, i) => v > 0 ? i : -1).filter(i => i >= 0);
-  if (w >= positive.length) for (const i of positive) {
-    if (out[i]! > 0) continue;
-    let donor = -1;
-    for (let j = 0; j < out.length; j++) if (out[j]! > 1 && (donor < 0 || out[j]! > out[donor]!)) donor = j;
-    if (donor >= 0) { out[donor]! -= 1; out[i] = 1; }
-  }
-  return out;
+  const values = parts.map(v => nonneg(v) ? v : 0);
+  const max = Math.max(0, ...values);
+  if (!w || !max) return values.map(() => 0);
+  const total = values.reduce((sum, v) => sum + v / max, 0);
+  const positive = values.filter(v => v > 0).length;
+  const spare = w >= positive ? w - positive : w;
+  let cumulative = 0; let boundary = 0;
+  return values.map(v => {
+    const next = Math.round((cumulative += v / max) / total * spare);
+    const cells = next - boundary + (w >= positive && v > 0 ? 1 : 0);
+    boundary = next;
+    return cells;
+  });
 }
 
 export function formatIdle(ms: number): string {
@@ -144,7 +110,7 @@ export function formatIdle(ms: number): string {
 // One grammar for CONTEXT, SPEED and CACHE: heading row (label left, key figure right), one
 // full-width visual row, then `label value · label value` detail rows. Padding is always spaces.
 
-export type PerfInput = { perf: SidebarPerf; cost: number | null; now: number; inner: number; tier: SidebarTier } & PerfPaint;
+export type PerfInput = { perf: SidebarPerf; usage: SidebarUsage; streaming: boolean; now: number; inner: number; tier: SidebarTier } & PerfPaint;
 type Seg = readonly [Tone, string];
 
 const fit = (lines: string[], width: number): string[] => lines.map(l => truncateToWidth(l, width, "…"));
@@ -203,33 +169,32 @@ export function contextRows(i: PerfInput, c: { percent: number | null; tokens: n
   ];
 }
 
-/** Headline is always the exact last response; the live chars÷4 estimate is not shown here. */
-export const hasSpeed = (perf: SidebarPerf): boolean => nonneg(perf.lastRate) || perf.rates.length > 0 || nonneg(perf.turn?.rate) || nonneg(perf.peak);
-
+/** Headline is always the exact last eligible response. */
 export function speedRows(i: PerfInput): string[] {
   const { perf, inner, paint } = i;
-  const streaming: readonly Seg[] = perf.live.streaming ? [["warning", "● streaming"]] : [];
-  if (!hasSpeed(perf)) {
+  const streaming: readonly Seg[] = i.streaming ? [["warning", "● streaming"]] : [];
+  const rate = perf.rates.at(-1);
+  if (rate === undefined) {
     return [headingRow(i, "SPEED", [[...streaming, ...(streaming.length ? [["text", "  "] as Seg] : []), DASH], [DASH]]),
       noteRow(i, perf.requests > 0 ? "replies too short to time" : "waiting for first response")];
   }
-  const rate = nonneg(perf.lastRate) ? perf.lastRate : null;
-  const value: Seg = rate === null ? DASH : ["text", formatRate(rate)];
+  const digits = formatRate(rate);
+  const value: Seg = ["text", digits];
   const unit: Seg = ["dim", " tok/s"];
   const out = perf.turn && perf.turn.output > 0 ? formatCompactTokenCount(perf.turn.output) : "—";
   const detail = detailRow(i, [["avg", formatRate(perf.turn?.rate)], ["peak", formatRate(perf.peak)], ["out", out]]);
   const gap: Seg = ["text", "  "];
   if (i.tier !== "full") {
     const lead = streaming.length ? [...streaming, gap] : [];
-    const visual = perf.rates.length ? paint("accent", sparkBlocks(perf.rates, inner)) : baseline(i);
+    const visual = paint("accent", brailleBars(perf.rates, inner, 1)[0]!);
     return [headingRow(i, "SPEED", [[...lead, value, unit], [...lead, value], [value, unit], [value]]), visual, detail];
   }
   const right: Seg[][] = [streaming.length ? [...streaming] : [["dim", "last response"]], streaming.length ? [["warning", "●"]] : []];
   const rows = [headingRow(i, "SPEED", right)];
-  const digits = rate === null ? "—" : formatRate(rate);
-  if (rate !== null && bigDigitsWidth(digits) <= inner) {
-    const [a, b, c] = bigDigits(digits) as [string, string, string];
-    const withUnit = bigDigitsWidth(digits) + 1 + "tok/s".length <= inner;
+  const [a, b, c] = bigDigits(digits) as [string, string, string];
+  const digitWidth = visibleWidth(a);
+  if (digitWidth <= inner && [...digits].every(ch => ch in FONT)) {
+    const withUnit = digitWidth + 1 + "tok/s".length <= inner;
     rows.push(paint("text", a), paint("text", b) + (withUnit ? " " + paint("dim", "tok/s") : ""), paint("text", c));
   } else rows.push(paintSegs(i, [value, unit]));
   if (inner >= 22) rows.push(...brailleBars(perf.rates, inner, 2).map(g => paint("accent", g)));
@@ -254,22 +219,17 @@ function cacheSegs(i: PerfInput, full: boolean): Seg[][] {
 }
 
 export function cacheRows(i: PerfInput): string[] {
-  const { perf, inner, paint } = i;
-  const c = perf.cache;
-  if (!c.seen) return [headingRow(i, "CACHE", [[DASH]]), noteRow(i, perf.requests === 0 ? "no requests yet" : "no cache reads reported")];
-  const parts = [c.read, c.write, c.uncached];
-  const total = parts.reduce<number>((a, b) => a + (nonneg(b) ? b : 0), 0);
-  const bar = (() => {
-    if (total <= 0) return baseline(i);
-    const [r, w, u] = stackedBar(parts.map(p => p ?? 0), inner) as [number, number, number];
-    return paint("success", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u));
-  })();
+  const { perf, usage, inner, paint } = i;
+  if (!usage.cacheSeen) return [headingRow(i, "CACHE", [[DASH]]), noteRow(i, perf.requests === 0 ? "no requests yet" : "no cache reads reported")];
+  const [r = 0, w = 0, u = 0] = stackedBar([usage.cacheRead ?? 0, usage.cacheWrite ?? 0, usage.uncached ?? 0], inner);
+  const bar = r || w || u ? paint("success", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u)) : baseline(i);
   const f = formatCompactTokenCount;
-  const spent: [string, string] = ["spent", sidebarCost(i.cost)];
-  const tokens: Array<[string, string]> = [["read", f(c.read)], ["write", f(c.write)], ["new", f(c.uncached)]];
+  const spent: [string, string] = ["spent", sidebarCost(usage.cost)];
+  const tokens: Array<[string, string]> = [["read", f(usage.cacheRead)], ["write", f(usage.cacheWrite)], ["new", f(usage.uncached)]];
   const rows = [headingRow(i, "CACHE", cacheSegs(i, true)), bar];
   if (i.tier === "full") {
-    rows.push(detailRow(i, tokens), detailRow(i, nonneg(c.saved) ? [spent, ["saved", `~${sidebarCost(c.saved)}`]] : [spent]));
+    const saved = perf.cache.saved;
+    rows.push(detailRow(i, tokens), detailRow(i, nonneg(saved) ? [spent, ["saved", `~${sidebarCost(saved)}`]] : [spent]));
   } else rows.push(detailRow(i, [...tokens, spent]));
   return fit(rows, inner);
 }
@@ -277,9 +237,10 @@ export function cacheRows(i: PerfInput): string[] {
 /** One row for short terminals: `23.5 tok/s · 62% hit · idle 1m`, shedding trailing parts to fit. */
 export function combinedRow(i: PerfInput): string {
   const { perf } = i;
-  if (perf.requests === 0 && !perf.cache.seen) return noteRow(i, "no requests yet");
-  const speed: Seg[] = nonneg(perf.lastRate) ? [["text", formatRate(perf.lastRate)], ["dim", " tok/s"]] : [DASH];
-  const cache = perf.cache.seen ? cacheSegs(i, false) : [[]];
+  if (perf.requests === 0 && !i.usage.cacheSeen) return noteRow(i, "no requests yet");
+  const rate = perf.rates.at(-1);
+  const speed: Seg[] = rate === undefined ? [DASH] : [["text", formatRate(rate)], ["dim", " tok/s"]];
+  const cache = i.usage.cacheSeen ? cacheSegs(i, false) : [[]];
   const sep: Seg = ["dim", " · "];
   const variants = cache.map(c => c.length ? [...speed, sep, ...c] : speed);
   variants.push(speed);
