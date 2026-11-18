@@ -74,19 +74,3 @@ export function planDelivery(
 		return step("wake");
 	});
 }
-
-/**
- * Whether proposing at a boundary should also ask Pi for one more model
- * request. Without it an answer that arrives during the final turn would sit
- * in the conversation unseen. Cancellations never ask; neither does a turn
- * the user aborted.
- */
-export function boundaryContinues(
-	items: readonly Pick<AskDeliveryItem, "cancelled">[],
-	turnStopReason?: string
-): boolean {
-	if (turnStopReason === "aborted" || turnStopReason === "error") {
-		return false;
-	}
-	return items.some((item) => !item.cancelled);
-}

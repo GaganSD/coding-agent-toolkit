@@ -10,8 +10,12 @@
  * How a pending outcome is sent is decided in `state/outbox.ts`.
  */
 import type {
+	BoundaryResult,
+	BoundaryState,
+	CustomMessageEntryDraft,
 	ExtensionAPI,
 	ExtensionContext,
+	MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { askStrings } from "./i18n.ts";
@@ -26,7 +30,6 @@ import { renderResultText } from "./result.ts";
 import {
 	type AskDeliverySituation,
 	type AskDeliveryStep,
-	boundaryContinues,
 	planDelivery,
 } from "./state/outbox.ts";
 import type { AskResult, AskResultAnswer } from "./types.ts";
@@ -34,16 +37,7 @@ import type { AskResult, AskResultAnswer } from "./types.ts";
 type DeliveryContext = Pick<ExtensionContext, "isIdle" | "sessionManager">;
 
 /** The part of a `turn_end` / `agent_before_settle` event that is read. */
-export interface AskBoundaryEvent {
-	entries?: readonly unknown[];
-	message?: unknown;
-}
-
-/** What Pi appends at the boundary; shaped as its `custom_message` draft. */
-export interface AskBoundaryResult {
-	continue?: boolean;
-	entries: unknown[];
-}
+export type AskBoundaryEvent = Pick<BoundaryState, "entries" | "outcome">;
 
 export interface AskDelivery {
 	/**
@@ -53,7 +47,7 @@ export interface AskDelivery {
 	boundary(
 		ctx: DeliveryContext,
 		event: AskBoundaryEvent
-	): AskBoundaryResult | undefined;
+	): BoundaryResult | undefined;
 	/** An outcome was just journalled with channel `message`. */
 	post(): void;
 	/**
@@ -268,39 +262,27 @@ export function createAskDelivery(
 			// Not marked in flight: Pi appends these as soon as the handlers
 			// return, so the branch itself answers the next check.
 			const entries = [
-				...(event.entries ?? []),
-				...proposed.map((outcome) => ({
+				...event.entries,
+				...proposed.map((outcome): CustomMessageEntryDraft => ({
 					type: "custom_message",
 					...answerMessage(outcome),
 				})),
 			];
-			const wantsTurn = boundaryContinues(
-				proposed.map((outcome) => ({
-					cancelled: outcome.result.status === "cancelled",
-				})),
-				stopReason(event.message)
-			);
+			const wantsTurn =
+				event.outcome === "completed" &&
+				proposed.some((outcome) => outcome.result.status !== "cancelled");
 			return wantsTurn ? { entries, continue: true } : { entries };
 		},
 	};
 }
 
-function stopReason(message: unknown): string | undefined {
-	const reason = (message as { stopReason?: unknown } | undefined)?.stopReason;
-	return typeof reason === "string" ? reason : undefined;
-}
-
-type MessageTheme = ExtensionContext["ui"]["theme"];
-
 /** Transcript card for a delivered answer, in place of the raw message. */
-export function renderAskAnswerMessage(
-	message: { details?: unknown },
-	_options: unknown,
-	theme: MessageTheme
-) {
-	const details = message.details as
-		| Partial<AskAnswerMessageDetails>
-		| undefined;
+export const renderAskAnswerMessage: MessageRenderer<AskAnswerMessageDetails> = (
+	message,
+	_options,
+	theme
+) => {
+	const details = message.details;
 	const result = details?.result;
 	if (!(result && Array.isArray(result.questions))) {
 		return;
@@ -327,4 +309,4 @@ export function renderAskAnswerMessage(
 		1,
 		0
 	);
-}
+};

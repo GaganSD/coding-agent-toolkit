@@ -9,6 +9,7 @@
  * wiring; the rules live in `state/panel.ts` and `state/outbox.ts`.
  */
 import type {
+	BoundaryResult,
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
@@ -20,7 +21,6 @@ import { getAskConfigStore } from "./config/store.ts";
 import { getGlobalBindings, matchesBinding } from "./constants/keymaps.ts";
 import {
 	type AskBoundaryEvent,
-	type AskBoundaryResult,
 	createAskDelivery,
 	renderAskAnswerMessage,
 } from "./delivery.ts";
@@ -85,7 +85,7 @@ export interface AskBackground {
 	boundary(
 		ctx: ExtensionContext,
 		event: AskBoundaryEvent
-	): AskBoundaryResult | undefined;
+	): BoundaryResult | undefined;
 	/** Stop for good: the runtime this belongs to is going away. */
 	dispose(): void;
 	/**
@@ -129,10 +129,10 @@ export function registerAskBackground(
 	pi.on("session_tree", (_event, ctx) => background.attach(ctx));
 	pi.on("session_shutdown", () => background.dispose());
 	pi.on("agent_start", () => background.started());
-	pi.on("turn_end", (event, ctx) => background.boundary(ctx, event) as never);
+	pi.on("turn_end", (event, ctx) => background.boundary(ctx, event));
 	pi.on(
 		"agent_before_settle",
-		(event, ctx) => background.boundary(ctx, event) as never
+		(event, ctx) => background.boundary(ctx, event)
 	);
 	pi.on("agent_settled", (event, ctx) =>
 		background.settled(ctx, event.aborted)
@@ -141,7 +141,7 @@ export function registerAskBackground(
 	pi.on("session_compact", (_event, ctx) => background.poke(ctx));
 	pi.registerMessageRenderer?.(
 		ASK_ANSWER_MESSAGE_TYPE,
-		renderAskAnswerMessage as never
+		renderAskAnswerMessage
 	);
 	pi.registerCommand?.("ask-panel", {
 		description: "Show waiting ask_user questions",

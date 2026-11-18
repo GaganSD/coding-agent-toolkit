@@ -13,7 +13,14 @@
  * - A widget is a component above or below the editor; it gets keys only
  *   while it has TUI focus. A modal form takes focus and gives it back.
  */
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+	type AgentActivityOutcome,
+	type BoundaryResult,
+	type BoundaryState,
+	type CustomMessageEntryDraft,
+	type SessionBoundaryDraft,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { DEFAULT_ASK_CONFIG } from "../../src/config/defaults.ts";
 import { getAskConfigStore } from "../../src/config/store.ts";
 import { ASK_JOURNAL_ENTRY_TYPE } from "../../src/journal/entries.ts";
@@ -120,7 +127,7 @@ export function fakePi(
 		bold: (text: string) => text,
 	};
 
-	function persist(message: SentMessage["message"]) {
+	function persist(message: SentMessage["message"] | CustomMessageEntryDraft) {
 		if (options.persistSentMessages === false) {
 			return;
 		}
@@ -257,14 +264,14 @@ export function fakePi(
 	}
 
 	/** An actionable boundary: handlers chain entries, Pi appends them. */
-	function boundary(event: string, payload: Record<string, unknown> = {}) {
-		let entries: any[] = [];
+	function boundary(event: string, outcome: AgentActivityOutcome) {
+		let entries: SessionBoundaryDraft[] = [];
 		let proceed = false;
 		for (const handler of handlers.get(event) ?? []) {
-			const result = handler(
-				{ type: event, ...payload, entries, continue: proceed },
-				ctx
-			) as { entries?: any[]; continue?: boolean } | undefined;
+			const state: Pick<BoundaryState, "entries" | "continue" | "outcome"> = {
+				entries, continue: proceed, outcome,
+			};
+			const result = handler({ type: event, ...state }, ctx) as BoundaryResult | undefined;
 			entries = result?.entries ?? entries;
 			proceed = result?.continue ?? proceed;
 		}
@@ -310,9 +317,10 @@ export function fakePi(
 				persist(message);
 			}
 		},
-		turnEnd: (message: Record<string, unknown> = { stopReason: "toolUse" }) =>
-			boundary("turn_end", { message }),
-		beforeSettle: () => boundary("agent_before_settle"),
+		turnEnd: (outcome: AgentActivityOutcome = "completed") =>
+			boundary("turn_end", outcome),
+		beforeSettle: (outcome: AgentActivityOutcome = "completed") =>
+			boundary("agent_before_settle", outcome),
 		/** The run is over: Pi is idle and tells the extensions. */
 		settle(aborted = false) {
 			idle = true;

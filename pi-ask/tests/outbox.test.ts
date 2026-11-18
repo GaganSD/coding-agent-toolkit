@@ -3,7 +3,6 @@ import test from "node:test";
 import { formatDeliveredOutcome } from "../src/delivery.ts";
 import {
 	type AskDeliveryItem,
-	boundaryContinues,
 	planDelivery,
 } from "../src/state/outbox.ts";
 import type { AskResult } from "../src/types.ts";
@@ -37,7 +36,6 @@ test("a cancellation never wakes: appended when idle, proposed at a boundary", (
 	assert.deepEqual(actions(cancelled, { trigger: "boundary", idle: false }), [
 		"propose",
 	]);
-	assert.equal(boundaryContinues(cancelled), false);
 });
 
 test("an outcome already on its way is never sent again, whatever happens next", () => {
@@ -69,19 +67,6 @@ test("one wake per batch, in request order; the rest join at its first boundary"
 		{ outcomeId: "b", action: "hold" },
 		{ outcomeId: "d", action: "hold" },
 	]);
-});
-
-test("an answer at a boundary asks for one more request, unless the turn was aborted or failed", () => {
-	assert.equal(boundaryContinues([item("a")]), true);
-	assert.equal(boundaryContinues([item("a")], "stop"), true);
-	assert.equal(boundaryContinues([item("a")], "toolUse"), true);
-	assert.equal(boundaryContinues([item("a")], "aborted"), false);
-	assert.equal(boundaryContinues([item("a")], "error"), false);
-	assert.equal(
-		boundaryContinues([item("c", { cancelled: true }), item("a")]),
-		true
-	);
-	assert.equal(boundaryContinues([]), false);
 });
 
 const RESULT: AskResult = {

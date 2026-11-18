@@ -18,6 +18,21 @@ beforeEach(quietConfig);
 
 // --- Delivery --------------------------------------------------------------
 
+for (const boundary of ["turnEnd", "beforeSettle"] as const) {
+	for (const outcome of ["completed", "aborted", "error"] as const) {
+		test(`${boundary} delivers an answer but continues only a completed run (${outcome})`, async () => {
+			const { host } = await withBackgroundForm();
+			host.setIdle(false);
+			host.type(...SUBMIT_TWO);
+			const result = host[boundary](outcome);
+			assert.equal(result.entries.length, 1);
+			assert.equal(result.continue, outcome === "completed");
+			assert.equal(host.sent.length, 0);
+			host.emit("session_shutdown");
+		});
+	}
+}
+
 test("an adopted tool answer retries synchronous send failures until delivered once", async (t) => {
 	const host = boot(await unrecordedToolSession());
 	const pi: ExtensionAPI = host.pi;
@@ -173,7 +188,7 @@ test("a new run releases an answer whose wake never started, and delivers it onc
 	host.emit("agent_start");
 	const boundary = host.turnEnd();
 	assert.equal(boundary.entries.length, 1);
-	assert.equal(boundary.entries[0].details.requestId, requestId);
+	assert.equal(host.answers()[0].details.requestId, requestId);
 	host.settle();
 	await start(host, "reload");
 	assert.equal(host.answers().length, 1);
@@ -192,7 +207,8 @@ test("a working agent gets the answer at the next turn boundary, once, with no e
 	assert.equal(first.entries.length, 1);
 	assert.equal(first.entries[0].type, "custom_message");
 	assert.equal(first.entries[0].customType, ASK_ANSWER_MESSAGE_TYPE);
-	assert.equal(first.entries[0].details.requestId, requestId);
+	assert.equal(host.answers()[0].details.requestId, requestId);
+	assert.ok(typeof first.entries[0].content === "string");
 	assert.match(first.entries[0].content, /db "Which database\?": Postgres/);
 
 	// Turn boundary, then settle: the same answer is not offered or sent again.
@@ -223,7 +239,7 @@ test("boundary entries from other extensions are kept", async () => {
 	host.setIdle(false);
 	host.type(...SUBMIT_TWO);
 	const other = { type: "custom", customType: "other", data: 1 };
-	const [result] = host.emit("turn_end", { entries: [other], message: {} }) as any[];
+	const [result] = host.emit("turn_end", { entries: [other], outcome: "completed" }) as any[];
 	assert.equal(result.entries.length, 2);
 	assert.equal(result.entries[0], other);
 });
@@ -240,7 +256,7 @@ test("an answer left over after the user aborts is added without restarting the 
 	const { host: second } = await withBackgroundForm();
 	second.setIdle(false);
 	second.type(...SUBMIT_TWO);
-	const boundary = second.turnEnd({ stopReason: "aborted" });
+	const boundary = second.turnEnd("aborted");
 	assert.equal(boundary.entries.length, 1);
 	assert.equal(boundary.continue, false);
 
@@ -386,9 +402,11 @@ test("a cancellation while the agent works joins the turn boundary without askin
 	assert.deepEqual(host.sent, []);
 	assert.equal(host.aborts, 0);
 
-	const boundary = host.turnEnd({ stopReason: "stop" });
+	const boundary = host.turnEnd();
 	assert.equal(boundary.entries.length, 1);
 	assert.equal(boundary.continue, false);
+	assert.equal(boundary.entries[0].type, "custom_message");
+	assert.ok(typeof boundary.entries[0].content === "string");
 	assert.match(boundary.entries[0].content, /cancelled/);
 });
 
