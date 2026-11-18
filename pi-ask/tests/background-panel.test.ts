@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test, { beforeEach } from "node:test";
+import test, { beforeEach, mock } from "node:test";
 import { KEY, quietConfig, tick } from "./support/fake-pi.ts";
 import {
 	boot,
@@ -149,6 +149,45 @@ test("forms are shown one at a time in request order, across defer and reopen", 
 });
 
 // --- Ownership -------------------------------------------------------------
+
+test("a blocking form leaves pending background typing and its editor intact", async () => {
+	const { host } = await withBackgroundForm({
+		questions: [{ id: "notes", prompt: "Write notes", type: "text" }],
+	});
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		host.type(..."keep-me");
+		assert.deepEqual(kinds(host), ["form"], "typing has not been flushed");
+		const blocking = host.ask(ONE("urgent"));
+		// Let the modal open without advancing the draft debounce.
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		host.forms.at(-1)?.press(...SUBMIT_ONE);
+		await blocking;
+
+		assert.match(host.panelText(), /keep-me/);
+		host.type(..."-too", KEY.enter, KEY.enter);
+		assert.equal(
+			host.sent[0]?.message.details.result.answers.notes.customText,
+			"keep-me-too"
+		);
+	} finally {
+		host.emit("session_shutdown");
+		mock.timers.reset();
+	}
+});
+
+test("hide and reopen retain the active option-note editor", async () => {
+	const { host } = await withBackgroundForm(ONE("choice"));
+	host.type("n", ..."first", KEY.later, KEY.focus);
+	assert.match(host.panelText(), /first/);
+	// Reopening must keep the note editor, not return to option navigation.
+	host.type(..." second", KEY.enter, ...SUBMIT_ONE);
+	assert.equal(
+		host.sent[0]?.message.details.result.answers.choice.optionNotes.yes,
+		"first second"
+	);
+	host.emit("session_shutdown");
+});
 
 test("a blocking call takes the keyboard from an open background form and gives it back", async () => {
 	const { host, requestId } = await withBackgroundForm();

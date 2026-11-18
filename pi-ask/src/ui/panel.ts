@@ -79,7 +79,9 @@ export interface AskPanel {
 }
 
 export function createAskPanel(callbacks: AskPanelCallbacks): AskPanel {
-	let form: { component: AskFlowComponent; requestId: string } | undefined;
+	let form:
+		| { component: AskFlowComponent; requestId: string; ui: Ui }
+		| undefined;
 	let mounted: { tui: FocusAwareTui; ui: Ui } | undefined;
 	let returnFocus: TuiComponent = null;
 	// True while this module moves focus itself, so the TUI's own blur
@@ -177,16 +179,24 @@ export function createAskPanel(callbacks: AskPanelCallbacks): AskPanel {
 		}
 	}
 
-	function mount(ctx: ExtensionContext, next: AskPanelForm) {
+	function mount(
+		ctx: ExtensionContext,
+		requestId: string,
+		load: (requestId: string) => AskPanelForm | undefined
+	) {
 		const build = (tui: Tui, theme: Theme) => {
 			mounted = { tui, ui: ctx.ui };
-			if (form?.requestId !== next.requestId) {
+			if (form?.requestId !== requestId || form.ui !== ctx.ui) {
 				unloadForm();
-				form = {
-					requestId: next.requestId,
-					component: createPanelForm(ctx, tui, theme, next, callbacks),
-				};
-				form.component.focused = focused;
+				const next = load(requestId);
+				if (next) {
+					form = {
+						requestId,
+						ui: ctx.ui,
+						component: createPanelForm(ctx, tui, theme, next, callbacks),
+					};
+					form.component.focused = focused;
+				}
 			}
 			return shell;
 		};
@@ -197,8 +207,7 @@ export function createAskPanel(callbacks: AskPanelCallbacks): AskPanel {
 			return;
 		}
 		unmount();
-		unloadForm();
-		ctx.ui.setWidget(ASK_PANEL_WIDGET_KEY, build as never, {
+		ctx.ui.setWidget(ASK_PANEL_WIDGET_KEY, build, {
 			placement: "aboveEditor",
 		});
 	}
@@ -214,12 +223,11 @@ export function createAskPanel(callbacks: AskPanelCallbacks): AskPanel {
 				mounted.ui !== ctx.ui ||
 				form?.requestId !== view.formId
 			) {
-				const next = load(view.formId);
-				if (!next) {
-					unmount();
-					return true;
-				}
-				mount(ctx, next);
+				mount(ctx, view.formId, load);
+			}
+			if (!form) {
+				unmount();
+				return true;
 			}
 			if (!view.focused) {
 				releaseFocus();
