@@ -62,7 +62,7 @@ export function registerAskTool(pi: ExtensionAPI, options: AskToolOptions = {}) 
 }
 
 async function executeAskTool(
-	{ background, clock, flushers, journal, live, returning }: AskRuntime,
+	{ background, clock, flushers, journal, live, returning, unsaved }: AskRuntime,
 	features: AskFeatures,
 	toolCallId: string,
 	params: AskParams,
@@ -159,11 +159,13 @@ async function executeAskTool(
 	if (background && result.status === "deferred") {
 		// "Answer later": the form keeps its request-order place in the queue
 		// and its draft; the answer follows as a message.
-		saved(ctx, background, "deferred", () => journal.recordDefer(requestId));
+		saved(ctx, background, unsaved, requestId, "deferred", () =>
+			journal.recordDefer(requestId)
+		);
 		background.enqueue(ctx, requestId, "deferred");
 		return successfulResponse(receipt(validation.state, "deferred", requestId));
 	}
-	const outcome = saved(ctx, background, result.status, () =>
+	const outcome = saved(ctx, background, unsaved, requestId, result.status, () =>
 		journal.recordOutcome(requestId, result, "tool")
 	);
 	// The tool result follows this return; until it lands on the branch the
@@ -190,6 +192,8 @@ const UNSAVED: Record<string, string> = {
 function saved<T>(
 	ctx: ExtensionContext,
 	background: AskRuntime["background"],
+	unsaved: Set<string>,
+	requestId: string,
 	status: string,
 	write: () => T
 ): T {
@@ -198,6 +202,7 @@ function saved<T>(
 	} catch (error) {
 		if (error instanceof AskJournalWriteError) {
 			const what = UNSAVED[status] ?? "answer";
+			unsaved.add(requestId);
 			try {
 				background?.formEnded(ctx);
 				ctx.ui.notify(`${error.message} The form is back in your panel.`, "error");

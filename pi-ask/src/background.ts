@@ -152,7 +152,7 @@ function isRecoverableReadError(error: unknown): boolean {
 
 export function createAskBackground(
 	pi: Pick<ExtensionAPI, "sendMessage">,
-	{ clock, flushers, journal, live, returning }: AskRuntime
+	{ clock, flushers, journal, live, returning, unsaved }: AskRuntime
 ): AskBackground {
 	const now = clock?.now ?? Date.now;
 	const delivery = createAskDelivery(pi, {
@@ -232,9 +232,39 @@ export function createAskBackground(
 		return recorder;
 	}
 
-	function readQueue(current: ExtensionContext) {
+	/**
+	 * Forms whose save failed are held in memory. Once the journal accepts a
+	 * `defer` for one, it is an ordinary queued form and survives a reload.
+	 */
+	function persistUnsaved(current: ExtensionContext) {
+		if (unsaved.size === 0) {
+			return;
+		}
 		const journalState = readAskJournal(current);
-		const pending = pendingForms(journalState, live, reopened);
+		for (const requestId of [...unsaved]) {
+			const record = getRecord(journalState, requestId);
+			if (!record) {
+				continue;
+			}
+			if (!isOpen(record) || record.deferred) {
+				unsaved.delete(requestId);
+			} else if (!live.has(requestId)) {
+				try {
+					journal.recordDefer(requestId);
+					unsaved.delete(requestId);
+				} catch (error) {
+					if (!(error instanceof AskJournalWriteError)) {
+						throw error;
+					}
+				}
+			}
+		}
+	}
+
+	function readQueue(current: ExtensionContext) {
+		persistUnsaved(current);
+		const journalState = readAskJournal(current);
+		const pending = pendingForms(journalState, live, reopened, unsaved);
 		records = new Map(pending.map((record) => [record.requestId, record]));
 		for (const requestId of recorders.keys()) {
 			if (!records.has(requestId)) {

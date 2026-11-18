@@ -202,13 +202,21 @@ export function queuedForms(state: AskJournalState): AskJournalRecord[] {
 export function pendingForms(
 	state: AskJournalState,
 	live: ReadonlySet<string> = new Set(),
-	reopened: ReadonlySet<string> = new Set()
+	reopened: ReadonlySet<string> = new Set(),
+	unsaved: ReadonlySet<string> = new Set()
 ): AskJournalRecord[] {
 	const waiting = new Set(
 		[...queuedForms(state), ...interruptedForms(state)]
 			.filter((record) => record.deferred || !live.has(record.requestId))
 			.map((record) => record.requestId)
 	);
+	// A form whose save failed was promised back; later messages do not
+	// supersede it, but one still on screen is not waiting yet.
+	for (const record of state.records) {
+		if (isOpen(record) && unsaved.has(record.requestId) && !live.has(record.requestId)) {
+			waiting.add(record.requestId);
+		}
+	}
 	// An expired form joins the queue only once the user asked for it.
 	for (const record of reopenableForms(state)) {
 		if (reopened.has(record.requestId)) {
