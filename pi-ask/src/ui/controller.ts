@@ -275,12 +275,21 @@ export function createAskFlowController(
 			controller.editor.invalidate();
 		},
 		handleInput(data: string) {
+			let unexpected: unknown;
 			try {
 				// One key means the user is here: the countdown ends for good.
 				controller.expiry?.interact();
+			} catch (error) {
+				// The stop holds in memory; the key must still be handled.
+				unexpected = error;
+			}
+			try {
 				handleControllerInput(controller, data);
 			} catch (error) {
 				reportJournalError(controller, error);
+			}
+			if (unexpected !== undefined) {
+				reportJournalError(controller, unexpected);
 			}
 		},
 		detach() {

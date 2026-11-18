@@ -53,6 +53,12 @@ export interface ExpiryListener {
 	change?(view: ExpiryView): void;
 	/** The limit lapsed. */
 	expire?(): void;
+	/**
+	 * Another listener threw; return true when the error was reported. An
+	 * unreported error is rethrown once every listener has run. The timer's
+	 * own state is unaffected either way.
+	 */
+	failed?(error: unknown): boolean | undefined;
 	/** The countdown was stopped before it lapsed. */
 	stop?(reason: ExpiryStopReason): void;
 }
@@ -105,9 +111,34 @@ export function createExpiryTimer(
 		remainingSeconds: remaining(),
 		...(stopReason ? { stopReason } : {}),
 	});
-	const emit = (call: (listener: ExpiryListener) => void) => {
+	/** Runs every listener; returns the first error nobody reported. */
+	const emit = (call: (listener: ExpiryListener) => void): unknown[] => {
+		// One listener's failure never skips the others or undoes a state change.
+		const failures: unknown[] = [];
 		for (const listener of [...listeners]) {
-			call(listener);
+			try {
+				call(listener);
+			} catch (error) {
+				failures.push(error);
+			}
+		}
+		return failures.filter((error) => {
+			let reported = false;
+			for (const listener of [...listeners]) {
+				try {
+					reported = listener.failed?.(error) === true || reported;
+				} catch {
+					// Reporting is best-effort.
+				}
+			}
+			return !reported;
+		});
+	};
+	/** Surfaces the first unreported listener error after all work is done. */
+	const settle = (...unreported: unknown[][]) => {
+		const [first] = unreported.flat();
+		if (first !== undefined) {
+			throw first;
 		}
 	};
 	const cancelTick = () => {
@@ -129,12 +160,15 @@ export function createExpiryTimer(
 		}
 		if (clock.now() >= deadline) {
 			phase = "expired";
-			emit((listener) => listener.change?.(view()));
-			emit((listener) => listener.expire?.());
+			settle(
+				emit((listener) => listener.change?.(view())),
+				emit((listener) => listener.expire?.())
+			);
 			return;
 		}
-		emit((listener) => listener.change?.(view()));
+		const unreported = emit((listener) => listener.change?.(view()));
 		schedule();
+		settle(unreported);
 	}
 	function maybeStart() {
 		if (disposed || phase !== "pending" || !(armed && visible)) {
@@ -143,7 +177,7 @@ export function createExpiryTimer(
 		phase = "running";
 		deadline = clock.now() + seconds * 1000;
 		schedule();
-		emit((listener) => listener.change?.(view()));
+		settle(emit((listener) => listener.change?.(view())));
 	}
 	function stop(reason: ExpiryStopReason) {
 		if (phase !== "pending" && phase !== "running") {
@@ -152,8 +186,10 @@ export function createExpiryTimer(
 		cancelTick();
 		phase = "stopped";
 		stopReason = reason;
-		emit((listener) => listener.stop?.(reason));
-		emit((listener) => listener.change?.(view()));
+		settle(
+			emit((listener) => listener.stop?.(reason)),
+			emit((listener) => listener.change?.(view()))
+		);
 	}
 
 	return {

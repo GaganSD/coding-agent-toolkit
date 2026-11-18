@@ -15,7 +15,7 @@ import {
 import { getAskConfigStore } from "./config/store.ts";
 import { type AskFeatures, NO_ASK_FEATURES } from "./features.ts";
 import { buildAskParamsSchema, stripSchemaDescriptions } from "./schema.ts";
-import { toFormSnapshot } from "./journal/journal.ts";
+import { AskJournalWriteError, describeExpiryStopFailure, toFormSnapshot } from "./journal/journal.ts";
 import { type AskRuntime, createAskRuntime } from "./runtime.ts";
 import {
 	createExpiryTimer,
@@ -125,6 +125,13 @@ async function executeAskTool(
 	// A stopped countdown is journalled, so no rebuild can bring it back.
 	timer?.subscribe({
 		stop: (reason) => journal.recordExpiryStop(requestId, reason),
+		failed: (error) => {
+			if (error instanceof AskJournalWriteError) {
+				ctx.ui.notify(describeExpiryStopFailure(error), "error");
+				return true;
+			}
+			return false;
+		},
 	});
 	const openForm = () =>
 		runAskFlow(ctx, params, {

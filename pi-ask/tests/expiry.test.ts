@@ -225,3 +225,40 @@ test("an expiry with no declared fallback is still expired, with nothing applied
 	assert.deepEqual(result.expired, []);
 	assert.deepEqual(result.answers, {});
 });
+
+test("a throwing listener cannot skip the others, and an unreported error is rethrown last", () => {
+	const time = fakeClock();
+	const timer = createExpiryTimer(30, time.clock);
+	timer.subscribe({
+		stop: () => {
+			throw new Error("listener bug");
+		},
+	});
+	const events = record(timer);
+	timer.arm();
+	timer.show();
+	assert.throws(() => timer.interact(), /listener bug/);
+	assert.deepEqual(events.slice(-2), ["stop:interaction", "change:stopped:0"]);
+	assert.equal(timer.view().phase, "stopped");
+	time.advance(60_000);
+	assert.equal(timer.view().phase, "stopped", "the stop holds");
+});
+
+test("an error a listener reports is not rethrown", () => {
+	const time = fakeClock();
+	const timer = createExpiryTimer(30, time.clock);
+	const reported: unknown[] = [];
+	timer.subscribe({
+		stop: () => {
+			throw new Error("handled");
+		},
+		failed: (error) => {
+			reported.push(error);
+			return true;
+		},
+	});
+	timer.arm();
+	timer.show();
+	assert.doesNotThrow(() => timer.interact());
+	assert.equal(reported.length, 1);
+});

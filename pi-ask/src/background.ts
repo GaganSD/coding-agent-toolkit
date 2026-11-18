@@ -26,7 +26,7 @@ import {
 } from "./delivery.ts";
 import { askStrings } from "./i18n.ts";
 import { ASK_ANSWER_MESSAGE_TYPE } from "./journal/entries.ts";
-import { AskJournalWriteError, readAskJournal } from "./journal/journal.ts";
+import { AskJournalWriteError, describeExpiryStopFailure, readAskJournal } from "./journal/journal.ts";
 import {
 	type AskJournalRecord,
 	getRecord,
@@ -592,6 +592,13 @@ export function createAskBackground(
 				const timer = createExpiryTimer(options.timeoutSeconds, clock);
 				timer.subscribe({
 					stop: (reason) => journal.recordExpiryStop(requestId, reason),
+					failed: (error) => {
+						if (error instanceof AskJournalWriteError) {
+							ctx?.ui.notify(describeExpiryStopFailure(error), "error");
+							return true;
+						}
+						return false;
+					},
 					expire: () => expire(requestId),
 				});
 				timers.set(requestId, timer);
