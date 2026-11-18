@@ -25,10 +25,7 @@ import {
 	renderAskAnswerMessage,
 } from "./delivery.ts";
 import { askStrings } from "./i18n.ts";
-import {
-	ASK_ANSWER_MESSAGE_TYPE,
-	type AskFormSnapshot,
-} from "./journal/entries.ts";
+import { ASK_ANSWER_MESSAGE_TYPE } from "./journal/entries.ts";
 import { AskJournalWriteError, readAskJournal } from "./journal/journal.ts";
 import {
 	type AskJournalRecord,
@@ -57,7 +54,7 @@ import {
 	reducePanel,
 } from "./state/panel.ts";
 import { toAskResult } from "./state/result.ts";
-import type { AskParams, AskResult, AskState } from "./types.ts";
+import type { AskResult, AskState } from "./types.ts";
 import { type AskPanel, createAskPanel } from "./ui/panel.ts";
 
 export const ASK_PENDING_WIDGET_KEY = "pi-ask:pending";
@@ -68,15 +65,6 @@ export const ASK_PENDING_WIDGET_KEY = "pi-ask:pending";
  * the agent's result stands and nothing nags.
  */
 export const EXPIRED_OFFER_MS = 60 * 60 * 1000;
-
-export interface AskBackgroundDeps {
-	/** Runs `task` after the current lifecycle dispatch has finished. */
-	defer?: (task: () => void) => void;
-	/** Clock for the countdown of queued forms; tests inject their own. */
-	newTimer?: (seconds: number) => ExpiryTimer;
-	/** Epoch milliseconds; used for the late-override offer window. */
-	now?: () => number;
-}
 
 export interface AskBackground {
 	/** The session started, or the tree moved: rebuild from the branch. */
@@ -120,10 +108,9 @@ export interface AskBackground {
 
 export function registerAskBackground(
 	pi: ExtensionAPI,
-	runtime: AskRuntime,
-	deps: AskBackgroundDeps = {}
+	runtime: AskRuntime
 ): AskBackground {
-	const background = createAskBackground(pi, runtime, deps);
+	const background = createAskBackground(pi, runtime);
 	runtime.background = background;
 	pi.on("session_start", (_event, ctx) => background.attach(ctx));
 	pi.on("session_tree", (_event, ctx) => background.attach(ctx));
@@ -154,13 +141,9 @@ export function registerAskBackground(
 
 export function createAskBackground(
 	pi: Pick<ExtensionAPI, "sendMessage">,
-	{ clock, flushers, journal, live }: AskRuntime,
-	deps: AskBackgroundDeps = {}
+	{ clock, flushers, journal, live }: AskRuntime
 ): AskBackground {
-	const defer = deps.defer ?? ((task) => setTimeout(task, 0));
-	const now = deps.now ?? clock?.now ?? Date.now;
-	const newTimer =
-		deps.newTimer ?? ((seconds) => createExpiryTimer(seconds, clock));
+	const now = clock?.now ?? Date.now;
 	const delivery = createAskDelivery(pi);
 	const recorders = new Map<string, (state: AskState) => void>();
 	// Content key of the draft each loaded form last started from or wrote,
@@ -321,7 +304,7 @@ export function createAskBackground(
 		const formState =
 			panel.state(requestId) ??
 			applyDraftSnapshot(
-				createInitialState(formToParams(record.form)),
+				createInitialState(record.form),
 				record.draft
 			);
 		try {
@@ -397,7 +380,7 @@ export function createAskBackground(
 			requestId,
 			config,
 			draft: record.draft,
-			params: formToParams(record.form),
+			params: record.form,
 			expiry: timers.get(requestId),
 			...(expired ? { banner: askStrings().lateOverrideBanner } : {}),
 		};
@@ -446,7 +429,7 @@ export function createAskBackground(
 		const formState =
 			panel.state(requestId) ??
 			applyDraftSnapshot(
-				createInitialState(formToParams(record.form)),
+				createInitialState(record.form),
 				record.draft
 			);
 		return toAskResult(formState).unanswered.length;
@@ -555,7 +538,7 @@ export function createAskBackground(
 
 	function poke(next: ExtensionContext) {
 		// Starting a turn from inside a lifecycle dispatch is too early.
-		defer(() => {
+		setTimeout(() => {
 			if (disposed) {
 				return;
 			}
@@ -564,7 +547,7 @@ export function createAskBackground(
 			} catch {
 				// A stale context: the next event tries again.
 			}
-		});
+		}, 0);
 	}
 
 	function adopt(next: ExtensionContext): boolean {
@@ -598,7 +581,7 @@ export function createAskBackground(
 				return 0;
 			}
 			if (origin === "background" && options.timeoutSeconds !== undefined) {
-				const timer = newTimer(options.timeoutSeconds);
+				const timer = createExpiryTimer(options.timeoutSeconds, clock);
 				timer.subscribe({
 					stop: (reason) => journal.recordExpiryStop(requestId, reason),
 					expire: () => expire(requestId),
@@ -713,14 +696,4 @@ function editorIsEmpty(ctx: ExtensionContext): boolean {
 	} catch {
 		return false;
 	}
-}
-
-export function formToParams(form: AskFormSnapshot): AskParams {
-	return {
-		title: form.title,
-		questions: form.questions,
-		...(form.timeoutSeconds === undefined
-			? {}
-			: { timeoutSeconds: form.timeoutSeconds }),
-	};
 }

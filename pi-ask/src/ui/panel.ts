@@ -49,8 +49,6 @@ export interface AskPanelCallbacks {
 	onDone(requestId: string, result: AskResult): void;
 	/** The user asked to put the panel away. */
 	onHide(requestId: string): void;
-	/** A key reached the form. */
-	onInput?(requestId: string, data: string): void;
 	onStateChange(requestId: string, state: AskState): void;
 }
 
@@ -282,7 +280,6 @@ function createPanelForm(
 			cwd: ctx.cwd,
 			draft: form.draft,
 			expiry: form.expiry && { timer: form.expiry },
-			onInput: (data) => callbacks.onInput?.(requestId, data),
 			onStateChange: (state) => callbacks.onStateChange(requestId, state),
 			panel: { onHide: () => callbacks.onHide(requestId) },
 			rebuilt: form.rebuilt,

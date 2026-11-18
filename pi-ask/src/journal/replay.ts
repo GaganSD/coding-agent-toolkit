@@ -24,7 +24,6 @@ export interface BranchEntryLike {
 }
 
 export interface AskJournalRecord {
-	createdAt: number;
 	/** A foreground form the user sent to the queue with "answer later". */
 	deferred: boolean;
 	/** The user stopped this form's countdown; it never runs again. */
@@ -112,7 +111,6 @@ export function replayJournal(
 			if (!records.has(journalEntry.requestId)) {
 				records.set(journalEntry.requestId, {
 					requestId: journalEntry.requestId,
-					createdAt: journalEntry.at,
 					mode: journalEntry.mode === "background" ? "background" : "foreground",
 					form: journalEntry.form,
 					toolCallId: journalEntry.toolCallId,

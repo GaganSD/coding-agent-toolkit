@@ -65,8 +65,6 @@ export interface ExpiryTimer {
 	hide(): void;
 	/** The user did something with the form. Stops the clock for good. */
 	interact(): void;
-	/** Total limit, after the floor. */
-	readonly seconds: number;
 	show(): void;
 	/** Stop for good, with a reason (e.g. the user opened the panel). */
 	stop(reason: ExpiryStopReason): void;
@@ -159,7 +157,6 @@ export function createExpiryTimer(
 	}
 
 	return {
-		seconds,
 		view,
 		subscribe(listener) {
 			listeners.add(listener);

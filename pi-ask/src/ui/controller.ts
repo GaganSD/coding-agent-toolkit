@@ -91,8 +91,6 @@ export interface AskFlowOptions {
 	 * owns the form's visibility does both.
 	 */
 	expiry?: { owned?: boolean; timer: ExpiryTimer };
-	/** Called for every key the form receives, before it is handled. */
-	onInput?: (data: string) => void;
 	/** Called after every state change while the form is open. */
 	onStateChange?: (state: AskState) => void;
 	/**
@@ -143,7 +141,6 @@ interface AskFlowController {
 	/** Set once the form has its result; nothing is journalled after that. */
 	finished: boolean;
 	focused: boolean;
-	onInput?: (data: string) => void;
 	onStateChange?: (state: AskState) => void;
 	panel?: { onHide: () => void };
 	/** Trailing timer for draft reports made while the user types. */
@@ -218,7 +215,6 @@ export function createAskFlowController(
 		expiry: params.expiry?.timer,
 		finished: false,
 		focused: false,
-		onInput: params.onInput,
 		onStateChange: params.onStateChange,
 		panel: params.panel,
 		settingsOpen: false,
@@ -282,7 +278,6 @@ export function createAskFlowController(
 			try {
 				// One key means the user is here: the countdown ends for good.
 				controller.expiry?.interact();
-				controller.onInput?.(data);
 				handleControllerInput(controller, data);
 			} catch (error) {
 				reportJournalError(controller, error);
