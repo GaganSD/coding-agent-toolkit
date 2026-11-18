@@ -6,15 +6,17 @@ import test from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
-import { SidebarMcpFiles, type SidebarResources, type SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
-import { sessionSidebarSlots } from "../extensions/pi-slate/sidebar-layout.ts";
+import { perfFixture } from "./perf-fixture.ts";
+import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
+import { SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts";
 
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
-const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, cost: 0.12 } };
+const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12, saved: null }, perf: perfFixture(1000) };
+const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null, saved: null };
 const resources: SidebarResources = {
   mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
   skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
@@ -46,7 +48,7 @@ function task(i: number): BackgroundTask {
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["Session session- · PID 8421", "sonnet-4.6", "16%", "31.6k / 200k · $0.12 · ~82 t/s", "61.4k In", "876 Out", "Cached 48k", "Uncached 7.3k", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
+  for (const label of ["Working", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "78.18% hit", "spent $0.12", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
     assert(lines.some(line => line.includes(label)), label);
   for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0", "prompt-0"])
     assert(!lines.some(line => line.includes(label)), label);
@@ -61,16 +63,14 @@ test("session identity keeps the ID while a separate title copies the full name"
   sidebar.setSession({ ...session, id, name });
   sidebar.setActions({ copy: (value) => copied.push(value), openFile() {} });
   const lines = plain(sidebar.render(40));
-  assert.equal(lines[1], name, "title is the first content row");
-  assert.equal(lines[2], "Session 01234567 · PID 8421", "identity follows the title");
-  sidebar.handleMouse(mouse(row(sidebar, "Session 01234567")));
-  sidebar.handleMouse(mouse(row(sidebar, name)));
+  assert(lines[2]!.startsWith(name) && lines[2]!.endsWith("01234567"), "title left, short ID right, on one row");
+  sidebar.handleMouse(mouse(2, { x: 37 }));
+  sidebar.handleMouse(mouse(2));
   assert.deepEqual(copied, [id, name]);
   assert.ok(sidebar.sessionDetails().startsWith(`Session ${id} · PID 8421\n`));
   assert.match(sidebar.sessionDetails(), /Title: Slate 的会话标题/);
   sidebar.setSession({ ...session, id: "" });
-  assert.equal(plain(sidebar.render(40))[1], "", "unnamed sessions retain the title spacer");
-  assert.equal(plain(sidebar.render(40))[2], "Session — · PID 8421");
+  assert.match(plain(sidebar.render(40))[2]!, /^Session\s+—$/, "unnamed sessions fall back to a Session heading");
   assert.match(sidebar.sessionDetails(), /Title: —/);
 });
 
@@ -82,24 +82,24 @@ test("long titles stay bounded, copy without ellipsis, and refresh on same-sessi
   sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
   sidebar.setSession({ ...session, name: `\x1b[31m${name}\x1b[0m\n` });
   const before = sidebar.render(28);
-  const title = plain(before)[1]!;
-  assert.match(title, /…$/);
+  const title = plain(before)[2]!;
+  assert.match(title, /…/);
   assert(before.every(line => visibleWidth(line) <= 28));
   assert(!before.some(line => line.includes("\x1b[31m") || line.includes("\n")), "untrusted title styling and line breaks are removed");
-  sidebar.handleMouse(mouse(1, { width: 28 }));
+  sidebar.handleMouse(mouse(2, { width: 28 }));
   assert.deepEqual(copied, [name], "copy uses the complete sanitized title, not its painted ellipsis");
   assert(sidebar.sessionDetails().includes(`Title: ${name}\n`));
   sidebar.setSession({ ...session, name: "改名后的会话" });
-  sidebar.handleMouse(mouse(1, { width: 28 }));
+  sidebar.handleMouse(mouse(2, { width: 28 }));
   assert.deepEqual(copied, [name, "改名后的会话"], "a click before repaint never copies the previous title");
   const after = sidebar.render(28);
   assert.notEqual(after, before, "renaming invalidates cached rows even with the same clock and ID");
-  assert.equal(plain(after)[1], "改名后的会话");
+  assert(plain(after)[2]!.startsWith("改名后的会话"));
   sidebar.setSession({ ...session, name: " \n\x1b[2J" });
-  sidebar.handleMouse(mouse(1, { width: 28 }));
+  sidebar.handleMouse(mouse(2, { width: 28 }));
   assert.deepEqual(copied, [name, "改名后的会话"], "clearing a title disables copying before repaint");
-  assert.equal(plain(sidebar.render(28))[1], "");
-  assert.equal(sidebar.handleMouse(mouse(1, { width: 28 })), undefined, "an empty title has no stale copy hit");
+  assert.match(plain(sidebar.render(28))[2]!, /^Session/);
+  assert.equal(sidebar.handleMouse(mouse(2, { width: 28 })), undefined, "an empty title has no stale copy hit");
   assert.deepEqual(copied, [name, "改名后的会话"]);
 });
 
@@ -117,19 +117,18 @@ test("top title uses bold theme accent and follows theme changes independently o
   sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
   for (const width of [8, 28, 40, 80]) {
     const lines = sidebar.render(width);
-    assert.match(lines[1]!, /\x1b\[36m/, "title uses accent rather than body text or heading color");
-    assert.match(lines[1]!, /\x1b\[1m/, "title is bold");
-    assert.match(lines[2]!, /\x1b\[33m/, "Session ID retains its heading color");
+    assert.match(lines[2]!, /\x1b\[36m/, "title uses accent rather than body text or heading color");
+    assert.match(lines[2]!, /\x1b\[1m/, "title is bold");
     assert(lines.every(line => visibleWidth(line) <= width));
   }
   const before = sidebar.render(40);
   current = titleTheme(35);
   const after = sidebar.render(40);
   assert.notEqual(after, before, "theme changes refresh the cached title");
-  assert.match(after[1]!, /\x1b\[35m/);
-  assert.doesNotMatch(after[1]!, /\x1b\[36m/);
-  assert.match(after[1]!, /\x1b\[1m/);
-  sidebar.handleMouse(mouse(1));
+  assert.match(after[2]!, /\x1b\[35m/);
+  assert.doesNotMatch(after[2]!, /\x1b\[36m/);
+  assert.match(after[2]!, /\x1b\[1m/);
+  sidebar.handleMouse(mouse(2));
   assert.deepEqual(copied, [name], "copy contains no styling");
 });
 
@@ -144,104 +143,89 @@ test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny t
       assert.equal(lines.length, height);
       assert(lines.every(line => visibleWidth(line) <= width), `${width}×${height}`);
       assert(lines.every(line => !line.includes("\x1b[2J") && !line.includes("\n")));
-      const slots = sessionSidebarSlots(height, 4, true);
-      assert.equal(Object.values(slots).reduce((a, b) => a + b, 0), height);
-      assert(Object.values(slots).every(x => x >= 0));
     }
   }
 });
 
-test("usage is a single stable label/value lane; full accounting stays in details", () => {
+test("speed and cache replace the usage lane; full accounting stays in details", () => {
   const { sidebar } = fixture();
   for (const width of [18, 28, 40, 80]) {
     const text = plain(sidebar.render(width)).join("\n");
-    assert(text.includes("PID 8421"));
-    if (width >= 28) for (const value of ["61.4k", "876", "48k", "7.3k", "$0.12"]) assert(text.includes(value), value);
-    if (width >= 40) assert(text.includes("~82 t/s")); // Narrow rails truncate the merged occupancy tail first.
+    assert(text.includes("CACHE") && text.includes("SPEED"));
+    assert.doesNotMatch(text, /● streaming/);
+    if (width >= 28) for (const value of ["6.1k", "$0.12", "78.18%"]) assert(text.includes(value), value);
+    assert(!/\bCached\b|Uncached|\bPID\b/.test(text), "old usage rows are gone");
   }
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
   assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
+  assert.match(sidebar.sessionDetails(), /PID 8421/);
+  assert.match(sidebar.sessionDetails(), /Speed & cache\n.*output tokens ÷ Pi's recorded provider-stream duration/);
+  assert.match(sidebar.sessionDetails(), /Cache hit % = cache read ÷ \(uncached \+ cache read \+ cache write\)/);
 });
 
-test("title precedes the session identity and the 11-row header matches its slots", () => {
-  const { sidebar } = fixture();
+test("header height follows the terminal tier and its divider closes the header", () => {
+  const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  assert.equal(sessionSidebarSlots(60, 0, false).header, 11);
-  assert.equal(sessionSidebarSlots(30, 0, false).header, 11);
-  assert.equal(sessionSidebarSlots(29, 0, false).header, 4, "compact header also releases the removed rows");
+  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16]] as const) {
+    terminal.rows = rows;
+    assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), header, `rows ${rows}`);
+  }
+  terminal.rows = 60;
   const lines = plain(sidebar.render(40));
   assert.match(lines[0]!, /^┌─+┐$/, "top bar");
   assert.match(lines.at(-1)!, /^└─+┘$/, "bottom bar");
-  const hairline = lines.findIndex((line, i) => i > 0 && i < lines.length - 1 && /^├─+┤$/.test(line));
-  assert.equal(hairline, 11, "hairline closes an 11-row header under the top bar");
-  assert.equal(lines[1], "Slate session title");
-  assert.equal(lines[2], "Session session- · PID 8421");
-  assert(/^Context [━─]+ │ 16%$/.test(lines[5]!), "single context meter row");
-  assert(lines[6]!.includes("31.6k / 200k · $0.12 · ~82 t/s"), "merged occupancy line");
-  assert(lines[8]!.includes("61.4k In") && lines[8]!.includes("Cached 48k"));
-  assert(lines[8]!.indexOf("Cached 48k") < lines[8]!.indexOf("61.4k In"), "Cached lanes left, In right with value first");
-  assert(lines[9]!.includes("876 Out") && lines[9]!.includes("Uncached 7.3k"));
-  assert(lines[9]!.indexOf("Uncached 7.3k") < lines[9]!.indexOf("876 Out"), "Uncached lanes left, Out right with value first");
+  assert.match(lines[1]!, /^○ Idle|^● Working/);
+  assert(lines[2]!.startsWith("Slate session title") && lines[2]!.endsWith("session-"));
+  assert(lines[5]!.startsWith("CONTEXT") && lines[5]!.includes("16%") && lines[5]!.includes("31.6k/200k"));
+  assert(/^[█-▏░]+$/.test(lines[6]!) && lines[7] === "", "one-row context bar");
 });
 
-test("context meter fills the rail with a thin track and degrades gracefully when narrow", () => {
-  const { sidebar } = fixture();
-  const meter = (width: number) => {
-    const line = plain(sidebar.render(width)).find(line => line.startsWith("Context") || line.endsWith("%"));
-    assert(line, `meter at width ${width}`); assert.doesNotMatch(line, /[█░]/, "meter avoids block glyphs"); return line;
+test("context row keeps the heading grammar and degrades gracefully when narrow", () => {
+  const { sidebar } = fixture(30);
+  const context = (width: number) => {
+    const line = plain(sidebar.render(width)).find(line => line.startsWith("CONTEXT") || /\d+%|—/.test(line) && !line.includes("tok/s") && !line.includes("Idle") && !line.includes("Working"));
+    assert(line, `context at width ${width}`); return line;
   };
-  assert.equal(meter(80), `Context ${"━".repeat(10)}${"─".repeat(52)} │ 16%`);
-  assert.equal(meter(40), `Context ${"━".repeat(4)}${"─".repeat(18)} │ 16%`);
-  assert.equal(meter(28), `Context ${"━".repeat(2)}${"─".repeat(8)} │ 16%`);
+  assert.match(context(80), /^CONTEXT {2,}16% {2}31\.6k\/200k$/);
+  assert.match(context(40), /^CONTEXT {2,}16% {2}31\.6k\/200k$/);
   sidebar.setSession({ ...session, percent: null });
-  assert.equal(meter(40), `Context ${"─".repeat(23)} │ —%`, "null percent is an empty track");
-  sidebar.setSession({ ...session, percent: 0 });
-  assert.equal(meter(40), `Context ${"─".repeat(23)} │ 0%`);
-  sidebar.setSession({ ...session, percent: 100 });
-  assert.equal(meter(40), `Context ${"━".repeat(21)} │ 100%`);
+  assert.match(context(40), /^CONTEXT .*—/, "unknown percent shows a dash");
   sidebar.setSession(session);
-  for (const width of [8, 12, 20]) {
-    const line = meter(width);
+  for (const width of [20, 28]) {
+    const line = context(width);
     assert(visibleWidth(line) <= width - 4, `bounded at ${width}`);
     assert(line.includes("16%"), `percent survives at ${width}`);
-    if (width < 16) assert(!line.includes("Context"), `label yields before the percent at ${width}`);
   }
   for (const line of sidebar.render(3)) assert(visibleWidth(line) <= 3, "degenerate rail stays bounded");
 });
 
-test("context meter fill follows the theme accent and shifts to the warning tone at 80% and above", () => {
+test("context meter keeps the theme accent at every usage level", () => {
   const codes: Record<string, number> = { muted: 90, dim: 2, accent: 36, warning: 33, text: 37 };
   const toneTheme = { fg: (tone: string, text: string) => `\x1b[${codes[tone] ?? 0}m${text}\x1b[0m`, bold: (text: string) => text } as Theme;
   const { sidebar } = fixture();
-  sidebar.setThemeProvider(() => toneTheme); sidebar.invalidate();
-  const meterLine = () => sidebar.render(40).find(line => stripAnsi(line).includes("Context"))!;
-  for (const [percent, code] of [[0, 36], [79, 36], [80, 33], [100, 33]] as const) {
-    sidebar.setSession({ ...session, percent }); sidebar.invalidate();
+  sidebar.setThemeProvider(() => toneTheme);
+  const meterLine = () => sidebar.render(40).find(line => /^│ ?[█-▏░]{4}/.test(stripAnsi(line)))!;
+  for (const percent of [0, 79, 80, 88, 100]) {
+    sidebar.setSession({ ...session, percent });
     const line = meterLine();
-    const fill = line.match(/━+/)?.[0] ?? "";
-    if (fill) assert(line.includes(`\x1b[${code}m${fill}\x1b[0m`), `${percent}% fills with code ${code}`);
-    assert(line.includes("\x1b[2m"), "track and separator stay dim");
+    const fill = stripAnsi(line).match(/[█-▏]+/)?.[0] ?? "";
+    if (percent > 0) assert(fill && line.includes(toneTheme.fg("accent", fill)), `${percent}% uses the theme accent`);
+    if (percent < 100) assert(line.includes("\x1b[2m"), "track stays dim");
+    const heading = sidebar.render(40).find(line => stripAnsi(line).includes("CONTEXT"))!;
+    assert(heading.includes(toneTheme.fg("text", `${percent}%`)), "percentage keeps the normal value color");
   }
-  sidebar.setSession({ ...session, percent: null }); sidebar.invalidate();
-  assert(!/━/.test(stripAnsi(meterLine())), "null percent fills nothing");
+  sidebar.setSession({ ...session, percent: null });
+  assert(!/[█-▏]/.test(stripAnsi(meterLine())), "null percent fills nothing");
 });
 
-test("occupancy and stat rows keep the branch usage inspect action; nulls render as dashes", () => {
+test("context rows keep the branch usage inspect action; nulls render as dashes", () => {
   const { sidebar } = fixture(); const inspected: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: title => inspected.push(title) });
-  sidebar.setSession({ ...session, estimated: true, usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null } });
-  sidebar.handleMouse(mouse(row(sidebar, "~31.6k / 200k · — · ~82 t/s")));
-  sidebar.handleMouse(mouse(row(sidebar, "— In")));
-  sidebar.handleMouse(mouse(row(sidebar, "Uncached —")));
-  assert.deepEqual(inspected, ["Branch usage", "Branch usage", "Branch usage"]);
-});
-
-test("a 24-row terminal still renders an image body; a very short one prioritizes tasks", () => {
-  const { sidebar, terminal } = fixture(24); sidebar.setView(image()); sidebar.setTasks([task(0)]);
-  assert(plain(sidebar.render(40)).some(line => line.includes("IMAGE")), "normal-height thumbnails must not disappear");
-  terminal.rows = 14;
-  const text = plain(sidebar.render(40)).join("\n");
-  assert(text.includes("Tasks")); assert(!text.includes("IMAGE"));
+  sidebar.setSession({ ...session, estimated: true, usage: noUsage });
+  const heading = row(sidebar, "~31.6k/200k");
+  sidebar.handleMouse(mouse(heading));
+  sidebar.handleMouse(mouse(heading + 1));
+  assert.deepEqual(inspected, ["Branch usage", "Branch usage"]);
 });
 
 test("foldable MCP and Skills sections persist independently and keep counts visible", () => {
@@ -383,16 +367,17 @@ test("image double-click uses native clickCount or the fallback timer", () => {
   assert.deepEqual(opened, ["/tmp/a.png"]);
 });
 
-test("short terminals collapse the image body, keep tasks visible, and scroll middle overflow", () => {
-  const { sidebar } = fixture(18); sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2)]);
+test("the compact rail keeps the image and tasks while the middle scrolls", () => {
+  const { sidebar } = fixture(30); sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2)]);
   sidebar.setFolds({ mcp: true, skills: true, prompts: false });
   const lines = plain(sidebar.render(40));
   assert.equal(sidebar.imagePath(), "/tmp/a.png");
-  assert(!lines.some(line => line.includes("IMAGE")));
+  assert(lines.some(line => line.includes("IMAGE")));
   assert(lines.some(line => line.includes("Tasks")));
-  sidebar.handleMouse(mouse(6, { type: "wheel", wheelDelta: -40 }));
+  sidebar.handleMouse(mouse(row(sidebar, "MCP"), { type: "wheel", wheelDelta: -40 }));
   const scrolled = plain(sidebar.render(40));
-  assert(scrolled.some(line => /Skills|Prompts|server-\d|skill-\d|prompt-\d/.test(line)));
+  assert(scrolled.some(line => /Skills|Prompts|skill-\d|prompt-\d/.test(line)));
+  assert.notDeepEqual(scrolled, lines);
   assert.equal(scrolled[0], lines[0]);
   assert.equal(sidebar.imagePath(), "/tmp/a.png");
 });
@@ -418,10 +403,10 @@ test("clock and theme changes invalidate cached output; pure repeated render is 
 
 test("unknown values and invalid MCP config remain explicit even when folded", () => {
   const { sidebar } = fixture();
-  sidebar.setSession({ ...session, percent: null, tokens: null, contextWindow: null, usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null } });
+  sidebar.setSession({ ...session, percent: null, tokens: null, contextWindow: null, usage: noUsage });
   sidebar.setResources({ ...resources, mcpError: "MCP config unreadable" });
   const lines = plain(sidebar.render(80));
-  assert(lines.some(line => line.includes("—%")));
+  assert(lines.some(line => /^CONTEXT\s+—\s+—\/—$/.test(line)));
   assert.match(sidebar.sessionDetails(), /Cache read: —/);
   assert(lines.some(line => line.includes("MCP · 6 Enabled · 1 Error")));
   assert(!lines.some(line => line.includes("MCP config unreadable") || line.includes("config error")));
@@ -443,7 +428,7 @@ test("unknown MCP declarations are neutral when folded or expanded and inspectio
   assert(expanded.some(line => line.includes("⌄ MCP · —")));
   assert(expanded.some(line => line.trim() === "— unknown-server"));
   sidebar.setThemeProvider(() => ({ fg: (tone: string, text: string) => tone === "warning" ? `\x1b[33m${text}\x1b[0m` : tone === "error" ? `\x1b[31m${text}\x1b[0m` : text, bold: (text: string) => text }) as Theme);
-  assert(!/\x1b\[(?:33|31)m/.test(sidebar.render(80).join("\n")));
+  assert(!/\x1b\[(?:33|31)m/.test(sidebar.render(80).filter(line => /MCP|unknown-server/.test(stripAnsi(line))).join("\n")));
   sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));
   assert.match(details[0]!, /Slate does not validate MCP/);
   assert.match(details[0]!, /Use \/mcp/);
@@ -493,7 +478,7 @@ test("sidebar closes both rails and joins every horizontal divider at the right 
     const lines = sidebar.render(width).map(stripAnsi);
     assert.equal(lines[0], "┌" + "─".repeat(width - 2) + "┐");
     assert.equal(lines.at(-1), "└" + "─".repeat(width - 2) + "┘");
-    assert.equal(lines[11], "├" + "─".repeat(width - 2) + "┤");
+    assert.equal(lines.find((l, i) => i > 0 && l.startsWith("├")), "├" + "─".repeat(width - 2) + "┤", "header divider joins both rails");
     for (const line of lines) {
       assert.equal(visibleWidth(line), width);
       assert.match(line, /^[│┌├└]/);
@@ -502,4 +487,27 @@ test("sidebar closes both rails and joins every horizontal divider at the right 
   }
   sidebar.setView(image());
   for (const line of sidebar.render(40).map(stripAnsi)) assert.match(line, /[│┐┤┘]$/, "preview rows keep the right border");
+});
+
+test("working status shows the running turn's elapsed time and ticks each second", () => {
+  const { sidebar, advance } = fixture();
+  sidebar.setSession({ ...session, working: true, turnStartedAt: 4000 - 42_000 });
+  assert.match(plain(sidebar.render(44))[1]!, /● Working\s+0:42$/);
+  advance(1000);
+  assert.match(plain(sidebar.render(44))[1]!, /0:43$/);
+  sidebar.setSession({ ...session, working: false, turnStartedAt: null });
+  assert.match(plain(sidebar.render(44))[1]!, /○ Idle · 2 turns\s+last 5s$/);
+});
+
+test("empty speed and cache sections collapse and give their rows to the resource list", () => {
+  const { sidebar } = fixture(46);
+  sidebar.setSession({ ...session, usage: noUsage, perf: EMPTY_PERF });
+  const empty = plain(sidebar.render(44));
+  const mcpEmpty = empty.findIndex(line => line.includes("MCP"));
+  assert(empty.some(line => line.includes("no timed replies")));
+  assert(empty.some(line => line.includes("no cache activity reported")));
+  sidebar.setSession(session);
+  const full = plain(sidebar.render(44));
+  assert.equal(full.findIndex(line => line.includes("MCP")) - mcpEmpty, 7, "5 speed + 2 cache rows are reclaimed");
+  assert.equal(empty.length, full.length, "the rail still fills the terminal");
 });

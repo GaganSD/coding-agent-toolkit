@@ -130,7 +130,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   };
   const manager = SessionManager.inMemory(cwd);
   let stale = false;
-  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false } as unknown as ExtensionContext, {
+  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, modelRegistry: { find: () => undefined }, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false } as unknown as ExtensionContext, {
     get(target, key, receiver) {
       if (stale) throw new Error("This extension ctx is stale after session replacement or reload.");
       return Reflect.get(target, key, receiver);
@@ -488,9 +488,9 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   await f.emit("session_info_changed");
   assert.match(rail(), /Dashboard test/);
   assert.doesNotMatch(rail(), /Unnamed session|Untitled session/);
-  assert.ok(rail().includes(`Session ${f.manager.getSessionId().slice(0, 8)} · PID ${process.pid}`));
+  assert.ok(rail().includes(f.manager.getSessionId().slice(0, 8)));
   assert.match(railOf(f).sessionDetails(), /Title: Dashboard test/);
-  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /450\s+In/); assert.match(rail(), /Uncached\s+100/); assert.match(rail(), /\$0.35/);
+  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /new 100/); assert.match(rail(), /read 300 · write 50 · new 100/);
   assert(!/Summary|Activity Preview|Context\s*\n/.test(rail()));
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });
@@ -531,7 +531,7 @@ test("session titles restore, repaint on rename/clear events, and clear when swi
   assert(rows().some(row => row.includes("手动固定的标题")));
   f.manager.appendSessionInfo("");
   await f.emit("session_info_changed", { name: "" });
-  assert.match(rows()[1]!, /^│\s+│$/, "clearing the stored name restores the blank title row");
+  assert.match(rows()[2]!, /^│ Session/, "clearing the stored name restores the Session heading");
   assert.match(sidebar.sessionDetails(), /Title: —/);
   const restored = SessionManager.inMemory(f.ctx.cwd);
   restored.appendSessionInfo("已恢复的标题");
@@ -600,6 +600,56 @@ function railOf(f: Awaited<ReturnType<typeof fixture>>): Sidebar {
   return (Reflect.get(Reflect.get(f.tui, "layoutRoot"), "entries") as Array<{ component: Sidebar }>)[1]!.component;
 }
 
+function sidebarReply(): Extract<Parameters<SessionManager["appendMessage"]>[0], { role: "assistant" }> {
+  return { role: "assistant", api: "anthropic-messages", provider: "anthropic", model: "producer",
+    timestamp: Date.now() - 1000, durationMs: 1000, stopReason: "toolUse", content: [{ type: "text", text: "fixture response" }],
+    usage: { input: 200, output: 70, cacheRead: 0, cacheWrite: 100, cacheWrite1h: 100, totalTokens: 370,
+      cost: { input: .01, output: 0, cacheRead: 0, cacheWrite: 0, total: .01 } } };
+}
+
+test("SPEED follows persistence, not token deltas or an unrelated model selection", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] })), reply = sidebarReply();
+  const capture = () => unstyled(railOf(f).render(44).join("\n"));
+  Object.assign(f.ctx, { isIdle: () => false, modelRegistry: { find: (_: string, id: string) =>
+    id === "producer" ? { promptCache: { short: 300, long: 3600 } } : undefined } });
+  f.manager.appendMessage(reply);
+  await f.emit("agent_start");
+  assert.match(capture(), /● Working/); assert.doesNotMatch(capture(), /Working · turn/);
+  Object.assign(f.ctx, { model: { id: "virtual", provider: "fixture", promptCache: { short: 30 } } });
+  const scans = t.mock.method(f.manager, "getBranch");
+  await f.emit("model_select");
+  assert.match(capture(), /◉ (?:1:00:00|59:59)/);
+  const next = { ...reply, usage: { ...reply.usage, output: 120 } };
+  await f.emit("message_start", { message: next });
+  const contextReads = t.mock.method(f.ctx, "getContextUsage"); await f.emit("message_update", { message: next });
+  assert.equal(scans.mock.callCount() + contextReads.mock.callCount(), 0, "token updates do not rescan context or persisted facts");
+  await f.emit("message_end", { message: next });
+  assert.match(capture(), /SPEED\s+70\.0 tok\/s/);
+  f.manager.appendMessage(next);
+  await f.emit("tool_execution_start", { toolCallId: "call", toolName: "read", args: {} });
+  assert.match(capture(), /SPEED\s+120 tok\/s/);
+});
+
+test("mounted rail preserves the pinned preview and open target under task pressure", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
+  f.manager.appendMessage(sidebarReply()); await f.emit("agent_settled");
+  const sidebar = railOf(f), opened: string[] = [];
+  const root = Reflect.get(f.tui, "layoutRoot") as Component;
+  sidebar.setActions({ copy() {}, openFile: path => opened.push(path) });
+  sidebar.setView({ id: "image:fixture", filePath: f.imagePath, title: "Fixture", invalidate() {}, render: () => ["pinned-image-body"] });
+  sidebar.pinImage();
+  sidebar.setTasks([0, 1, 2].map(i => ({ id: `task-${i}`, source: "fixture", label: `task-${i}`, kind: "subagent", state: "running", startedAt: 1 })));
+  for (const rows of [29, 30, 32, 44]) {
+    (f.tui.terminal as NullTerminal).rows = rows;
+    const frame = root.render(140).join("\n");
+    assert.equal(frame.includes("pinned-image-body"), rows >= 30, `${rows} rows`);
+    if (rows < 30) continue;
+    const y = sidebar.render(28).findIndex(line => line.includes("[open]"));
+    assert(y >= 0);
+    sidebar.handleMouse({ type: "click", button: "left", x: 2, y, width: 28, height: rows, screenX: 114, screenY: y, shift: false, alt: false, ctrl: false });
+  }
+  assert.deepEqual(opened, Array(3).fill(f.imagePath));
+});
 test("fold save preserves external sibling state, unknown section keys and unknown nested settings", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   await writeFile(f.path, JSON.stringify({ surfaces: ["sidebar"], sidebarSections: { skills: true, future: "keep" }, modelDisplay: { providerSuffix: true, future: "keep" }, unrelated: { nested: true } }));

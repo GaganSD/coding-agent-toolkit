@@ -7,15 +7,16 @@ import { loadThemeFromPath, SYSTEM_THEME_NAME } from "../node_modules/@earendil-
 import { ComposerEditor, type ComposerSource } from "../extensions/pi-slate/composer.ts";
 import { dashboardColumnWidth, formatCompactTokenCount, parseSlateArgs } from "../extensions/pi-slate/layout.ts";
 import { SLATE_NATIVE_THEME, SLATE_THEME } from "../extensions/pi-slate/install-defaults.ts";
-import { sessionSidebarSlots, sidebarCost, sidebarRate } from "../extensions/pi-slate/sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarCost } from "../extensions/pi-slate/sidebar-layout.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
+import { perfFixture } from "./perf-fixture.ts";
 import type { SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
 
 const theme = loadThemeFromPath(new URL("../themes/tokyo-night.json", import.meta.url).pathname, "truecolor");
 const session: SidebarSession = { id: "example-session", pid: 8421, cwd: "/tmp/project",
   model: "sample-model", thinking: "medium", tokens: 55000, percent: 11, contextWindow: 500000,
   estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 14000, working: true, turns: 4, messages: 8,
-  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, cost: 1.24 } };
+  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, uncached: 12400, cacheSeen: true, cost: 1.24, saved: null }, perf: perfFixture(1000) };
 
 test("bundled default Tokyo Night loads with the native validator and restrained backgrounds", () => {
   assert.equal(SLATE_THEME, "tokyo-night"); assert.equal(theme.name, SLATE_THEME);
@@ -48,10 +49,10 @@ test("compact viewport hides the rail without changing stored width or focus", (
 
 test("empty shelves allocate zero rows and all allocations remain bounded", () => {
   for (let height = 0; height < 80; height++) {
-    const empty = sessionSidebarSlots(height, 0, false);
+    const empty = sessionSidebarSlots(height, 11, 0, false);
     assert.equal(empty.tasks, 0); assert.equal(empty.image, 0);
     for (const tasks of [0, 1, 10]) for (const image of [false, true]) {
-      const values = Object.values(sessionSidebarSlots(height, tasks, image));
+      const values = Object.values(sessionSidebarSlots(height, 11, tasks, image));
       assert.equal(values.reduce((a, b) => a + b, 0), height);
       assert(values.every(n => n >= 0));
     }
@@ -65,56 +66,53 @@ test("growing usage and money keep a stable label lane and value edge with the r
     for (const value of [0, 999, 128400, 999900000, 1e12, 1e20, 1e308, null]) {
       sidebar.setSession({ ...session, usage: { ...session.usage, input: value, output: value, cost: value } });
       const rows = sidebar.render(width).map(stripVTControlCharacters);
-      const stats: string[] = [];
-      for (const label of ["Cached", "Uncached"]) {
-        const line = rows.find(row => row.startsWith("│ " + label + " "))!;
-        assert(line, label); assert.equal(visibleWidth(line), width);
-        assert.equal(visibleWidth(line.trimEnd()), width, "right edge must not move");
-        stats.push(line);
-      }
-      const occupancy = rows.find(row => row.includes("/ 500k"))!;
-      assert(occupancy, "occupancy line");
-      if (width > 28) { // Below this, bounded values truncate instead of moving edges.
-        for (const line of stats) assert.doesNotMatch(line, /…/, "values must not consume the label lane");
-        assert(occupancy.includes(`${sidebarCost(value)} · ~82 t/s`), `${sidebarCost(value)} on the occupancy line`);
-        assert.doesNotMatch(occupancy, /…/);
-      }
+      assert(rows.every(row => visibleWidth(row) === width), `bounded rows at ${width} for ${value}`);
+      const spent = rows.find(row => row.includes("spent"))!;
+      assert(spent, "spent line");
+      if (width > 28) assert(spent.includes(`spent ${sidebarCost(value)}`), `${sidebarCost(value)} on the spent line`);
     }
   }
   assert.equal(formatCompactTokenCount(1e9), "1B"); assert.equal(formatCompactTokenCount(1e12), "1T");
   assert.equal(sidebarCost(null), "—"); assert.equal(sidebarCost(Number.NaN), "—");
   assert.equal(sidebarCost(-1), "—"); assert.equal(sidebarCost(1.24), "$1.24");
   assert.equal(sidebarCost(1e308), "$1.0e+308");
-  assert.equal(sidebarRate(33.4), "~33 t/s"); assert.equal(sidebarRate(300), "~300 t/s");
-  assert.equal(sidebarRate(null), "—"); assert.equal(sidebarRate(Number.NaN), "—");
-  assert.equal(sidebarRate(-1), "—"); assert.equal(sidebarRate(Infinity), "—");
   sidebar.dispose();
 });
 
-test("context meter keeps a thin track and dim separator with the real theme", () => {
+test("high context usage and cache reads follow live accent changes within the same theme family", () => {
+  const lavender = loadThemeFromPath(new URL("../themes/catppuccin-mocha-lavender.json", import.meta.url).pathname, "truecolor");
+  const peach = loadThemeFromPath(new URL("../themes/catppuccin-mocha-peach.json", import.meta.url).pathname, "truecolor");
+  let active = lavender;
   const sidebar = new Sidebar(() => 10000);
-  sidebar.attach({ terminal: { rows: 50, columns: 140 }, requestRender() {} } as unknown as TUI, theme);
-  assert.equal(sessionSidebarSlots(50, 0, false).header, 11, "single identity row removes the section/name rows");
+  sidebar.attach({ terminal: { rows: 40, columns: 140 }, requestRender() {} } as unknown as TUI, lavender);
+  sidebar.setThemeProvider(() => active);
+  sidebar.setSession({ ...session, percent: 88 });
+  const contextFill = "█".repeat(35) + "▎";
+  const cacheBar = () => sidebar.render(44).find(row => stripVTControlCharacters(row).includes("━".repeat(40)))!;
+  const reads = "━".repeat(29);
+  assert.equal(lavender.fg("success", reads), peach.fg("success", reads), "status color is fixed across these accents");
+  assert(cacheBar().includes(lavender.fg("accent", reads)));
+  assert(sidebar.render(44).some(row => row.includes(lavender.fg("accent", contextFill))));
+  active = peach;
+  const after = cacheBar();
+  assert(after.includes(peach.fg("accent", reads)));
+  assert(!after.includes(lavender.fg("accent", reads)));
+  assert(sidebar.render(44).some(row => row.includes(peach.fg("accent", contextFill))));
+  sidebar.dispose();
+});
+
+test("short terminals keep the CONTEXT heading row grammar with the real theme", () => {
+  const sidebar = new Sidebar(() => 10000);
+  sidebar.attach({ terminal: { rows: 30, columns: 140 }, requestRender() {} } as unknown as TUI, theme);
   for (const width of [28, 40, 80]) {
     sidebar.setSession(session);
     const rows = sidebar.render(width);
-    const meter = rows.find(row => stripVTControlCharacters(row).includes("Context"))!;
-    assert(meter, `meter at ${width}`);
-    assert.match(stripVTControlCharacters(meter), /^│ Context [━─]+ │ 11% │$/, `structure at ${width}`);
-    assert.doesNotMatch(stripVTControlCharacters(meter), /[█░]/, "no solid or shaded blocks");
-    assert.equal(visibleWidth(meter), width);
-    const track = stripVTControlCharacters(meter).match(/─+/)![0];
-    const dimOpen = theme.fg("dim", "").replace(/\u001b\[39m$/, "");
-    assert(meter.includes(`${dimOpen}${track}`), "empty cells use the dim thin track");
+    const line = rows.find(row => stripVTControlCharacters(row).includes("CONTEXT"))!;
+    assert(line, `context row at ${width}`);
+    assert.match(stripVTControlCharacters(line), /^│ CONTEXT +11% /, `label left, percent right at ${width}`);
+    assert.doesNotMatch(stripVTControlCharacters(line), /[█░│]{2}|Context /, "no legacy inline meter");
+    assert.equal(visibleWidth(line), width);
   }
-  sidebar.setSession({ ...session, percent: 83 });
-  const warning = sidebar.render(40);
-  const fill = stripVTControlCharacters(warning.find(row => stripVTControlCharacters(row).includes("Context"))!).match(/━+/)![0];
-  assert(warning.some(row => row.includes(theme.fg("warning", fill))), "fill shifts to the warning tone at >= 80%");
-  sidebar.setSession({ ...session, percent: null });
-  const empty = stripVTControlCharacters(sidebar.render(40).find(row => stripVTControlCharacters(row).includes("Context"))!);
-  assert(empty.includes("─") && !empty.includes("━") && empty.endsWith("—% │"), "null percent is an empty track with a dash");
-  sidebar.dispose();
 });
 
 test("quiet editor avoids duplicate identity/model and restores compact facts without losing its draft", () => {

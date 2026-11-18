@@ -5,14 +5,17 @@ import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts"
 import { mcpDetails } from "./sidebar-mcp.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
-import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
+import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
-import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, sidebarRate, sidebarUncached } from "./sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, type SidebarTier } from "./sidebar-layout.ts";
+import { cacheRows, contextRows, formatCacheHit, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
+import { cacheWarmth, EMPTY_PERF } from "./perf-stats.ts";
 
 export const DOUBLE_CLICK_MS = 400;
 type ListName = "mcp" | "skills" | "prompts" | "tasks";
-type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number };
+type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
+const HEADER_GAP: Row = { text: "" };
 export type SidebarActions = {
   copy(text: string): void;
   openFile(filePath: string): void;
@@ -25,7 +28,8 @@ const EMPTY_SESSION: SidebarSession = {
   id: "", name: "", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
   percent: null, contextWindow: null, estimated: false, rate: null, startedAt: 0,
   lastTurnMs: null, working: false, turns: 0, messages: 0,
-  usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null },
+  usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null, saved: null },
+  perf: EMPTY_PERF,
 };
 const EMPTY_RESOURCES: SidebarResources = { skills: [], commands: [], prompts: [], mcp: [] };
 
@@ -150,8 +154,7 @@ export class Sidebar implements Component {
   isImagePinned(): boolean { return this.pinned; }
   sessionDetails(): string {
     const s = this.session;
-    const uncached = sidebarUncached(s.usage);
-    const hit = s.usage.input !== null && s.usage.cacheRead !== null && s.usage.input > 0 ? `${Math.round(s.usage.cacheRead / s.usage.input * 100)}%` : "—";
+    const hit = formatCacheHit(sidebarCacheHit(s.usage));
     return [`Session ${sidebarText(s.id) || "—"} · PID ${s.pid}`, `Title: ${s.name || "—"}`, `Model: ${s.model} · ${s.thinking}`,
       `Context: ${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}${s.estimated ? " (estimated)" : ""}`,
       `Wall time (this runtime): ${sidebarDuration(s.startedAt > 0 ? this.now() - s.startedAt : null)}`,
@@ -159,8 +162,21 @@ export class Sidebar implements Component {
       `Active-branch usage:`, `Input (uncached + cache read + cache write): ${formatCompactTokenCount(s.usage.input)}`,
       `Output: ${formatCompactTokenCount(s.usage.output)} · Total: ${formatCompactTokenCount(s.usage.total)}`,
       `Cache read: ${formatCompactTokenCount(s.usage.cacheRead)} · Cache write: ${formatCompactTokenCount(s.usage.cacheWrite)}`,
-      `Uncached input: ${formatCompactTokenCount(uncached)} · Cache-hit share: ${hit}`,
-      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd].join("\n");
+      `Uncached input: ${formatCompactTokenCount(s.usage.uncached)} · Cache-hit share: ${hit}`,
+      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd, ...this.speedCacheDetails()].join("\n");
+  }
+  private speedCacheDetails(): string[] {
+    const perf = this.session.perf;
+    const c = perf.cache;
+    const warmth = cacheWarmth(c, this.now());
+    return ["", "Speed & cache",
+      `Speed is output tokens ÷ Pi's recorded provider-stream duration, not total turn time.`,
+      `Replies with less than 32 output tokens, less than 300 ms, or missing timing are excluded from speed.`,
+      `The composer's live rate is an estimate (visible text ÷ 4) and is marked ~.`,
+      `Timed replies: ${perf.timedReplies} · last timed reply: ${formatRate(perf.rates.at(-1))} tok/s · peak: ${formatRate(perf.peak)} tok/s · this turn: ${formatRate(perf.turn.rate)} tok/s`,
+      `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`,
+      `Saved is estimated from recorded prices only when all branch cache reads are priceable.`,
+      `Cache expiry is estimated from the last reported cache activity when its retention tier is known${warmth.state === "unknown" ? " (not established here)" : ""}.`];
   }
   tick(): void { if (!this.hidden && this.splitActive) this.tui?.requestRender(); }
   invalidate(): void {
@@ -210,19 +226,20 @@ export class Sidebar implements Component {
     const key = `${width}:${height}:${this.revision}:${Math.floor(this.now() / 1000)}`;
     if (this.cached?.key === key) return this.cached.lines;
     this.hits = []; this.listRows = [];
-    const chrome = height >= 12 ? 1 : 0;
-    const slots = sessionSidebarSlots(height, this.tasks.length, Boolean(this.imageView()));
-    if (chrome) slots.middle = Math.max(0, slots.middle - 2);
     const inner = Math.max(0, width - 4);
+    const header = this.headerRows(inner, height >= 44 ? "full" : "compact");
+    const slots = sessionSidebarSlots(height, header.length, this.tasks.length, Boolean(this.imageView()), header.filter(row => row === HEADER_GAP).length);
+    let dropGaps = header.length - slots.header;
     const lines: string[] = [];
     const add = (row: Row): void => {
       const y = lines.length;
       lines.push(row.divider ? this.dividerLine(width, "├") : this.decorateLine(row.text, width));
+      if (inner > 0) for (const e of row.extra ?? []) this.hits.push({ y, x0: 2 + e.x0, x1: 2 + e.x1, action: e.action });
       if (row.action && inner > 0) this.hits.push({ y, x0: 2, x1: width - 2, action: row.action });
       if (row.list) this.listRows.push({ y, list: row.list });
     };
-    if (chrome) lines.push(this.dividerLine(width, "┌"));
-    for (const row of this.headerRows(inner).slice(0, slots.header)) add(row);
+    if (slots.frame) lines.push(this.dividerLine(width, "┌"));
+    for (const row of header.filter(row => row !== HEADER_GAP || dropGaps-- <= 0).slice(0, slots.header)) add(row);
     const middle = this.middle();
     this.middleRows = middle.length; this.middleHeight = slots.middle; this.middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
@@ -231,47 +248,46 @@ export class Sidebar implements Component {
     this.imageStart = lines.length; this.imageHeight = slots.image;
     lines.push(...this.imageLines(width, slots.image, lines.length));
     if (slots.footer) add({ text: this.paint("dim", "/slate session · details"), action: () => this.actions?.inspect?.("Session", this.sessionDetails()) });
-    while (lines.length < height - chrome) lines.push(this.decorateLine("", width));
-    if (chrome) lines.push(this.dividerLine(width, "└"));
+    if (slots.frame) lines.push(this.dividerLine(width, "└"));
     this.cached = { key, lines: lines.slice(0, height) };
     return this.cached.lines;
   }
 
-  private headerRows(width: number): Row[] {
+  private headerRows(width: number, tier: SidebarTier): Row[] {
     const s = this.session;
     const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
-    const tone = percent !== null && percent >= 80 ? "warning" : "accent";
-    const identity = `Session ${sidebarText(s.id).slice(0, 8) || "—"} · PID ${s.pid}`;
-    const name = s.name || "";
-    const occupancy = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}`
-      + ` · ${sidebarCost(s.usage.cost)} · ${sidebarRate(s.rate)}`;
-    const meter = ((): string => {
-      const pct = percent === null ? "—%" : `${Math.round(percent)}%`;
-      if (width < visibleWidth(pct) + 3) return this.paint("muted", truncateToWidth(pct, width, "…"));
-      const suffix = ` │ ${pct}`;
-      const barWidth = Math.max(0, width - "Context ".length - visibleWidth(suffix));
-      const filledCells = percent === null ? 0 : Math.round(Math.max(0, Math.min(100, percent)) * barWidth / 100);
-      const label = truncateToWidth("Context ", Math.max(0, width - barWidth - visibleWidth(suffix)), "…");
-      return this.paint("muted", label)
-        + (filledCells ? this.paint(tone, "━".repeat(filledCells)) : "")
-        + this.paint("dim", "─".repeat(barWidth - filledCells) + suffix);
-    })();
     const branchUsage = () => this.actions?.inspect?.("Branch usage", this.sessionDetails());
-    const stat = (label: string, value: string): string => `${this.paint("muted", label)} ${this.paint("text", value)}`;
-    const statRight = (label: string, value: string): string => `${this.paint("text", value)} ${this.paint("muted", label)}`;
-    return [
-      { text: this.heading(name, "accent"), action: name ? () => { if (this.session.name) this.actions?.copy(this.session.name); } : undefined },
-      { text: this.heading(visibleWidth(identity) > width ? this.pair(`Session ${sidebarText(s.id).slice(0, 8) || "—"}`, `· PID ${s.pid}`, width) : identity), action: () => { if (s.id) this.actions?.copy(s.id); } },
-      { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) },
-      { text: "" },
-      { text: meter },
-      { text: this.paint("dim", occupancy), action: branchUsage },
-      { text: "" },
-      { text: this.pair(stat("Cached", formatCompactTokenCount(s.usage.cacheRead)), statRight("In", formatCompactTokenCount(s.usage.input)), width), action: branchUsage },
-      { text: this.pair(stat("Uncached", formatCompactTokenCount(sidebarUncached(s.usage))), statRight("Out", formatCompactTokenCount(s.usage.output)), width), action: branchUsage },
-      { text: "" },
-      { text: "", divider: true },
-    ];
+    const name = s.name || "";
+    const shortId = sidebarText(s.id).slice(0, 8) || "—";
+    const idWidth = visibleWidth(shortId);
+    const showId = width >= idWidth + 13;
+    const copyName = () => { if (this.session.name) this.actions?.copy(this.session.name); };
+    const copyId = () => { if (this.session.id) this.actions?.copy(this.session.id); };
+    const status: Row = (() => {
+      const turns = s.turns === 1 ? "1 turn" : `${s.turns} turns`;
+      const left = s.working
+        ? this.paint("success", "● Working")
+        : this.paint("dim", "○ Idle") + (s.turns > 0 ? this.paint("muted", ` · ${turns}`) : "");
+      const started = s.turnStartedAt;
+      const right = s.working
+        ? typeof started === "number" && Number.isFinite(started) ? this.paint("warning", formatCountdown(Math.max(0, this.now() - started))) : ""
+        : s.lastTurnMs !== null ? this.paint("dim", `last ${sidebarDuration(s.lastTurnMs)}`) : "";
+      return { text: this.pair(left, right, width) };
+    })();
+    const identity: Row = {
+      text: this.pair(this.heading(name || "Session", name ? "accent" : "mdHeading"), showId ? this.paint("dim", shortId) : "", width),
+      action: name ? copyName : undefined,
+      extra: showId ? [{ x0: width - idWidth, x1: width, action: copyId }] : undefined,
+    };
+    const model: Row = { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) };
+    const divider: Row = { text: "", divider: true };
+    const input: PerfInput = { perf: s.perf, usage: s.usage, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) };
+    const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
+      .map(text => ({ text, action: branchUsage }));
+    const rows = (lines: string[]): Row[] => lines.map(text => ({ text }));
+    return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP,
+      ...rows(speedRows(input)), HEADER_GAP,
+      ...rows(cacheRows(input)), HEADER_GAP, divider];
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;

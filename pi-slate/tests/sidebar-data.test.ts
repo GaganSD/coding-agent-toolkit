@@ -16,36 +16,50 @@ function skill(name: string): Skill { return { name, filePath: `/skills/${name}/
 test("usage input includes cache categories once; reasoning is already part of output", () => {
   const a = message("a", "assistant", { usage });
   const result = sidebarUsage([a, a]);
-  assert.deepEqual(result, { input: 450, output: 20, cacheRead: 300, cacheWrite: 50, total: 470, cost: 0.25 });
+  assert.deepEqual(result, { input: 450, output: 20, cacheRead: 300, cacheWrite: 50, uncached: 100, cacheSeen: true, total: 470, cost: 0.25, saved: null });
 });
 
 test("tool nested usage, compaction, branch summaries and cache warming each count once", () => {
   const entries = [message("a", "assistant", { usage }), message("t", "toolResult", { usage, nestedCalls: { calls: [{ usage }], complete: true } }), entry("c", { type: "compaction", usage }), entry("b", { type: "branch_summary", usage }), entry("w", { type: "usage", kind: "cache_warm", usage })];
   const result = sidebarUsage(entries);
-  assert.equal(result.input, 2250); assert.equal(result.output, 100); assert.equal(result.cost, 1.25);
+  assert.deepEqual(result, { input: 2250, output: 100, cacheRead: 1500, cacheWrite: 250, uncached: 500, cacheSeen: true, total: 2350, cost: 1.25, saved: null });
 });
 
 test("ordinary tool results without usage are not invented model requests", () => {
-  assert.deepEqual(sidebarUsage([message("t", "toolResult")]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 });
+  assert.deepEqual(sidebarUsage([message("t", "toolResult")]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, uncached: 0, cacheSeen: false, total: 0, cost: 0, saved: null });
 });
 
 test("missing or invalid provider facts show unknown rather than fake zero", () => {
-  assert.deepEqual(sidebarUsage([message("a", "assistant")]), { input: null, output: null, cacheRead: null, cacheWrite: null, total: null, cost: null });
+  assert.deepEqual(sidebarUsage([message("a", "assistant")]), { input: null, output: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, total: null, cost: null, saved: null });
   const result = sidebarUsage([message("a", "assistant", { usage: { ...usage, cacheRead: NaN, cost: { total: -1 } } })]);
-  assert.equal(result.input, null); assert.equal(result.output, 20); assert.equal(result.cacheWrite, 50); assert.equal(result.total, null); assert.equal(result.cost, null);
+  assert.deepEqual(result, { input: null, output: 20, cacheRead: null, cacheWrite: 50, uncached: 100, cacheSeen: true, total: null, cost: null, saved: null });
+});
+
+test("estimate savings only when all branch cache reads can be priced", () => {
+  const priced = { ...usage, input: 100, cacheRead: 100, cost: { input: 1, cacheRead: 0.25, total: 1.25 } };
+  const reply = message("a", "assistant", { usage: priced });
+  const warm = entry("w", { type: "usage", kind: "cache_warm", usage: priced });
+  assert.equal(sidebarUsage([reply, warm]).saved, 1.5);
+  for (const uncertain of [message("b", "assistant", { usage: { ...priced, input: 0 } }),
+    message("c", "assistant", { usage }), entry("d", { type: "compaction", usage: priced })]) {
+    const stats = sidebarUsage([reply, warm, uncertain]);
+    assert.notEqual(stats.cost, null);
+    assert.equal(stats.saved, null);
+  }
 });
 
 test("legacy summaries without usage make billed totals unknown rather than silently free", () => {
   for (const type of ["compaction", "branch_summary"]) {
     const result = sidebarUsage([message("a", "assistant", { usage }), entry("summary", { type })]);
-    assert.equal(result.input, null); assert.equal(result.cost, null);
+    assert.equal(result.input, null); assert.equal(result.uncached, null); assert.equal(result.cost, null);
+    assert.equal(result.cacheSeen, true);
   }
 });
 
 test("overflow in otherwise finite usage never manufactures Infinity metrics", () => {
   const huge = { ...usage, input: 1e308, output: 1e308, cacheRead: 1e308, cacheWrite: 1e308, cost: { total: 1e308 } };
   const result = sidebarUsage([message("a", "assistant", { usage: huge }), message("b", "assistant", { usage: huge })]);
-  assert(Object.values(result).every(value => value === null || Number.isFinite(value)));
+  assert(Object.values(result).every(value => typeof value !== "number" || Number.isFinite(value)));
   assert.equal(result.input, null); assert.equal(result.cost, null);
 });
 

@@ -37,6 +37,7 @@ import { mcpDetails } from "./sidebar-mcp.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
 import { resolveContextTokens } from "./context-usage.ts";
+import { branchPerf } from "./perf-stats.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import { advanceWave, isProgressStyle, isWaveActive, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
@@ -229,7 +230,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let lastTurnMs: number | null = null;
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
   const dashboardSubscriptions: Array<() => void> = [];
-  let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage> } | undefined;
+  let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage>; perf: ReturnType<typeof branchPerf> } | undefined;
   let inspectingSidebar = false;
   let sidebarYielded = false;
   let sessionEpoch = 0;
@@ -267,9 +268,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
-  let contextEdge = {
-    tokens: formatFocusedContextTokens(null, null, null),
-    resources: formatFocusedContextResources(null, false, 0),
+  let contextEdge: { percent: number | null; window: number | null; resources: string } = {
+    percent: null, window: null, resources: formatFocusedContextResources(null, false, 0),
   };
   let requestRender = (_force = false) => {};
 
@@ -326,26 +326,26 @@ export default function piSlate(pi: ExtensionAPI): void {
       percent = resolved.percent;
       contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? null;
     } catch { /* Context can be temporarily unavailable; keep identity and other facts fresh. */ }
-    const leaf = ctx.sessionManager.getLeafId?.();
-    if (!branchFacts || leaf === undefined || leaf !== branchFacts.leaf) {
-      const entries = ctx.sessionManager.getBranch();
-      branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries) };
-    }
-    const mcpCount = resources.mcp.filter(server => server.enabled === true).length;
     if (owns("sidebar") && !sidebarYielded) {
+      const leaf = ctx.sessionManager.getLeafId?.();
+      if (!branchFacts || leaf === undefined || leaf !== branchFacts.leaf) {
+        const entries = ctx.sessionManager.getBranch();
+        branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries),
+          perf: branchPerf(entries, (provider, model) => ctx.modelRegistry.find(provider, model)?.promptCache) };
+      }
+      const rate = tokenRate.rate();
       sidebar.setSession({
         id: ctx.sessionManager.getSessionId?.() ?? "",
         name: ctx.sessionManager.getSessionName?.(),
         pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(ctx.model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
         tokens, percent, contextWindow, estimated,
-        rate: tokenRate.rate() > 0 ? tokenRate.rate() : null, startedAt: sessionStartedAt, lastTurnMs,
+        rate: rate > 0 ? rate : null, startedAt: sessionStartedAt, lastTurnMs, turnStartedAt: turnStartedAt ?? null,
         working: typeof ctx.isIdle === "function" && !ctx.isIdle(), ...branchFacts.counts, usage: branchFacts.usage,
+        perf: branchFacts.perf,
       });
     }
-    contextEdge = {
-      tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
-      resources: formatFocusedContextResources(percent, estimated, mcpCount),
-    };
+    contextEdge = { percent, window: contextWindow,
+      resources: formatFocusedContextResources(percent, estimated, resources.mcp.filter(server => server.enabled === true).length) };
   };
   const refreshResources = (ctx: ExtensionContext): void => {
     if (ctx.mode !== "tui" || !ctx.sessionManager || (!owns("sidebar") && !owns("editor")) || (sidebarYielded && !editorActive())) return;
@@ -434,11 +434,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       skills.reset([]);
       skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
       refreshResources(ctx);
-      tokenRate.setOnChange(() => {
-        const ctx = liveContext();
-        if (ctx) syncSidebar(ctx);
-        if (thinkingFold.elapsedMs() !== null) syncThinkingStatus();
-      });
+      tokenRate.setOnChange(() => { if (thinkingFold.elapsedMs() !== null) syncThinkingStatus(); });
       syncSidebar(ctx);
     }
 
@@ -533,8 +529,9 @@ export default function piSlate(pi: ExtensionAPI): void {
               const ctx = liveContext();
               if (!ctx || ctx.mode !== "tui" || !sidebar.splitActive) return;
               diagnostics.attempt("dashboard", "Last dashboard snapshot retained; a background refresh failed.", () => {
-                sidebar.tick();
                 if (++ticks % 5 === 0) { refreshResources(ctx); syncSidebar(ctx); }
+                else if (ctx.sessionManager.getLeafId() !== branchFacts?.leaf) syncSidebar(ctx);
+                sidebar.tick();
               }, () => {});
             }, 1000);
             dashboardClock.unref?.();
@@ -579,7 +576,9 @@ export default function piSlate(pi: ExtensionAPI): void {
           working: typeof current.isIdle === "function" && !current.isIdle(),
           workspaceHeader: owns("header"),
           dashboardVisible: sidebar.isVisible(tui.terminal.columns, tui.terminal.rows),
-          ...(!sidebar.isVisible(tui.terminal.columns, tui.terminal.rows) ? { context: contextEdge } : {}),
+          ...(!sidebar.isVisible(tui.terminal.columns, tui.terminal.rows) ? { context: {
+            tokens: formatFocusedContextTokens(contextEdge.percent, tokenRate.rate(), contextEdge.window), resources: contextEdge.resources,
+          } } : {}),
         });
         let cachedMetadata = metadata(ctx);
         activeEditor = new ComposerEditor(
@@ -710,7 +709,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role === "assistant") {
       thinkingFold.stop();
-      if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.startMessage();
+      if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) {
+        tokenRate.startMessage();
+        syncSidebar(ctx); // Pi has persisted the input that started this request.
+      }
     }
   });
   pi.on("message_update", (event, ctx) => {
@@ -732,7 +734,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       skills.observeNested(event.message.nestedCalls?.calls ?? [], ctx.cwd);
     }
     refreshResources(ctx);
-    syncSidebar(ctx);
     syncVisibleMessages();
   });
   pi.on("session_info_changed", (_event, ctx) => { currentContext = ctx; syncSidebar(ctx); });
@@ -748,6 +749,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       skills.readStart(event.toolCallId, event.toolName, event.args, ctx.cwd);
       background.shellStart(event.toolCallId, event.toolName, event.args, Date.now());
       sidebar.setTasks(background.snapshot());
+      syncSidebar(ctx); // message_end precedes persistence; the tool starts after it.
     });
     pi.on("tool_execution_end", (event, ctx) => {
       if (ctx.mode !== "tui") return;
