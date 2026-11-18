@@ -3,20 +3,18 @@
  * Measuring lives in ./footprint.ts, shared with the token-ceiling test.
  * Run with `npm run tokens`.
  */
-import { ALL_ASK_FEATURES, SHIPPED_ASK_FEATURES } from "../src/features.ts";
+import { ALL_ASK_FEATURES } from "../src/features.ts";
 import { measureAskToolFootprint } from "./footprint.ts";
 
 const row = (name, chars, tokens) =>
 	console.log(`  ${name.padEnd(16)} ${String(chars).padStart(5)} / ${tokens}`);
 
-const shipped = measureAskToolFootprint({ features: SHIPPED_ASK_FEATURES });
+const all = measureAskToolFootprint({ features: ALL_ASK_FEATURES });
 console.log("ask_user context footprint (chars / est. tokens)");
-for (const part of shipped.parts) {
+for (const part of all.parts) {
 	row(part.name, part.chars, part.tokens);
 }
-row("total", shipped.totalChars, shipped.totalTokens);
-
-const all = measureAskToolFootprint({ features: ALL_ASK_FEATURES });
+row("total", all.totalChars, all.totalTokens);
 const noExpiry = measureAskToolFootprint({
 	features: { ...ALL_ASK_FEATURES, expiry: false },
 });

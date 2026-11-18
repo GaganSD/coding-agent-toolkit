@@ -8,7 +8,6 @@ import {
 	type AskFeatures,
 	NO_ASK_FEATURES,
 	resolveAskFeatures,
-	SHIPPED_ASK_FEATURES,
 } from "../src/features.ts";
 
 /** Est. tokens, measured exactly as `npm run tokens` does. */
@@ -54,14 +53,6 @@ test("ask_user footprint stays under the lower ceiling with expiry disabled", ()
 	}
 });
 
-test("everything that ships fits the all-enabled ceiling", () => {
-	assert.deepEqual(SHIPPED_ASK_FEATURES, ALL_ASK_FEATURES);
-	const { totalTokens } = measureAskToolFootprint({
-		features: SHIPPED_ASK_FEATURES,
-	});
-	assert.ok(totalTokens <= CEILING_ALL_ENABLED);
-});
-
 test("a disabled feature is absent from the registered schema", () => {
 	assert.deepEqual(schemaKeys(NO_ASK_FEATURES), {
 		call: ["title", "questions"],
@@ -81,23 +72,16 @@ test("a disabled feature is absent from the registered schema", () => {
 	assert.ok(!noExpiry.question.includes("fallback"));
 });
 
-test("config can only narrow the shipped features", () => {
-	assert.deepEqual(
-		resolveAskFeatures(DEFAULT_ASK_CONFIG, ALL_ASK_FEATURES),
-		ALL_ASK_FEATURES
-	);
-	assert.deepEqual(
-		resolveAskFeatures(
-			{
-				behaviour: { ...DEFAULT_ASK_CONFIG.behaviour, background: false },
-				expiry: { ...DEFAULT_ASK_CONFIG.expiry, enabled: false },
-			},
-			ALL_ASK_FEATURES
-		),
-		NO_ASK_FEATURES
-	);
-	assert.deepEqual(
-		resolveAskFeatures(DEFAULT_ASK_CONFIG, NO_ASK_FEATURES),
-		NO_ASK_FEATURES
-	);
+test("registration features follow config independently", () => {
+	for (const background of [false, true]) {
+		for (const expiry of [false, true]) {
+			assert.deepEqual(
+				resolveAskFeatures({
+					behaviour: { ...DEFAULT_ASK_CONFIG.behaviour, background },
+					expiry: { ...DEFAULT_ASK_CONFIG.expiry, enabled: expiry },
+				}),
+				{ background, expiry }
+			);
+		}
+	}
 });
