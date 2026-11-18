@@ -5,8 +5,8 @@
  *
  * Exactly-once rests on the session branch. An outcome is delivered when its
  * `pi-ask:answer` message is on the branch; until then it is pending. The
- * only in-memory state is the set of outcomes sent and not yet seen there,
- * which keeps a message that is still on its way from being sent again.
+ * process-local state identifies orphaned tool outcomes adopted on attach
+ * and sends still in flight, so messages on their way are not sent twice.
  * How a pending outcome is sent is decided in `state/outbox.ts`.
  */
 import type {
@@ -60,12 +60,12 @@ export interface AskDelivery {
 	 * The branch was (re)built. A foreground answer whose tool result never
 	 * landed is adopted as a follow-up message, once.
 	 */
-	attach(): void;
+	attach(ctx: DeliveryContext): void;
 	/**
 	 * A run started. A send the branch still lacks never made it into a run,
 	 * so the answer is no longer held back; the next pump retries it.
 	 */
-	started(ctx: DeliveryContext): void;
+	started(): void;
 	/** Deliver what can be delivered now. `settled`: the run is over. */
 	pump(
 		ctx: DeliveryContext,
@@ -172,28 +172,25 @@ function answerMessage(outcome: AskOutcomeEntry) {
 export function createAskDelivery(
 	pi: Pick<ExtensionAPI, "sendMessage">
 ): AskDelivery {
-	// Sent in this process, not yet on the branch. Never cleared on a timer or
-	// a lifecycle event: a second send is the one thing that must not happen.
+	// Sent in this process, potentially still being written by a run. Cleared
+	// only when idle or a new run starts; the branch then proves delivery.
 	const inFlight = new Set<string>();
 	// False while the branch is known to have nothing pending, so that turn
 	// boundaries of an ordinary run cost nothing.
 	let watching = true;
-	// The next plan was reached by rebuilding a session, where a foreground
-	// answer without its tool result can be adopted as a message.
-	let recovering = false;
+	// Only tool outcomes already orphaned at attach can become messages.
+	// Eligibility lasts until branch evidence proves delivery, not one plan.
+	let adopted = new Set<string>();
 
 	function plan(ctx: DeliveryContext, situation: AskDeliverySituation) {
 		if (!watching) {
 			return;
 		}
 		const pending = undeliveredOutcomes(readAskJournal(ctx), {
-			unrecordedTool: recovering,
-		});
-		// Only a plan that can act on an adopted answer clears the adoption. One
-		// that can only hold it leaves the next plan able to adopt and send it.
-		if (situation.trigger !== "now" || situation.idle) {
-			recovering = false;
-		}
+			unrecordedTool: true,
+		}).filter(
+			({ outcome }) => outcome.channel === "message" || adopted.has(outcome.outcomeId)
+		);
 		if (pending.length === 0) {
 			watching = false;
 			return;
@@ -224,56 +221,28 @@ export function createAskDelivery(
 		}
 	}
 
-	/**
-	 * Forgets sends the branch still shows as pending. Pi's `sendMessage` is
-	 * fire-and-forget: when the run it starts fails before recording the
-	 * message, nothing lands and nothing reports the failure. Left in flight,
-	 * that answer would be held for the rest of the process. Only called when
-	 * no run can still be writing the message (the host is idle, or a run just
-	 * started): the branch itself is the proof of what was delivered.
-	 */
-	function release(ctx: DeliveryContext) {
-		if (inFlight.size === 0) {
-			return;
-		}
-		// An adopted tool outcome counts here too: neither call site has a live
-		// call that could still be writing its result, so the branch proves it
-		// was never sent.
-		const pending = new Map(
-			undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true }).map(
-				({ outcome }) => [outcome.outcomeId, outcome]
-			)
-		);
-		for (const outcomeId of [...inFlight]) {
-			const outcome = pending.get(outcomeId);
-			if (!outcome) {
-				continue;
-			}
-			inFlight.delete(outcomeId);
-			// The adopted answer never reached the branch, so adopt it again and
-			// let the next plan retry it in this process.
-			if (outcome.channel === "tool") {
-				recovering = true;
-			}
-		}
-	}
-
 	return {
 		post() {
 			watching = true;
 		},
-		attach() {
+		attach(ctx) {
+			adopted = new Set(
+				undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true })
+					.filter(({ outcome }) => outcome.channel === "tool")
+					.map(({ outcome }) => outcome.outcomeId)
+			);
 			watching = true;
-			recovering = true;
 		},
-		started(ctx) {
-			// A run that did start has not recorded its own starting message
-			// yet, so do not send here: the next boundary sees it on the branch.
-			release(ctx);
+		started() {
+			// No prior run can still be writing a send. Do not send here: this
+			// run's starting message is recorded before its first boundary.
+			inFlight.clear();
 		},
 		pump(ctx, situation = {}) {
 			if (ctx.isIdle()) {
-				release(ctx);
+				// Nothing can still be writing a send: retry anything the branch
+				// lacks, including a wake whose run never started.
+				inFlight.clear();
 			}
 			const planned = plan(ctx, {
 				trigger: situation.trigger ?? "now",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ASK_ANSWER_MESSAGE_TYPE } from "../src/journal/entries.ts";
 import { KEY, quietConfig, tick } from "./support/fake-pi.ts";
 import {
@@ -7,6 +8,7 @@ import {
 	start,
 	kinds,
 	ONE,
+	SUBMIT_ONE,
 	SUBMIT_TWO,
 	withBackgroundForm,
 	unrecordedToolSession,
@@ -15,6 +17,60 @@ import {
 beforeEach(quietConfig);
 
 // --- Delivery --------------------------------------------------------------
+
+test("an adopted tool answer retries synchronous send failures until delivered once", async (t) => {
+	const host = boot(await unrecordedToolSession());
+	const pi: ExtensionAPI = host.pi;
+	const send = pi.sendMessage;
+	let attempts = 0;
+	t.mock.method(pi, "sendMessage", (...args: Parameters<ExtensionAPI["sendMessage"]>) => {
+		if (++attempts <= 2) {
+			throw new Error("send unavailable");
+		}
+		send(...args);
+	});
+
+	await start(host);
+	assert.equal(attempts, 1);
+	host.settle();
+	assert.equal(attempts, 2);
+	assert.equal(host.sent.length, 0);
+	host.settle();
+	assert.equal(attempts, 3);
+	assert.equal(host.sent.length, 1);
+	host.recordWake();
+	host.settle();
+	await start(host, "reload");
+	assert.equal(attempts, 3);
+	assert.equal(host.answers().length, 1);
+	host.emit("session_shutdown");
+});
+
+test("adoption keeps every orphaned tool answer eligible across delivery plans", async () => {
+	const first = boot(undefined, { persistToolResults: false });
+	for (const id of ["a", "b"]) {
+		const pending = first.ask(ONE(id));
+		await tick();
+		first.forms.at(-1)?.press(...SUBMIT_ONE);
+		await pending;
+	}
+	first.emit("session_shutdown");
+
+	const host = boot(first.session);
+	await start(host);
+	assert.equal(host.sent.length, 1, "only the first answer wakes the agent");
+	host.recordWake();
+	const boundary = host.turnEnd();
+	assert.equal(boundary.entries.length, 1, "the held answer joins the running turn");
+	assert.equal(host.answers().length, 2);
+	assert.equal(boundary.continue, true);
+	assert.deepEqual(host.turnEnd(), { entries: [], continue: false });
+	host.settle();
+	await start(host, "reload");
+	assert.equal(host.answers().length, 2);
+	assert.equal(host.sent.length, 1);
+	host.emit("session_shutdown");
+});
 
 test("an idle agent is woken by the answer, which names the form and each question", async () => {
 	const { host, requestId } = await withBackgroundForm();
