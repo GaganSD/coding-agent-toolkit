@@ -184,19 +184,17 @@ export function speedRows(i: PerfInput): string[] {
   const { perf, inner, paint } = i;
   const rate = perf.rates.at(-1);
   if (rate === undefined) {
-    return [headingRow(i, "SPEED", [[DASH]]),
-      noteRow(i, perf.requests > 0 ? "replies too short to time" : "waiting for first response")];
+    return [headingRow(i, "SPEED", [[DASH]]), noteRow(i, "no timed replies")];
   }
   const digits = formatRate(rate);
   const value: Seg = ["text", digits];
   const unit: Seg = ["dim", " tok/s"];
-  const out = perf.turn && perf.turn.output > 0 ? formatCompactTokenCount(perf.turn.output) : "—";
-  const detail = detailRow(i, [["avg", formatRate(perf.turn?.rate)], ["peak", formatRate(perf.peak)], ["out", out]]);
+  const detail = detailRow(i, [["avg", formatRate(perf.turn.rate)], ["peak", formatRate(perf.peak)], ["out", formatCompactTokenCount(perf.turn.output)]]);
   if (i.tier !== "full") {
     const visual = paint("accent", speedSparkline(perf.rates, inner));
     return [headingRow(i, "SPEED", [[value, unit], [value]]), visual, detail];
   }
-  const rows = [headingRow(i, "SPEED", [[["dim", "last response"]]])];
+  const rows = [headingRow(i, "SPEED", [[["dim", "last timed reply"]]])];
   const [a, b, c] = bigDigits(digits) as [string, string, string];
   const digitWidth = visibleWidth(a);
   if (digitWidth <= inner && [...digits].every(ch => ch in FONT)) {
@@ -215,12 +213,12 @@ export function formatCacheHit(rate: number | null): string {
 }
 
 /** Headline uses the same branch totals as the bar; warmth is based on the latest request. */
-function cacheSegs(i: PerfInput, full: boolean): Seg[][] {
+function cacheSegs(i: PerfInput): Seg[][] {
   const { cache: c } = i.perf;
   const rate = sidebarCacheHit(i.usage);
   const hit = rate === null ? null : formatCacheHit(rate);
   const w = cacheWarmth(c, i.now);
-  const warm: Seg | null = w.state === "warm" ? ["success", full ? `◉ ${formatCountdown(w.remainingMs ?? 0)}` : `warm ${formatCountdown(w.remainingMs ?? 0)}`]
+  const warm: Seg | null = w.state === "warm" ? ["success", `◉ ${formatCountdown(w.remainingMs ?? 0)}`]
     : w.state === "cold" ? ["warning", "cold"]
     : w.idleMs !== null && w.idleMs >= 60_000 ? ["dim", `idle ${formatIdle(w.idleMs)}`] : null;
   const sep: Seg = ["dim", " · "];
@@ -230,31 +228,18 @@ function cacheSegs(i: PerfInput, full: boolean): Seg[][] {
 }
 
 export function cacheRows(i: PerfInput): string[] {
-  const { perf, usage, inner, paint } = i;
-  if (!usage.cacheSeen) return [headingRow(i, "CACHE", [[DASH]]), noteRow(i, perf.requests === 0 ? "no requests yet" : "no cache reads reported")];
+  const { usage, inner, paint } = i;
+  const spent: [string, string] = ["spent", sidebarCost(usage.cost)];
+  if (!usage.cacheSeen) return [headingRow(i, "CACHE", [[DASH]]), noteRow(i, "no cache activity reported"),
+    ...(usage.cost !== null && (usage.cost > 0 || (usage.input ?? 0) > 0) ? [detailRow(i, [spent])] : [])];
   const [r = 0, w = 0, u = 0] = usage.input === null ? [] : stackedBar([usage.cacheRead ?? 0, usage.cacheWrite ?? 0, usage.uncached ?? 0], inner);
   const bar = r || w || u ? paint("success", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u)) : baseline(i);
   const f = formatCompactTokenCount;
-  const spent: [string, string] = ["spent", sidebarCost(usage.cost)];
   const tokens: Array<[string, string]> = [["read", f(usage.cacheRead)], ["write", f(usage.cacheWrite)], ["new", f(usage.uncached)]];
-  const rows = [headingRow(i, "CACHE", cacheSegs(i, true)), bar];
+  const rows = [headingRow(i, "CACHE", cacheSegs(i)), bar];
   if (i.tier === "full") {
-    const saved = perf.cache.saved;
+    const saved = usage.saved;
     rows.push(detailRow(i, tokens), detailRow(i, nonneg(saved) ? [spent, ["saved", `~${sidebarCost(saved)}`]] : [spent]));
   } else rows.push(detailRow(i, [...tokens, spent]));
   return fit(rows, inner);
-}
-
-/** One row for short terminals: `23.5 tok/s · 62% hit · idle 1m`, shedding trailing parts to fit. */
-export function combinedRow(i: PerfInput): string {
-  const { perf } = i;
-  if (perf.requests === 0 && !i.usage.cacheSeen) return noteRow(i, "no requests yet");
-  const rate = perf.rates.at(-1);
-  const speed: Seg[] = rate === undefined ? [DASH] : [["text", formatRate(rate)], ["dim", " tok/s"]];
-  const cache = i.usage.cacheSeen ? cacheSegs(i, false) : [[]];
-  const sep: Seg = ["dim", " · "];
-  const variants = cache.map(c => c.length ? [...speed, sep, ...c] : speed);
-  variants.push(speed);
-  const pick = variants.find(v => segWidth(v) <= i.inner) ?? speed;
-  return truncateToWidth(paintSegs(i, pick), i.inner, "…");
 }

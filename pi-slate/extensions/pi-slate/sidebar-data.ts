@@ -12,6 +12,8 @@ export type SidebarUsage = {
   input: number | null; output: number | null; cacheRead: number | null;
   cacheWrite: number | null; uncached: number | null; total: number | null; cost: number | null;
   cacheSeen: boolean;
+  /** Branch-wide read savings estimate; unknown unless every cached read is priceable. */
+  saved: number | null;
 };
 export type SidebarSkill = { name: string; path: string; source: string; loaded: boolean };
 export type SidebarCommand = { name: string; source: string; description?: string };
@@ -37,12 +39,20 @@ export function nonnegative(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function cacheReadSavings(raw: Record<string, unknown>, cost: Record<string, unknown> | undefined, read: number): number | null {
+  const input = nonnegative(raw.input);
+  const inputCost = nonnegative(cost?.input);
+  const readCost = nonnegative(cost?.cacheRead);
+  return input && inputCost && readCost !== null ? nonnegative(Math.max(0, read * (inputCost / input) - readCost)) : null;
+}
+
 /** Active-branch usage, including nested tools and summaries, once per owning entry. */
 export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
   const sums = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const missing = new Set<keyof typeof sums>();
   const seen = new Set<string>();
   let cacheSeen = false;
+  let saved: number | null = 0;
   for (const entry of entries) {
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
@@ -60,8 +70,16 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
       if (expected) for (const key of Object.keys(sums) as Array<keyof typeof sums>) missing.add(key);
       continue;
     }
+    const cost = record(raw.cost);
+    const read = nonnegative(raw.cacheRead);
+    if (read && saved !== null) {
+      // Summary and tool ledgers may blend distinct requests and prices.
+      const singleRequest = entry.type === "usage" && entry.kind === "cache_warm" || entry.type === "message" && entry.message.role === "assistant";
+      const estimate = singleRequest ? cacheReadSavings(raw, cost, read) : null;
+      saved = estimate === null ? null : nonnegative(saved + estimate);
+    }
     for (const key of Object.keys(sums) as Array<keyof typeof sums>) {
-      const value = nonnegative(key === "cost" ? record(raw.cost)?.total : raw[key]);
+      const value = nonnegative(key === "cost" ? cost?.total : raw[key]);
       if (value === null) missing.add(key);
       else {
         sums[key] += value;
@@ -81,6 +99,7 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
     cacheWrite: missing.has("cacheWrite") ? null : sums.cacheWrite,
     total: inbound === null || output === null ? null : nonnegative(inbound + output),
     cost: missing.has("cost") ? null : sums.cost,
+    saved: missing.has("cacheRead") || !sums.cacheRead ? null : saved,
   };
 }
 

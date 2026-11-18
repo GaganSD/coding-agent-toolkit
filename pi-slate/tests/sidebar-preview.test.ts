@@ -15,8 +15,8 @@ import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts"
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
-const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12 }, perf: perfFixture(1000) };
-const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null };
+const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12, saved: null }, perf: perfFixture(1000) };
+const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null, saved: null };
 const resources: SidebarResources = {
   mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
   skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
@@ -48,7 +48,7 @@ function task(i: number): BackgroundTask {
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["Working · turn 2", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "78.18% hit", "spent $0.12", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
+  for (const label of ["Working", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "78.18% hit", "spent $0.12", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
     assert(lines.some(line => line.includes(label)), label);
   for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0", "prompt-0"])
     assert(!lines.some(line => line.includes(label)), label);
@@ -159,14 +159,14 @@ test("speed and cache replace the usage lane; full accounting stays in details",
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
   assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
   assert.match(sidebar.sessionDetails(), /PID 8421/);
-  assert.match(sidebar.sessionDetails(), /Speed & cache\n.*end-to-end: output tokens ÷ request duration/);
+  assert.match(sidebar.sessionDetails(), /Speed & cache\n.*output tokens ÷ Pi's recorded provider-stream duration/);
   assert.match(sidebar.sessionDetails(), /Cache hit % = cache read ÷ \(uncached \+ cache read \+ cache write\)/);
 });
 
 test("header height follows the terminal tier and its divider closes the header", () => {
   const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16], [29, 6], [20, 6], [19, 4]] as const) {
+  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16]] as const) {
     terminal.rows = rows;
     assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), header, `rows ${rows}`);
   }
@@ -181,7 +181,7 @@ test("header height follows the terminal tier and its divider closes the header"
 });
 
 test("context row keeps the heading grammar and degrades gracefully when narrow", () => {
-  const { sidebar } = fixture(24);
+  const { sidebar } = fixture(30);
   const context = (width: number) => {
     const line = plain(sidebar.render(width)).find(line => line.startsWith("CONTEXT") || /\d+%|—/.test(line) && !line.includes("tok/s") && !line.includes("Idle") && !line.includes("Working"));
     assert(line, `context at width ${width}`); return line;
@@ -226,14 +226,6 @@ test("context rows keep the branch usage inspect action; nulls render as dashes"
   sidebar.handleMouse(mouse(heading));
   sidebar.handleMouse(mouse(heading + 1));
   assert.deepEqual(inspected, ["Branch usage", "Branch usage"]);
-});
-
-test("a 24-row terminal still renders an image body; a very short one prioritizes tasks", () => {
-  const { sidebar, terminal } = fixture(24); sidebar.setView(image()); sidebar.setTasks([task(0)]);
-  assert(plain(sidebar.render(40)).some(line => line.includes("IMAGE")), "normal-height thumbnails must not disappear");
-  terminal.rows = 14;
-  const text = plain(sidebar.render(40)).join("\n");
-  assert(text.includes("Tasks")); assert(!text.includes("IMAGE"));
 });
 
 test("foldable MCP and Skills sections persist independently and keep counts visible", () => {
@@ -375,16 +367,17 @@ test("image double-click uses native clickCount or the fallback timer", () => {
   assert.deepEqual(opened, ["/tmp/a.png"]);
 });
 
-test("short terminals collapse the image body, keep tasks visible, and scroll middle overflow", () => {
-  const { sidebar } = fixture(18); sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2)]);
+test("the compact rail keeps the image and tasks while the middle scrolls", () => {
+  const { sidebar } = fixture(30); sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2)]);
   sidebar.setFolds({ mcp: true, skills: true, prompts: false });
   const lines = plain(sidebar.render(40));
   assert.equal(sidebar.imagePath(), "/tmp/a.png");
-  assert(!lines.some(line => line.includes("IMAGE")));
+  assert(lines.some(line => line.includes("IMAGE")));
   assert(lines.some(line => line.includes("Tasks")));
-  sidebar.handleMouse(mouse(6, { type: "wheel", wheelDelta: -40 }));
+  sidebar.handleMouse(mouse(row(sidebar, "MCP"), { type: "wheel", wheelDelta: -40 }));
   const scrolled = plain(sidebar.render(40));
-  assert(scrolled.some(line => /Skills|Prompts|server-\d|skill-\d|prompt-\d/.test(line)));
+  assert(scrolled.some(line => /Skills|Prompts|skill-\d|prompt-\d/.test(line)));
+  assert.notDeepEqual(scrolled, lines);
   assert.equal(scrolled[0], lines[0]);
   assert.equal(sidebar.imagePath(), "/tmp/a.png");
 });
@@ -499,7 +492,7 @@ test("sidebar closes both rails and joins every horizontal divider at the right 
 test("working status shows the running turn's elapsed time and ticks each second", () => {
   const { sidebar, advance } = fixture();
   sidebar.setSession({ ...session, working: true, turnStartedAt: 4000 - 42_000 });
-  assert.match(plain(sidebar.render(44))[1]!, /● Working · turn 2\s+0:42$/);
+  assert.match(plain(sidebar.render(44))[1]!, /● Working\s+0:42$/);
   advance(1000);
   assert.match(plain(sidebar.render(44))[1]!, /0:43$/);
   sidebar.setSession({ ...session, working: false, turnStartedAt: null });
@@ -511,8 +504,8 @@ test("empty speed and cache sections collapse and give their rows to the resourc
   sidebar.setSession({ ...session, usage: noUsage, perf: EMPTY_PERF });
   const empty = plain(sidebar.render(44));
   const mcpEmpty = empty.findIndex(line => line.includes("MCP"));
-  assert(empty.some(line => line.includes("waiting for first response")));
-  assert(empty.some(line => line.includes("no requests yet")));
+  assert(empty.some(line => line.includes("no timed replies")));
+  assert(empty.some(line => line.includes("no cache activity reported")));
   sidebar.setSession(session);
   const full = plain(sidebar.render(44));
   assert.equal(full.findIndex(line => line.includes("MCP")) - mcpEmpty, 7, "5 speed + 2 cache rows are reclaimed");

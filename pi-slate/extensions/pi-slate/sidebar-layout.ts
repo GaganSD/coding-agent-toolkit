@@ -1,24 +1,22 @@
-export type SidebarSlots = { header: number; middle: number; tasks: number; image: number; footer: number };
+export type SidebarSlots = { frame: number; header: number; middle: number; tasks: number; image: number; footer: number };
+export type SidebarTier = "full" | "compact";
 
-/** How much of the session rail's top half fits; chosen from terminal rows alone. */
-export type SidebarTier = "full" | "compact" | "mini" | "micro";
-export function sidebarTier(rows: number): SidebarTier {
-  return rows >= 44 ? "full" : rows >= 30 ? "compact" : rows >= 20 ? "mini" : "micro";
-}
-
-/** Allocate once for both painting and hit testing. Never depend on composer height. */
-export function sessionSidebarSlots(height: number, headerRows: number, taskCount: number, hasImage: boolean): SidebarSlots {
+/** Budget borders, content and hit regions together. Shed header gaps before squeezing a preview. */
+export function sessionSidebarSlots(height: number, headerRows: number, taskCount: number, hasImage: boolean, gaps = 0): SidebarSlots {
   const rows = Math.max(0, Math.floor(height));
-  const footer = rows >= 12 ? 1 : 0;
-  const header = Math.min(headerRows, rows - footer);
-  let remaining = rows - header - footer;
-  const middleMin = Math.min(6, remaining);
-  const taskWant = taskCount ? (rows < 30 ? 1 : 2) + Math.min(rows < 30 ? 2 : 3, taskCount) * 2 : 0;
-  const tasks = Math.min(taskWant, Math.max(0, remaining - middleMin));
-  remaining -= tasks;
-  const imageWant = hasImage ? rows < 20 ? 2 : Math.min(10, Math.max(4, Math.floor(rows / 5))) : 0;
-  const image = Math.min(imageWant, Math.max(0, remaining - middleMin));
-  return { header, middle: remaining - image, tasks, image, footer };
+  const frame = rows >= 12 ? 2 : 0;
+  const footer = frame ? 1 : 0;
+  const available = rows - frame - footer;
+  const taskWant = taskCount ? 2 + Math.min(3, taskCount) * 2 : 0;
+  const previewMin = hasImage ? 4 : 0;
+  const headerWant = hasImage ? Math.max(headerRows - gaps, Math.min(headerRows, available - 6 - taskWant - previewMin)) : headerRows;
+  const header = Math.min(available, headerWant);
+  const body = available - header;
+  const spare = Math.max(0, body - 6);
+  const tasks = Math.min(taskWant, spare - Math.min(previewMin, spare));
+  const imageWant = hasImage ? Math.min(10, Math.max(previewMin, Math.floor(rows / 5))) : 0;
+  const image = Math.min(imageWant, spare - tasks);
+  return { frame, header, middle: body - tasks - image, tasks, image, footer };
 }
 
 export function sidebarListOffset(offset: number, count: number, visible: number): number {

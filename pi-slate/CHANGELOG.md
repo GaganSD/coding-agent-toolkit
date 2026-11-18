@@ -4,13 +4,13 @@
 
 ### Added
 
-- Sidebar SPEED section: tok/s of the latest response (exact: output tokens ÷ response time), a graph of recent responses, turn average, output and peak. Responses under 32 tokens or 300 ms are not timed. Compact terminals use a block sparkline; tall terminals show large digits and a Braille graph.
-- Sidebar CACHE section: active-branch hit % matching the read/write/new bar, spend and estimated savings. Session details also show the latest request's hit %. Hit rates use up to two decimal places and show “all cached” instead of 100%. A warm/cold countdown appears only when the model publishes its cache lifetime.
-- The status row shows Working/Idle, the turn number, and the running turn's elapsed time.
+- Sidebar SPEED section: tok/s of the latest eligible reply (output tokens ÷ Pi's recorded provider-stream duration), a graph of recent responses, turn average, output and peak. Responses under 32 tokens or 300 ms are not timed. Compact terminals use a block sparkline; tall terminals show large digits and a Braille graph.
+- Sidebar CACHE section: active-branch hit % matching the read/write/new bar, spend and estimated savings. Session details also show the latest request's hit %. Hit rates use up to two decimal places and show “all cached” instead of 100%. An estimated expiry countdown appears only when the last reported cache activity and its retention tier are known.
+- The status row shows Working/Idle, elapsed time while working, and the branch turn count when idle.
 
 ### Changed
 
-- The sidebar header is reorganised into status, CONTEXT, SPEED and CACHE, which share one layout (heading with the key figure on the right, one bar or graph row, labelled details), and adapts to terminal height (full, compact, mini). CONTEXT is a single bar; use pi-context-view for the category breakdown.
+- The sidebar header is reorganised into status, CONTEXT, SPEED and CACHE, which share one layout (heading with the key figure on the right, one bar or graph row, labelled details), and adapts to terminal height (full and compact). CONTEXT is a single bar; use pi-context-view for the category breakdown.
 - The SPEED card shows completed replies. The live rate estimate remains in the composer.
 
 ## 0.2.1

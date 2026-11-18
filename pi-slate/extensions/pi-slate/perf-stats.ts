@@ -1,148 +1,109 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { nonnegative, record } from "./sidebar-data.ts";
 
-/**
- * Speed and prompt-cache facts for the session rail.
- *
- * Accuracy contract (the rail is for glancing, so every number must be honest):
- * - "Exact" values come only from finished assistant messages on the active branch:
- *   `usage.output`, `usage.cacheRead/cacheWrite/input`, `timestamp` (request start) and
- *   `durationMs` (request start → response end, monotonic).
- * - A request's speed is end-to-end: output tokens ÷ (durationMs / 1000). It includes
- *   time to first token and hidden reasoning, both of which are real waiting time.
- * - Anything unknowable is `null`, never 0. The renderer shows `—` or omits the item.
- */
-
-/** Requests below either bound are latency-dominated; they count toward totals and the turn's
- * output, but never toward the graph, the peak, the turn average, or "last response". */
 export const PERF_MIN_OUTPUT_TOKENS = 32;
 export const PERF_MIN_DURATION_MS = 300;
-/** Bounded history so very long sessions cost constant memory in the rail. */
 export const PERF_MAX_RATES = 256;
 
-export type SidebarTurnPerf = {
-  /** Exact output tokens since the last user message, including tiny replies. */
-  output: number;
-  /** Eligible output ÷ eligible seconds for this turn; null if no replies qualify. */
-  rate: number | null;
-};
-
 export type SidebarCachePerf = {
-  /** cacheRead ÷ (input + cacheRead + cacheWrite) of the latest assistant request (0..1). */
   lastHit: number | null;
-  /** Counterfactual dollars saved by cache reads; always an estimate. null when prices are unknown. */
-  saved: number | null;
-  /** Wall-clock ms when the latest request ended (timestamp + durationMs); drives warm/cold. */
   lastActivityAt: number | null;
-  /** Cache lifetime that applies to the latest request; null when the provider's lifetime is unknown. */
   ttlMs: number | null;
 };
 
 export type SidebarPerf = {
-  /** Timed assistant requests on the branch (eligible or not). */
-  requests: number;
-  /** Exact end-to-end rates of eligible requests, oldest → newest, at most PERF_MAX_RATES. */
+  timedReplies: number;
+  /** Eligible output rates, oldest first. Peak includes replies outside this window. */
   rates: number[];
-  /** Max of all eligible rates on the branch (not only the retained window). */
   peak: number | null;
-  turn: SidebarTurnPerf | null;
+  turn: { output: number | null; rate: number | null };
   cache: SidebarCachePerf;
 };
 
 export const EMPTY_PERF: SidebarPerf = {
-  requests: 0, rates: [], peak: null, turn: null,
-  cache: { lastHit: null, saved: null, lastActivityAt: null, ttlMs: null },
+  timedReplies: 0, rates: [], peak: null, turn: { output: 0, rate: null },
+  cache: { lastHit: null, lastActivityAt: null, ttlMs: null },
 };
 
-// ---------------------------------------------------------------------------
-// Computation
-// ---------------------------------------------------------------------------
+type CacheProducer = { provider: string; model: string };
+type CacheActivity = CacheProducer & { at: number | null; writes: number | null; hourWrites: number | null };
+type PromptCacheLookup = (provider: string, model: string) => { short?: number; long?: number } | undefined;
 
-export type PerfPromptCache = { short?: number; long?: number } | undefined;
-export type BranchPerfOptions = { promptCache?: PerfPromptCache; retentionLong: boolean };
+function cacheActivity(producer: CacheProducer & { responseModel?: string }, usage: Record<string, unknown> | undefined, at: number | null): CacheActivity | undefined {
+  const writes = nonnegative(usage?.cacheWrite);
+  if (!(writes || (nonnegative(usage?.cacheRead) ?? 0) > 0)) return;
+  return { provider: producer.provider, model: producer.responseModel ?? producer.model, at, writes, hourWrites: nonnegative(usage?.cacheWrite1h) };
+}
 
-/**
- * One O(n) pass over the active branch.
- *
- * Turn rule: every timed assistant request after the last user message whose stopReason is not
- * error/aborted/deferred counts toward `turn.output`. The turn rate and speed graph both
- * require output >= PERF_MIN_OUTPUT_TOKENS and duration >= PERF_MIN_DURATION_MS.
- */
-export function branchPerf(entries: readonly SessionEntry[], opts: BranchPerfOptions): SidebarPerf {
-  let requests = 0;
+function cacheLifetime(activity: CacheActivity, lookup: PromptCacheLookup): number | null {
+  const { short, long } = lookup(activity.provider, activity.model) ?? {};
+  // Neither the current selection nor a zero 1h split proves what a past request used:
+  // the Anthropic adapter also reports zero when the split is absent.
+  const { writes, hourWrites } = activity;
+  const seconds = short === long ? short : writes && hourWrites === writes ? long : undefined;
+  const ms = nonnegative((seconds ?? 0) * 1000);
+  return ms || null;
+}
+
+function reportedHit(usage: Record<string, unknown> | undefined): number | null {
+  const read = nonnegative(usage?.cacheRead);
+  const write = nonnegative(usage?.cacheWrite);
+  const input = nonnegative(usage?.input);
+  if (read === null || write === null || input === null) return null;
+  const total = read + write + input;
+  return total > 0 && Number.isFinite(total) ? read / total : null;
+}
+
+/** Completed output does not require timing. Rates use Pi's recorded provider-stream duration. */
+export function branchPerf(entries: readonly SessionEntry[], promptCacheFor: PromptCacheLookup = () => undefined): SidebarPerf {
+  let timedReplies = 0;
   let rates: number[] = [];
   let peak: number | null = null;
-  let turnOutput: number | null = null;
+  let turnOutput: number | null = 0;
   let turnRateOut = 0; let turnRateMs = 0;
-  let saved = 0; let pricedAny = false;
-  let lastUsage: Record<string, unknown> | undefined;
-  let lastActivityAt: number | null = null;
+  let lastHit: number | null = null;
+  let latestCache: CacheActivity | undefined;
   const ids = new Set<string>();
 
   for (const entry of entries) {
-    if (entry.type !== "message" || ids.has(entry.id)) continue;
+    if (ids.has(entry.id)) continue;
     ids.add(entry.id);
-    const message = entry.message;
-    if (message.role === "user") { turnOutput = null; turnRateOut = 0; turnRateMs = 0; continue; }
-    if (message.role !== "assistant") continue;
+    if (entry.type === "usage" && entry.kind === "cache_warm") {
+      latestCache = cacheActivity(entry, record(entry.usage), nonnegative(Date.parse(entry.timestamp))) ?? latestCache;
+    }
+    if (entry.type !== "message") continue;
+    const { message } = entry;
+    if (message.role === "user") { turnOutput = 0; turnRateOut = 0; turnRateMs = 0; continue; }
+    if (message.role !== "assistant" || message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "deferred") continue;
+
     const usage = record(message.usage);
-    if (!usage) continue;
-    lastUsage = usage;
-    const read = nonnegative(usage.cacheRead); const input = nonnegative(usage.input);
-    if (read !== null && read > 0 && input !== null && input > 0) {
-      const cost = record(usage.cost);
-      const inputPrice = (nonnegative(cost?.input) ?? NaN) / input;
-      const readPrice = (nonnegative(cost?.cacheRead) ?? NaN) / read;
-      if (Number.isFinite(inputPrice) && inputPrice > 0 && Number.isFinite(readPrice)) {
-        const term = read * (inputPrice - readPrice);
-        if (Number.isFinite(term)) { saved += Math.max(0, term); pricedAny = true; }
-      }
-    }
+    const duration = nonnegative(message.durationMs);
+    const timestamp = nonnegative(message.timestamp);
+    const endedAt = timestamp === null || duration === null ? null : nonnegative(timestamp + duration);
+    latestCache = cacheActivity(message, usage, endedAt);
+    lastHit = reportedHit(usage);
+    const output = nonnegative(usage?.output);
+    turnOutput = output === null || turnOutput === null ? null : nonnegative(turnOutput + output);
+    if (output === null || output < PERF_MIN_OUTPUT_TOKENS || duration === null || duration < PERF_MIN_DURATION_MS) continue;
 
-    const timestamp = message.timestamp;
-    const durationMs = message.durationMs;
-    if (typeof timestamp !== "number" || !Number.isFinite(timestamp)
-      || typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) continue;
-    requests += 1;
-    lastActivityAt = timestamp + durationMs;
-    const stop = message.stopReason;
-    if (stop === "error" || stop === "aborted" || stop === "deferred") continue;
-    const output = nonnegative(usage.output);
-    if (output === null) continue;
-    turnOutput = (turnOutput ?? 0) + output;
-    if (output >= PERF_MIN_OUTPUT_TOKENS && durationMs >= PERF_MIN_DURATION_MS) {
-      const rate = output / (durationMs / 1000);
-      if (!Number.isFinite(rate)) continue;
-      turnRateOut += output; turnRateMs += durationMs;
-      rates.push(rate);
-      if (rates.length >= PERF_MAX_RATES * 2) rates = rates.slice(-PERF_MAX_RATES);
-      if (peak === null || rate > peak) peak = rate;
-    }
+    const rate = output / (duration / 1000);
+    if (!Number.isFinite(rate)) continue;
+    timedReplies += 1;
+    turnRateOut += output; turnRateMs += duration;
+    rates.push(rate);
+    if (rates.length >= PERF_MAX_RATES * 2) rates = rates.slice(-PERF_MAX_RATES);
+    if (peak === null || rate > peak) peak = rate;
   }
-  if (rates.length > PERF_MAX_RATES) rates = rates.slice(-PERF_MAX_RATES);
 
-  let lastHit: number | null = null;
-  let ttlMs: number | null = null;
-  if (lastUsage) {
-    const input = nonnegative(lastUsage.input); const read = nonnegative(lastUsage.cacheRead); const write = nonnegative(lastUsage.cacheWrite);
-    if (input !== null && read !== null && write !== null) {
-      const total = input + read + write;
-      if (total > 0) lastHit = read / total;
-    }
-    const long = (nonnegative(lastUsage.cacheWrite1h) ?? 0) > 0;
-    const seconds = long || opts.retentionLong ? opts.promptCache?.long : opts.promptCache?.short;
-    if (typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0) ttlMs = seconds * 1000;
-  }
   return {
-    requests, rates, peak,
-    turn: turnOutput === null ? null : { output: turnOutput, rate: turnRateMs > 0 ? turnRateOut / (turnRateMs / 1000) : null },
-    cache: { lastHit, saved: pricedAny && Number.isFinite(saved) ? saved : null, lastActivityAt, ttlMs },
+    timedReplies, rates: rates.slice(-PERF_MAX_RATES), peak,
+    turn: { output: turnOutput, rate: turnRateMs > 0 ? nonnegative(turnRateOut / (turnRateMs / 1000)) : null },
+    cache: { lastHit, lastActivityAt: latestCache?.at ?? null, ttlMs: latestCache ? cacheLifetime(latestCache, promptCacheFor) : null },
   };
 }
 
 export type CacheWarmth = { state: "warm" | "cold" | "unknown"; remainingMs: number | null; idleMs: number | null };
 
-/** Warm/cold from the provider's cache lifetime; negative gaps (clock skew) clamp to 0. */
 export function cacheWarmth(cache: SidebarCachePerf, now: number): CacheWarmth {
   const idleMs = cache.lastActivityAt === null || !Number.isFinite(now) ? null : Math.max(0, now - cache.lastActivityAt);
   if (cache.ttlMs === null || idleMs === null) return { state: "unknown", remainingMs: null, idleMs };
