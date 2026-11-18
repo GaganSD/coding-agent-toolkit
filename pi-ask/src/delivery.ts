@@ -175,8 +175,26 @@ export function createAskDelivery(
 	// Only tool outcomes already orphaned at attach can become messages.
 	// Eligibility lasts until branch evidence proves delivery, not one plan.
 	let adopted = new Set<string>();
+	// An attach whose journal read failed: adoption is retried before the
+	// next plan, and nothing from the previous branch stays eligible.
+	let adoptionPending = false;
+
+	function adopt(ctx: DeliveryContext) {
+		adopted = new Set<string>();
+		adoptionPending = true;
+		adopted = new Set(
+			undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true })
+				.filter(({ outcome }) => outcome.channel === "tool")
+				.map(({ outcome }) => outcome.outcomeId)
+		);
+		adoptionPending = false;
+		watching = true;
+	}
 
 	function plan(ctx: DeliveryContext, situation: AskDeliverySituation) {
+		if (adoptionPending) {
+			adopt(ctx);
+		}
 		if (!watching) {
 			return;
 		}
@@ -220,12 +238,7 @@ export function createAskDelivery(
 			watching = true;
 		},
 		attach(ctx) {
-			adopted = new Set(
-				undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true })
-					.filter(({ outcome }) => outcome.channel === "tool")
-					.map(({ outcome }) => outcome.outcomeId)
-			);
-			watching = true;
+			adopt(ctx);
 		},
 		started() {
 			// No prior run can still be writing a send. Do not send here: this

@@ -567,7 +567,15 @@ export function createAskBackground(
 			}
 			reconcileBranch(next);
 			refresh((queue, hidden) => ({ type: "sync", queue, hidden }));
-			delivery.attach(next);
+			try {
+				delivery.attach(next);
+			} catch (error) {
+				if (!(error instanceof Error)) {
+					throw error;
+				}
+				// A stale context or unreadable branch: adoption is retried by
+				// the next pump or lifecycle event, and nothing stale is kept.
+			}
 			poke(next);
 		},
 		poke,
