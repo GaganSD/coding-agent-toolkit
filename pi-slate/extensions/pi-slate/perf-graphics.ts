@@ -233,7 +233,7 @@ export function cacheRows(i: PerfInput): string[] {
   if (!usage.cacheSeen) return [headingRow(i, "CACHE", [[DASH]]), noteRow(i, "no cache activity reported"),
     ...(usage.cost !== null && (usage.cost > 0 || (usage.input ?? 0) > 0) ? [detailRow(i, [spent])] : [])];
   const [r = 0, w = 0, u = 0] = usage.input === null ? [] : stackedBar([usage.cacheRead ?? 0, usage.cacheWrite ?? 0, usage.uncached ?? 0], inner);
-  const bar = r || w || u ? paint("success", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u)) : baseline(i);
+  const bar = r || w || u ? paint("accent", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u)) : baseline(i);
   const f = formatCompactTokenCount;
   const tokens: Array<[string, string]> = [["read", f(usage.cacheRead)], ["write", f(usage.cacheWrite)], ["new", f(usage.uncached)]];
   const rows = [headingRow(i, "CACHE", cacheSegs(i)), bar];

@@ -158,7 +158,7 @@ test("CACHE headline and bar use branch totals and distinguish near-perfect from
   for (const [read, label, cells] of [[86_000, "86% hit", 34], [95_200, "95.2% hit", 38], [99_560, "99.56% hit", 39], [99_999, "99.99% hit", 39], [100_000, "all cached", 40]] as const) {
     const totals = { ...usage, input: 100_000, cacheRead: read, cacheWrite: 0, uncached: 100_000 - read };
     const i = input(perf, 40, "compact", 1000, totals);
-    const [heading, bar] = cacheRows({ ...i, paint: (t, x) => t === "success" ? x.replaceAll("━", "█") : x });
+    const [heading, bar] = cacheRows({ ...i, paint: (t, x) => t === "accent" ? x.replaceAll("━", "█") : x });
     assert(heading?.includes(label));
     assert.equal(bar, "█".repeat(cells) + "━".repeat(40 - cells));
   }
@@ -173,9 +173,8 @@ test("CACHE bars use the context glyph in three tones; money rows handle unknown
   const full = cacheRows({ ...input(perfFixture(1000), 40, "full"), ...paint }).map(strip);
   assert.equal(full.length, 4);
   assert.equal(full[1], "━".repeat(40)); assert(!/[█▓░]/.test(full.join("")));
-  const bar = themed.filter(t => /^(success|warning|muted):━/.test(t)).map(t => t.split(":")[0]);
-  assert.deepEqual(bar, ["success", "warning", "muted"]);
-  assert.equal(themed.find(t => t.startsWith("success:━"))!.length - "success:".length + themed.find(t => t.startsWith("warning:━"))!.length - "warning:".length + themed.find(t => t.startsWith("muted:━"))!.length - "muted:".length, 40, "segments sum to the width");
+  const bar = themed.filter(t => /^(accent|warning|muted):━/.test(t)).map(t => t.split(":")[0]);
+  assert.deepEqual(bar, ["accent", "warning", "muted"]);
   assert.equal(full[2], "read 1.3M · write 108k · new 141k");
   assert.equal(full[3], "spent $0.84 · saved ~$1.92");
   const none = SECTIONS(perfFixture(1000), 40, "full", { ...usage, cost: null, saved: null }).cache;
