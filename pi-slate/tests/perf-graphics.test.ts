@@ -154,12 +154,27 @@ test("CACHE heading: hit, warmth countdown, cold, unknown lifetime and idle hint
   const base = perfFixture(1_000_000);
   const head = (cache: Partial<SidebarPerf["cache"]>, now: number, tier: PerfInput["tier"] = "full") =>
     strip(cacheRows(input({ ...base, cache: { ...base.cache, ...cache } }, 40, tier, now))[0]!);
-  assert.match(head({}, 1_000_000), /^CACHE\s+92% hit · ◉ 4:41$/);
+  assert.match(head({}, 1_000_000), /^CACHE\s+84% hit · ◉ 4:41$/);
   assert.match(head({}, 1_000_000 + 1000), /◉ 4:40$/, "countdown moves with the clock alone");
-  assert.match(head({}, 1_000_000 + 400_000), /92% hit · cold$/);
-  assert.match(head({ ttlMs: null }, 1_000_000 + 30_000), /^CACHE\s+92% hit$/, "no lifetime and recent: nothing extra");
-  assert.match(head({ ttlMs: null, lastActivityAt: 1_000_000 - 62_000 }, 1_000_000, "compact"), /^CACHE\s+92% hit · idle 1m$/);
-  assert.match(head({ lastHit: null }, 1_000_000), /^CACHE\s+◉ 4:41$/, "unknown hit is omitted, never 0%");
+  assert.match(head({}, 1_000_000 + 400_000), /84% hit · cold$/);
+  assert.match(head({ ttlMs: null }, 1_000_000 + 30_000), /^CACHE\s+84% hit$/, "no lifetime and recent: nothing extra");
+  assert.match(head({ ttlMs: null, lastActivityAt: 1_000_000 - 62_000 }, 1_000_000, "compact"), /^CACHE\s+84% hit · idle 1m$/);
+});
+
+test("CACHE headline and bar use branch totals and distinguish near-perfect from exact hits", () => {
+  const base = perfFixture(1000);
+  const perf = { ...base, cache: { ...base.cache, lastHit: 0.9956 } };
+  for (const [read, label, cells] of [[8600, "86%", 34], [9500, "95%", 38], [9956, ">99%", 39], [10000, "100%", 40]] as const) {
+    const totals = { ...usage, input: 10000, cacheRead: read, cacheWrite: 0, uncached: 10000 - read };
+    const i = input(perf, 40, "compact", 1000, totals);
+    const [heading, bar] = cacheRows({ ...i, paint: (t, x) => t === "success" ? x.replaceAll("━", "█") : x });
+    assert(heading?.includes(`${label} hit`));
+    assert.equal(bar, "█".repeat(cells) + "━".repeat(40 - cells));
+    assert(combinedRow(i).includes(`${label} hit`));
+  }
+  const unknown = SECTIONS(perf, 40, "full", { ...usage, input: null, uncached: null }).cache;
+  assert.match(unknown[0]!, /^CACHE\s+◉ 4:41$/, "unknown totals omit the hit rate");
+  assert.equal(unknown[1], "─".repeat(40), "missing input is not treated as all cached");
 });
 
 test("CACHE bars use the context glyph in three tones; money rows handle unknowns", () => {
@@ -178,7 +193,7 @@ test("CACHE bars use the context glyph in three tones; money rows handle unknown
   const compact = SECTIONS(perfFixture(1000), 48).cache;
   assert.equal(compact.length, 3); assert.equal(compact[2], "read 1.3M · write 108k · new 141k · spent $0.84");
   assert.equal(SECTIONS(perfFixture(1000), 40).cache[2], "read 1.3M · write 108k · new 141k", "spent is dropped when it does not fit");
-  const zero = SECTIONS(perfFixture(1000), 40, "compact", { ...usage, cacheRead: 0, cacheWrite: 0, uncached: 0 }).cache;
+  const zero = SECTIONS(perfFixture(1000), 40, "compact", { ...usage, input: 0, cacheRead: 0, cacheWrite: 0, uncached: 0 }).cache;
   assert.equal(zero[1], "─".repeat(40));
 });
 
@@ -234,10 +249,13 @@ test("every tier and width keeps rows bounded, including live streaming and long
 
 test("mini tier shows the combined speed/cache row; details explain the numbers", () => {
   const clock = { now: 1_000_000 };
-  const s = sidebarWith(24, perfFixture(clock.now), clock);
-  assert.match(s.render(40).map(strip).join("\n"), /14\.6 tok\/s · 92% hit · warm 4:41/);
+  const base = perfFixture(clock.now);
+  const s = sidebarWith(24, { ...base, cache: { ...base.cache, lastHit: 0.9956 } }, clock);
+  assert.match(s.render(40).map(strip).join("\n"), /14\.6 tok\/s · 84% hit · warm 4:41/);
   assert.match(s.sessionDetails(), /Speed & cache/);
   assert.match(s.sessionDetails(), /300 ms/);
+  assert.match(s.sessionDetails(), /Cache-hit share: 84%/);
+  assert.match(s.sessionDetails(), /latest request >99%\./);
 });
 
 test("themed render keeps tones within the theme palette", () => {

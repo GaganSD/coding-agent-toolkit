@@ -84,6 +84,10 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
   };
 }
 
+export function sidebarCacheHit({ input, cacheRead }: SidebarUsage): number | null {
+  return input !== null && input > 0 && cacheRead !== null ? cacheRead / input : null;
+}
+
 export function sidebarMessageCounts(entries: readonly SessionEntry[]): { turns: number; messages: number } {
   let turns = 0; let messages = 0;
   for (const entry of entries) {

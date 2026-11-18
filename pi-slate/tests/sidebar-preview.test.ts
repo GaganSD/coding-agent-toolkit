@@ -48,7 +48,7 @@ function task(i: number): BackgroundTask {
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["Working · turn 2", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "92% hit", "spent $0.12", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
+  for (const label of ["Working · turn 2", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "78% hit", "spent $0.12", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
     assert(lines.some(line => line.includes(label)), label);
   for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0", "prompt-0"])
     assert(!lines.some(line => line.includes(label)), label);
@@ -152,7 +152,7 @@ test("speed and cache replace the usage lane; full accounting stays in details",
   for (const width of [18, 28, 40, 80]) {
     const text = plain(sidebar.render(width)).join("\n");
     assert(text.includes("CACHE") && text.includes("SPEED"));
-    if (width >= 28) for (const value of ["6.1k", "$0.12", "92%"]) assert(text.includes(value), value);
+    if (width >= 28) for (const value of ["6.1k", "$0.12", "78%"]) assert(text.includes(value), value);
     assert(!/\bCached\b|Uncached|\bPID\b/.test(text), "old usage rows are gone");
   }
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);

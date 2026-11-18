@@ -5,10 +5,10 @@ import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts"
 import { mcpDetails } from "./sidebar-mcp.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
-import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
+import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
 import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, sidebarTier, type SidebarTier } from "./sidebar-layout.ts";
-import { cacheRows, combinedRow, contextRows, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
+import { cacheRows, combinedRow, contextRows, formatCacheHit, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
 import { cacheWarmth, EMPTY_PERF } from "./perf-stats.ts";
 
 export const DOUBLE_CLICK_MS = 400;
@@ -153,7 +153,7 @@ export class Sidebar implements Component {
   isImagePinned(): boolean { return this.pinned; }
   sessionDetails(): string {
     const s = this.session;
-    const hit = s.usage.input !== null && s.usage.cacheRead !== null && s.usage.input > 0 ? `${Math.round(s.usage.cacheRead / s.usage.input * 100)}%` : "—";
+    const hit = formatCacheHit(sidebarCacheHit(s.usage));
     return [`Session ${sidebarText(s.id) || "—"} · PID ${s.pid}`, `Title: ${s.name || "—"}`, `Model: ${s.model} · ${s.thinking}`,
       `Context: ${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}${s.estimated ? " (estimated)" : ""}`,
       `Wall time (this runtime): ${sidebarDuration(s.startedAt > 0 ? this.now() - s.startedAt : null)}`,
@@ -168,13 +168,12 @@ export class Sidebar implements Component {
     const perf = this.session.perf;
     const c = perf.cache;
     const warmth = cacheWarmth(c, this.now());
-    const pct = (n: number | null): string => n === null || !Number.isFinite(n) ? "—" : `${Math.round(n * 100)}%`;
     return ["", "Speed & cache",
       `Speed is end-to-end: output tokens ÷ request duration (includes time to first token and hidden reasoning).`,
       `Requests under 32 output tokens or 300 ms are left out of the graph, peak and last response.`,
       `The live value while streaming is an estimate (visible text ÷ 4) and is marked ~.`,
       `Timed requests: ${perf.requests} · last response: ${formatRate(perf.rates.at(-1))} tok/s · peak: ${formatRate(perf.peak)} tok/s · this turn: ${formatRate(perf.turn?.rate)} tok/s`,
-      `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${pct(c.lastHit)}.`,
+      `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`,
       `Saved is an estimate of what cache reads cost less than uncached input${c.saved === null ? " (prices unknown here)" : ""}.`,
       `Cache lifetime is shown only when the provider publishes it${warmth.state === "unknown" ? " (not known for this model)" : ""}.`];
   }

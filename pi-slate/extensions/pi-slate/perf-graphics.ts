@@ -5,7 +5,7 @@
  */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatCompactTokenCount } from "./layout.ts";
-import type { SidebarUsage } from "./sidebar-data.ts";
+import { sidebarCacheHit, type SidebarUsage } from "./sidebar-data.ts";
 import { sidebarCost, type SidebarTier } from "./sidebar-layout.ts";
 import { cacheWarmth, type SidebarPerf } from "./perf-stats.ts";
 
@@ -81,19 +81,22 @@ export function brailleBars(values: readonly number[], width: number, rows: numb
   return lines;
 }
 
-/** Reserve a cell per positive segment if possible, then round the proportional boundaries. */
+/** Round proportional boundaries; keep positive segments visible when they fit. */
 export function stackedBar(parts: readonly number[], width: number): number[] {
   const w = Math.max(0, Math.floor(width));
   const values = parts.map(v => nonneg(v) ? v : 0);
   const max = Math.max(0, ...values);
   if (!w || !max) return values.map(() => 0);
   const total = values.reduce((sum, v) => sum + v / max, 0);
-  const positive = values.filter(v => v > 0).length;
-  const spare = w >= positive ? w - positive : w;
+  let remaining = values.filter(v => v > 0).length;
+  const min = w >= remaining ? 1 : 0;
   let cumulative = 0; let boundary = 0;
   return values.map(v => {
-    const next = Math.round((cumulative += v / max) / total * spare);
-    const cells = next - boundary + (w >= positive && v > 0 ? 1 : 0);
+    if (!v) return 0;
+    remaining--;
+    const rounded = Math.round((cumulative += v / max) / total * w);
+    const next = Math.max(boundary + min, Math.min(w - remaining * min, rounded));
+    const cells = next - boundary;
     boundary = next;
     return cells;
   });
@@ -202,12 +205,17 @@ export function speedRows(i: PerfInput): string[] {
   return fit(rows, inner);
 }
 
-const pct = (n: number): string => `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`;
+export function formatCacheHit(rate: number | null): string {
+  if (rate === null) return "—";
+  const rounded = Math.round(rate * 100);
+  return rounded === 100 && rate < 1 ? ">99%" : `${rounded}%`;
+}
 
-/** Right-hand key figure of the CACHE heading and the mini row: hit rate then warmth. */
+/** Headline uses the same branch totals as the bar; warmth is based on the latest request. */
 function cacheSegs(i: PerfInput, full: boolean): Seg[][] {
   const { cache: c } = i.perf;
-  const hit = nonneg(c.lastHit) ? pct(c.lastHit) : null;
+  const rate = sidebarCacheHit(i.usage);
+  const hit = rate === null ? null : formatCacheHit(rate);
   const w = cacheWarmth(c, i.now);
   const warm: Seg | null = w.state === "warm" ? ["success", full ? `◉ ${formatCountdown(w.remainingMs ?? 0)}` : `warm ${formatCountdown(w.remainingMs ?? 0)}`]
     : w.state === "cold" ? ["warning", "cold"]
@@ -221,7 +229,7 @@ function cacheSegs(i: PerfInput, full: boolean): Seg[][] {
 export function cacheRows(i: PerfInput): string[] {
   const { perf, usage, inner, paint } = i;
   if (!usage.cacheSeen) return [headingRow(i, "CACHE", [[DASH]]), noteRow(i, perf.requests === 0 ? "no requests yet" : "no cache reads reported")];
-  const [r = 0, w = 0, u = 0] = stackedBar([usage.cacheRead ?? 0, usage.cacheWrite ?? 0, usage.uncached ?? 0], inner);
+  const [r = 0, w = 0, u = 0] = usage.input === null ? [] : stackedBar([usage.cacheRead ?? 0, usage.cacheWrite ?? 0, usage.uncached ?? 0], inner);
   const bar = r || w || u ? paint("success", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u)) : baseline(i);
   const f = formatCompactTokenCount;
   const spent: [string, string] = ["spent", sidebarCost(usage.cost)];
