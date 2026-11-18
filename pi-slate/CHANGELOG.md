@@ -5,7 +5,7 @@
 ### Added
 
 - Sidebar SPEED section: tok/s of the latest response (exact: output tokens ÷ response time), a graph of recent responses, turn average, output and peak. Responses under 32 tokens or 300 ms are not timed. On tall terminals the figure is drawn in large digits.
-- Sidebar CACHE section: active-branch hit % matching the read/write/new bar, spend and estimated savings. Session details also show the latest request's hit %. A warm/cold countdown appears only when the model publishes its cache lifetime.
+- Sidebar CACHE section: active-branch hit % matching the read/write/new bar, spend and estimated savings. Session details also show the latest request's hit %. Hit rates use up to two decimal places and show “all cached” instead of 100%. A warm/cold countdown appears only when the model publishes its cache lifetime.
 - The status row shows Working/Idle, the turn number, and the running turn's elapsed time.
 
 ### Changed

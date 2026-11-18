@@ -207,8 +207,8 @@ export function speedRows(i: PerfInput): string[] {
 
 export function formatCacheHit(rate: number | null): string {
   if (rate === null) return "—";
-  const rounded = Math.round(rate * 100);
-  return rounded === 100 && rate < 1 ? ">99%" : `${rounded}%`;
+  if (rate === 1) return "all cached";
+  return `${Math.min(99.99, Math.round(rate * 10_000) / 100)}%`;
 }
 
 /** Headline uses the same branch totals as the bar; warmth is based on the latest request. */
@@ -221,7 +221,7 @@ function cacheSegs(i: PerfInput, full: boolean): Seg[][] {
     : w.state === "cold" ? ["warning", "cold"]
     : w.idleMs !== null && w.idleMs >= 60_000 ? ["dim", `idle ${formatIdle(w.idleMs)}`] : null;
   const sep: Seg = ["dim", " · "];
-  const hitSegs = (long: boolean): Seg[] => hit === null ? [] : long ? [["text", hit], ["dim", " hit"]] : [["text", hit]];
+  const hitSegs = (long: boolean): Seg[] => hit === null ? [] : long && rate !== 1 ? [["text", hit], ["dim", " hit"]] : [["text", hit]];
   const join = (a: Seg[], b: Seg | null): Seg[] => b ? (a.length ? [...a, sep, b] : [b]) : a;
   return [join(hitSegs(true), warm), join(hitSegs(false), warm), hitSegs(true), hitSegs(false)];
 }
