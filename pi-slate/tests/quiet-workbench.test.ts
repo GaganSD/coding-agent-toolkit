@@ -79,22 +79,25 @@ test("growing usage and money keep a stable label lane and value edge with the r
   sidebar.dispose();
 });
 
-test("cache reads follow live accent changes within the same theme family", () => {
+test("high context usage and cache reads follow live accent changes within the same theme family", () => {
   const lavender = loadThemeFromPath(new URL("../themes/catppuccin-mocha-lavender.json", import.meta.url).pathname, "truecolor");
   const peach = loadThemeFromPath(new URL("../themes/catppuccin-mocha-peach.json", import.meta.url).pathname, "truecolor");
   let active = lavender;
   const sidebar = new Sidebar(() => 10000);
   sidebar.attach({ terminal: { rows: 40, columns: 140 }, requestRender() {} } as unknown as TUI, lavender);
   sidebar.setThemeProvider(() => active);
-  sidebar.setSession(session);
+  sidebar.setSession({ ...session, percent: 88 });
+  const contextFill = "█".repeat(35) + "▎";
   const cacheBar = () => sidebar.render(44).find(row => stripVTControlCharacters(row).includes("━".repeat(40)))!;
   const reads = "━".repeat(29);
   assert.equal(lavender.fg("success", reads), peach.fg("success", reads), "status color is fixed across these accents");
   assert(cacheBar().includes(lavender.fg("accent", reads)));
+  assert(sidebar.render(44).some(row => row.includes(lavender.fg("accent", contextFill))));
   active = peach;
   const after = cacheBar();
   assert(after.includes(peach.fg("accent", reads)));
   assert(!after.includes(lavender.fg("accent", reads)));
+  assert(sidebar.render(44).some(row => row.includes(peach.fg("accent", contextFill))));
   sidebar.dispose();
 });
 

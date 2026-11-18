@@ -199,23 +199,23 @@ test("context row keeps the heading grammar and degrades gracefully when narrow"
   for (const line of sidebar.render(3)) assert(visibleWidth(line) <= 3, "degenerate rail stays bounded");
 });
 
-test("context meter fill follows the theme accent and shifts to the warning tone at 80% and above", () => {
+test("context meter keeps the theme accent at every usage level", () => {
   const codes: Record<string, number> = { muted: 90, dim: 2, accent: 36, warning: 33, text: 37 };
   const toneTheme = { fg: (tone: string, text: string) => `\x1b[${codes[tone] ?? 0}m${text}\x1b[0m`, bold: (text: string) => text } as Theme;
-  for (const rows of [60]) {
-    const { sidebar } = fixture(rows);
-    sidebar.setThemeProvider(() => toneTheme); sidebar.invalidate();
-    const meterLine = () => sidebar.render(40).find(line => /^│ ?[█-▏░]{4}/.test(stripAnsi(line)))!;
-    for (const [percent, code] of [[0, 36], [79, 36], [80, 33], [100, 33]] as const) {
-      sidebar.setSession({ ...session, percent }); sidebar.invalidate();
-      const line = meterLine();
-      const fill = stripAnsi(line).match(/[█-▏]+/)?.[0] ?? "";
-      if (fill) assert(line.includes(`\x1b[${code}m${fill}\x1b[0m`), `${rows} rows: ${percent}% fills with code ${code}`);
-      if (percent < 100) assert(line.includes("\x1b[2m"), "track stays dim");
-    }
-    sidebar.setSession({ ...session, percent: null }); sidebar.invalidate();
-    assert(!/[█-▏]/.test(stripAnsi(meterLine())), "null percent fills nothing");
+  const { sidebar } = fixture();
+  sidebar.setThemeProvider(() => toneTheme);
+  const meterLine = () => sidebar.render(40).find(line => /^│ ?[█-▏░]{4}/.test(stripAnsi(line)))!;
+  for (const percent of [0, 79, 80, 88, 100]) {
+    sidebar.setSession({ ...session, percent });
+    const line = meterLine();
+    const fill = stripAnsi(line).match(/[█-▏]+/)?.[0] ?? "";
+    if (percent > 0) assert(fill && line.includes(toneTheme.fg("accent", fill)), `${percent}% uses the theme accent`);
+    if (percent < 100) assert(line.includes("\x1b[2m"), "track stays dim");
+    const heading = sidebar.render(40).find(line => stripAnsi(line).includes("CONTEXT"))!;
+    assert(heading.includes(toneTheme.fg("text", `${percent}%`)), "percentage keeps the normal value color");
   }
+  sidebar.setSession({ ...session, percent: null });
+  assert(!/[█-▏]/.test(stripAnsi(meterLine())), "null percent fills nothing");
 });
 
 test("context rows keep the branch usage inspect action; nulls render as dashes", () => {

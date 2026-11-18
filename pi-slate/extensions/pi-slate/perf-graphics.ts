@@ -148,7 +148,7 @@ const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
  * One-row context bar: solid fill on a light-shaded track. The fill edge advances in
  * eighth-cell steps; any non-zero percent shows at least one eighth so usage never reads as empty.
  */
-export function contextBar(width: number, percent: number | null, paint: PerfInput["paint"], tone: Tone): string {
+export function contextBar(width: number, percent: number | null, paint: PerfInput["paint"]): string {
   const w = Math.max(0, Math.floor(width));
   if (w === 0) return "";
   const p = percent === null || !Number.isFinite(percent) ? 0 : Math.max(0, Math.min(100, percent));
@@ -157,18 +157,17 @@ export function contextBar(width: number, percent: number | null, paint: PerfInp
   const full = Math.floor(eighths / 8), part = eighths % 8;
   const fill = "█".repeat(full) + EIGHTHS[part]!;
   const track = "░".repeat(Math.max(0, w - full - (part ? 1 : 0)));
-  return (fill ? paint(tone, fill) : "") + (track ? paint("dim", track) : "");
+  return (fill ? paint("accent", fill) : "") + (track ? paint("dim", track) : "");
 }
 
 /** CONTEXT: heading + a one-row bar. */
 export function contextRows(i: PerfInput, c: { percent: number | null; tokens: number | null; window: number | null; estimated: boolean }): string[] {
   const percent = c.percent !== null && Number.isFinite(c.percent) ? Math.max(0, Math.min(100, c.percent)) : null;
-  const tone: Tone = percent !== null && percent >= 80 ? "warning" : "accent";
-  const pctSeg: Seg = percent === null ? DASH : [percent >= 80 ? "warning" : "text", `${Math.round(percent)}%`];
+  const pctSeg: Seg = percent === null ? DASH : ["text", `${Math.round(percent)}%`];
   const figures: Seg = ["dim", `${c.estimated ? "~" : ""}${formatCompactTokenCount(c.tokens)}/${formatCompactTokenCount(c.window)}`];
   return [
     headingRow(i, "CONTEXT", [[pctSeg, ["dim", "  "], figures], [pctSeg]]),
-    contextBar(i.inner, percent, i.paint, tone),
+    contextBar(i.inner, percent, i.paint),
   ];
 }
 

@@ -263,10 +263,10 @@ test("themed render keeps tones within the theme palette", () => {
 test("context bar: one row, exact width, eighth-step fill, visible at tiny percents", () => {
   const paint = (_t: string, x: string) => x;
   for (const width of [0, 1, 2, 3, 10, 41]) for (const pct of [null, 0, 0.01, 2, 50, 99.9, 100, 140, NaN])
-    assert.equal(visibleWidth(contextBar(width, pct as number | null, paint, "accent")), width, `width ${width} pct ${pct}`);
-  assert.equal(contextBar(10, 0, paint, "accent"), "░".repeat(10));
-  assert.equal(contextBar(10, null, paint, "accent"), "░".repeat(10));
-  assert.equal(contextBar(10, 0.01, paint, "accent"), "▏" + "░".repeat(9), "any usage is visible");
-  assert.equal(contextBar(10, 50, paint, "accent"), "█████" + "░".repeat(5));
-  assert.equal(contextBar(10, 100, paint, "accent"), "█".repeat(10));
+    assert.equal(visibleWidth(contextBar(width, pct, paint)), width, `width ${width} pct ${pct}`);
+  assert.equal(contextBar(10, 0, paint), "░".repeat(10));
+  assert.equal(contextBar(10, null, paint), "░".repeat(10));
+  assert.equal(contextBar(10, 0.01, paint), "▏" + "░".repeat(9), "any usage is visible");
+  assert.equal(contextBar(10, 50, paint), "█████" + "░".repeat(5));
+  assert.equal(contextBar(10, 100, paint), "█".repeat(10));
 });
