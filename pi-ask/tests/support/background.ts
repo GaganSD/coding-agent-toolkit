@@ -35,6 +35,7 @@ export function boot(
 	session?: SessionManager,
 	options: {
 		background?: boolean;
+		holdToolResults?: boolean;
 		mode?: string;
 		persistToolResults?: boolean;
 	} = {}

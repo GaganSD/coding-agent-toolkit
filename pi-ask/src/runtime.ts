@@ -24,6 +24,12 @@ export interface AskRuntime {
 	 * skips them: an open form is not an interrupted one.
 	 */
 	live: Set<string>;
+	/**
+	 * Blocking calls whose outcome is journalled but whose tool result may
+	 * not be on the branch yet (toolCallId -> requestId). The result is
+	 * about to arrive, so the answer must not also be sent as a message.
+	 */
+	returning: Map<string, string>;
 }
 
 export function createAskRuntime(
@@ -35,5 +41,6 @@ export function createAskRuntime(
 		flushers: new Set(),
 		journal: createSessionAskJournal(pi, clock && { now: clock.now }),
 		live: new Set(),
+		returning: new Map(),
 	};
 }

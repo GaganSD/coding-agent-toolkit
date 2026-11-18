@@ -121,9 +121,12 @@ export function registerAskBackground(
 		"agent_before_settle",
 		(event, ctx) => background.boundary(ctx, event)
 	);
-	pi.on("agent_settled", (event, ctx) =>
-		background.settled(ctx, event.aborted)
-	);
+	pi.on("agent_settled", (event, ctx) => {
+		// Every result of the run has landed, or never will. Landed results
+		// are excluded by the branch itself; this only ends the hold.
+		runtime.returning.clear();
+		background.settled(ctx, event.aborted);
+	});
 	// A manual compaction keeps Pi busy without a run; pick up afterwards.
 	pi.on("session_compact", (_event, ctx) => background.poke(ctx));
 	pi.registerMessageRenderer?.(
@@ -139,12 +142,23 @@ export function registerAskBackground(
 	return background;
 }
 
+/** Pi's own error for an extension context used after reload or replacement. */
+function isRecoverableReadError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		error.message.startsWith("This extension ctx is stale after")
+	);
+}
+
 export function createAskBackground(
 	pi: Pick<ExtensionAPI, "sendMessage">,
-	{ clock, flushers, journal, live }: AskRuntime
+	{ clock, flushers, journal, live, returning }: AskRuntime
 ): AskBackground {
 	const now = clock?.now ?? Date.now;
-	const delivery = createAskDelivery(pi);
+	const delivery = createAskDelivery(pi, {
+		isLive: (requestId) =>
+			live.has(requestId) || [...returning.values()].includes(requestId),
+	});
 	const recorders = new Map<string, (state: AskState) => void>();
 	// Content key of the draft each loaded form last started from or wrote,
 	// to tell whether a re-read branch still agrees with what is on screen.
@@ -567,16 +581,21 @@ export function createAskBackground(
 			}
 			reconcileBranch(next);
 			refresh((queue, hidden) => ({ type: "sync", queue, hidden }));
+			let unexpected: unknown;
 			try {
 				delivery.attach(next);
 			} catch (error) {
-				if (!(error instanceof Error)) {
-					throw error;
+				// A stale context or an unreadable branch is retried by the next
+				// pump or lifecycle event; nothing stale is kept. Anything else
+				// is a bug: surface it once the panel has refreshed.
+				if (!isRecoverableReadError(error)) {
+					unexpected = error;
 				}
-				// A stale context or unreadable branch: adoption is retried by
-				// the next pump or lifecycle event, and nothing stale is kept.
 			}
 			poke(next);
+			if (unexpected !== undefined) {
+				throw unexpected;
+			}
 		},
 		poke,
 		formEnded(next) {

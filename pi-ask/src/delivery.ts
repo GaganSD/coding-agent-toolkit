@@ -164,7 +164,8 @@ function answerMessage(outcome: AskOutcomeEntry) {
 }
 
 export function createAskDelivery(
-	pi: Pick<ExtensionAPI, "sendMessage">
+	pi: Pick<ExtensionAPI, "sendMessage">,
+	{ isLive = () => false }: { isLive?: (requestId: string) => boolean } = {}
 ): AskDelivery {
 	// Sent in this process, potentially still being written by a run. Cleared
 	// only when idle or a new run starts; the branch then proves delivery.
@@ -184,7 +185,11 @@ export function createAskDelivery(
 		adoptionPending = true;
 		adopted = new Set(
 			undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true })
-				.filter(({ outcome }) => outcome.channel === "tool")
+				// A call still returning its result is not an orphan.
+				.filter(
+					({ outcome }) =>
+						outcome.channel === "tool" && !isLive(outcome.requestId)
+				)
 				.map(({ outcome }) => outcome.outcomeId)
 		);
 		adoptionPending = false;

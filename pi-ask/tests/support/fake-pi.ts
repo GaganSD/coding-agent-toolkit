@@ -74,6 +74,8 @@ export function fakePi(
 		mode?: string;
 		/** Model a process that dies before Pi records a tool result. */
 		persistToolResults?: boolean;
+		/** The tool result lands only when the test calls `landToolResults`. */
+		holdToolResults?: boolean;
 		persistSentMessages?: boolean;
 	} = {}
 ) {
@@ -94,6 +96,7 @@ export function fakePi(
 	const heldCustom: SentMessage["message"][] = [];
 	const persistToolResults = options.persistToolResults ?? true;
 	let idle = true;
+	const heldResults: Array<{ ended: boolean; end: () => void; append: () => void }> = [];
 	// The next triggered send is accepted but its run fails to start before
 	// recording the message, as a failed pre-run compaction would.
 	let failWake = false;
@@ -151,8 +154,8 @@ export function fakePi(
 				async execute(...args: any[]) {
 					const result = await run(...args);
 					if (persistToolResults) {
-						session.appendMessage({
-							role: "toolResult",
+						const message = {
+							role: "toolResult" as const,
 							toolCallId: String(args[0]),
 							toolName: tool.name,
 							content: result.content ?? [],
@@ -161,7 +164,26 @@ export function fakePi(
 								: { details: result.details }),
 							isError: false,
 							timestamp: Date.now(),
-						});
+						};
+						// As Pi does: handlers are awaited before the result is persisted.
+						const held = {
+							ended: false,
+							end() {
+								if (!held.ended) {
+									held.ended = true;
+									emit("message_end", { message });
+								}
+							},
+							append() {
+								held.end();
+								session.appendMessage(message);
+							},
+						};
+						if (options.holdToolResults) {
+							heldResults.push(held);
+						} else {
+							held.append();
+						}
 					}
 					return result;
 				},
@@ -309,6 +331,18 @@ export function fakePi(
 			failWake = true;
 		},
 		isIdle: () => idle,
+		/** Pi appends the tool results it was holding back. */
+		landToolResults() {
+			for (const held of heldResults.splice(0)) {
+				held.append();
+			}
+		},
+		/** Pi announces the end of each held result before persisting it. */
+		endHeldToolResults() {
+			for (const held of heldResults) {
+				held.end();
+			}
+		},
 		/** Dispatch a lifecycle event; returns what the handlers returned. */
 		emit,
 		/** The run started by an idle wake writes its starting message. */

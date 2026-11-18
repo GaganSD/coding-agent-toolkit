@@ -62,7 +62,7 @@ export function registerAskTool(pi: ExtensionAPI, options: AskToolOptions = {}) 
 }
 
 async function executeAskTool(
-	{ background, clock, flushers, journal, live }: AskRuntime,
+	{ background, clock, flushers, journal, live, returning }: AskRuntime,
 	features: AskFeatures,
 	toolCallId: string,
 	params: AskParams,
@@ -166,6 +166,9 @@ async function executeAskTool(
 	const outcome = saved(ctx, background, result.status, () =>
 		journal.recordOutcome(requestId, result, "tool")
 	);
+	// The tool result follows this return; until it lands on the branch the
+	// answer must not also be adopted as an orphan.
+	returning.set(toolCallId, requestId);
 	if (result.status === "expired") {
 		// It can now be reopened for a late correction.
 		background?.formEnded(ctx);
