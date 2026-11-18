@@ -20,7 +20,7 @@ export type SidebarResources = { skills: SidebarSkill[]; commands: SidebarComman
 export type SidebarSession = {
   id: string; name?: string; pid: number; cwd: string; model: string; thinking: string;
   tokens: number | null; percent: number | null; contextWindow: number | null;
-  estimated: boolean; rate: number | null; startedAt: number; lastTurnMs: number | null; streaming: boolean;
+  estimated: boolean; rate: number | null; startedAt: number; lastTurnMs: number | null;
   /** Wall-clock start of the running turn; absent or null when idle. */
   turnStartedAt?: number | null;
   working: boolean; turns: number; messages: number; usage: SidebarUsage;

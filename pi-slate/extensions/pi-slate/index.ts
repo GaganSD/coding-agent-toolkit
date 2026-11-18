@@ -231,7 +231,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
   const dashboardSubscriptions: Array<() => void> = [];
   let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage>; perf: ReturnType<typeof branchPerf> } | undefined;
-  let liveStreaming = false;
   let lastLiveSync = 0;
   let liveSyncTimer: ReturnType<typeof setTimeout> | undefined;
   let inspectingSidebar = false;
@@ -346,7 +345,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         tokens, percent, contextWindow, estimated,
         rate: rate > 0 ? rate : null, startedAt: sessionStartedAt, lastTurnMs, turnStartedAt: turnStartedAt ?? null,
         working: typeof ctx.isIdle === "function" && !ctx.isIdle(), ...branchFacts.counts, usage: branchFacts.usage,
-        perf: branchFacts.perf, streaming: liveStreaming,
+        perf: branchFacts.perf,
       });
     }
     contextEdge = {
@@ -436,7 +435,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       }, () => {});
     }
     if (owns("editor")) branch.start(ctx.cwd);
-    sessionStartedAt = Date.now(); turnStartedAt = undefined; lastTurnMs = null; branchFacts = undefined; liveStreaming = false;
+    sessionStartedAt = Date.now(); turnStartedAt = undefined; lastTurnMs = null; branchFacts = undefined;
     if (owns("editor") || owns("sidebar")) {
       skills.reset([]);
       skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
@@ -725,7 +724,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role === "assistant") {
       thinkingFold.stop();
-      liveStreaming = true;
       if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.startMessage();
     }
   });
@@ -743,7 +741,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role === "assistant") {
       thinkingFold.stop();
-      liveStreaming = false;
       if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.endMessage();
     } else if (owns("sidebar") && ctx.mode === "tui" && event.message.role === "toolResult") {
       skills.observeNested(event.message.nestedCalls?.calls ?? [], ctx.cwd);
@@ -790,7 +787,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     thinkingFold.stop();
     if (owns("sidebar") && ctx.mode === "tui") {
-      branchFacts = undefined; liveStreaming = false; skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
+      branchFacts = undefined; skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
       background.reset(ctx.sessionManager.getSessionId?.() ?? ""); sidebar.setTasks([]);
       pi.events.emit?.(BACKGROUND_TASKS_REQUEST, { version: 1, sessionId: ctx.sessionManager.getSessionId?.() ?? "" });
       refreshResources(ctx); syncSidebar(ctx);
@@ -799,7 +796,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("session_shutdown", (_event, ctx) => {
     sessionEpoch += 1;
-    liveStreaming = false; if (liveSyncTimer) { clearTimeout(liveSyncTimer); liveSyncTimer = undefined; }
+    if (liveSyncTimer) { clearTimeout(liveSyncTimer); liveSyncTimer = undefined; }
     workingWord = undefined;
     stopWave();
     thinkingFold.stop();

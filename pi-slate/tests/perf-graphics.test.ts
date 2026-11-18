@@ -11,7 +11,7 @@ const strip = (t: string) => t.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plainPaint = { paint: (_t: string, x: string) => x, heading: (x: string) => x };
 const usage: SidebarUsage = { input: 1_559_000, output: 12_000, total: 1_571_000, cacheRead: 1_310_000, cacheWrite: 108_000, uncached: 141_000, cacheSeen: true, cost: 0.84 };
 const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null };
-const input = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "full", now = 1000, totals = usage): PerfInput => ({ perf, usage: totals, streaming: false, now, inner, tier, ...plainPaint });
+const input = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "full", now = 1000, totals = usage): PerfInput => ({ perf, usage: totals, now, inner, tier, ...plainPaint });
 
 test("formatRate uses one decimal below 100, integers below 1000, then compact units", () => {
   const cases: Array<[number | null, string]> = [[14.64, "14.6"], [0, "0.0"], [99.96, "100"], [100, "100"], [999.4, "999"], [999.6, "1k"], [1234, "1.2k"],
@@ -93,29 +93,20 @@ test("compact SPEED: heading, left-aligned sparkline, labelled detail row; paddi
   const { speed } = SECTIONS(perf);
   assert.equal(speed.length, 3);
   assert.match(speed[0]!, /^SPEED\s+23\.5 tok\/s$/);
-  assert.match(speed[1]!, /^[⠁-⣿]{3} +$/); assert.equal(speed[1]!.length, 40);
+  assert.equal(speed[1], "▄▇▅▆█".padEnd(40));
+  assert.equal(SECTIONS(perf, 3).speed[1], "▅▆█", "show the newest sample per column");
   assert.equal(speed[2], "avg 13.9 · peak 23.5 · out 214");
 });
 
-test("a single rate renders one braille column at the left", () => {
+test("a single rate renders one block at the left", () => {
   const perf: SidebarPerf = { ...EMPTY_PERF, requests: 1, rates: [30], peak: 30, turn: { output: 300, rate: 30 } };
-  assert.match(SECTIONS(perf).speed[1]!, /^⡇ +$/);
-});
-
-test("streaming adds a marker but the headline stays the exact last rate", () => {
-  const perf = perfFixture(1000);
-  const compact = speedRows({ ...input(perf, 40, "compact"), streaming: true });
-  assert.match(compact[0]!, /^SPEED\s+● streaming {2}14\.6 tok\/s$/);
-  const full = speedRows({ ...input(perf), streaming: true });
-  assert.match(full[0]!, /^SPEED\s+● streaming$/);
-  assert.match(SECTIONS(perf, 40, "full").speed[0]!, /^SPEED\s+last response$/);
-  const first = speedRows({ ...input(EMPTY_PERF, 40, "compact"), streaming: true });
-  assert.match(first[0]!, /^SPEED\s+● streaming {2}—$/); assert.equal(first[1], "waiting for first response");
+  assert.match(SECTIONS(perf).speed[1]!, /^█ +$/);
 });
 
 test("full SPEED: big digits, two braille rows, then the same detail row", () => {
   const rows = SECTIONS(perfFixture(1000), 40, "full").speed;
   assert.equal(rows.length, 7);
+  assert.match(rows[0]!, /^SPEED\s+last response$/);
   assert.equal(rows[2], " █  ▀▀█   █▀█ tok/s");
   assert.match(rows[4]!, /[⠁-⣿]/); assert.match(rows[5]!, /[⠁-⣿]/);
   assert.equal(rows[6], "avg 26.7 · peak 45.0 · out 12k");
@@ -134,7 +125,7 @@ test("huge numbers and tiny widths stay inside the width", () => {
   const perf: SidebarPerf = { ...base, peak: 1e9, rates: [12_345, 1e9], turn: { output: 9e12, rate: 1e15 }, cache: { ...base.cache, saved: 1.2e6 } };
   assert.equal(SECTIONS(perf, 40, "full").speed[1], "1B tok/s", "unsupported big glyphs fall back to text");
   for (const inner of [1, 4, 10, 16, 21, 22, 24, 30, 44, 60]) for (const tier of ["full", "compact"] as const) for (const cost of [1.2e6, 1e308, null]) {
-    const i = { ...input(perf, inner, tier, 1000, { ...usage, cacheWrite: 1e12, uncached: 1e15, cost }), streaming: true };
+    const i = input(perf, inner, tier, 1000, { ...usage, cacheWrite: 1e12, uncached: 1e15, cost });
     for (const r of [...speedRows(i), ...cacheRows(i), combinedRow(i), ...contextRows(i, { percent: 91, tokens: 1e12, window: 1e15, estimated: true })]) {
       assert(visibleWidth(r) <= inner, `${inner} ${tier}: ${strip(r)}`); assert.doesNotMatch(strip(r), /NaN|Infinity/);
     }
@@ -210,7 +201,7 @@ function sidebarWith(rows: number, perf: SidebarPerf, clock: { now: number }, ex
   const sidebar = new Sidebar(() => clock.now);
   sidebar.attach({ terminal: { rows, columns: 140 }, requestRender() {}, showOverlay() { return { hide() {} }; } } as unknown as TUI, undefined as never);
   sidebar.setSession({ id: "01a1cd96-0000", name: "fix auth refresh", pid: 1, cwd: "/p", model: "gpt-6.1-sol (openai)", thinking: "medium", tokens: 152_000, percent: 38,
-    contextWindow: 400_000, estimated: false, rate: null, startedAt: 1, lastTurnMs: 39_000, working: false, streaming: false, turns: 7, messages: 14,
+    contextWindow: 400_000, estimated: false, rate: null, startedAt: 1, lastTurnMs: 39_000, working: false, turns: 7, messages: 14,
     usage, perf, ...extra });
   return sidebar;
 }
@@ -237,11 +228,11 @@ test("render recomputes the countdown each second without extra timers", () => {
   assert.notEqual(a, b); assert.match(a, /◉ 4:41/); assert.match(b, /◉ 4:40/);
 });
 
-test("every tier and width keeps rows bounded, including live streaming and long sessions", () => {
+test("every tier and width keeps rows bounded, during working turns and long sessions", () => {
   const clock = { now: 1_000_000 };
   const perf: SidebarPerf = { ...perfFixture(clock.now), rates: Array.from({ length: 256 }, (_, i) => 10 + (i % 40)), requests: 5000 };
   for (const rows of [10, 19, 20, 29, 30, 43, 44, 70]) for (const width of [0, 1, 5, 12, 20, 28, 44, 60, 90]) {
-    const lines = sidebarWith(rows, perf, clock, { working: true, streaming: true }).render(width);
+    const lines = sidebarWith(rows, perf, clock, { working: true }).render(width);
     assert.equal(lines.length, rows);
     assert(lines.every(l => visibleWidth(l) <= width), `${width}x${rows}`);
   }
@@ -265,7 +256,7 @@ test("themed render keeps tones within the theme palette", () => {
   const s = new Sidebar(() => clock.now);
   s.attach({ terminal: { rows: 60, columns: 140 }, requestRender() {}, showOverlay() { return { hide() {} }; } } as unknown as TUI, theme);
   s.setSession({ id: "a", pid: 1, cwd: "", model: "m", thinking: "low", tokens: 1, percent: 90, contextWindow: 10, estimated: true, rate: null, startedAt: 1, lastTurnMs: null,
-    working: true, streaming: false, turns: 1, messages: 1, usage, perf: perfFixture(clock.now) });
+    working: true, turns: 1, messages: 1, usage, perf: perfFixture(clock.now) });
   s.render(44);
   for (const t of tones) assert(["text", "muted", "dim", "accent", "success", "warning", "error", "mdHeading", "border", "borderMuted", "borderAccent"].includes(t) || /^[a-zA-Z]+$/.test(t), t);
   assert(tones.has("success") && tones.has("accent") && tones.has("warning"));

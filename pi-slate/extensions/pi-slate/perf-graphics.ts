@@ -113,7 +113,7 @@ export function formatIdle(ms: number): string {
 // One grammar for CONTEXT, SPEED and CACHE: heading row (label left, key figure right), one
 // full-width visual row, then `label value · label value` detail rows. Padding is always spaces.
 
-export type PerfInput = { perf: SidebarPerf; usage: SidebarUsage; streaming: boolean; now: number; inner: number; tier: SidebarTier } & PerfPaint;
+export type PerfInput = { perf: SidebarPerf; usage: SidebarUsage; now: number; inner: number; tier: SidebarTier } & PerfPaint;
 type Seg = readonly [Tone, string];
 
 const fit = (lines: string[], width: number): string[] => lines.map(l => truncateToWidth(l, width, "…"));
@@ -172,13 +172,19 @@ export function contextRows(i: PerfInput, c: { percent: number | null; tokens: n
   ];
 }
 
+function speedSparkline(rates: readonly number[], width: number): string {
+  if (width <= 0) return "";
+  const shown = rates.slice(-width);
+  const peak = Math.max(...shown);
+  return shown.map(rate => "▁▂▃▄▅▆▇█"[Math.round(rate / peak * 7)]).join("").padEnd(width);
+}
+
 /** Headline is always the exact last eligible response. */
 export function speedRows(i: PerfInput): string[] {
   const { perf, inner, paint } = i;
-  const streaming: readonly Seg[] = i.streaming ? [["warning", "● streaming"]] : [];
   const rate = perf.rates.at(-1);
   if (rate === undefined) {
-    return [headingRow(i, "SPEED", [[...streaming, ...(streaming.length ? [["text", "  "] as Seg] : []), DASH], [DASH]]),
+    return [headingRow(i, "SPEED", [[DASH]]),
       noteRow(i, perf.requests > 0 ? "replies too short to time" : "waiting for first response")];
   }
   const digits = formatRate(rate);
@@ -186,14 +192,11 @@ export function speedRows(i: PerfInput): string[] {
   const unit: Seg = ["dim", " tok/s"];
   const out = perf.turn && perf.turn.output > 0 ? formatCompactTokenCount(perf.turn.output) : "—";
   const detail = detailRow(i, [["avg", formatRate(perf.turn?.rate)], ["peak", formatRate(perf.peak)], ["out", out]]);
-  const gap: Seg = ["text", "  "];
   if (i.tier !== "full") {
-    const lead = streaming.length ? [...streaming, gap] : [];
-    const visual = paint("accent", brailleBars(perf.rates, inner, 1)[0]!);
-    return [headingRow(i, "SPEED", [[...lead, value, unit], [...lead, value], [value, unit], [value]]), visual, detail];
+    const visual = paint("accent", speedSparkline(perf.rates, inner));
+    return [headingRow(i, "SPEED", [[value, unit], [value]]), visual, detail];
   }
-  const right: Seg[][] = [streaming.length ? [...streaming] : [["dim", "last response"]], streaming.length ? [["warning", "●"]] : []];
-  const rows = [headingRow(i, "SPEED", right)];
+  const rows = [headingRow(i, "SPEED", [[["dim", "last response"]]])];
   const [a, b, c] = bigDigits(digits) as [string, string, string];
   const digitWidth = visibleWidth(a);
   if (digitWidth <= inner && [...digits].every(ch => ch in FONT)) {

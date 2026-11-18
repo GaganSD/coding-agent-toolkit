@@ -15,7 +15,7 @@ import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts"
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
-const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, streaming: false, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12 }, perf: perfFixture(1000) };
+const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12 }, perf: perfFixture(1000) };
 const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null };
 const resources: SidebarResources = {
   mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
@@ -152,6 +152,7 @@ test("speed and cache replace the usage lane; full accounting stays in details",
   for (const width of [18, 28, 40, 80]) {
     const text = plain(sidebar.render(width)).join("\n");
     assert(text.includes("CACHE") && text.includes("SPEED"));
+    assert.doesNotMatch(text, /● streaming/);
     if (width >= 28) for (const value of ["6.1k", "$0.12", "78.18%"]) assert(text.includes(value), value);
     assert(!/\bCached\b|Uncached|\bPID\b/.test(text), "old usage rows are gone");
   }

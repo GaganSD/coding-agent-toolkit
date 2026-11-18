@@ -26,7 +26,7 @@ export type SidebarActions = {
 const EMPTY_SESSION: SidebarSession = {
   id: "", name: "", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
   percent: null, contextWindow: null, estimated: false, rate: null, startedAt: 0,
-  lastTurnMs: null, working: false, streaming: false, turns: 0, messages: 0,
+  lastTurnMs: null, working: false, turns: 0, messages: 0,
   usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null },
   perf: EMPTY_PERF,
 };
@@ -171,7 +171,7 @@ export class Sidebar implements Component {
     return ["", "Speed & cache",
       `Speed is end-to-end: output tokens ÷ request duration (includes time to first token and hidden reasoning).`,
       `Requests under 32 output tokens or 300 ms are left out of the graph, peak and last response.`,
-      `The live value while streaming is an estimate (visible text ÷ 4) and is marked ~.`,
+      `The composer's live rate is an estimate (visible text ÷ 4) and is marked ~.`,
       `Timed requests: ${perf.requests} · last response: ${formatRate(perf.rates.at(-1))} tok/s · peak: ${formatRate(perf.peak)} tok/s · this turn: ${formatRate(perf.turn?.rate)} tok/s`,
       `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`,
       `Saved is an estimate of what cache reads cost less than uncached input${c.saved === null ? " (prices unknown here)" : ""}.`,
@@ -282,7 +282,7 @@ export class Sidebar implements Component {
     };
     const model: Row = { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) };
     const divider: Row = { text: "", divider: true };
-    const input: PerfInput = { perf: s.perf, usage: s.usage, streaming: s.streaming, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) };
+    const input: PerfInput = { perf: s.perf, usage: s.usage, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) };
     const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
       .map(text => ({ text, action: branchUsage }));
     // Short terminals keep the same CONTEXT heading row (label left, figures right) without the bar.
