@@ -110,3 +110,31 @@ test("draft deduplication advances only after a successful write", () => {
 	record(state);
 	assert.equal(writes, 2, "the failed write is retried, then deduplicated");
 });
+
+for (const [name, kind, keys, wording] of [
+	["submit", "outcome", SUBMIT_ONE, /answer was not saved/],
+	["defer", "defer", [KEY.later], /deferral was not saved/],
+	["cancel", "outcome", [KEY.ctrlC], /cancellation was not saved/],
+] as const) {
+	test(`a failed blocking ${name} save puts the form back in the panel, tells the user and the agent`, async (t) => {
+		const host = boot();
+		const pi: ExtensionAPI = host.pi;
+		const append = pi.appendEntry;
+		t.mock.method(pi, "appendEntry", (type: string, data: unknown) => {
+			if ((data as AskJournalEntry).kind === kind) {
+				throw new Error("disk full");
+			}
+			append(type, data);
+		});
+		const rejected = assert.rejects(
+			host.ask(ONE("choice")),
+			new RegExp(`${wording.source}.*reappear in their panel.*Do not re-ask`)
+		);
+		await tick();
+		host.forms[0]?.press(...keys);
+		await rejected;
+		assert.match(host.panelText(), /CHOICE/, "the form is back at once");
+		assert.match(host.notices.at(-1) ?? "", /Could not save ask_user.*disk full.*back in your panel/);
+		host.emit("session_shutdown");
+	});
+}

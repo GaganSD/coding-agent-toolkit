@@ -159,16 +159,52 @@ async function executeAskTool(
 	if (background && result.status === "deferred") {
 		// "Answer later": the form keeps its request-order place in the queue
 		// and its draft; the answer follows as a message.
-		journal.recordDefer(requestId);
+		saved(ctx, background, "deferred", () => journal.recordDefer(requestId));
 		background.enqueue(ctx, requestId, "deferred");
 		return successfulResponse(receipt(validation.state, "deferred", requestId));
 	}
-	const outcome = journal.recordOutcome(requestId, result, "tool");
+	const outcome = saved(ctx, background, result.status, () =>
+		journal.recordOutcome(requestId, result, "tool")
+	);
 	if (result.status === "expired") {
 		// It can now be reopened for a late correction.
 		background?.formEnded(ctx);
 	}
 	return successfulResponse(outcome.result);
+}
+
+const UNSAVED: Record<string, string> = {
+	cancelled: "cancellation",
+	deferred: "deferral",
+	expired: "expiry",
+};
+
+/**
+ * The user's reply is gone from the screen but not in the journal. Put the
+ * form back in the panel at once, tell the user, and tell the agent not to
+ * ask again.
+ */
+function saved<T>(
+	ctx: ExtensionContext,
+	background: AskRuntime["background"],
+	status: string,
+	write: () => T
+): T {
+	try {
+		return write();
+	} catch (error) {
+		if (error instanceof AskJournalWriteError) {
+			const what = UNSAVED[status] ?? "answer";
+			try {
+				background?.formEnded(ctx);
+				ctx.ui.notify(`${error.message} The form is back in your panel.`, "error");
+			} catch {
+				// The screen is gone; the journal still holds the form.
+			}
+			error.message += ` The user's ${what} was not saved; the form will reappear in their panel. Do not re-ask.`;
+		}
+		throw error;
+	}
 }
 
 /** A receipt names the form and carries no answers, not even drafted ones. */

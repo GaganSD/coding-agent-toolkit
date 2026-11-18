@@ -117,7 +117,7 @@ The later answer is a `pi-ask:answer` message that names the request and each qu
 
 Every form, draft and outcome is journalled in the session. A form left open when Pi quit comes back in the panel on startup, resume or fork with its draft, and its answer reaches the agent once: delivery is decided from what the active branch already holds. The journal follows the active branch.
 
-A receipt or completed tool result requires a successful journal write. Storage failures are reported rather than acknowledged; a panel form whose answer could not be saved stays editable for retry. Hiding the panel or temporarily covering it with a blocking form preserves its live editor, including typing not yet flushed to the journal.
+A receipt or completed tool result requires a successful journal write. Storage failures are reported rather than acknowledged; a panel form whose answer could not be saved stays editable for retry. Only panel forms are retried in place: if a blocking form's answer (or cancel, defer or expiry) cannot be saved, the form returns to the panel at once with its draft and you get an error notice, and the tool returns an error telling the agent the reply was not saved, the form will reappear in your panel and it should not re-ask. The non-TUI (RPC and print) path also requires the journal write before it returns. Hiding the panel or temporarily covering it with a blocking form preserves its live editor, including typing not yet flushed to the journal.
 
 Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the current chat model unless `answer.extractionModels` is set. `PI_ASK_LOCALE=zh` localizes the dialog cards and result summaries (Simplified Chinese).
 
