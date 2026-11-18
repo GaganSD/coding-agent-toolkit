@@ -9,6 +9,7 @@ import {
 	notifyQuestionWaiting,
 } from "../notifications.ts";
 import type { AskDraftSnapshot } from "../journal/entries.ts";
+import { AskJournalWriteError } from "../journal/journal.ts";
 import { createInitialState } from "../state/create.ts";
 import { type ExpiryTimer, toExpiredResult } from "../state/expiry.ts";
 import { applyDraftSnapshot } from "../state/draft.ts";
@@ -204,8 +205,14 @@ export function createAskFlowController(
 		ctx: params.ctx,
 		done: (result) => {
 			controller.finished = true;
+			try {
+				done(result);
+			} catch (error) {
+				controller.finished = false;
+				reportJournalError(controller, error);
+				return;
+			}
 			unregisterFlush();
-			done(result);
 		},
 		editor: createEditor(tui, theme, params.cwd),
 		expiry: params.expiry?.timer,
@@ -272,10 +279,14 @@ export function createAskFlowController(
 			controller.editor.invalidate();
 		},
 		handleInput(data: string) {
-			// One key means the user is here: the countdown ends for good.
-			controller.expiry?.interact();
-			controller.onInput?.(data);
-			handleControllerInput(controller, data);
+			try {
+				// One key means the user is here: the countdown ends for good.
+				controller.expiry?.interact();
+				controller.onInput?.(data);
+				handleControllerInput(controller, data);
+			} catch (error) {
+				reportJournalError(controller, error);
+			}
 		},
 		detach() {
 			cancelDraftTimer(controller);
@@ -309,8 +320,25 @@ function cancelDraftTimer(controller: AskFlowController) {
 function flushDraft(controller: AskFlowController) {
 	cancelDraftTimer(controller);
 	if (!controller.finished) {
-		controller.onStateChange?.(snapshotState(controller));
+		try {
+			controller.onStateChange?.(snapshotState(controller));
+		} catch (error) {
+			reportJournalError(controller, error);
+		}
 	}
+}
+
+/** Storage failures keep the live form editable and its submission retryable. */
+function reportJournalError(controller: AskFlowController, error: unknown) {
+	if (!(error instanceof AskJournalWriteError)) {
+		throw error;
+	}
+	controller.state = { ...controller.state, completed: false, cancelled: false };
+	if (controller.statusNotice !== error.message) {
+		controller.ctx.ui.notify(error.message, "error");
+	}
+	controller.statusNotice = error.message;
+	controller.tui.requestRender();
 }
 
 /** Keystrokes in an editor are reported once typing pauses, not one by one. */

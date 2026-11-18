@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, SessionManager } from "@earendil-works/pi-coding-agent";
 import { registerAskTool } from "../src/ask-tool.ts";
 import { EXPIRED_OFFER_MS, registerAskBackground } from "../src/background.ts";
 import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
@@ -78,6 +78,22 @@ async function withTimedPanel(params: object = TIMED) {
 }
 
 beforeEach(quietConfig);
+
+test("an expiry whose outcome cannot be saved stays open for a manual answer", async (t) => {
+	const { host } = await withTimedPanel();
+	const pi: ExtensionAPI = host.pi;
+	const failure = t.mock.method(pi, "appendEntry", () => { throw new Error("disk full"); });
+	host.time.advance(60 * SECOND);
+	assert.equal(outcomes(host).length, 0);
+	assert.equal(host.sent.length, 0);
+	assert.match(host.notices.at(-1) ?? "", /Could not save ask_user outcome/);
+
+	failure.mock.restore();
+	host.type(KEY.enter, KEY.enter, KEY.enter);
+	assert.equal(host.sent[0]?.message.details.result.status, "submitted");
+	assert.deepEqual(host.sent[0]?.message.details.result.answers.db.values, ["pg"]);
+	host.emit("session_shutdown");
+});
 
 // --- Blocking forms --------------------------------------------------------
 

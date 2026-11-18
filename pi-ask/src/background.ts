@@ -29,7 +29,7 @@ import {
 	ASK_ANSWER_MESSAGE_TYPE,
 	type AskFormSnapshot,
 } from "./journal/entries.ts";
-import { readAskJournal } from "./journal/journal.ts";
+import { AskJournalWriteError, readAskJournal } from "./journal/journal.ts";
 import {
 	type AskJournalRecord,
 	getRecord,
@@ -324,7 +324,14 @@ export function createAskBackground(
 				createInitialState(formToParams(record.form)),
 				record.draft
 			);
-		complete(requestId, toExpiredResult(formState));
+		try {
+			complete(requestId, toExpiredResult(formState));
+		} catch (error) {
+			if (!(error instanceof AskJournalWriteError)) {
+				throw error;
+			}
+			ctx?.ui.notify(error.message, "error");
+		}
 	}
 
 	function dispatch(event: AskPanelEvent) {
@@ -481,7 +488,11 @@ export function createAskBackground(
 					delivery.pump(current);
 				}
 			}
-		} catch {
+		} catch (error) {
+			if (error instanceof AskJournalWriteError) {
+				// The input boundary reports this and keeps the form open to retry.
+				throw error;
+			}
 			// A stale context: nothing is written.
 		}
 		releaseTimer(requestId);

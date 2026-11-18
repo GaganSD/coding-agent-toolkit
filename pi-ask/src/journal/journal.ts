@@ -101,8 +101,8 @@ export function createAskJournal(
 				if (key === lastKey) {
 					return;
 				}
-				lastKey = key;
 				write({ kind: "draft", requestId, draft });
+				lastKey = key;
 			};
 		},
 		recordDefer(requestId) {
@@ -130,19 +130,28 @@ export function createAskJournal(
 	};
 }
 
-/**
- * Journal backed by the session file. Writing is best-effort: a host without
- * `appendEntry`, or a failed write, must not stop the user being asked.
- */
+/** A failed journal append must never be mistaken for an accepted form. */
+export class AskJournalWriteError extends Error {
+	constructor(entry: AskJournalEntry, cause: unknown) {
+		const detail = cause instanceof Error ? cause.message : String(cause);
+		super(
+			`Could not save ask_user ${entry.kind} (${entry.requestId}): ${detail}. Nothing was acknowledged; fix session storage and retry.`,
+			{ cause }
+		);
+		this.name = "AskJournalWriteError";
+	}
+}
+
+/** Journal backed by the session file; successful writes are required. */
 export function createSessionAskJournal(
 	pi: Pick<ExtensionAPI, "appendEntry">,
 	deps?: AskJournalDeps
 ): AskJournal {
 	return createAskJournal((entry) => {
 		try {
-			pi.appendEntry?.(ASK_JOURNAL_ENTRY_TYPE, entry);
-		} catch {
-			// Losing recovery data is better than losing the question.
+			pi.appendEntry(ASK_JOURNAL_ENTRY_TYPE, entry);
+		} catch (error) {
+			throw new AskJournalWriteError(entry, error);
 		}
 	}, deps);
 }

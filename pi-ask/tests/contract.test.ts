@@ -22,6 +22,7 @@ import type { AskParams, AskResult } from "../src/types.ts";
 function registerMockTool() {
 	const tools: Record<string, unknown>[] = [];
 	registerAskTool({
+		appendEntry() {},
 		registerTool(tool: unknown) {
 			tools.push(tool as Record<string, unknown>);
 		},

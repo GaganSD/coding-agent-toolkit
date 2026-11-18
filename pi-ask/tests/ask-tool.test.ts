@@ -21,6 +21,7 @@ const INVALID_TYPE_RE =
 function registerMockTool() {
 	const tools: Record<string, unknown>[] = [];
 	registerAskTool({
+		appendEntry() {},
 		registerTool(tool: unknown) {
 			tools.push(tool as Record<string, unknown>);
 		},
