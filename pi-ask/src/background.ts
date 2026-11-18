@@ -156,8 +156,7 @@ export function createAskBackground(
 ): AskBackground {
 	const now = clock?.now ?? Date.now;
 	const delivery = createAskDelivery(pi, {
-		isLive: (requestId) =>
-			live.has(requestId) || [...returning.values()].includes(requestId),
+		isLive: (requestId) => live.has(requestId) || returning.has(requestId),
 	});
 	const recorders = new Map<string, (state: AskState) => void>();
 	// Content key of the draft each loaded form last started from or wrote,
@@ -611,7 +610,6 @@ export function createAskBackground(
 			}
 			reconcileBranch(next);
 			refresh((queue, hidden) => ({ type: "sync", queue, hidden }));
-			let unexpected: unknown;
 			try {
 				delivery.attach(next);
 			} catch (error) {
@@ -619,12 +617,10 @@ export function createAskBackground(
 				// pump or lifecycle event; nothing stale is kept. Anything else
 				// is a bug: surface it once the panel has refreshed.
 				if (!isRecoverableReadError(error)) {
-					unexpected = error;
+					throw error;
 				}
-			}
-			poke(next);
-			if (unexpected !== undefined) {
-				throw unexpected;
+			} finally {
+				poke(next);
 			}
 		},
 		poke,

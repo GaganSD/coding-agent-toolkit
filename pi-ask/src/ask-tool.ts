@@ -170,7 +170,7 @@ async function executeAskTool(
 	);
 	// The tool result follows this return; until it lands on the branch the
 	// answer must not also be adopted as an orphan.
-	returning.set(toolCallId, requestId);
+	returning.add(requestId);
 	if (result.status === "expired") {
 		// It can now be reopened for a late correction.
 		background?.formEnded(ctx);

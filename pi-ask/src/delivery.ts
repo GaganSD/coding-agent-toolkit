@@ -242,9 +242,7 @@ export function createAskDelivery(
 		post() {
 			watching = true;
 		},
-		attach(ctx) {
-			adopt(ctx);
-		},
+		attach: adopt,
 		started() {
 			// No prior run can still be writing a send. Do not send here: this
 			// run's starting message is recorded before its first boundary.
