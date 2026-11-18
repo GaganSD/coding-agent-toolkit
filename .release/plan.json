@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "sourceSha": "653788d5fb60b2d9bdc710c0bb1ff42deaa87544",
-  "notes": "Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.",
+  "sourceSha": "0fa8984bf28898b64ba3a7f86b7602d1b33565a9",
+  "notes": "redesigned sidebar for performance tracking",
   "packages": [
     {
       "path": "pi-slate",
       "name": "pi-slate",
-      "from": "0.2.0",
-      "to": "0.2.1",
-      "bump": "patch"
+      "from": "0.2.1",
+      "to": "0.3.0",
+      "bump": "minor"
     }
   ]
 }
