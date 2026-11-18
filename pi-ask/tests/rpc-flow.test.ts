@@ -316,6 +316,7 @@ test("zh locale renders localized rows and summaries", async () => {
 function registerMockTool() {
 	const tools: Array<Record<string, unknown>> = [];
 	registerAskTool({
+		appendEntry() {},
 		registerTool(tool: unknown) {
 			tools.push(tool as Record<string, unknown>);
 		},

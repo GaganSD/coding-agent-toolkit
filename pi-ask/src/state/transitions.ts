@@ -20,6 +20,7 @@ import {
 	isSubmitTab,
 } from "./selectors.ts";
 import {
+	commentView,
 	inputView,
 	navigateView,
 	optionNoteView,
@@ -46,6 +47,59 @@ export function enterOptionNoteMode(
 	optionValue: string
 ): AskState {
 	return setView(state, optionNoteView(questionId, optionValue));
+}
+
+/** Longest cancel comment kept; it is a short reason, not a message. */
+export const MAX_CANCEL_COMMENT_LENGTH = 500;
+
+/** Review tab only: start typing a reason for cancelling. */
+export function enterCancelComment(state: AskState): AskState {
+	return isSubmitTab(state) ? setView(state, commentView()) : state;
+}
+
+/**
+ * Cancel with the typed reason. An empty comment cancels nothing: it goes
+ * back to the review tab, so an accidental Enter is not a cancellation.
+ */
+export function cancelWithComment(state: AskState, text: string): AskState {
+	const comment = text.trim().slice(0, MAX_CANCEL_COMMENT_LENGTH);
+	if (!comment) {
+		return { ...state, view: submitView() };
+	}
+	return {
+		...state,
+		cancelComment: comment,
+		cancelled: true,
+		completed: true,
+		view: submitView(),
+	};
+}
+
+/**
+ * Decline just the current question: its answer and notes are dropped and
+ * the form moves on. The form itself stays open, and skipping every
+ * question still ends at the review tab for an explicit submit.
+ */
+export function skipCurrentQuestion(state: AskState): AskState {
+	const question = getCurrentQuestion(state);
+	if (!question || isSubmitTab(state)) {
+		return state;
+	}
+	const answers = { ...state.answers };
+	delete answers[question.id];
+	const skipped = new Set(state.skipped ?? []);
+	skipped.add(question.id);
+	return advanceToNextTab({
+		...state,
+		answers,
+		skipped: orderedSkipped(state, skipped),
+	});
+}
+
+function orderedSkipped(state: AskState, skipped: ReadonlySet<string>) {
+	return state.questions
+		.map((question) => question.id)
+		.filter((id) => skipped.has(id));
 }
 
 export function toggleCurrentMultiOption(state: AskState): AskState {
@@ -251,8 +305,11 @@ function updateAnswer(
 	} else {
 		answers[questionId] = nextAnswer;
 	}
+	// Answering a skipped question takes the skip back.
+	const skipped = state.skipped?.filter((id) => id !== questionId);
 	return {
 		...state,
 		answers,
+		...(state.skipped ? { skipped } : {}),
 	};
 }

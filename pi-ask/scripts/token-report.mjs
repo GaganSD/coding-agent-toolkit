@@ -1,34 +1,23 @@
 /**
- * Reports the recurring model-facing context footprint of the ask_user tool:
- * description, prompt snippet/guidelines, and the JSON parameter schema.
- * Tokens are a fixed character-proxy estimate (ceil(chars / 4)), not provider
- * tokenizer billing. Run with `npm run tokens`.
+ * Reports the recurring model-facing context footprint of the ask_user tool.
+ * Measuring lives in ./footprint.ts, shared with the token-ceiling test.
+ * Run with `npm run tokens`.
  */
-import { registerAskTool } from "../src/ask-tool.ts";
+import { ALL_ASK_FEATURES } from "../src/features.ts";
+import { measureAskToolFootprint } from "./footprint.ts";
 
-let tool;
-registerAskTool({
-	registerTool(registered) {
-		tool = registered;
-	},
-});
+const row = (name, chars, tokens) =>
+	console.log(`  ${name.padEnd(16)} ${String(chars).padStart(5)} / ${tokens}`);
 
-const parts = {
-	description: tool.description,
-	promptSnippet: tool.promptSnippet,
-	promptGuidelines: tool.promptGuidelines.join("\n"),
-	parameters: JSON.stringify(tool.parameters),
-};
-
-const estimate = (text) => Math.ceil(text.length / 4);
-let totalChars = 0;
-let totalTokens = 0;
-
+const all = measureAskToolFootprint({ features: ALL_ASK_FEATURES });
 console.log("ask_user context footprint (chars / est. tokens)");
-for (const [name, text] of Object.entries(parts)) {
-	const tokens = estimate(text);
-	totalChars += text.length;
-	totalTokens += tokens;
-	console.log(`  ${name.padEnd(16)} ${String(text.length).padStart(5)} / ${tokens}`);
+for (const part of all.parts) {
+	row(part.name, part.chars, part.tokens);
 }
-console.log(`  ${"total".padEnd(16)} ${String(totalChars).padStart(5)} / ${totalTokens}`);
+row("total", all.totalChars, all.totalTokens);
+const noExpiry = measureAskToolFootprint({
+	features: { ...ALL_ASK_FEATURES, expiry: false },
+});
+console.log("with optional fields (ceilings 450 / 420)");
+row("all enabled", all.totalChars, all.totalTokens);
+row("expiry disabled", noExpiry.totalChars, noExpiry.totalTokens);

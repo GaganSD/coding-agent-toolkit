@@ -4,9 +4,15 @@ import type { AskConfig } from "../config/schema.ts";
 import { getAskConfigStore } from "../config/store.ts";
 import {
 	createQuestionWaitingNotification,
+	type NotificationAttempt,
+	notificationSucceeded,
 	notifyQuestionWaiting,
 } from "../notifications.ts";
+import type { AskDraftSnapshot } from "../journal/entries.ts";
+import { AskJournalWriteError } from "../journal/journal.ts";
 import { createInitialState } from "../state/create.ts";
+import { type ExpiryTimer, toExpiredResult } from "../state/expiry.ts";
+import { applyDraftSnapshot } from "../state/draft.ts";
 import {
 	getEditorDraft,
 	saveEditorDraft,
@@ -29,8 +35,10 @@ import {
 import {
 	applyNumberShortcut,
 	confirmCurrentSelection,
+	enterCancelComment,
 	enterOptionNoteMode,
 	enterQuestionNoteMode,
+	skipCurrentQuestion,
 	toggleCurrentMultiOption,
 } from "../state/transitions.ts";
 import { isEditingView } from "../state/view.ts";
@@ -59,18 +67,84 @@ type Theme = CustomCallbackArgs[1];
 type Keybindings = CustomCallbackArgs[2];
 type Done = (result: AskResult) => void;
 type AskFlowParams = AskParams &
-	Pick<ExtensionContext, "cwd"> & {
+	Pick<ExtensionContext, "cwd"> &
+	AskFlowOptions & {
 		config: AskConfig;
 		configNotice?: string;
 		ctx: ExtensionContext;
 	};
 
+export interface AskFlowOptions {
+	/**
+	 * Offer "answer later" on a blocking form: the flow then resolves with a
+	 * `deferred` result and the caller moves the form to the queue.
+	 */
+	allowDefer?: boolean;
+	/** Shown under the tabs, e.g. that this form timed out earlier. */
+	banner?: string;
+	/** Answers to restore, e.g. from the journal of an interrupted form. */
+	draft?: AskDraftSnapshot;
+	/**
+	 * The form's time limit. The flow shows the countdown and stops it on
+	 * the first key. With `owned` it also starts the clock when the form
+	 * opens and finishes with the `expired` result; otherwise the host that
+	 * owns the form's visibility does both.
+	 */
+	expiry?: { owned?: boolean; timer: ExpiryTimer };
+	/** Called after every state change while the form is open. */
+	onStateChange?: (state: AskState) => void;
+	/**
+	 * Set when the form is drawn in the background panel. There the cancel
+	 * and "answer later" keys only put the panel away (`onHide`); the form is
+	 * cancelled with the dismiss key or from the review tab.
+	 */
+	panel?: { onHide: () => void };
+	/**
+	 * The user was already told about this form in this process; it is only
+	 * being rebuilt. No second notification, and the clock is left to the
+	 * first build, whose notification arms the shared timer once it succeeds.
+	 */
+	rebuilt?: boolean;
+	/**
+	 * Hands the host a way to report the pending draft now (shutdown), and
+	 * gets back a call that withdraws it when the form is over.
+	 */
+	registerFlush?: (flush: () => void) => () => void;
+}
+
+/** The form as a TUI component, for hosts other than `ctx.ui.custom`. */
+export interface AskFlowComponent {
+	/**
+	 * Drops the form like `dispose` but without reporting the unsent editor
+	 * text: the form belongs to a branch the session has left.
+	 */
+	detach(): void;
+	/** Closes the form. Typed text not yet reported is reported first. */
+	dispose(): void;
+	focused: boolean;
+	/** The live form state, including unsaved editor text. */
+	getState(): AskState;
+	handleInput(data: string): void;
+	invalidate(): void;
+	render(width: number): string[];
+}
+
 interface AskFlowController {
+	allowDefer: boolean;
+	banner?: string;
 	config: AskConfig;
 	configNotice?: string;
 	ctx: ExtensionContext;
 	done: Done;
 	editor: Editor;
+	expiry?: ExpiryTimer;
+	/** Set once the form has its result; nothing is journalled after that. */
+	finished: boolean;
+	focused: boolean;
+	onStateChange?: (state: AskState) => void;
+	panel?: { onHide: () => void };
+	/** Trailing timer for draft reports made while the user types. */
+	pendingDraftTimer?: ReturnType<typeof setTimeout>;
 	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
@@ -83,9 +157,13 @@ interface AskFlowController {
 	unsubscribeConfig: () => void;
 }
 
+/** Typing is reported to the journal after this much quiet. */
+export const DRAFT_TYPING_DEBOUNCE_MS = 750;
+
 export async function runAskFlow(
 	ctx: ExtensionContext,
-	params: AskParams
+	params: AskParams,
+	options: AskFlowOptions = {}
 ): Promise<AskResult> {
 	const store = getAskConfigStore();
 	const { config, notice } = await store.ensureLoaded();
@@ -95,6 +173,7 @@ export async function runAskFlow(
 	return ctx.ui.custom<AskResult>((...args) =>
 		createAskFlowController(args, {
 			...params,
+			...options,
 			config,
 			configNotice: notice?.text,
 			cwd: ctx.cwd,
@@ -103,23 +182,43 @@ export async function runAskFlow(
 	);
 }
 
-function createAskFlowController(
+export function createAskFlowController(
 	[tui, theme, _keybindings, done]: [
 		Tui,
 		Theme,
-		Keybindings,
+		Keybindings | undefined,
 		(result: AskResult) => void,
 	],
 	params: AskFlowParams
-) {
+): AskFlowComponent {
+	let unregisterFlush = () => {
+		// replaced once the controller exists
+	};
 	const controller: AskFlowController = {
+		allowDefer: params.allowDefer === true,
+		banner: params.banner,
 		config: params.config,
 		configNotice: params.configNotice,
 		ctx: params.ctx,
-		done,
+		done: (result) => {
+			controller.finished = true;
+			try {
+				done(result);
+			} catch (error) {
+				controller.finished = false;
+				reportJournalError(controller, error);
+				return;
+			}
+			unregisterFlush();
+		},
 		editor: createEditor(tui, theme, params.cwd),
+		expiry: params.expiry?.timer,
+		finished: false,
+		focused: false,
+		onStateChange: params.onStateChange,
+		panel: params.panel,
 		settingsOpen: false,
-		state: createInitialState(params),
+		state: applyDraftSnapshot(createInitialState(params), params.draft),
 		suppressAutoInputForSelection: false,
 		pendingDiscardConfirm: false,
 		pendingQuestionTypeChangeQuestionId: undefined,
@@ -143,30 +242,134 @@ function createAskFlowController(
 		maybeFinish(controller);
 	});
 
+	unregisterFlush =
+		params.registerFlush?.(() => flushDraft(controller)) ?? unregisterFlush;
 	controller.editor.onSubmit = (value) => submitEditor(controller, value);
 	syncSelection(controller);
-	notifyCurrentQuestion(controller).catch(() => {
-		// Notification failures are best-effort and must not affect the ask flow.
-	});
+	const unsubscribeExpiry = bindExpiry(controller, params.expiry?.owned === true);
+	if (params.rebuilt !== true) {
+		notifyCurrentQuestion(controller)
+			.then((attempts) => {
+				// The clock starts only after the user has been told a question waits.
+				if (notificationSucceeded(attempts)) {
+					controller.expiry?.arm();
+				}
+			})
+			.catch(() => {
+				// Notification failures are best-effort and leave the clock unarmed:
+				// nobody was told, so the form waits like one behind another.
+			});
+	}
 
 	return {
 		get focused() {
-			return controller.editor.focused;
+			return controller.focused;
 		},
 		set focused(value: boolean) {
+			controller.focused = value;
 			controller.editor.focused = value;
 		},
+		getState: () => snapshotState(controller),
 		render: (width: number) => renderController(controller, width),
 		invalidate() {
 			controller.editor.invalidate();
 		},
 		handleInput(data: string) {
-			handleControllerInput(controller, data);
+			try {
+				// One key means the user is here: the countdown ends for good.
+				controller.expiry?.interact();
+				handleControllerInput(controller, data);
+			} catch (error) {
+				reportJournalError(controller, error);
+			}
+		},
+		detach() {
+			cancelDraftTimer(controller);
+			controller.onStateChange = undefined;
+			this.dispose();
 		},
 		dispose() {
+			flushDraft(controller);
+			unregisterFlush();
+			unsubscribeExpiry();
 			controller.unsubscribeConfig();
 		},
 	};
+}
+
+/** The state with the open editor's text folded in; the live state stays. */
+function snapshotState(controller: AskFlowController): AskState {
+	return isEditingView(controller.state)
+		? saveEditorDraft(controller.state, controller.editor.getText())
+		: controller.state;
+}
+
+function cancelDraftTimer(controller: AskFlowController) {
+	if (controller.pendingDraftTimer !== undefined) {
+		clearTimeout(controller.pendingDraftTimer);
+		controller.pendingDraftTimer = undefined;
+	}
+}
+
+/** Reports the current draft now, including unsent editor text. */
+function flushDraft(controller: AskFlowController) {
+	cancelDraftTimer(controller);
+	if (!controller.finished) {
+		try {
+			controller.onStateChange?.(snapshotState(controller));
+		} catch (error) {
+			reportJournalError(controller, error);
+		}
+	}
+}
+
+/** Storage failures keep the live form editable and its submission retryable. */
+function reportJournalError(controller: AskFlowController, error: unknown) {
+	if (!(error instanceof AskJournalWriteError)) {
+		throw error;
+	}
+	controller.state = { ...controller.state, completed: false, cancelled: false };
+	if (controller.statusNotice !== error.message) {
+		controller.ctx.ui.notify(error.message, "error");
+	}
+	controller.statusNotice = error.message;
+	controller.tui.requestRender();
+}
+
+/** Keystrokes in an editor are reported once typing pauses, not one by one. */
+function scheduleDraft(controller: AskFlowController) {
+	if (!controller.onStateChange) {
+		return;
+	}
+	cancelDraftTimer(controller);
+	const timer = setTimeout(() => {
+		controller.pendingDraftTimer = undefined;
+		flushDraft(controller);
+	}, DRAFT_TYPING_DEBOUNCE_MS);
+	timer.unref?.();
+	controller.pendingDraftTimer = timer;
+}
+
+/** Redraws on each tick; a form that owns its clock also finishes on expiry. */
+function bindExpiry(controller: AskFlowController, owned: boolean) {
+	const timer = controller.expiry;
+	if (!timer) {
+		return () => {
+			// nothing to release
+		};
+	}
+	const unsubscribe = timer.subscribe({
+		change: () => controller.tui.requestRender(),
+		expire: () => {
+			if (owned && !controller.state.completed) {
+				controller.done(toExpiredResult(controller.state));
+			}
+		},
+	});
+	if (owned) {
+		timer.show();
+	}
+	return unsubscribe;
 }
 
 function renderController(
@@ -174,11 +377,16 @@ function renderController(
 	width: number
 ): string[] {
 	return renderAskScreen({
+		banner: controller.banner,
+		countdown: controller.expiry?.view(),
 		config: controller.config,
 		editor: controller.editor,
 		footerNotice: getFooterNotice(controller),
 		reviewShortcutHint: getActiveReviewShortcutHint(controller),
 		state: controller.state,
+		surface: controller.panel
+			? { panel: { focused: controller.focused } }
+			: { defer: controller.allowDefer },
 		theme: controller.theme,
 		width,
 	});
@@ -203,7 +411,10 @@ function isNativeEditorSubmitEnabled(controller: AskFlowController): boolean {
 	if (controller.state.view.kind === "input") {
 		return controller.config.keymaps.editor.submit.includes("enter");
 	}
-	if (controller.state.view.kind === "note") {
+	if (
+		controller.state.view.kind === "note" ||
+		controller.state.view.kind === "comment"
+	) {
 		return controller.config.keymaps.noteEditor.save.includes("enter");
 	}
 	return true;
@@ -216,6 +427,10 @@ function handleEditingCommand(
 ) {
 	if (command.kind === "dismiss") {
 		handleExitFlow(controller, dismissFlow(controller.state));
+		return;
+	}
+	if (command.kind === "later") {
+		answerLater(controller);
 		return;
 	}
 	if (command.kind === "showSettings") {
@@ -240,7 +455,7 @@ function handleEditingCommand(
 	}
 	if (command.kind === "delegateToEditor") {
 		controller.editor.handleInput(data);
-		refresh(controller);
+		refresh(controller, { typing: true });
 	}
 }
 
@@ -265,6 +480,16 @@ function handleNavigationCommand(
 			clearPendingConfirms(controller, { keepTypeChange: true });
 			handleChangeQuestionType(controller);
 			return;
+		case "skipQuestion":
+			clearPendingConfirms(controller);
+			commitState(controller, skipCurrentQuestion(controller.state));
+			return;
+		case "cancelWithComment":
+			clearPendingConfirms(controller);
+			commitState(controller, enterCancelComment(controller.state), {
+				syncSelection: false,
+			});
+			return;
 		case "openQuestionNote":
 			clearPendingConfirms(controller);
 			openQuestionNote(controller);
@@ -282,7 +507,16 @@ function handleNavigationCommand(
 		case "cancel":
 			clearReviewShortcutPending(controller);
 			clearQuestionTypeChangePending(controller);
+			if (controller.panel) {
+				// Hiding cancels nothing; the form waits in the queue.
+				answerLater(controller);
+				return;
+			}
 			handleExitFlow(controller, cancelFlow(controller.state));
+			return;
+		case "later":
+			clearPendingConfirms(controller);
+			answerLater(controller);
 			return;
 		case "numberShortcut":
 			if (handleReviewShortcutNumber(controller, command.digit)) {
@@ -413,6 +647,28 @@ function closeEditor(controller: AskFlowController) {
 	refresh(controller);
 }
 
+/**
+ * "Answer later". Typed text is saved into the draft first. In the panel
+ * the form stays open and only the panel goes away; a blocking form ends
+ * with a `deferred` receipt.
+ */
+function answerLater(controller: AskFlowController) {
+	if (!(controller.panel || controller.allowDefer)) {
+		return;
+	}
+	// The draft keeps typed text; the open editor itself is left as it is.
+	const saved = snapshotState(controller);
+	controller.pendingDiscardConfirm = false;
+	cancelDraftTimer(controller);
+	controller.onStateChange?.(saved);
+	if (controller.panel) {
+		controller.tui.requestRender();
+		controller.panel.onHide();
+		return;
+	}
+	controller.done(toAskResult(saved, "deferred"));
+}
+
 function handleExitFlow(controller: AskFlowController, nextState: AskState) {
 	if (!shouldRequestDismissConfirmation(controller)) {
 		commitState(controller, nextState, { finish: true });
@@ -527,18 +783,28 @@ function showSettingsModal(controller: AskFlowController) {
 	});
 }
 
-function refresh(controller: AskFlowController) {
+function refresh(
+	controller: AskFlowController,
+	options: { typing?: boolean } = {}
+) {
+	// Every state change ends in a refresh, so this is the one observation
+	// point. Unsaved editor text is part of what it reports.
+	if (options.typing) {
+		scheduleDraft(controller);
+	} else {
+		flushDraft(controller);
+	}
 	controller.tui.requestRender();
 }
 
 async function notifyCurrentQuestion(
 	controller: AskFlowController
-): Promise<void> {
+): Promise<NotificationAttempt[]> {
 	const question = getCurrentQuestion(controller.state);
 	if (!question) {
-		return;
+		return [];
 	}
-	await notifyQuestionWaiting(
+	return notifyQuestionWaiting(
 		controller.config,
 		createQuestionWaitingNotification(question)
 	);

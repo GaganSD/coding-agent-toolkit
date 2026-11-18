@@ -12,6 +12,10 @@ export const UI_TEXT = {
 	questionNoteTitle: "Note:",
 	reviewTitle: "Review answers",
 	unanswered: "→ unanswered",
+	skipped: "→ skipped (declined, not unanswered)",
+	skippedQuestion: "⊘ Skipped. Answer it to take the skip back.",
+	commentTitle: "Why are you cancelling? The agent will see this.",
+	editorPlaceholderComment: "Add a comment (optional)...",
 	editorPlaceholderInput: "Type answer...",
 	editorPlaceholderNote: "Add a note...",
 } as const;

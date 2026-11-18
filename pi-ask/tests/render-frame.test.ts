@@ -228,7 +228,7 @@ test("footer hints wrap into exact lines on narrow screens", () => {
 	assert.deepEqual(lines.slice(-7, -1), [
 		" Space toggle",
 		"Enter continue",
-		"N/Shift+N note",
+		"N/Shift+N note · S skip",
 		"Esc dismiss",
 		"t question type",
 		"? settings",
@@ -258,7 +258,7 @@ test("footer keeps earlier hint chunk on the first wrapped line", () => {
 	assert.deepEqual(lines.slice(-6, -1), [
 		" Enter confirm",
 		"N/Shift+N note",
-		"Esc dismiss",
+		"S skip · Esc dismiss",
 		"t question type",
 		"? settings",
 	]);

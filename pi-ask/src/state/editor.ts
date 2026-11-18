@@ -8,12 +8,13 @@ import {
 	isSubmitTab,
 } from "./selectors.ts";
 import {
+	cancelWithComment,
 	enterInputMode,
 	saveCustomAnswer,
 	saveNote,
 	submitCustomAnswer,
 } from "./transitions.ts";
-import { isEditingView } from "./view.ts";
+import { isEditingView, submitView } from "./view.ts";
 
 export function getEditorDraft(state: AskState): string {
 	if (state.view.kind === "input") {
@@ -38,6 +39,10 @@ export function saveEditorDraft(state: AskState, text: string): AskState {
 	if (state.view.kind === "note") {
 		return saveNote(state, text);
 	}
+	if (state.view.kind === "comment") {
+		// Closing the comment editor never cancels, and keeps no stale reason.
+		return { ...state, view: submitView() };
+	}
 	return state;
 }
 
@@ -47,6 +52,9 @@ export function submitEditorDraft(state: AskState, text: string): AskState {
 	}
 	if (state.view.kind === "note") {
 		return saveNote(state, text);
+	}
+	if (state.view.kind === "comment") {
+		return cancelWithComment(state, text);
 	}
 	return state;
 }

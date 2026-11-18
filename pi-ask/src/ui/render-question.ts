@@ -4,6 +4,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { UI_DIMENSIONS, UI_TEXT } from "../constants/ui.ts";
+import { askStrings } from "../i18n.ts";
 import {
 	pushSavedNote,
 	pushWrappedText,
@@ -21,6 +22,17 @@ export function renderQuestionScreen(context: QuestionRenderContext) {
 	const model = buildQuestionScreenModel(context);
 
 	pushWrappedText(lines, question.prompt, width, theme, "text", " ", " ");
+	if (context.state.skipped?.includes(question.id)) {
+		pushWrappedText(
+			lines,
+			UI_TEXT.skippedQuestion,
+			width,
+			theme,
+			"warning",
+			" ",
+			" "
+		);
+	}
 	renderQuestionNote(lines, model.questionNote, context);
 
 	for (const row of model.rows) {
@@ -166,7 +178,8 @@ function renderEditorWithIndent(args: {
 }
 
 function formatOptionLabel(row: OptionRowModel): string {
-	return `${row.prefix}${row.label}`;
+	const label = `${row.prefix}${row.label}`;
+	return row.fallback ? `${label} ${askStrings().fallbackOptionMarker}` : label;
 }
 
 function renderInteractiveCustomOption(

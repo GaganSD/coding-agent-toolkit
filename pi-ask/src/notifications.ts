@@ -23,6 +23,17 @@ export interface NotificationAttempt {
 	status: NotificationAttemptStatus;
 }
 
+/**
+ * Whether the user was told. A disabled notification or an inert channel
+ * counts as success: nothing failed. Only a failed channel leaves the
+ * expiry clock unarmed.
+ */
+export function notificationSucceeded(
+	attempts: readonly NotificationAttempt[]
+): boolean {
+	return attempts.every((attempt) => attempt.status !== "failed");
+}
+
 export function createQuestionWaitingNotification(
 	question: Pick<AskQuestion, "label" | "prompt">
 ): AskNotificationPayload {

@@ -1,12 +1,13 @@
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { UI_TEXT } from "../constants/ui.ts";
+import { UI_DIMENSIONS, UI_TEXT } from "../constants/ui.ts";
 import type { AskState } from "../types.ts";
 import {
 	mergeColumns,
 	pushSavedNote,
 	pushWrappedText,
+	renderEditorBlock,
 } from "./render-helpers.ts";
-import type { Theme } from "./render-types.ts";
+import type { QuestionRenderContext, Theme } from "./render-types.ts";
 import { buildReviewScreenModel } from "./view-models/review.ts";
 
 export function renderSubmitScreen(
@@ -14,7 +15,8 @@ export function renderSubmitScreen(
 	state: AskState,
 	theme: Theme,
 	width: number,
-	reviewShortcutHint?: string
+	reviewShortcutHint?: string,
+	editor?: QuestionRenderContext["editor"]
 ) {
 	const model = buildReviewScreenModel(state, width);
 	if (model.layout === "wide") {
@@ -34,6 +36,7 @@ export function renderSubmitScreen(
 			lines.push(line);
 		}
 		appendReviewShortcutHint(lines, reviewShortcutHint, theme, width);
+		appendCommentEditor(lines, state, editor, theme, width);
 		return;
 	}
 
@@ -43,6 +46,34 @@ export function renderSubmitScreen(
 	lines.push("");
 	lines.push(...actionLines);
 	appendReviewShortcutHint(lines, reviewShortcutHint, theme, width);
+	appendCommentEditor(lines, state, editor, theme, width);
+}
+
+/** The reason for cancelling, typed under the review while it is open. */
+function appendCommentEditor(
+	lines: string[],
+	state: AskState,
+	editor: QuestionRenderContext["editor"] | undefined,
+	theme: Theme,
+	width: number
+) {
+	if (!editor || state.view.kind !== "comment") {
+		return;
+	}
+	lines.push("");
+	pushWrappedText(lines, UI_TEXT.commentTitle, width, theme, "warning", " ", " ");
+	renderEditorBlock({
+		lines,
+		editorLines: editor.render(
+			Math.max(UI_DIMENSIONS.editorMinWidth, width - UI_DIMENSIONS.editorContentPadding)
+		),
+		width,
+		theme,
+		indent: " ",
+		availableWidth: width - 1,
+		placeholder: UI_TEXT.editorPlaceholderComment,
+		isEmpty: editor.getText().length === 0,
+	});
 }
 
 function renderSubmitReviewLines(
@@ -71,6 +102,10 @@ function renderReviewQuestion(
 	width: number
 ) {
 	pushWrappedText(lines, question.label, width, theme, "text", " ", " ");
+	if (question.skipped) {
+		lines.push(truncateToWidth(`   ${theme.fg("warning", UI_TEXT.skipped)}`, width));
+		return;
+	}
 	if (question.unanswered) {
 		lines.push(
 			truncateToWidth(`   ${theme.fg("dim", UI_TEXT.unanswered)}`, width)

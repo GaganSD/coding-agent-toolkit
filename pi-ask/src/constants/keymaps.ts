@@ -80,6 +80,7 @@ export interface AskKeyBinding {
 }
 
 export type FooterKeymapContext =
+	| "comment"
 	| "default"
 	| "multi"
 	| "submit"
@@ -90,6 +91,8 @@ export const DEFAULT_ASK_KEYMAPS: AskConfigKeymaps = {
 	global: {
 		dismiss: ["ctrl+c"],
 		settings: ["?"],
+		later: ["ctrl+l"],
+		panelFocus: ["alt+a"],
 	},
 	main: {
 		confirm: ["enter"],
@@ -102,6 +105,8 @@ export const DEFAULT_ASK_KEYMAPS: AskConfigKeymaps = {
 		previousOption: ["up"],
 		optionNote: ["n"],
 		questionNote: ["shift+n"],
+		skip: ["s"],
+		cancelComment: ["c"],
 	},
 	editor: {
 		submit: ["enter"],
@@ -131,6 +136,8 @@ const DESCRIPTIONS: Record<AskKeymapContext, Record<string, string>> = {
 	global: {
 		dismiss: "Dismiss the active ask surface",
 		settings: "Open ask settings",
+		later: "Answer later: defer a blocking form, or hide the panel",
+		panelFocus: "Switch keyboard focus between the question panel and the input",
 	},
 	main: {
 		confirm: "Confirm selection, continue, or submit",
@@ -143,6 +150,8 @@ const DESCRIPTIONS: Record<AskKeymapContext, Record<string, string>> = {
 		previousOption: "Move to previous option/action",
 		optionNote: "Edit selected option note",
 		questionNote: "Edit question note",
+		skip: "Skip the current question without cancelling",
+		cancelComment: "Cancel the form with a comment (review tab)",
 	},
 	editor: {
 		submit: "Submit custom answer",
@@ -168,11 +177,12 @@ const DESCRIPTIONS: Record<AskKeymapContext, Record<string, string>> = {
 	},
 };
 
+/** An unbound action (empty key list) has no hint. */
 const footerHint = (
 	binding: AskKeyBinding,
 	action: string,
 	label = binding.label
-) => `${label} ${action}`;
+) => (label ? `${label} ${action}` : "");
 
 const footerKeyIdLabel = (binding: AskKeyBinding) => binding.keys.join(" / ");
 
@@ -289,9 +299,18 @@ export function getGlobalBindings(
 	return getAskContextBindings(config, "global");
 }
 
+/** Where the form is drawn; decides which exits the footer offers. */
+export interface FooterSurface {
+	/** A blocking form that offers "answer later". */
+	defer?: boolean;
+	/** The background panel: `focused` says where the keyboard is. */
+	panel?: { focused: boolean };
+}
+
 export function renderFooterKeymaps(
 	config: AskConfig,
-	context: FooterKeymapContext
+	context: FooterKeymapContext,
+	surface: FooterSurface = {}
 ): string {
 	const global = getGlobalBindings(config);
 	const main = getAskContextBindings(config, "main");
@@ -304,6 +323,10 @@ export function renderFooterKeymaps(
 			footerHint(editor.close, "close"),
 			footerHint(global.settings, "settings"),
 		],
+		comment: [
+			footerHint(noteEditor.save, "cancel with comment"),
+			footerHint(noteEditor.close, "back"),
+		],
 		note: [
 			footerHint(noteEditor.save, "save"),
 			footerHint(noteEditor.close, "close"),
@@ -312,12 +335,14 @@ export function renderFooterKeymaps(
 		submit: [
 			footerHint(main.confirm, "confirm"),
 			footerHint(main.cancel, "cancel"),
+			footerHint(main.cancelComment, "cancel with comment"),
 			footerHint(global.settings, "settings"),
 		],
 		multi: [
 			footerHint(main.toggle, "toggle"),
 			footerHint(main.confirm, "continue"),
 			footerHint(main.optionNote, "note", noteNavigationLabel),
+			footerHint(main.skip, "skip"),
 			footerHint(main.cancel, "dismiss"),
 			footerHint(
 				main.changeQuestionType,
@@ -329,6 +354,7 @@ export function renderFooterKeymaps(
 		default: [
 			footerHint(main.confirm, "confirm"),
 			footerHint(main.optionNote, "note", noteNavigationLabel),
+			footerHint(main.skip, "skip"),
 			footerHint(main.cancel, "dismiss"),
 			footerHint(
 				main.changeQuestionType,
@@ -338,7 +364,35 @@ export function renderFooterKeymaps(
 			footerHint(global.settings, "settings"),
 		],
 	};
-	return ` ${hintsByContext[context].join(" · ")}`;
+	if (surface.panel && !surface.panel.focused) {
+		return ` ${[
+			footerHint(global.panelFocus, "answer here"),
+			"typing goes to the input below",
+		]
+			.filter(Boolean)
+			.join(" · ")}`;
+	}
+	const editing = context === "input" || context === "note";
+	const hints = hintsByContext[context]
+		.map((hint) => {
+			// In the panel the cancel key only puts the panel away.
+			const cancelHint =
+				hint === footerHint(main.cancel, "cancel") ||
+				hint === footerHint(main.cancel, "dismiss");
+			return surface.panel && !editing && cancelHint
+				? footerHint(main.cancel, "hide")
+				: hint;
+		})
+		.concat(
+			surface.panel
+				? [
+						editing ? footerHint(global.later, "hide") : "",
+						footerHint(global.dismiss, "cancel form"),
+						footerHint(global.panelFocus, "input"),
+					]
+				: [surface.defer ? footerHint(global.later, "answer later") : ""]
+		);
+	return ` ${hints.filter(Boolean).join(" · ")}`;
 }
 
 export function renderSettingsFooterKeymaps(config: AskConfig): string {
@@ -358,6 +412,7 @@ export function normalizeConfiguredKeymaps(
 	}
 
 	const normalized = {} as AskConfigKeymaps;
+	const taken = configuredKeys(candidate as Record<string, unknown>);
 	for (const context of Object.keys(
 		DEFAULT_ASK_KEYMAPS
 	) as AskKeymapContext[]) {
@@ -367,7 +422,8 @@ export function normalizeConfiguredKeymaps(
 		}
 		const contextResult = normalizeContextKeymaps(
 			context,
-			rawContext as Record<string, unknown>
+			rawContext as Record<string, unknown>,
+			taken
 		);
 		if (!contextResult.ok) {
 			return contextResult;
@@ -385,7 +441,8 @@ export function normalizeConfiguredKeymaps(
 
 function normalizeContextKeymaps(
 	context: AskKeymapContext,
-	rawContext: Record<string, unknown>
+	rawContext: Record<string, unknown>,
+	taken: ReadonlySet<string>
 ):
 	| { ok: true; keymaps: Record<string, string[]> }
 	| { ok: false; error: string } {
@@ -397,7 +454,12 @@ function normalizeContextKeymaps(
 	for (const action of Object.keys(defaults)) {
 		const rawValue = rawContext[action];
 		if (rawValue === undefined) {
-			return { ok: false, error: `Missing keymap for ${context}.${action}.` };
+			// A config written before this action existed: take the default,
+			// minus any key the user already gave to something else.
+			normalized[action] = (defaults[action] ?? []).filter(
+				(key) => !taken.has(key)
+			);
+			continue;
 		}
 		const parsed = normalizeBindingList(rawValue);
 		if (!parsed.ok) {
@@ -415,15 +477,29 @@ function normalizeContextKeymaps(
 		: { ok: true, keymaps: normalized };
 }
 
+/** Every key the config binds explicitly, outside the settings modal. */
+function configuredKeys(candidate: Record<string, unknown>): Set<string> {
+	const keys = new Set<string>();
+	for (const [context, actions] of Object.entries(candidate)) {
+		if (context === "settingsModal" || !(actions && typeof actions === "object")) {
+			continue;
+		}
+		for (const rawValue of Object.values(actions)) {
+			const parsed = normalizeBindingList(rawValue);
+			for (const key of parsed.ok ? parsed.keys : []) {
+				keys.add(key);
+			}
+		}
+	}
+	return keys;
+}
+
 function normalizeBindingList(
 	rawValue: unknown
 ): { ok: true; keys: string[] } | { ok: false; error: string } {
 	const rawKeys = typeof rawValue === "string" ? [rawValue] : rawValue;
 	if (!Array.isArray(rawKeys)) {
 		return { ok: false, error: "binding must be a string or array of strings" };
-	}
-	if (rawKeys.length === 0) {
-		return { ok: false, error: "empty binding list" };
 	}
 	const keys: string[] = [];
 	for (const rawKey of rawKeys) {

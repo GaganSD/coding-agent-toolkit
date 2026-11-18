@@ -48,15 +48,14 @@ export function invalidPayloadResponse(
 }
 
 export function nonInteractiveResponse(
-	state: ReturnType<typeof createInitialState>
+	state: ReturnType<typeof createInitialState>,
+	details: AskResult = toAskResult(state, "unavailable")
 ) {
 	return {
 		content: [
 			{ type: "text" as const, text: formatNonInteractiveMessage(state) },
 		],
-		details: {
-			...toAskResult(state, "unavailable"),
-		},
+		details,
 	};
 }
 
@@ -105,11 +104,7 @@ export function renderAskToolResult(
 	}
 	const text = renderResultText(details);
 	return new Text(
-		details.status === "invalid" ||
-			details.status === "cancelled" ||
-			details.status === "unavailable"
-			? theme.fg("warning", text)
-			: text,
+		details.status === "submitted" ? text : theme.fg("warning", text),
 		0,
 		0
 	);

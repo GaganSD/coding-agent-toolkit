@@ -23,6 +23,14 @@ export function optionNoteView(
 	return { kind: "note", questionId, optionValue };
 }
 
+export function commentView(): ViewState {
+	return { kind: "comment" };
+}
+
 export function isEditingView(state: AskState): boolean {
-	return state.view.kind === "input" || state.view.kind === "note";
+	return (
+		state.view.kind === "input" ||
+		state.view.kind === "note" ||
+		state.view.kind === "comment"
+	);
 }

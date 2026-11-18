@@ -21,6 +21,8 @@ export interface ReviewQuestionModel {
 	label: string;
 	note?: string;
 	selections?: ReviewSelectionModel[];
+	/** Declined on purpose; not the same as unanswered. */
+	skipped?: boolean;
 	unanswered: boolean;
 }
 
@@ -46,10 +48,12 @@ export function buildReviewScreenModel(
 			? "wide"
 			: "stacked",
 		questions: state.questions.map((question) =>
-			toReviewQuestionModel(
-				question.label,
-				toReviewAnswer(question, state.answers[question.id])
-			)
+			state.skipped?.includes(question.id)
+				? { label: question.label, skipped: true, unanswered: false }
+				: toReviewQuestionModel(
+						question.label,
+						toReviewAnswer(question, state.answers[question.id])
+					)
 		),
 	};
 }

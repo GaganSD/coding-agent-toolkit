@@ -58,6 +58,27 @@ export class AskConfigStore {
 		return (await this.ensureLoaded()).config;
 	}
 
+	/**
+	 * Read-only load for extension registration: never creates or rewrites the
+	 * file, and falls back to defaults on any problem. Schema-shaping settings
+	 * are read once here so they change on reload, not mid-session.
+	 */
+	async peek(): Promise<AskConfig> {
+		if (this.config) {
+			return this.config;
+		}
+		try {
+			const content = await readConfigFileIfPresent(this.configPath);
+			const parsed = content === undefined ? undefined : parseJson(content);
+			if (parsed?.ok && validateAskConfigFile.Check(parsed.value)) {
+				return normalizeAskConfig(parsed.value);
+			}
+		} catch {
+			// Unreadable config: registration proceeds on defaults.
+		}
+		return normalizeAskConfig(DEFAULT_ASK_CONFIG);
+	}
+
 	async save(config: AskConfig | Partial<AskConfig>): Promise<AskConfig> {
 		const normalized = normalizeAskConfig(config);
 		const content = JSON.stringify(toAskConfigFile(normalized), null, 2).concat(

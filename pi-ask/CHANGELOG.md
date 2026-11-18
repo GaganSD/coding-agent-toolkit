@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+`ask_user` can now ask in the background, take an answer later, and time out safely.
+
+- **Background questions.** `background: true` queues the form and returns a `queued` receipt with a `requestId`, so the agent keeps working. The answer arrives as a `pi-ask:answer` message at the next turn boundary, or wakes an idle agent. A cancellation is added as context but never starts a turn.
+- **Answer later.** `Ctrl+L` on a blocking form returns `deferred` and moves the form, draft intact, to a panel above the input. `Alt+A` moves the keyboard between panel and input; `Esc` or `Ctrl+L` hides it; a line under the input counts waiting forms. `/ask-panel` reopens it.
+- **Expiry with fallback.** A call can set `timeoutSeconds` and each question an optional `fallback` option `value`. On by default with a 30-second floor. The countdown runs only while the form is on screen, after the notification fires; any key, hiding or deferring stops it for good. On lapse the form resolves `expired` with only declared fallbacks applied, and the result says a fallback is the agent's assumption, not approval.
+- **Late override.** An expired form stays reopenable for an hour through `/ask-panel`; submitting sends one correction that replaces the timed-out result. Dismissing it without a comment leaves the earlier result standing.
+- **Session journal and recovery.** Forms, drafts (including text typed in an editor and not yet submitted), panel state, countdown stops and outcomes are saved in the session. An interrupted form reopens on startup, resume or fork with its draft. Delivery stays exactly-once across reload, resume, compaction and branch moves: the `pi-ask:answer` message on the active branch is the proof. Failed sends and wakes whose runs never started are retried; multiple recovered answers remain eligible until delivered.
+- **No false acknowledgements.** Journal failures report an error instead of returning a receipt or completed answer. Panel forms keep their answers for retry, and temporary hiding or blocking forms retain the live editor without losing pending typing.
+- **Cancel with a comment and skip.** `c` on the review tab attaches a short reason to a cancellation. `s` declines one question without cancelling the form; skipped is neither an answer nor approval.
+- **Configuration and keys.** New keys `behaviour.background`, `expiry.enabled` and `expiry.minSeconds`, plus keymaps `global.later`, `global.panelFocus`, `main.skip` and `main.cancelComment`. `/ask-settings` exposes the expiry toggles; schema changes apply on `/reload`. `/ask-panel` shows waiting and expired forms.
+- **Hosts without the custom TUI** keep the blocking card flow: `background` blocks there and there is no countdown.
+- The default `ask_user` context footprint is 1,598 chars (≈ 400 tokens), or 1,534 (≈ 384) with expiry off, within the existing 450/420 token ceilings.
+
 ## 0.1.5
 
 - Add RPC dialog interviews with single/multi-select, free-text answers, back navigation, and review before submission.

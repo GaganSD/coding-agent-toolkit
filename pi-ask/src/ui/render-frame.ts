@@ -1,6 +1,10 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
-import { renderFooterKeymaps } from "../constants/keymaps.ts";
+import {
+	type FooterKeymapContext,
+	type FooterSurface,
+	renderFooterKeymaps,
+} from "../constants/keymaps.ts";
 import {
 	getCurrentQuestion,
 	isQuestionAnswered,
@@ -13,10 +17,11 @@ import type { Theme } from "./render-types.ts";
 export function renderFrameHeader(args: {
 	lines: string[];
 	state: AskState;
+	status?: string;
 	theme: Theme;
 	width: number;
 }) {
-	const { lines, state, theme, width } = args;
+	const { lines, state, status, theme, width } = args;
 	const add = (text = "") => lines.push(truncateToWidth(text, width));
 
 	add(theme.fg("accent", "─".repeat(Math.max(1, width))));
@@ -26,6 +31,12 @@ export function renderFrameHeader(args: {
 	}
 	add(renderTabs(state, theme, width));
 	add();
+	if (status) {
+		for (const line of wrapText(status, Math.max(1, width - 2))) {
+			add(` ${theme.fg("warning", line)}`);
+		}
+		add();
+	}
 }
 
 export function renderFrameFooter(args: {
@@ -33,12 +44,13 @@ export function renderFrameFooter(args: {
 	footerNotice?: string;
 	lines: string[];
 	state: AskState;
+	surface?: FooterSurface;
 	theme: Theme;
 	width: number;
 }) {
-	const { config, footerNotice, lines, state, theme, width } = args;
+	const { config, footerNotice, lines, state, surface, theme, width } = args;
 	const add = (text = "") => lines.push(truncateToWidth(text, width));
-	const footer = renderFooter(config, state, width);
+	const footer = renderFooter(config, state, width, surface);
 	const noticeLines = footerNotice ? wrapText(footerNotice, width) : [];
 	if (noticeLines.length > 0 || footer.length > 0) {
 		add();
@@ -60,7 +72,11 @@ function renderTabs(state: AskState, theme: Theme, width: number): string {
 	const tabs = state.questions.map((question, index) => {
 		const active = state.activeTabIndex === index;
 		const answered = isQuestionAnswered(state, question.id);
-		const marker = answered ? "☒" : "☐";
+		const skipped = state.skipped?.includes(question.id) === true;
+		let marker = answered ? "☒" : "☐";
+		if (skipped) {
+			marker = "⊘";
+		}
 		const text = ` ${marker} ${question.label} `;
 		return {
 			text,
@@ -188,26 +204,28 @@ function applyTabGrowth(
 function renderFooter(
 	config: AskConfig,
 	state: AskState,
-	width: number
+	width: number,
+	surface?: FooterSurface
 ): string[] {
 	if (!config.behaviour.showFooterHints) {
 		return [];
 	}
-	let footer: string;
+	let context: FooterKeymapContext;
 	if (state.view.kind === "input") {
-		footer = renderFooterKeymaps(config, "input");
+		context = "input";
+	} else if (state.view.kind === "comment") {
+		context = "comment";
 	} else if (state.view.kind === "note") {
-		footer = renderFooterKeymaps(config, "note");
+		context = "note";
 	} else if (isSubmitTab(state)) {
-		footer = renderFooterKeymaps(config, "submit");
+		context = "submit";
 	} else {
-		const question = getCurrentQuestion(state);
-		footer = renderFooterKeymaps(
-			config,
-			question?.type === "multi" ? "multi" : "default"
-		);
+		context = getCurrentQuestion(state)?.type === "multi" ? "multi" : "default";
 	}
-	return wrapDelimitedFooterHints(footer, width);
+	return wrapDelimitedFooterHints(
+		renderFooterKeymaps(config, context, surface),
+		width
+	);
 }
 
 function wrapDelimitedFooterHints(footer: string, width: number): string[] {

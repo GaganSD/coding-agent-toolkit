@@ -24,10 +24,13 @@ const AskKeyBindingSchema = Type.Union([
 const AskConfigKeymapsSchema = Type.Object({
 	global: Type.Object({
 		dismiss: Type.Optional(AskKeyBindingSchema),
+		later: Type.Optional(AskKeyBindingSchema),
+		panelFocus: Type.Optional(AskKeyBindingSchema),
 		settings: Type.Optional(AskKeyBindingSchema),
 	}),
 	main: Type.Object({
 		cancel: Type.Optional(AskKeyBindingSchema),
+		cancelComment: Type.Optional(AskKeyBindingSchema),
 		changeQuestionType: Type.Optional(AskKeyBindingSchema),
 		confirm: Type.Optional(AskKeyBindingSchema),
 		nextOption: Type.Optional(AskKeyBindingSchema),
@@ -36,6 +39,7 @@ const AskConfigKeymapsSchema = Type.Object({
 		previousOption: Type.Optional(AskKeyBindingSchema),
 		previousTab: Type.Optional(AskKeyBindingSchema),
 		questionNote: Type.Optional(AskKeyBindingSchema),
+		skip: Type.Optional(AskKeyBindingSchema),
 		toggle: Type.Optional(AskKeyBindingSchema),
 	}),
 	editor: Type.Object({
@@ -76,9 +80,16 @@ export const AskConfigFileSchema = Type.Object({
 	behaviour: Type.Optional(
 		Type.Object({
 			autoSubmitWhenAnsweredWithoutNotes: Type.Optional(Type.Boolean()),
+			background: Type.Optional(Type.Boolean()),
 			confirmDismissWhenDirty: Type.Optional(Type.Boolean()),
 			doublePressReviewShortcuts: Type.Optional(Type.Boolean()),
 			showFooterHints: Type.Optional(Type.Boolean()),
+		})
+	),
+	expiry: Type.Optional(
+		Type.Object({
+			enabled: Type.Optional(Type.Boolean()),
+			minSeconds: Type.Optional(Type.Number()),
 		})
 	),
 	keymaps: Type.Optional(AskConfigKeymapsSchema),
@@ -107,10 +118,16 @@ export interface AskConfigKeymaps {
 	};
 	global: {
 		dismiss: string[];
+		/** "Answer later": defer a blocking form, or hide the panel. */
+		later: string[];
+		/** Switch keyboard focus between the panel and the normal input. */
+		panelFocus: string[];
 		settings: string[];
 	};
 	main: {
 		cancel: string[];
+		/** Review tab: cancel the form and say why. */
+		cancelComment: string[];
 		changeQuestionType: string[];
 		confirm: string[];
 		nextOption: string[];
@@ -119,6 +136,8 @@ export interface AskConfigKeymaps {
 		previousOption: string[];
 		previousTab: string[];
 		questionNote: string[];
+		/** Skip just the current question. Never fires inside a text editor. */
+		skip: string[];
 		toggle: string[];
 	};
 	noteEditor: {
@@ -145,9 +164,17 @@ export interface AskConfig {
 	};
 	behaviour: {
 		autoSubmitWhenAnsweredWithoutNotes: boolean;
+		/** `false` removes `background` from the schema; every call blocks. */
+		background: boolean;
 		confirmDismissWhenDirty: boolean;
 		doublePressReviewShortcuts: boolean;
 		showFooterHints: boolean;
+	};
+	expiry: {
+		/** `false` removes `timeoutSeconds` and `fallback` from the schema. */
+		enabled: boolean;
+		/** Shorter requested limits are raised to this floor. */
+		minSeconds: number;
 	};
 	keymaps: AskConfigKeymaps;
 	notifications: {
