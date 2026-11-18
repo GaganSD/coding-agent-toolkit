@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0
+
+redesigned sidebar for performance tracking
+
 ## 0.2.1
 
 Fallback improvements for newer updates, Remove redundant notification in new sessions, misc. UI improvements around 'model', 'thinking', & 'warning' variables.
