@@ -24,6 +24,18 @@ export interface AskRuntime {
 	 * skips them: an open form is not an interrupted one.
 	 */
 	live: Set<string>;
+	/**
+	 * Blocking calls whose outcome is journalled but whose tool result may
+	 * not be on the branch yet, identified by request id. The result is
+	 * about to arrive, so the answer must not also be sent as a message.
+	 */
+	returning: Set<string>;
+	/**
+	 * Blocking forms whose outcome or deferral could not be journalled. The
+	 * agent was told they will reappear, so the panel keeps them even after
+	 * the conversation moves on, until a `defer` entry makes that durable.
+	 */
+	unsaved: Set<string>;
 }
 
 export function createAskRuntime(
@@ -35,5 +47,7 @@ export function createAskRuntime(
 		flushers: new Set(),
 		journal: createSessionAskJournal(pi, clock && { now: clock.now }),
 		live: new Set(),
+		returning: new Set(),
+		unsaved: new Set(),
 	};
 }

@@ -164,7 +164,8 @@ function answerMessage(outcome: AskOutcomeEntry) {
 }
 
 export function createAskDelivery(
-	pi: Pick<ExtensionAPI, "sendMessage">
+	pi: Pick<ExtensionAPI, "sendMessage">,
+	{ isLive = () => false }: { isLive?: (requestId: string) => boolean } = {}
 ): AskDelivery {
 	// Sent in this process, potentially still being written by a run. Cleared
 	// only when idle or a new run starts; the branch then proves delivery.
@@ -175,8 +176,30 @@ export function createAskDelivery(
 	// Only tool outcomes already orphaned at attach can become messages.
 	// Eligibility lasts until branch evidence proves delivery, not one plan.
 	let adopted = new Set<string>();
+	// An attach whose journal read failed: adoption is retried before the
+	// next plan, and nothing from the previous branch stays eligible.
+	let adoptionPending = false;
+
+	function adopt(ctx: DeliveryContext) {
+		adopted = new Set<string>();
+		adoptionPending = true;
+		adopted = new Set(
+			undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true })
+				// A call still returning its result is not an orphan.
+				.filter(
+					({ outcome }) =>
+						outcome.channel === "tool" && !isLive(outcome.requestId)
+				)
+				.map(({ outcome }) => outcome.outcomeId)
+		);
+		adoptionPending = false;
+		watching = true;
+	}
 
 	function plan(ctx: DeliveryContext, situation: AskDeliverySituation) {
+		if (adoptionPending) {
+			adopt(ctx);
+		}
 		if (!watching) {
 			return;
 		}
@@ -219,14 +242,7 @@ export function createAskDelivery(
 		post() {
 			watching = true;
 		},
-		attach(ctx) {
-			adopted = new Set(
-				undeliveredOutcomes(readAskJournal(ctx), { unrecordedTool: true })
-					.filter(({ outcome }) => outcome.channel === "tool")
-					.map(({ outcome }) => outcome.outcomeId)
-			);
-			watching = true;
-		},
+		attach: adopt,
 		started() {
 			// No prior run can still be writing a send. Do not send here: this
 			// run's starting message is recorded before its first boundary.

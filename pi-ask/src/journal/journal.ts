@@ -142,6 +142,12 @@ export class AskJournalWriteError extends Error {
 	}
 }
 
+/** User-facing text for a countdown stop that could not be journalled. */
+export function describeExpiryStopFailure(error: AskJournalWriteError): string {
+	const cause = error.cause instanceof Error ? error.cause.message : String(error.cause);
+	return `Could not save the ask_user countdown stop (${cause}). The countdown is stopped for now, but a reload may restore it; fix session storage.`;
+}
+
 /** Journal backed by the session file; successful writes are required. */
 export function createSessionAskJournal(
 	pi: Pick<ExtensionAPI, "appendEntry">,

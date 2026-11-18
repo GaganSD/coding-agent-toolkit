@@ -525,3 +525,26 @@ test("a blocking form that expired can be corrected late too", async () => {
 	assert.match(host.sent[0]?.message.content ?? "", /^CORRECTION: /);
 	assert.equal(outcomes(host).at(-1)?.supersedes, outcomes(host)[0].outcomeId);
 });
+
+test("a countdown stop that cannot be journalled still stops, still handles the key and reports", async (t) => {
+	const { host } = await withTimedPanel();
+	assert.match(host.panelText(), /No reply in 1:00/);
+	const pi: ExtensionAPI = host.pi;
+	const append = pi.appendEntry;
+	t.mock.method(pi, "appendEntry", (type: string, data: any) => {
+		if (data.kind === "expiry") {
+			throw new Error("disk full");
+		}
+		append(type, data);
+	});
+
+	host.type(KEY.enter);
+	assert.match(host.notices.at(-1) ?? "", /Could not save the ask_user countdown stop.*disk full.*stopped for now/);
+	assert.match(host.panelText(), /Which cache/, "the first key was handled");
+	assert.doesNotMatch(host.panelText(), /No reply in/, "the countdown stopped");
+
+	host.time.advance(120 * SECOND);
+	assert.equal(outcomes(host).length, 0, "a stopped clock does not restart");
+	assert.equal(host.sent.length, 0);
+	host.emit("session_shutdown");
+});

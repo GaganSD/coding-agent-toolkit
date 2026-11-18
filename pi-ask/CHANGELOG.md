@@ -13,6 +13,7 @@
 - **Cancel with a comment and skip.** `c` on the review tab attaches a short reason to a cancellation. `s` declines one question without cancelling the form; skipped is neither an answer nor approval.
 - **Configuration and keys.** New keys `behaviour.background`, `expiry.enabled` and `expiry.minSeconds`, plus keymaps `global.later`, `global.panelFocus`, `main.skip` and `main.cancelComment`. `/ask-settings` exposes the expiry toggles; schema changes apply on `/reload`. `/ask-panel` shows waiting and expired forms.
 - **Hosts without the custom TUI** keep the blocking card flow: `background` blocks there and there is no countdown.
+- **Fixed.** A failed journal read on attach or a failed countdown-stop write no longer breaks panel refresh or swallows the first keystroke, and a blocking reply that could not be saved now returns the form to the panel with an error notice and tells the agent not to re-ask.
 - The default `ask_user` context footprint is 1,598 chars (≈ 400 tokens), or 1,534 (≈ 384) with expiry off, within the existing 450/420 token ceilings.
 
 ## 0.1.5

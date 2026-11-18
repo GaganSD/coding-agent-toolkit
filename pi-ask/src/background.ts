@@ -26,7 +26,7 @@ import {
 } from "./delivery.ts";
 import { askStrings } from "./i18n.ts";
 import { ASK_ANSWER_MESSAGE_TYPE } from "./journal/entries.ts";
-import { AskJournalWriteError, readAskJournal } from "./journal/journal.ts";
+import { AskJournalWriteError, describeExpiryStopFailure, readAskJournal } from "./journal/journal.ts";
 import {
 	type AskJournalRecord,
 	getRecord,
@@ -121,9 +121,12 @@ export function registerAskBackground(
 		"agent_before_settle",
 		(event, ctx) => background.boundary(ctx, event)
 	);
-	pi.on("agent_settled", (event, ctx) =>
-		background.settled(ctx, event.aborted)
-	);
+	pi.on("agent_settled", (event, ctx) => {
+		// Every result of the run has landed, or never will. Landed results
+		// are excluded by the branch itself; this only ends the hold.
+		runtime.returning.clear();
+		background.settled(ctx, event.aborted);
+	});
 	// A manual compaction keeps Pi busy without a run; pick up afterwards.
 	pi.on("session_compact", (_event, ctx) => background.poke(ctx));
 	pi.registerMessageRenderer?.(
@@ -139,12 +142,22 @@ export function registerAskBackground(
 	return background;
 }
 
+/** Pi's own error for an extension context used after reload or replacement. */
+function isRecoverableReadError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		error.message.startsWith("This extension ctx is stale after")
+	);
+}
+
 export function createAskBackground(
 	pi: Pick<ExtensionAPI, "sendMessage">,
-	{ clock, flushers, journal, live }: AskRuntime
+	{ clock, flushers, journal, live, returning, unsaved }: AskRuntime
 ): AskBackground {
 	const now = clock?.now ?? Date.now;
-	const delivery = createAskDelivery(pi);
+	const delivery = createAskDelivery(pi, {
+		isLive: (requestId) => live.has(requestId) || returning.has(requestId),
+	});
 	const recorders = new Map<string, (state: AskState) => void>();
 	// Content key of the draft each loaded form last started from or wrote,
 	// to tell whether a re-read branch still agrees with what is on screen.
@@ -218,9 +231,39 @@ export function createAskBackground(
 		return recorder;
 	}
 
-	function readQueue(current: ExtensionContext) {
+	/**
+	 * Forms whose save failed are held in memory. Once the journal accepts a
+	 * `defer` for one, it is an ordinary queued form and survives a reload.
+	 */
+	function persistUnsaved(current: ExtensionContext) {
+		if (unsaved.size === 0) {
+			return;
+		}
 		const journalState = readAskJournal(current);
-		const pending = pendingForms(journalState, live, reopened);
+		for (const requestId of [...unsaved]) {
+			const record = getRecord(journalState, requestId);
+			if (!record) {
+				continue;
+			}
+			if (!isOpen(record) || record.deferred) {
+				unsaved.delete(requestId);
+			} else if (!live.has(requestId)) {
+				try {
+					journal.recordDefer(requestId);
+					unsaved.delete(requestId);
+				} catch (error) {
+					if (!(error instanceof AskJournalWriteError)) {
+						throw error;
+					}
+				}
+			}
+		}
+	}
+
+	function readQueue(current: ExtensionContext) {
+		persistUnsaved(current);
+		const journalState = readAskJournal(current);
+		const pending = pendingForms(journalState, live, reopened, unsaved);
 		records = new Map(pending.map((record) => [record.requestId, record]));
 		for (const requestId of recorders.keys()) {
 			if (!records.has(requestId)) {
@@ -567,8 +610,18 @@ export function createAskBackground(
 			}
 			reconcileBranch(next);
 			refresh((queue, hidden) => ({ type: "sync", queue, hidden }));
-			delivery.attach(next);
-			poke(next);
+			try {
+				delivery.attach(next);
+			} catch (error) {
+				// A stale context or an unreadable branch is retried by the next
+				// pump or lifecycle event; nothing stale is kept. Anything else
+				// is a bug: surface it once the panel has refreshed.
+				if (!isRecoverableReadError(error)) {
+					throw error;
+				}
+			} finally {
+				poke(next);
+			}
 		},
 		poke,
 		formEnded(next) {
@@ -584,6 +637,13 @@ export function createAskBackground(
 				const timer = createExpiryTimer(options.timeoutSeconds, clock);
 				timer.subscribe({
 					stop: (reason) => journal.recordExpiryStop(requestId, reason),
+					failed: (error) => {
+						if (error instanceof AskJournalWriteError) {
+							ctx?.ui.notify(describeExpiryStopFailure(error), "error");
+							return true;
+						}
+						return false;
+					},
 					expire: () => expire(requestId),
 				});
 				timers.set(requestId, timer);

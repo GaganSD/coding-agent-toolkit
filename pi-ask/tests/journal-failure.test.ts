@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AskJournalEntry } from "../src/journal/entries.ts";
 import { AskJournalWriteError, createAskJournal } from "../src/journal/journal.ts";
 import { createInitialState } from "../src/state/create.ts";
-import { boot, kinds, ONE, SUBMIT_ONE, SUBMIT_TWO, withBackgroundForm } from "./support/background.ts";
+import { boot, kinds, ONE, start, SUBMIT_ONE, SUBMIT_TWO, withBackgroundForm } from "./support/background.ts";
 import { KEY, quietConfig, tick } from "./support/fake-pi.ts";
 
 beforeEach(quietConfig);
@@ -109,4 +109,110 @@ test("draft deduplication advances only after a successful write", () => {
 	record(state);
 	record(state);
 	assert.equal(writes, 2, "the failed write is retried, then deduplicated");
+});
+
+for (const [name, kind, keys, wording] of [
+	["submit", "outcome", SUBMIT_ONE, /answer was not saved/],
+	["defer", "defer", [KEY.later], /deferral was not saved/],
+	["cancel", "outcome", [KEY.ctrlC], /cancellation was not saved/],
+] as const) {
+	test(`a failed blocking ${name} save puts the form back in the panel, tells the user and the agent`, async (t) => {
+		const host = boot();
+		const pi: ExtensionAPI = host.pi;
+		const append = pi.appendEntry;
+		t.mock.method(pi, "appendEntry", (type: string, data: unknown) => {
+			if ((data as AskJournalEntry).kind === kind) {
+				throw new Error("disk full");
+			}
+			append(type, data);
+		});
+		const rejected = assert.rejects(
+			host.ask(ONE("choice")),
+			new RegExp(`${wording.source}.*reappear in their panel.*Do not re-ask`)
+		);
+		await tick();
+		host.forms[0]?.press(...keys);
+		await rejected;
+		assert.match(host.panelText(), /CHOICE/, "the form is back at once");
+		assert.match(host.notices.at(-1) ?? "", /Could not save ask_user.*disk full.*back in your panel/);
+		host.emit("session_shutdown");
+	});
+}
+
+for (const [name, keys] of [
+	["submit", SUBMIT_ONE],
+	["defer", [KEY.later]],
+] as const) {
+	test(`a form whose blocking ${name} save failed stays in the panel after the chat moves on, then survives a reload`, async (t) => {
+		const host = boot();
+		await start(host, "startup");
+		const pi: ExtensionAPI = host.pi;
+		const append = pi.appendEntry;
+		let broken = false;
+		t.mock.method(pi, "appendEntry", (type: string, data: unknown) => {
+			if (broken) {
+				throw new Error("disk full");
+			}
+			append(type, data);
+		});
+		const rejected = assert.rejects(host.ask(ONE("choice")), AskJournalWriteError);
+		await tick();
+		broken = true;
+		host.forms[0]?.press(...keys);
+		await rejected;
+		assert.match(host.panelText(), /CHOICE/);
+
+		// The agent carries on, as promised, and a message lands on the branch.
+		host.session.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "Continuing." }],
+			timestamp: Date.now(),
+		} as never);
+		await host.command("ask-panel");
+		host.emit("session_tree");
+		await tick();
+		assert.match(host.panelText(), /CHOICE/, "still pending while storage is down");
+
+		// Storage works again: the next refresh makes it durable.
+		broken = false;
+		await host.command("ask-panel");
+		assert.equal(kinds(host).filter((kind) => kind === "defer").length, 1);
+		host.emit("session_shutdown");
+
+		const later = boot(host.session);
+		await start(later);
+		assert.match(later.panelText(), /CHOICE/, "back after a reload");
+		later.type(KEY.focus, KEY.enter, KEY.enter);
+		await tick();
+		assert.equal(later.sent.length, 1);
+		assert.equal(kinds(later).filter((kind) => kind === "outcome").length, 1);
+		later.emit("session_shutdown");
+	});
+}
+
+test("a failed-save form answered from the panel while storage is still down is delivered once after recovery", async (t) => {
+	const host = boot();
+	await start(host, "startup");
+	const pi: ExtensionAPI = host.pi;
+	const append = pi.appendEntry;
+	let broken = false;
+	t.mock.method(pi, "appendEntry", (type: string, data: unknown) => {
+		if (broken) {
+			throw new Error("disk full");
+		}
+		append(type, data);
+	});
+	const rejected = assert.rejects(host.ask(ONE("choice")), AskJournalWriteError);
+	await tick();
+	broken = true;
+	host.forms[0]?.press(...SUBMIT_ONE);
+	await rejected;
+	host.session.appendMessage({ role: "user", content: "next", timestamp: Date.now() });
+	broken = false;
+	await host.command("ask-panel");
+	host.type(KEY.enter, KEY.enter);
+	await tick();
+	assert.equal(host.sent.length, 1);
+	assert.equal(kinds(host).filter((kind) => kind === "outcome").length, 1);
+	host.emit("session_shutdown");
 });
