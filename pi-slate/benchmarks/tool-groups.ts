@@ -12,14 +12,13 @@ for (const count of [100, 1000]) {
     result: { isError: false, content: [] }, setExpanded() {},
     render() { renders++; return ["", "✓ Bash (pwd)", "  └ 1 line · 0ms"]; }, invalidate() {},
   } as Component);
-  const groups = new ToolGroups(chat, () => theme, () => "ctrl+o to expand");
-  for (let i = 0; i < 20; i++) chat.render(100);
+  const groups = new ToolGroups(() => theme, () => "ctrl+o to expand");
+  for (let i = 0; i < 20; i++) groups.render(chat.children, 100);
   renders = 0;
   const samples: number[] = [];
   for (let i = 0; i < 100; i++) {
-    const start = performance.now(); chat.render(100); samples.push(performance.now() - start);
+    const start = performance.now(); groups.render(chat.children, 100); samples.push(performance.now() - start);
   }
   samples.sort((a, b) => a - b);
   console.log(JSON.stringify({ children: count, medianMs: samples[50], p95Ms: samples[95], rendersPerChildPerFrame: renders / count / samples.length }));
-  groups.dispose();
 }

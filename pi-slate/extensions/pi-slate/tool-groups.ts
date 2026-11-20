@@ -15,25 +15,25 @@ function tool(component: Component): component is Tool {
     && typeof value.setExpanded === "function" && typeof value.expanded === "boolean"
     && !value.result?.content?.some((part) => part.type === "image");
 }
-function thoughts(component: Component): number | undefined {
-  const message = (component as Thought).lastMessage;
-  if (message?.role !== "assistant" || !Array.isArray(message.content)
-    || message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length") return undefined;
-  let calls = 0, count = 0;
-  for (const part of message.content) {
-    if (part.type === "text" && part.text?.trim()) return undefined;
-    if (part.type === "toolCall") { if (!names.has(part.name ?? "")) return undefined; calls++; }
-    if (part.type === "thinking" && part.thinking?.trim()) count++;
-  }
+function canGroupAssistant(component: Component): boolean {
   const view = component as Thought;
-  if (count && (view.hideThinkingBlock !== true || [...view.thinkingVisibilityOverrides?.values() ?? []].some((hidden) => !hidden))) return undefined;
-  return calls ? count : undefined;
+  const message = view.lastMessage;
+  if (message?.role !== "assistant" || !Array.isArray(message.content)
+    || message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length") return false;
+  let hasCalls = false, hasThinking = false;
+  for (const part of message.content) {
+    if (part.type === "text" && part.text?.trim()) return false;
+    if (part.type === "toolCall") { if (!names.has(part.name ?? "")) return false; hasCalls = true; }
+    if (part.type === "thinking" && part.thinking?.trim()) hasThinking = true;
+  }
+  return hasCalls && (!hasThinking || (view.hideThinkingBlock === true
+    && ![...view.thinkingVisibilityOverrides?.values() ?? []].includes(false)));
 }
 
 type RowOwner = { component: Component; y: number; height: number; inset: number };
 type Segment =
   | { kind: "native"; component: Component }
-  | { kind: "group"; tools: Tool[]; thoughtCount: number; failed: number; running: boolean };
+  | { kind: "group"; start: number; end: number; toolIndices: number[]; failed: number; running: boolean };
 /** Paints an explicit display list and maps its mouse rows. Never patches a host component. */
 export class ToolGroups {
   private owners: Array<RowOwner | undefined> = [];
@@ -47,27 +47,24 @@ export class ToolGroups {
   private plan(children: readonly Component[], width: number): Segment[] {
     const segments: Segment[] = [];
     for (let i = 0; i < children.length;) {
-      let end = i, thoughtCount = 0, failed = 0, running = false, expanded = false;
-      const tools: Tool[] = [];
+      let end = i, failed = 0, running = false, expanded = false;
+      const toolIndices: number[] = [];
       while (end < children.length) {
         const child = children[end]!;
         if (tool(child)) {
-          tools.push(child); expanded ||= child.expanded;
+          toolIndices.push(end);
+          expanded ||= child.expanded;
           running ||= !child.result || child.isPartial;
           if (child.result?.isError) failed++;
-        } else {
-          const count = thoughts(child);
-          if (count === undefined) break;
-          thoughtCount += count;
-        }
+        } else if (!canGroupAssistant(child)) break;
         end++;
       }
-      if (tools.length < 2 || expanded || width < 12) {
+      if (toolIndices.length < 2 || expanded || width < 12) {
         const stop = Math.max(i + 1, end);
         for (; i < stop; i++) segments.push({ kind: "native", component: children[i]! });
         continue;
       }
-      segments.push({ kind: "group", tools, thoughtCount, failed, running });
+      segments.push({ kind: "group", start: i, end, toolIndices, failed, running });
       i = end;
     }
     return segments;
@@ -83,10 +80,9 @@ export class ToolGroups {
         append(segment.component, segment.component.render(width));
         continue;
       }
-      const { tools, thoughtCount, failed, running } = segment;
+      const { start, end, toolIndices, failed, running } = segment;
       const paint = this.theme();
-      const parts = [`${tools.length} tool calls`];
-      if (thoughtCount) parts.push(`${thoughtCount} thought${thoughtCount === 1 ? "" : "s"}`);
+      const parts = [`${toolIndices.length} tool calls`];
       if (failed) parts.push(`${failed} failed`);
       const mark = running ? "◌" : failed ? "✗" : "✓";
       const summary = paint
@@ -94,19 +90,22 @@ export class ToolGroups {
         : `${mark} ${running ? "Running" : "Done"} (${parts.join(" · ")}) ${this.hint()}`;
       lines.push("", truncateToWidth(summary, width));
       owners.push(undefined, undefined);
-      for (let index = 0; index < tools.length; index++) {
-        const member = tools[index]!;
-        // Preserve local row coordinates for the host's existing click-to-expand region.
-        const rows = member.render(Math.max(1, width - 3));
-        const last = index === tools.length - 1;
-        let first = true;
+      let nextTool = 0;
+      for (let index = start; index < end; index++) {
+        const component = children[index]!;
+        const isTool = index === toolIndices[nextTool];
+        if (isTool) nextTool++;
+        // Native assistant rows (thinking toggles) join the tree; local row coordinates keep their click regions.
+        const rows = component.render(Math.max(1, width - 3));
+        const more = nextTool < toolIndices.length;
+        let first = isTool;
         for (let y = 0; y < rows.length; y++) {
           const row = rows[y]!;
           if (!row.trim()) continue;
-          const guide = first ? last ? "└─ " : "├─ " : last ? "   " : "│  ";
+          const guide = first ? more ? "├─ " : "└─ " : more ? "│  " : "   ";
           first = false;
           lines.push(truncateToWidth((paint ? paint.fg("dim", guide) : guide) + row, width));
-          owners.push({ component: member, y, height: rows.length, inset: 3 });
+          owners.push({ component, y, height: rows.length, inset: 3 });
         }
       }
     }
