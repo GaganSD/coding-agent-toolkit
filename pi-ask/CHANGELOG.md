@@ -14,6 +14,9 @@
 - **Configuration and keys.** New keys `behaviour.background`, `expiry.enabled` and `expiry.minSeconds`, plus keymaps `global.later`, `global.panelFocus`, `main.skip` and `main.cancelComment`. `/ask-settings` exposes the expiry toggles; schema changes apply on `/reload`. `/ask-panel` shows waiting and expired forms.
 - **Hosts without the custom TUI** keep the blocking card flow: `background` blocks there and there is no countdown.
 - **Fixed.** A failed journal read on attach or a failed countdown-stop write no longer breaks panel refresh or swallows the first keystroke, and a blocking reply that could not be saved now returns the form to the panel with an error notice and tells the agent not to re-ask.
+- **Polish.** Limits above 24 hours are lowered to 24 hours, so a huge `timeoutSeconds` can no longer overflow the timer and expire at once. The type note names the type a question was actually shown as, `(no answer)` and the waiting notification follow `PI_ASK_LOCALE`, notifications use the form title, and truncation never splits an emoji. The tool-call line reads "1 question" and tags background and timed calls.
+- **Safer config and releases.** Settings are written to a temp file and renamed into place, and a symlinked config file stays a symlink. `prepublishOnly` now also runs lint and `pack:verify`, which checks the tarball holds the skill, docs and screenshots and no tests.
+- **Docs.** The skill says when to set a time limit and what makes a safe fallback; the README documents notification channels, where answers and drafts are stored, and a background example.
 - The default `ask_user` context footprint is 1,598 chars (≈ 400 tokens), or 1,534 (≈ 384) with expiry off, within the existing 450/420 token ceilings.
 
 ## 0.1.5
