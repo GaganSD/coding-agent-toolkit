@@ -1,7 +1,7 @@
 {
   "name": "@gagansd/pi-ask",
   "version": "0.1.5",
-  "description": "TUI interviews for Pi. Ask one decision at a time.",
+  "description": "TUI interviews for Pi: ask one decision at a time; questions can wait in the background.",
   "type": "module",
   "license": "MIT",
   "author": "Gagan Devagiri",

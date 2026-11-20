@@ -13,4 +13,6 @@ Ask one decision per question. Cancellation or ambiguity is not approval; keep r
 
 If the schema has `background`, set it when you can keep working without the answer. The result is then a receipt, not an answer; the answer arrives later as a message. Do not ask again.
 
+If the schema has `timeoutSeconds`, set it only when the user may be away; a `fallback` must be safe and reversible, and an expired result is not approval.
+
 Settings: `/ask-settings` or `?` in a form. Optional file: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the current chat model unless `answer.extractionModels` is set.

@@ -2,7 +2,7 @@
 
 > Structured TUI interviews for the Pi coding agent. One decision at a time.
 
-Non-TUI callers get `status: "unavailable"`. Do not invent filler options.
+In the TUI, questions can wait in the background, be answered later, or expire to a fallback. Hosts with dialog UI but no custom TUI (RPC subagents, ACP clients) get sequential select/input cards; callers with no UI at all get `status: "unavailable"`. Do not invent filler options.
 
 ## Documentation
 
