@@ -59,6 +59,26 @@ test("notification truncation counts graphemes, not UTF-16 units", () => {
 	assert.equal(Array.from(payload.message).at(-2), "😀", "no half surrogate is kept");
 });
 
+test("notification boundaries preserve extended graphemes in messages and titles", () => {
+	for (const grapheme of ["👩🏽‍💻", "👨‍👩‍👧‍👦", "🇨🇳", "e\u0301"]) {
+		const subject = { label: `${"a".repeat(100)}${grapheme}`, prompt: "Prompt" };
+		const title = `${"a".repeat(78)}${grapheme}`;
+		const exact = createQuestionWaitingNotification(
+			{ ...subject, label: `${subject.label}b` },
+			`${title}b`
+		);
+		assert.equal(exact.message, `Question waiting: ${subject.label}b`);
+		assert.equal(exact.title, `${title}b`);
+
+		const truncated = createQuestionWaitingNotification(
+			{ ...subject, label: `${subject.label}bc` },
+			`${title}bc`
+		);
+		assert.equal(truncated.message, `Question waiting: ${subject.label}…`);
+		assert.equal(truncated.title, `${title}…`);
+	}
+});
+
 test("notification message follows PI_ASK_LOCALE", () => {
 	const saved = process.env.PI_ASK_LOCALE;
 	process.env.PI_ASK_LOCALE = "zh";

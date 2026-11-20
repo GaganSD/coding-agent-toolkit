@@ -40,6 +40,9 @@ test("the 24-hour ceiling lowers long limits and never rejects them", () => {
 		);
 	}
 	assert.equal(effectiveTimeoutSeconds(86400, 30), MAX_TIMEOUT_SECONDS);
+	assert.equal(effectiveTimeoutSeconds(86399.5, 30), MAX_TIMEOUT_SECONDS);
+	assert.equal(effectiveTimeoutSeconds(1, 1e308), MAX_TIMEOUT_SECONDS);
+	assert.equal(effectiveTimeoutSeconds(undefined, 1e308), undefined);
 });
 
 test("createExpiryTimer clamps huge seconds before scheduling", () => {
