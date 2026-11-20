@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0
+
+Background questions, answer later, and timeouts with safe fallbacks. Questions survive reloads, and every answer reaches the agent once.
+
 - **Supports async background questions:** The agent can ask low-priority questions and keep working! Answer now, or later with `Ctrl+L`; your answer arrives as a message.
 - **pi-ask is now durable, with safe timeouts:** Questions and drafts survive reload, resume and fork, each answer reaches the agent once, and a question can expire to a fallback the agent chose.
 - **Skip or cancel with a reason, plus fixes:** `s` skips one question, `c` cancels with a comment; safer config saves and Chinese result text.
