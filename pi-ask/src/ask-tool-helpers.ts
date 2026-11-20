@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { UI_DIMENSIONS } from "./constants/ui.ts";
 import { renderResultText } from "./result.ts";
+import { MAX_TIMEOUT_SECONDS } from "./state/expiry.ts";
 import { createInitialState } from "./state/create.ts";
 import { collectValidationIssues } from "./state/normalize.ts";
 import { summarizeResult, toAskResult } from "./state/result.ts";
@@ -79,12 +80,25 @@ export function renderAskToolCall(args: unknown, theme: ToolTheme) {
 				.join(", ")
 		: "";
 	let text = theme.fg("toolTitle", theme.bold("ask_user "));
-	text += theme.fg("muted", `${params.questions?.length ?? 0} question(s)`);
+	const count = params.questions?.length ?? 0;
+	text += theme.fg("muted", `${count} question${count === 1 ? "" : "s"}`);
 	if (labels) {
 		text += theme.fg(
 			"dim",
 			` (${truncateToWidth(labels, UI_DIMENSIONS.callLabelTruncateWidth)})`
 		);
+	}
+	if (params.background === true) {
+		text += theme.fg("dim", " · background");
+	}
+	if (
+		typeof params.timeoutSeconds === "number" &&
+		Number.isFinite(params.timeoutSeconds) &&
+		params.timeoutSeconds > 0
+	) {
+		// Shown as the ceiling would apply it; the floor is config-dependent.
+		const seconds = Math.min(Math.ceil(params.timeoutSeconds), MAX_TIMEOUT_SECONDS);
+		text += theme.fg("dim", ` · ${seconds}s`);
 	}
 	return new Text(text, 0, 0);
 }

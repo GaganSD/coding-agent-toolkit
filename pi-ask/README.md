@@ -102,6 +102,7 @@ The clock is built to be hard to trip:
 - Hiding the panel, deferring, or a blocking form taking over also stops a running clock for good. Nothing pauses and resumes.
 - A form that comes back after Pi restarted (resume, fork, reload) never counts down. You had no fair chance to see its clock.
 - `expiry.minSeconds` (30) is a floor: shorter requests are raised, never rejected.
+- Limits above 24 hours are lowered to 24 hours, even if `expiry.minSeconds` is higher.
 - A background form that expires is delivered like an answer, and it wakes an idle agent: the agent asked for a time-boxed fallback so that an unattended run finishes. A cancellation still never wakes it.
 - With expiry off (`expiry.enabled: false`, applies on `/reload`) both fields are absent from the schema, and a stale call that still carries them waits indefinitely.
 - Hosts without the custom TUI (RPC cards, ACP) have no countdown. The call waits as it does today.
@@ -156,7 +157,7 @@ Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the curren
 | Key | Default | Effect |
 | --- | --- | --- |
 | `expiry.enabled` | `true` | `false` drops `timeoutSeconds` and `fallback` from the schema |
-| `expiry.minSeconds` | `30` | Shorter limits are raised to this floor |
+| `expiry.minSeconds` | `30` | Shorter limits are raised to this floor, up to the 24-hour ceiling |
 | `behaviour.background` | `true` | `false` drops `background`; every call blocks |
 | `notifications.enabled` | `true` | Notify when a question starts waiting |
 | `notifications.channels` | `["bell"]` | `bell`, `osc9`, `osc777`, or `{ "type": "command", "command": "..." }`; commands get `ASK_NOTIFY_EVENT`, `ASK_NOTIFY_TITLE`, `ASK_NOTIFY_MESSAGE` and a 5 s timeout |

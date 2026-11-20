@@ -815,7 +815,7 @@ async function notifyCurrentQuestion(
 	}
 	return notifyQuestionWaiting(
 		controller.config,
-		createQuestionWaitingNotification(question)
+		createQuestionWaitingNotification(question, controller.state.title)
 	);
 }
 

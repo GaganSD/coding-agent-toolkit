@@ -41,7 +41,8 @@
     "test:integration": "node ../scripts/test-package.mjs pi-ask integration",
     "build": "node ../scripts/package.mjs pi-ask",
     "pack:check": "npm pack --dry-run",
-    "prepublishOnly": "npm test && npm run typecheck"
+    "pack:verify": "node scripts/pack-verify.mjs",
+    "prepublishOnly": "npm test && npm run typecheck && npm run lint && npm run pack:verify"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

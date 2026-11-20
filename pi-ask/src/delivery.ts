@@ -125,8 +125,9 @@ export function formatDeliveredOutcome(
 }
 
 function formatAnswer(answer: AskResultAnswer | undefined): string {
+	const noAnswer = askStrings().unansweredMark;
 	if (!answer) {
-		return "(no answer)";
+		return noAnswer;
 	}
 	const parts = answer.values.map((value, index) => {
 		const label = answer.labels[index] ?? value;
@@ -140,7 +141,7 @@ function formatAnswer(answer: AskResultAnswer | undefined): string {
 	if (answer.note) {
 		parts.push(`note: ${oneLine(answer.note)}`);
 	}
-	return parts.join("; ") || "(no answer)";
+	return parts.join("; ") || noAnswer;
 }
 
 function oneLine(text: string): string {
