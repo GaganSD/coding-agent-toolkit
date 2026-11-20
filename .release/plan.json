@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "0fa8984bf28898b64ba3a7f86b7602d1b33565a9",
-  "notes": "redesigned sidebar for performance tracking",
+  "sourceSha": "75787c1838a358c343775506f3e4019ce3632ca2",
+  "notes": "Background questions, answer later, and timeouts with safe fallbacks. Questions survive reloads, and every answer reaches the agent once.",
   "packages": [
     {
-      "path": "pi-slate",
-      "name": "pi-slate",
-      "from": "0.2.1",
-      "to": "0.3.0",
+      "path": "pi-ask",
+      "name": "@gagansd/pi-ask",
+      "from": "0.1.5",
+      "to": "0.2.0",
       "bump": "minor"
     }
   ]

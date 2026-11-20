@@ -1,6 +1,6 @@
 {
   "name": "@gagansd/pi-ask",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "TUI interviews for Pi: ask one decision at a time; questions can wait in the background.",
   "type": "module",
   "license": "MIT",
