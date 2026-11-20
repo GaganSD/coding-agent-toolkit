@@ -1,13 +1,18 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AskConfig } from "./config/schema.ts";
+import { askStrings } from "./i18n.ts";
 import type { AskQuestion } from "./types.ts";
 
 const execAsync = promisify(exec);
 const DEFAULT_TITLE = "pi ask";
 const EVENT = "question.waiting";
 const MAX_MESSAGE_LENGTH = 120;
+const MAX_TITLE_LENGTH = 80;
 const COMMAND_TIMEOUT_MS = 5000;
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
+	granularity: "grapheme",
+});
 
 export interface AskNotificationPayload {
 	event: typeof EVENT;
@@ -35,14 +40,16 @@ export function notificationSucceeded(
 }
 
 export function createQuestionWaitingNotification(
-	question: Pick<AskQuestion, "label" | "prompt">
+	question: Pick<AskQuestion, "label" | "prompt">,
+	formTitle?: string
 ): AskNotificationPayload {
 	const subject = question.label || question.prompt;
+	const title = singleLine(formTitle ?? "") || DEFAULT_TITLE;
 	return {
 		event: EVENT,
-		title: DEFAULT_TITLE,
+		title: truncate(title, MAX_TITLE_LENGTH),
 		message: truncate(
-			`Question waiting: ${singleLine(subject)}`,
+			askStrings().questionWaiting(singleLine(subject)),
 			MAX_MESSAGE_LENGTH
 		),
 	};
@@ -111,9 +118,20 @@ function singleLine(value: string): string {
 }
 
 function truncate(value: string, maxLength: number): string {
-	return value.length <= maxLength
+	if (maxLength <= 0) {
+		return "";
+	}
+	if (value.length <= maxLength) {
+		return value;
+	}
+	// Count graphemes so an emoji or combining mark is never cut in half.
+	const graphemes = Array.from(
+		GRAPHEME_SEGMENTER.segment(value),
+		(part) => part.segment
+	);
+	return graphemes.length <= maxLength
 		? value
-		: `${value.slice(0, maxLength - 1)}…`;
+		: `${graphemes.slice(0, maxLength - 1).join("")}…`;
 }
 
 function sanitizeOsc(value: string): string {

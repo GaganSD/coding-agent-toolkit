@@ -8,11 +8,20 @@ export function formatResultLines(
 ): string[] {
 	const lines: string[] = [];
 
-	let hasPresentationOverride = false;
+	const presentedTypes = new Set<"single" | "multi">();
 	const fallbacks = new Set(result.expired ?? []);
 	const skipped = new Set(result.skipped ?? []);
 
 	for (const question of result.questions) {
+		if (hasPresentedTypeOverride(question.type, question.presentedType)) {
+			if (
+				question.presentedType === "single" ||
+				question.presentedType === "multi"
+			) {
+				presentedTypes.add(question.presentedType);
+			}
+		}
+
 		const answer = result.answers[question.id];
 		if (skipped.has(question.id)) {
 			lines.push(formatSkippedLine(question.label, options.mode));
@@ -30,10 +39,6 @@ export function formatResultLines(
 				: formatUnansweredLine(question.label, options.mode)
 		);
 
-		if (hasPresentedTypeOverride(question.type, question.presentedType)) {
-			hasPresentationOverride = true;
-		}
-
 		const questionNoteLine = formatQuestionNoteLine(
 			question.label,
 			answer.note,
@@ -46,8 +51,11 @@ export function formatResultLines(
 		lines.push(...formatOptionNoteLines(question.label, answer, options.mode));
 	}
 
-	if (hasPresentationOverride) {
-		lines.push(formatPresentationNoteLine(options.mode));
+	if (presentedTypes.size > 0) {
+		const types = (["single", "multi"] as const).filter((type) =>
+			presentedTypes.has(type)
+		);
+		lines.push(formatPresentationNoteLine(options.mode, types));
 	}
 
 	return lines;
@@ -72,9 +80,10 @@ function formatUnansweredLine(
 	questionLabel: string,
 	mode: "summary" | "render"
 ): string {
+	const mark = askStrings().unansweredMark;
 	return mode === "summary"
-		? `${questionLabel}: (no answer)`
-		: `? ${questionLabel}: (no answer)`;
+		? `${questionLabel}: ${mark}`
+		: `? ${questionLabel}: ${mark}`;
 }
 
 function formatAnswerLine(
@@ -104,9 +113,11 @@ function hasPresentedTypeOverride(
 	return !!presentedType && presentedType !== type;
 }
 
-function formatPresentationNoteLine(mode: "summary" | "render"): string {
-	const text =
-		"Note: Some questions were presented as multi-select by user preference.";
+function formatPresentationNoteLine(
+	mode: "summary" | "render",
+	presentedTypes: ReadonlyArray<"single" | "multi">
+): string {
+	const text = askStrings().presentationNote(presentedTypes);
 	return mode === "summary" ? text : `  ${text}`;
 }
 

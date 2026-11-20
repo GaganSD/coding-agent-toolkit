@@ -145,3 +145,19 @@ test("a late correction says it replaces the timed-out result", () => {
 	assert.match(cancelled, /^CORRECTION: the user cancelled/);
 	assert.match(cancelled, /fallback you applied is withdrawn/);
 });
+
+test("zh correction refers to the localized unanswered marker", () => {
+	const saved = process.env.PI_ASK_LOCALE;
+	process.env.PI_ASK_LOCALE = "zh";
+	try {
+		const text = formatDeliveredOutcome(
+			{ ...RESULT, status: "expired" },
+			{ correction: true }
+		);
+		assert.match(text, /标为（无回答）的问题没有回答/);
+		assert.match(text, /- skip "Anything else\?": （无回答）/);
+	} finally {
+		if (saved === undefined) delete process.env.PI_ASK_LOCALE;
+		else process.env.PI_ASK_LOCALE = saved;
+	}
+});
