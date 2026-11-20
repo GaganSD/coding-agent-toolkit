@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { stripVTControlCharacters } from "node:util";
 import { Container, Text, visibleWidth, type Component, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { ToolGroups } from "../extensions/pi-slate/tool-groups.ts";
@@ -24,26 +25,92 @@ function setup() {
   return { chat, first, second, surface };
 }
 
-test("groups keep child identity, count failures/thoughts, and show configured hint", () => {
+test("groups count failures and running tools, and show the configured hint", (t) => {
   const { chat, first, second, surface } = setup();
-  const overrides = new Map<number, boolean>();
-  const thought = { ...text("hidden thought"), hideThinkingBlock: true, thinkingVisibilityOverrides: overrides, lastMessage: { role: "assistant", content: [{ type: "thinking", thinking: "private" }, { type: "toolCall", name: "bash" }] } };
-  chat.children.splice(1, 0, thought);
+  t.after(() => surface.dispose());
   second.result.isError = true;
-  const rows = chat.render(80);
-  assert.match(rows.join("\n"), /Done \(2 tool calls · 1 thought · 1 failed\) custom\+o/);
-  assert.ok(!rows.join("\n").includes("hidden thought"));
-  assert.deepEqual(chat.children, [first, thought, second]);
-  overrides.set(0, false);
-  assert.match(chat.render(80).join("\n"), /hidden thought/, "a revealed per-run thought must break groups");
-  assert.doesNotMatch(chat.render(80).join("\n"), /Done|Running/);
-  overrides.clear();
+  assert.match(chat.render(80).join("\n"), /Done \(2 tool calls · 1 failed\) custom\+o/);
   first.isPartial = true;
-  assert.match(chat.render(80).join("\n"), /Running/);
-  thought.hideThinkingBlock = false;
-  assert.match(chat.render(80).join("\n"), /hidden thought/, "Ctrl+T must reveal native thinking");
-  assert.doesNotMatch(chat.render(80).join("\n"), /Done|Running/);
-  surface.dispose();
+  assert.match(chat.render(80).join("\n"), /Running \(2 tool calls · 1 failed\)/);
+});
+
+const bashCall = (id: string) => ({ type: "toolCall" as const, id, name: "bash", arguments: { command: "pwd" } });
+const thinking = (value: string) => ({ type: "thinking" as const, thinking: value });
+function assistant(content: NonNullable<ConstructorParameters<typeof AssistantMessageComponent>[0]>["content"], label?: string) {
+  initTheme("dark", false);
+  return new AssistantMessageComponent({ role: "assistant", stopReason: "toolUse", content } as NonNullable<ConstructorParameters<typeof AssistantMessageComponent>[0]>, true, undefined, label);
+}
+
+function thoughtFrame(chat: Container) {
+  const width = 80, rows = chat.render(width).map(stripVTControlCharacters);
+  return {
+    text: rows.join("\n"),
+    click(label: string, occurrence = 0) {
+      const y = rows.map((row, i) => row.includes(label) ? i : -1).filter(i => i >= 0)[occurrence];
+      assert.notEqual(y, undefined, `missing click target: ${label}`);
+      assert.equal(chat.handleMouse({ type: "click", button: "left", x: 5, y, screenX: 17, screenY: y + 4, width, height: rows.length, shift: false, alt: false, ctrl: false })?.handled, true);
+    },
+  };
+}
+
+test("grouped native thinking rows stay in order and toggle independently", (t) => {
+  const { chat, first, second, surface } = setup();
+  t.after(() => surface.dispose());
+  const beforeFirst = assistant([thinking("first thought body"), thinking("same run"), bashCall(first.toolCallId)]);
+  const beforeSecond = assistant([thinking("second thought body"), bashCall(second.toolCallId)], "Custom thinking label");
+  chat.children.splice(0, 2, beforeFirst, first, beforeSecond, second);
+  const paint = () => thoughtFrame(chat);
+  const grouped = paint().text;
+  assert.match(grouped, /Done \(2 tool calls\)/);
+  assert.match(grouped, /Thinking\.\.\.[\s\S]*├─ ✓ Bash[\s\S]*Custom thinking label[\s\S]*└─ ✓ Bash/);
+  assert.equal(grouped.match(/Thinking\.\.\./g)?.length, 1, "adjacent thinking blocks share one native run");
+  assert.doesNotMatch(grouped, /thought body|same run/);
+
+  paint().click("Thinking...");
+  assert.match(paint().text, /first thought body[\s\S]*same run[\s\S]*Done \(2 tool calls\)[\s\S]*Custom thinking label/);
+  assert.doesNotMatch(paint().text, /second thought body/);
+  paint().click("first thought body");
+  assert.equal(paint().text, grouped);
+
+  paint().click("Custom thinking label");
+  assert.match(paint().text, /Thinking\.\.\.[\s\S]*second thought body/);
+  assert.doesNotMatch(paint().text, /first thought body|Done \(/);
+  paint().click("second thought body");
+  assert.equal(paint().text, grouped);
+  assert.deepEqual(chat.children, [beforeFirst, first, beforeSecond, second]);
+  assert.equal(first.clicks.length + second.clicks.length, 0);
+
+  paint().click("└─ ✓ Bash");
+  assert.equal(first.expanded, false);
+  assert.equal(second.expanded, true);
+  const { x, y, width } = second.clicks[0]!;
+  assert.deepEqual({ x, y, width }, { x: 2, y: 1, width: 77 });
+  second.setExpanded(false);
+  assert.equal(paint().text, grouped);
+
+  beforeFirst.setHideThinkingBlock(false);
+  beforeSecond.setHideThinkingBlock(false);
+  assert.match(paint().text, /first thought body[\s\S]*second thought body/);
+  assert.doesNotMatch(paint().text, /Done \(/);
+});
+
+test("separate thinking runs in one grouped assistant message have separate native toggles", (t) => {
+  const { chat, first, second, surface } = setup();
+  t.after(() => surface.dispose());
+  chat.children.unshift(assistant([
+    thinking("first run"), bashCall(first.toolCallId), thinking("second run"), bashCall(second.toolCallId),
+  ]));
+  const grouped = thoughtFrame(chat).text;
+  assert.match(grouped, /Done \(2 tool calls\)[\s\S]*Thinking\.\.\.[\s\S]*Thinking\.\.\./);
+  for (const [index, revealed, hidden] of [[0, "first run", "second run"], [1, "second run", "first run"]] as const) {
+    thoughtFrame(chat).click("Thinking...", index);
+    const opened = thoughtFrame(chat);
+    assert.ok(opened.text.includes(revealed));
+    assert.ok(!opened.text.includes(hidden));
+    assert.equal(opened.text.match(/Thinking\.\.\./g)?.length, 1);
+    opened.click(revealed);
+    assert.equal(thoughtFrame(chat).text, grouped);
+  }
 });
 
 test("expanded members, images, unknown tools, text and narrow terminals break folding", () => {
