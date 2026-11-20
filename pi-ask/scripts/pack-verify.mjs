@@ -23,7 +23,14 @@ const REQUIRED = [
 
 const FORBIDDEN = [/(^|\/)(node_modules|tests?|scripts|\.git|\.github|\.pi)(\/|$)/];
 
-const output = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+// Run npm through node, as ../scripts/lib.mjs does: Windows ships npm as a
+// .cmd wrapper that execFileSync cannot start without a shell.
+const packArgs = ["pack", "--dry-run", "--json"];
+const [command, args] = process.env.npm_execpath
+	? [process.execPath, [process.env.npm_execpath, ...packArgs]]
+	: ["npm", packArgs];
+const output = execFileSync(command, args, {
+	shell: !process.env.npm_execpath && process.platform === "win32",
 	cwd: root,
 	encoding: "utf8",
 	stdio: ["ignore", "pipe", "inherit"],
