@@ -1,0 +1,52 @@
+/**
+ * pack:verify: assert the npm tarball carries every published file and no
+ * development trees. The repo CI has a generic pack check; this covers
+ * pi-ask's exact docs, skill and screenshot allowlist.
+ */
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+
+const REQUIRED = [
+	"package.json",
+	"src/index.ts",
+	"skills/ask-user/SKILL.md",
+	"README.md",
+	"CHANGELOG.md",
+	"LICENSE",
+	"llms.txt",
+	"assets/multi.png",
+	"assets/single.png",
+	"assets/text.png",
+];
+
+const FORBIDDEN = [/^(?:tests|node_modules)\//];
+
+const output = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+	cwd: root,
+	encoding: "utf8",
+	stdio: ["ignore", "pipe", "inherit"],
+});
+const first = Math.min(
+	...["[", "{"].map((char) => output.indexOf(char)).filter((index) => index >= 0)
+);
+const last = Math.max(output.lastIndexOf("]"), output.lastIndexOf("}"));
+const parsed = JSON.parse(output.slice(first, last + 1));
+// npm <=11 prints an array; npm >=12 keys the same metadata by package name.
+const entry = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
+const files = entry.files.map((file) => file.path);
+const set = new Set(files);
+const missing = REQUIRED.filter((path) => !set.has(path));
+const forbidden = files.filter((path) => FORBIDDEN.some((pattern) => pattern.test(path)));
+
+if (missing.length > 0 || forbidden.length > 0) {
+	if (missing.length > 0) {
+		console.error(`pack:verify: missing from tarball:\n  ${missing.join("\n  ")}`);
+	}
+	if (forbidden.length > 0) {
+		console.error(`pack:verify: forbidden files in tarball:\n  ${forbidden.join("\n  ")}`);
+	}
+	process.exit(1);
+}
+console.log(`pack:verify: ok (${files.length} files)`);

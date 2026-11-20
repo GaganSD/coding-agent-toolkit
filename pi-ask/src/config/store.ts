@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -22,15 +23,21 @@ interface AskConfigLoadResult {
 	notice?: AskConfigNotice;
 }
 
+interface AskConfigStoreDeps {
+	rename?: typeof rename;
+}
+
 export class AskConfigStore {
 	private config?: AskConfig;
 	private loadPromise?: Promise<AskConfigLoadResult>;
 	private notice?: AskConfigNotice;
 	private readonly listeners = new Set<(config: AskConfig) => void>();
 	private readonly configPath: string;
+	private readonly deps: AskConfigStoreDeps;
 
-	constructor(configPath?: string) {
+	constructor(configPath?: string, deps: AskConfigStoreDeps = {}) {
 		this.configPath = configPath ?? getAskConfigPath();
+		this.deps = deps;
 	}
 
 	subscribe(onChange: (config: AskConfig) => void): () => void {
@@ -86,7 +93,7 @@ export class AskConfigStore {
 		);
 		try {
 			await mkdir(dirname(this.configPath), { recursive: true });
-			await writeFile(this.configPath, content, "utf-8");
+			await writeConfigAtomically(this.configPath, content, this.deps);
 		} catch (error) {
 			throw createConfigSaveError(this.configPath, error);
 		}
@@ -156,6 +163,24 @@ export function resetAskConfigStore(): void {
 
 export function getAskConfigPath(): string {
 	return join(getAgentDir(), "extensions", "pi-ask.json");
+}
+
+async function writeConfigAtomically(
+	path: string,
+	content: string,
+	deps: AskConfigStoreDeps
+): Promise<void> {
+	// Write through a symlinked config (dotfile repos) instead of replacing it.
+	const target = await realpath(path).catch(() => path);
+	const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		await writeFile(temporary, content, { encoding: "utf-8", flag: "wx" });
+		await (deps.rename ?? rename)(temporary, target);
+	} finally {
+		// The rename removes the temp file on success; a failed write or rename
+		// leaves it behind, so always try to clean it up without masking errors.
+		await unlink(temporary).catch(() => {});
+	}
 }
 
 function createConfigSaveError(path: string, error: unknown): Error {

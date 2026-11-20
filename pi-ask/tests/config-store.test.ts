@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -91,6 +91,45 @@ test("config store writes full normalized config on save", async () => {
 	assert.equal(written.schemaVersion, 1);
 	assert.equal(written.behaviour.showFooterHints, false);
 	assert.equal(written.behaviour.presentSingleAsMulti, undefined);
+});
+
+test("config store removes its temp file after a successful save", async () => {
+	const path = await makeTempPath("pi-ask-config-atomic-ok-");
+	await new AskConfigStore(path).save(DEFAULT_ASK_CONFIG);
+
+	assert.deepEqual(await readdir(dirname(path)), ["pi-ask.json"]);
+});
+
+test("saving through a symlinked config keeps the link", async () => {
+	const path = await makeTempPath("pi-ask-config-atomic-link-");
+	const real = join(dirname(path), "real.json");
+	await writeFile(real, "{}\n");
+	await symlink(real, path);
+	await new AskConfigStore(path).save(DEFAULT_ASK_CONFIG);
+
+	assert.ok((await lstat(path)).isSymbolicLink());
+	assert.equal(
+		JSON.parse(await readFile(real, "utf-8")).schemaVersion,
+		expectedConfigFile().schemaVersion
+	);
+});
+
+test("failed rename keeps the original config and removes the temp file", async () => {
+	const path = await makeTempPath("pi-ask-config-atomic-fail-");
+	const original = `${JSON.stringify(expectedConfigFile(), null, 2)}\n`;
+	await writeFile(path, original);
+	const store = new AskConfigStore(path, {
+		rename: async () => {
+			throw new Error("rename blocked");
+		},
+	});
+
+	await assert.rejects(
+		store.save(DEFAULT_ASK_CONFIG),
+		/Unable to save ask config at .*rename blocked/
+	);
+	assert.equal(await readFile(path, "utf-8"), original);
+	assert.deepEqual(await readdir(dirname(path)), ["pi-ask.json"]);
 });
 
 test("config store leaves invalid files unchanged", async () => {
