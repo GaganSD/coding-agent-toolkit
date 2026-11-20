@@ -23,6 +23,14 @@ export interface AskStrings {
 	cancel: string;
 	/** Placeholder for an unanswered question in the review card. */
 	noAnswer: string;
+	/** Marker for a question with no answer in model-facing summaries. */
+	unansweredMark: string;
+	/** Note that questions were shown as a different select type. */
+	presentationNote: (
+		presentedTypes: ReadonlyArray<"single" | "multi">
+	) => string;
+	/** External notification line for a waiting question. */
+	questionWaiting: (subject: string) => string;
 	/** Marker appended to a recommended option's row. */
 	recommendedMarker: string;
 	/** One-line summary returned to the model when the user cancels. */
@@ -97,6 +105,8 @@ const EN_RECEIPT_RULES =
 	"This is a receipt, not an answer or approval. Continue only with work that does not depend on it; the answer arrives in a later message. Do not ask again.";
 const ZH_RECEIPT_RULES =
 	"这只是回执，不是回答，也不是批准。只继续不依赖该回答的工作；回答会在之后的消息中送达。不要重复提问。";
+const EN_UNANSWERED_MARK = "(no answer)";
+const ZH_UNANSWERED_MARK = "（无回答）";
 
 function count(value: number, noun: string): string {
 	return `${value} ${noun}${value === 1 ? "" : "s"}`;
@@ -120,6 +130,14 @@ const EN_STRINGS: AskStrings = {
 	submitAnswers: "✔ Submit answers",
 	cancel: "✕ Cancel",
 	noAnswer: "—",
+	unansweredMark: EN_UNANSWERED_MARK,
+	presentationNote: (presentedTypes) => {
+		const labels = [...new Set(presentedTypes)].map((type) =>
+			type === "single" ? "single-select" : "multi-select"
+		);
+		return `Note: Some questions were presented as ${labels.join(" and ")} by user preference.`;
+	},
+	questionWaiting: (subject) => `Question waiting: ${subject}`,
 	recommendedMarker: "(Recommended)",
 	cancelledSummary: "User cancelled the ask flow",
 	submittedSummary: "User submitted the ask flow",
@@ -151,7 +169,7 @@ const EN_STRINGS: AskStrings = {
 	expiredDelivered: (requestId, title) =>
 		`Your earlier ask_user form ${formRef(requestId, title)} timed out.`,
 	correctionDelivered: (requestId, title) =>
-		`CORRECTION: the user answered your earlier ask_user form ${formRef(requestId, title)} after it timed out. This replaces the timed-out result, fallbacks included. A question marked (no answer) has none: do not rely on a fallback for it.`,
+		`CORRECTION: the user answered your earlier ask_user form ${formRef(requestId, title)} after it timed out. This replaces the timed-out result, fallbacks included. A question marked ${EN_UNANSWERED_MARK} has none: do not rely on a fallback for it.`,
 	correctionCancelDelivered: (requestId, title) =>
 		`CORRECTION: the user cancelled your earlier ask_user form ${formRef(requestId, title)} after it timed out. Any fallback you applied is withdrawn. Cancellation is not approval; keep risky actions blocked.`,
 	countdownRunning: (remaining, hasFallback) =>
@@ -199,6 +217,14 @@ const ZH_STRINGS: AskStrings = {
 	submitAnswers: "✔ 提交答案",
 	cancel: "✕ 取消",
 	noAnswer: "—",
+	unansweredMark: ZH_UNANSWERED_MARK,
+	presentationNote: (presentedTypes) => {
+		const labels = [...new Set(presentedTypes)].map((type) =>
+			type === "single" ? "单选" : "多选"
+		);
+		return `注意：部分问题已按用户偏好以${labels.join("或")}形式呈现。`;
+	},
+	questionWaiting: (subject) => `等待回答的问题：${subject}`,
 	recommendedMarker: "（推荐）",
 	cancelledSummary: "用户取消了提问流程",
 	submittedSummary: "用户提交了提问流程",
@@ -230,7 +256,7 @@ const ZH_STRINGS: AskStrings = {
 	expiredDelivered: (requestId, title) =>
 		`你之前的 ask_user 表单 ${formRef(requestId, title)} 已超时。`,
 	correctionDelivered: (requestId, title) =>
-		`更正：用户在你之前的 ask_user 表单 ${formRef(requestId, title)} 超时后作出了回答。此回答取代超时结果（包括备选项）。标为（无回答）的问题没有回答，不要依赖其备选项。`,
+		`更正：用户在你之前的 ask_user 表单 ${formRef(requestId, title)} 超时后作出了回答。此回答取代超时结果（包括备选项）。标为${ZH_UNANSWERED_MARK}的问题没有回答，不要依赖其备选项。`,
 	correctionCancelDelivered: (requestId, title) =>
 		`更正：用户在你之前的 ask_user 表单 ${formRef(requestId, title)} 超时后取消了它。你应用过的备选项一律撤回。取消不代表批准；有风险的操作仍须保持阻止。`,
 	countdownRunning: (remaining, hasFallback) =>

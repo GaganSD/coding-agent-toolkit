@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Value } from "typebox/value";
+import { renderAskToolCall } from "../src/ask-tool-helpers.ts";
 import { registerAskTool } from "../src/ask-tool.ts";
 import { AskOptionSchema, AskParamsSchema } from "../src/schema.ts";
 
@@ -17,6 +18,18 @@ const MISSING_OPTION_VALUE_RE =
 const EMPTY_QUESTIONS_RE = /questions: At least one question is required/;
 const INVALID_TYPE_RE =
 	/questions\[0\]\.type: Question 1: invalid type "grid"; expected "single", "multi", or "text"/;
+
+const PLAIN_THEME = {
+	bold: (text: string) => text,
+	fg: (_color: string, text: string) => text,
+};
+
+function renderCallText(params: unknown): string {
+	return renderAskToolCall(params, PLAIN_THEME as never)
+		.render(200)
+		.join("\n")
+		.trim();
+}
 
 function registerMockTool() {
 	const tools: Record<string, unknown>[] = [];
@@ -341,4 +354,30 @@ test("prepareArguments fills missing option labels from values", () => {
 		],
 	}) as { questions: Array<{ options: Array<{ label: string }> }> };
 	assert.equal(prepared.questions[0]?.options[0]?.label, "Ship it");
+});
+
+test("tool call header pluralizes questions and tags background and timeout", () => {
+	assert.equal(
+		renderCallText({ questions: [{ id: "q", prompt: "Q?" }] }),
+		"ask_user 1 question (Q1)"
+	);
+
+	assert.equal(
+		renderCallText({
+			background: true,
+			questions: [
+				{ id: "a", prompt: "A?" },
+				{ id: "b", prompt: "B?" },
+			],
+			timeoutSeconds: 45,
+		}),
+		"ask_user 2 questions (Q1, Q2) · background · 45s"
+	);
+
+	const untagged = renderCallText({
+		background: false,
+		questions: [{ id: "q", prompt: "Q?" }],
+		timeoutSeconds: 0,
+	});
+	assert.equal(untagged, "ask_user 1 question (Q1)");
 });

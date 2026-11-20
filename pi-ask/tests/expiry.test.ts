@@ -6,6 +6,7 @@ import {
 	createExpiryTimer,
 	effectiveTimeoutSeconds,
 	formatRemaining,
+	MAX_TIMEOUT_SECONDS,
 	toExpiredResult,
 } from "../src/state/expiry.ts";
 import type { AskParams } from "../src/types.ts";
@@ -28,6 +29,42 @@ test("the floor raises short limits and never rejects them", () => {
 	assert.equal(effectiveTimeoutSeconds(90, 30), 90);
 	assert.equal(effectiveTimeoutSeconds(45.2, 30), 46);
 	assert.equal(effectiveTimeoutSeconds(1, 0.5), 1);
+});
+
+test("the 24-hour ceiling lowers long limits and never rejects them", () => {
+	for (const requested of [1e9, 1e308, 86401]) {
+		assert.equal(
+			effectiveTimeoutSeconds(requested, 30),
+			MAX_TIMEOUT_SECONDS,
+			`${requested} is lowered to the ceiling`
+		);
+	}
+	assert.equal(effectiveTimeoutSeconds(86400, 30), MAX_TIMEOUT_SECONDS);
+	assert.equal(effectiveTimeoutSeconds(86399.5, 30), MAX_TIMEOUT_SECONDS);
+	assert.equal(effectiveTimeoutSeconds(1, 1e308), MAX_TIMEOUT_SECONDS);
+	assert.equal(effectiveTimeoutSeconds(undefined, 1e308), undefined);
+});
+
+test("createExpiryTimer clamps huge seconds before scheduling", () => {
+	const fake = fakeClock();
+	const delays: number[] = [];
+	const timer = createExpiryTimer(1e308, {
+		now: fake.clock.now,
+		clearTimeout: fake.clock.clearTimeout,
+		setTimeout(task, ms) {
+			delays.push(ms);
+			return fake.clock.setTimeout(task, ms);
+		},
+	});
+	timer.arm();
+	timer.show();
+
+	assert.equal(timer.view().remainingSeconds, MAX_TIMEOUT_SECONDS);
+	assert.ok(delays.length > 0);
+	assert.ok(
+		delays.every((ms) => Number.isFinite(ms) && ms <= 1000),
+		"no overflowing delay reaches setTimeout"
+	);
 });
 
 test("the clock does not start until the form is armed and visible", () => {

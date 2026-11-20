@@ -78,7 +78,10 @@ export interface ExpiryTimer {
 	view(): ExpiryView;
 }
 
-/** Shorter requests are raised to the floor, never rejected. */
+/** Hard ceiling for a call's limit: 24 hours. Longer requests are lowered. */
+export const MAX_TIMEOUT_SECONDS = 24 * 60 * 60;
+
+/** Shorter requests are raised to the floor, longer ones lowered to the ceiling. */
 export function effectiveTimeoutSeconds(
 	requested: number | undefined,
 	minSeconds: number
@@ -86,13 +89,20 @@ export function effectiveTimeoutSeconds(
 	if (requested === undefined) {
 		return;
 	}
-	return Math.max(Math.ceil(requested), Math.ceil(minSeconds));
+	return clampTimeoutSeconds(
+		Math.max(Math.ceil(requested), Math.ceil(minSeconds))
+	);
+}
+
+function clampTimeoutSeconds(seconds: number): number {
+	return Math.min(Math.ceil(seconds), MAX_TIMEOUT_SECONDS);
 }
 
 export function createExpiryTimer(
 	seconds: number,
 	clock: ExpiryClock = systemClock
 ): ExpiryTimer {
+	const totalSeconds = clampTimeoutSeconds(seconds);
 	const listeners = new Set<ExpiryListener>();
 	let phase: ExpiryPhase = "pending";
 	let stopReason: ExpiryStopReason | undefined;
@@ -175,7 +185,7 @@ export function createExpiryTimer(
 			return;
 		}
 		phase = "running";
-		deadline = clock.now() + seconds * 1000;
+		deadline = clock.now() + totalSeconds * 1000;
 		schedule();
 		settle(emit((listener) => listener.change?.(view())));
 	}
