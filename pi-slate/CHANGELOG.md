@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Grouped tool calls keep each hidden thought's clickable `Thinking...` row in place, drawn inside the group's tree (#136).
+
 ## 0.3.0
 
 redesigned sidebar for performance tracking

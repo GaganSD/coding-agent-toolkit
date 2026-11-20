@@ -93,19 +93,16 @@ export class ToolGroups {
       let nextTool = 0;
       for (let index = start; index < end; index++) {
         const component = children[index]!;
-        if (index !== toolIndices[nextTool]) {
-          // Keep Pi's thinking rows in place with their native click regions.
-          append(component, component.render(width));
-          continue;
-        }
-        // Preserve local row coordinates for the host's existing click-to-expand region.
+        const isTool = index === toolIndices[nextTool];
+        if (isTool) nextTool++;
+        // Native assistant rows (thinking toggles) join the tree; local row coordinates keep their click regions.
         const rows = component.render(Math.max(1, width - 3));
-        const last = ++nextTool === toolIndices.length;
-        let first = true;
+        const more = nextTool < toolIndices.length;
+        let first = isTool;
         for (let y = 0; y < rows.length; y++) {
           const row = rows[y]!;
           if (!row.trim()) continue;
-          const guide = first ? last ? "└─ " : "├─ " : last ? "   " : "│  ";
+          const guide = first ? more ? "├─ " : "└─ " : more ? "│  " : "   ";
           first = false;
           lines.push(truncateToWidth((paint ? paint.fg("dim", guide) : guide) + row, width));
           owners.push({ component, y, height: rows.length, inset: 3 });

@@ -36,10 +36,10 @@ test("groups count failures and running tools, and show the configured hint", (t
 
 const bashCall = (id: string) => ({ type: "toolCall" as const, id, name: "bash", arguments: { command: "pwd" } });
 const thinking = (value: string) => ({ type: "thinking" as const, thinking: value });
-function assistant(content: NonNullable<ConstructorParameters<typeof AssistantMessageComponent>[0]>["content"], label?: string) {
-  initTheme("dark", false);
-  return new AssistantMessageComponent({ role: "assistant", stopReason: "toolUse", content } as NonNullable<ConstructorParameters<typeof AssistantMessageComponent>[0]>, true, undefined, label);
-}
+initTheme("dark", false);
+type AssistantMessage = NonNullable<ConstructorParameters<typeof AssistantMessageComponent>[0]>;
+const assistant = (content: AssistantMessage["content"], label?: string) =>
+  new AssistantMessageComponent({ role: "assistant", stopReason: "toolUse", content } as AssistantMessage, true, undefined, label);
 
 function thoughtFrame(chat: Container) {
   const width = 80, rows = chat.render(width).map(stripVTControlCharacters);
@@ -65,6 +65,11 @@ test("grouped native thinking rows stay in order and toggle independently", (t) 
   assert.match(grouped, /Thinking\.\.\.[\s\S]*├─ ✓ Bash[\s\S]*Custom thinking label[\s\S]*└─ ✓ Bash/);
   assert.equal(grouped.match(/Thinking\.\.\./g)?.length, 1, "adjacent thinking blocks share one native run");
   assert.doesNotMatch(grouped, /thought body|same run/);
+  assert.equal(grouped.replace(/ +$/gm, ""), [
+    "", "✓ Done (2 tool calls) custom+o to expand",
+    "│   Thinking...", "├─ ✓ Bash (pwd)", "│    └ 1 line",
+    "│   Custom thinking label", "└─ ✓ Bash (pwd)", "     └ 1 line",
+  ].join("\n"));
 
   paint().click("Thinking...");
   assert.match(paint().text, /first thought body[\s\S]*same run[\s\S]*Done \(2 tool calls\)[\s\S]*Custom thinking label/);
@@ -153,11 +158,8 @@ test("groups retain their summary and guides without a theme", () => {
 });
 
 test("native response-length warnings remain a grouping boundary", () => {
-  initTheme("dark", false);
   const { chat, surface } = setup();
-  const message = new AssistantMessageComponent({ role: "assistant", stopReason: "length", content: [
-    { type: "toolCall", id: "a", name: "bash", arguments: { command: "pwd" } },
-  ] } as unknown as ConstructorParameters<typeof AssistantMessageComponent>[0], true);
+  const message = new AssistantMessageComponent({ role: "assistant", stopReason: "length", content: [bashCall("a")] } as unknown as AssistantMessage, true);
   chat.children.unshift(message);
   assert.match(chat.render(100).join("\n"), /Response was truncated before completion/);
   surface.dispose();
