@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { lstat, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -112,6 +112,46 @@ test("saving through a symlinked config keeps the link", async () => {
 		JSON.parse(await readFile(real, "utf-8")).schemaVersion,
 		expectedConfigFile().schemaVersion
 	);
+});
+
+test("saving with an unresolved symlink never replaces the link", async () => {
+	for (const destination of ["missing.json", "pi-ask.json"]) {
+		const path = await makeTempPath("pi-ask-config-atomic-unresolved-");
+		await symlink(destination, path);
+
+		await assert.rejects(new AskConfigStore(path).save(DEFAULT_ASK_CONFIG));
+
+		assert.ok((await lstat(path)).isSymbolicLink());
+		assert.equal(await readlink(path), destination);
+		assert.deepEqual(await readdir(dirname(path)), ["pi-ask.json"]);
+	}
+});
+
+test("atomic saves preserve existing config permissions", {
+	skip: process.platform === "win32",
+}, async () => {
+	for (const mode of [0o600, 0o640, 0o660]) {
+		const path = await makeTempPath("pi-ask-config-atomic-mode-");
+		await writeFile(path, "{}\n");
+		await chmod(path, mode);
+
+		await new AskConfigStore(path).save(DEFAULT_ASK_CONFIG);
+
+		assert.equal((await stat(path)).mode & 0o777, mode);
+	}
+});
+
+test("atomic saves do not overwrite a read-only config", {
+	skip: process.platform === "win32" || process.getuid?.() === 0,
+}, async () => {
+	const path = await makeTempPath("pi-ask-config-atomic-readonly-");
+	await writeFile(path, "{}\n");
+	await chmod(path, 0o400);
+
+	await assert.rejects(new AskConfigStore(path).save(DEFAULT_ASK_CONFIG));
+
+	assert.equal(await readFile(path, "utf-8"), "{}\n");
+	assert.deepEqual(await readdir(dirname(path)), ["pi-ask.json"]);
 });
 
 test("failed rename keeps the original config and removes the temp file", async () => {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, chmod, lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -171,10 +172,25 @@ async function writeConfigAtomically(
 	deps: AskConfigStoreDeps
 ): Promise<void> {
 	// Write through a symlinked config (dotfile repos) instead of replacing it.
-	const target = await realpath(path).catch(() => path);
+	const target = await realpath(path).catch(async (error) => {
+		if (!isMissingFileError(error)) throw error;
+		const entry = await lstat(path).catch((statError) => {
+			if (!isMissingFileError(statError)) throw statError;
+		});
+		// A dangling link is not a missing config: fail without replacing it.
+		if (entry) throw error;
+		return path;
+	});
+	const existing = await stat(target).catch((error) => {
+		if (!isMissingFileError(error)) throw error;
+	});
+	if (existing) await access(target, constants.W_OK);
+	const mode = existing ? existing.mode & 0o777 : undefined;
 	const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
 	try {
-		await writeFile(temporary, content, { encoding: "utf-8", flag: "wx" });
+		await writeFile(temporary, content, { encoding: "utf-8", flag: "wx", mode });
+		// Creation applies the umask; restore the original permissions exactly.
+		if (mode !== undefined) await chmod(temporary, mode);
 		await (deps.rename ?? rename)(temporary, target);
 	} finally {
 		// The rename removes the temp file on success; a failed write or rename

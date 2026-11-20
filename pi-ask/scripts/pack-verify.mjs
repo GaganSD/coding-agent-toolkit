@@ -1,7 +1,7 @@
 /**
- * pack:verify: assert the npm tarball carries every published file and no
- * development trees. The repo CI has a generic pack check; this covers
- * pi-ask's exact docs, skill and screenshot allowlist.
+ * pack:verify: assert the npm tarball carries the required published files
+ * and no development trees. The repo CI has a generic pack check; this also
+ * covers pi-ask's required docs, skill and screenshots.
  */
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,7 @@ const REQUIRED = [
 	"assets/text.png",
 ];
 
-const FORBIDDEN = [/^(?:tests|node_modules)\//];
+const FORBIDDEN = [/(^|\/)(node_modules|tests?|scripts|\.git|\.github|\.pi)(\/|$)/];
 
 const output = execFileSync("npm", ["pack", "--dry-run", "--json"], {
 	cwd: root,
