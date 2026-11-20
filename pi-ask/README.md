@@ -57,7 +57,7 @@ Both keys are `keymaps.global.later` and `keymaps.global.panelFocus` in the conf
 
 ```text
 Agent: asks "Which test framework?" with `background: true`
-Tool:  returns `{ "status": "queued", "requestId": "ask-3f9c1a2b", "pending": 1 }`
+Tool:  returns receipt details including `{ "status": "queued", "requestId": "ask-3f9c1a2b", "pending": 1 }`
 Agent: keeps inspecting files
 You:   answer "Vitest" in the panel
 Agent: at the next turn boundary, receives `pi-ask:answer` and continues with Vitest
@@ -97,7 +97,7 @@ An agent that expects you to be away can give a call `timeoutSeconds` and mark o
 The clock is built to be hard to trip:
 
 - It runs only while the form is on screen; a form waiting behind another, or in a hidden panel, does not count down. The form shows the countdown and marks the fallback option.
-- The countdown starts only after the notification is attempted; a failed notification channel leaves the clock unarmed.
+- Configured notifications must finish without a failed channel before the countdown starts. Disabling notifications does not disable expiry.
 - **Any key you press in the form stops it for good**, as does opening or focusing the panel on purpose. A stopped form waits like a normal one, and the stop is journalled, so a reload cannot restart it. Typing in the input beside an unfocused panel does not stop it: the countdown is on screen.
 - Hiding the panel, deferring, or a blocking form taking over also stops a running clock for good. Nothing pauses and resumes.
 - A form that comes back after Pi restarted (resume, fork, reload) never counts down. You had no fair chance to see its clock.
