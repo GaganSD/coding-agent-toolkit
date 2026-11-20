@@ -53,6 +53,35 @@ A background question, a form you deferred, and a form left open when Pi last st
 
 Both keys are `keymaps.global.later` and `keymaps.global.panelFocus` in the config file.
 
+#### Background example
+
+```text
+Agent: asks "Which test framework?" with `background: true`
+Tool:  returns receipt details including `{ "status": "queued", "requestId": "ask-3f9c1a2b", "pending": 1 }`
+Agent: keeps inspecting files
+You:   answer "Vitest" in the panel
+Agent: at the next turn boundary, receives `pi-ask:answer` and continues with Vitest
+```
+
+```json
+{
+  "background": true,
+  "questions": [{
+    "id": "framework",
+    "prompt": "Which test framework?",
+    "type": "single",
+    "options": [
+      { "value": "node", "label": "node:test" },
+      { "value": "vitest", "label": "Vitest" }
+    ]
+  }]
+}
+```
+
+- The call returns at once; the agent can keep working.
+- The form waits in the panel without touching your draft.
+- The answer arrives once, at the next turn boundary, and wakes an idle agent.
+
 ### Skip and cancel with a comment
 
 **Skip** declines a single question without cancelling the form. The tab and the review mark it as skipped (not "unanswered"), the result lists `skipped: id[]` in question order, and the result text says a skip is neither an answer nor approval. Answering a skipped question takes the skip back. Skipping every question still ends on the review tab: nothing is sent until you submit, whatever `autoSubmitWhenAnsweredWithoutNotes` says. The key is plain `s`, so it only works where no text editor is open. A text question opens its editor at once; press `Esc` first to skip it.
@@ -67,7 +96,8 @@ An agent that expects you to be away can give a call `timeoutSeconds` and mark o
 
 The clock is built to be hard to trip:
 
-- It runs only while the form is on screen, after the notification has fired. A form waiting behind another, or in a hidden panel, does not count down. The form shows the countdown and marks the fallback option.
+- It runs only while the form is on screen; a form waiting behind another, or in a hidden panel, does not count down. The form shows the countdown and marks the fallback option.
+- Configured notifications must finish without a failed channel before the countdown starts. Disabling notifications does not disable expiry.
 - **Any key you press in the form stops it for good**, as does opening or focusing the panel on purpose. A stopped form waits like a normal one, and the stop is journalled, so a reload cannot restart it. Typing in the input beside an unfocused panel does not stop it: the countdown is on screen.
 - Hiding the panel, deferring, or a blocking form taking over also stops a running clock for good. Nothing pauses and resumes.
 - A form that comes back after Pi restarted (resume, fork, reload) never counts down. You had no fair chance to see its clock.
@@ -118,6 +148,8 @@ The later answer is a `pi-ask:answer` message that names the request and each qu
 
 Every form, draft and outcome is journalled in the session. A form left open when Pi quit comes back in the panel on startup, resume or fork with its draft, and its answer reaches the agent once: delivery is decided from what the active branch already holds. The journal follows the active branch.
 
+**Privacy.** Answers, notes and unfinished drafts — including typed text — are journalled in the Pi session file. They persist across resume and fork and live wherever your sessions are stored.
+
 A receipt or completed tool result requires a successful journal write. Storage failures are reported rather than acknowledged; a panel form whose answer could not be saved stays editable for retry. Only panel forms are retried in place: if a blocking form's answer (or cancel, defer or expiry) cannot be saved, the form returns to the panel at once with its draft and you get an error notice, and the tool returns an error telling the agent the reply was not saved, the form will reappear in your panel and it should not re-ask. The non-TUI (RPC and print) path also requires the journal write before it returns. Hiding the panel or temporarily covering it with a blocking form preserves its live editor, including typing not yet flushed to the journal.
 
 Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the current chat model unless `answer.extractionModels` is set. `PI_ASK_LOCALE=zh` localizes the dialog cards and result summaries (Simplified Chinese).
@@ -127,10 +159,10 @@ Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the curren
 | `expiry.enabled` | `true` | `false` drops `timeoutSeconds` and `fallback` from the schema |
 | `expiry.minSeconds` | `30` | Shorter limits are raised to this floor, up to the 24-hour ceiling |
 | `behaviour.background` | `true` | `false` drops `background`; every call blocks |
+| `notifications.enabled` | `true` | Notify when a question starts waiting |
+| `notifications.channels` | `["bell"]` | `bell`, `osc9`, `osc777`, or `{ "type": "command", "command": "..." }`; commands get `ASK_NOTIFY_EVENT`, `ASK_NOTIFY_TITLE`, `ASK_NOTIFY_MESSAGE` and a 5 s timeout |
 
 Schema settings apply on `/reload`, not live. A disabled field is absent from the schema, not ignored.
-
-> Unreleased: this is the 0.2.0 contract. `background`, `queued`, `deferred`, `timeoutSeconds`, `fallback` and `expired` work on this branch. `/ask-settings` toggles expiry (after `/reload`) and shows the floor.
 
 ## Context footprint
 
