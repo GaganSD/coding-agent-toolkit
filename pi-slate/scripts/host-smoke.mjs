@@ -193,6 +193,49 @@ try {
     await waitForWrite(before, /2 mcp/, "the next resource poll must repaint the focused composer", 6500);
     await writeFile(mcpPath, initialMcp);
   }
+  if (!fault && modeName === "fullscreen" && selected.includes("header") && selected.includes("sidebar")) {
+    const sidebar = Reflect.get(ui.layoutRoot, "pane");
+    const actions = Reflect.get(sidebar, "actions"), resources = Reflect.get(sidebar, "resources"), folds = sidebar.getFolds();
+    const inspected = [];
+    const catalog = (name, source = "global") => ({ ...resources, mcp: [{ name, enabled: true, source, transport: "stdio" }] });
+    const clickServer = name => {
+      const frame = ui.currentLayout;
+      const row = frame.lines.findIndex(line => line.includes(name));
+      assert(row >= 0, `${name} must be in Pi's committed frame`);
+      const { x } = frame.root.children[1].rect;
+      ui.dispatchMouseToLayout({ type: "click", button: "left", x: x + 3, y: row, screenX: x + 3, screenY: row });
+    };
+    sidebar.setActions({ ...actions, inspect: (title, detail) => inspected.push({ title, detail }) });
+    sidebar.setHidden(false);
+    sidebar.setFolds({ ...folds, mcp: true });
+    sidebar.setResources(catalog("OLD-server"));
+    ui.renderNow(true);
+    const requestRender = ui.requestRender, requestViewRender = ui.requestViewRender;
+    try {
+      let failed = 0;
+      const failRender = () => { failed++; throw new Error("Injected sidebar scheduler fault"); };
+      ui.requestRender = failRender;
+      if (typeof requestViewRender === "function") ui.requestViewRender = failRender;
+      sidebar.setResources(catalog("NEW-server"));
+      assert(failed > 0);
+      clickServer("OLD-server");
+      assert.equal(inspected.at(-1)?.title, "OLD-server", "an unpainted candidate must not take over clicks");
+    } finally {
+      ui.requestRender = requestRender;
+      if (typeof requestViewRender === "function") ui.requestViewRender = requestViewRender;
+    }
+    const before = chunks.length;
+    sidebar.tick();
+    await waitForWrite(before, /NEW-server/, "the recovered scheduler must paint the replacement sidebar row");
+    clickServer("NEW-server");
+    assert.equal(inspected.at(-1)?.title, "NEW-server");
+    sidebar.setResources(catalog("NEW-server", "project"));
+    clickServer("NEW-server");
+    assert.match(inspected.at(-1)?.detail, /Source: project/, "identical painted rows can update their details immediately");
+    sidebar.setActions(actions);
+    sidebar.setResources(resources);
+    sidebar.setFolds(folds);
+  }
   if (quietTurn) {
     // Run through Pi's normal turn lifecycle; the offline provider emits nothing until released.
     const before = chunks.length;

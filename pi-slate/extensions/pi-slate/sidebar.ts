@@ -16,6 +16,14 @@ export const DOUBLE_CLICK_MS = 400;
 type ListName = "mcp" | "skills" | "prompts" | "tasks";
 type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
+type PaneFrame = {
+  key?: string;
+  lines: string[];
+  hits: Hit[];
+  listRows: Array<{ y: number; list: ListName }>;
+  middle: { start: number; height: number; rows: number };
+  image: { start: number; height: number; path?: string };
+};
 const HEADER_GAP: Row = { text: "" };
 export type SidebarActions = {
   copy(text: string): void;
@@ -54,19 +62,13 @@ export class Sidebar implements Component {
   private folds: SidebarFolds = { ...DEFAULT_SIDEBAR_FOLDS };
   private offsets: Record<ListName, number> = { mcp: 0, skills: 0, prompts: 0, tasks: 0 };
   private middleOffset = 0;
-  private middleRows = 0;
-  private middleStart = 0;
-  private middleHeight = 0;
-  private listRows: Array<{ y: number; list: ListName }> = [];
-  private hits: Hit[] = [];
+  private painted?: PaneFrame;
   private selectedImage?: WorkspaceView;
   private peekImage?: WorkspaceView;
   private pinned = false;
   private clearedImageId?: string;
-  private imageStart = 0;
-  private imageHeight = 0;
   private lastClick?: { target: string; at: number };
-  private cached?: { key?: string; lines: string[] };
+  private cached?: PaneFrame;
   private revision = 0;
   private actions?: SidebarActions;
 
@@ -83,7 +85,7 @@ export class Sidebar implements Component {
     if (this.splitActive) return;
     this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth, () => {
       this.splitDispose = undefined;
-      this.hideResizeGuide(); this.resizing = false; this.hits = []; this.listRows = [];
+      this.hideResizeGuide(); this.resizing = false; this.painted = undefined;
       onYield?.();
     }, onViewRenderFault);
     this.invalidate();
@@ -131,7 +133,7 @@ export class Sidebar implements Component {
     this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES; this.tasks = [];
     this.offsets = { mcp: 0, skills: 0, prompts: 0, tasks: 0 }; this.middleOffset = 0;
     this.selectedImage = undefined; this.peekImage = undefined; this.pinned = false; this.clearedImageId = undefined;
-    this.hits = []; this.listRows = []; this.lastClick = undefined; this.changed();
+    this.painted = undefined; this.lastClick = undefined; this.changed();
   }
   /** Caret peeks update the image shelf, but cannot replace an explicitly pinned selection. */
   setView(view: WorkspaceView | undefined): void {
@@ -193,10 +195,15 @@ export class Sidebar implements Component {
     if (!split?.active()) return;
     const width = this.displayedWidth();
     if (width > 0) {
-      const previous = this.cached?.lines;
-      // Refresh hit regions even when the visible strings didn't change.
-      const lines = this.render(width);
-      if (!previous || !sameLines(previous, lines)) { split.requestRender("pane"); return; }
+      const previous = this.cached;
+      const next = this.buildFrame(width);
+      if (this.painted && sameLines(this.painted.lines, next.lines)) {
+        // Identical rows can take newer details without a host frame.
+        this.painted = next;
+      } else if (!previous || !sameLines(previous.lines, next.lines)) {
+        split.requestRender("pane");
+        return;
+      }
     }
     split.retryRender();
   }
@@ -210,22 +217,25 @@ export class Sidebar implements Component {
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     const resize = this.handleResizeMouse(event, isSidebarResizeHandle(event));
     if (resize) return resize;
+    const frame = this.painted;
+    if (!frame) return undefined;
     if (event.type === "wheel") {
       const delta = -(event.wheelDelta ?? 0);
-      const list = this.listRows.find(row => row.y === event.y)?.list;
-      if (list && this.scrollList(list, delta)) return { handled: true, render: false };
-      if (event.y >= this.middleStart && event.y < this.middleStart + this.middleHeight) {
-        const next = sidebarListOffset(this.middleOffset + delta, this.middleRows, this.middleHeight);
+      const list = frame.listRows.find(row => row.y === event.y)?.list;
+      if (list && this.scrollList(list, delta, frame)) return { handled: true, render: false };
+      const { start, height, rows } = frame.middle;
+      if (event.y >= start && event.y < start + height) {
+        const next = sidebarListOffset(this.middleOffset + delta, rows, height);
         if (next !== this.middleOffset) { this.middleOffset = next; this.changed(); }
         return { handled: true, render: false };
       }
       return undefined;
     }
     if (event.type !== "click" || event.button !== "left") return undefined;
-    const hit = this.hits.find(hit => hit.y === event.y && event.x >= hit.x0 && event.x < hit.x1);
+    const hit = frame.hits.find(hit => hit.y === event.y && event.x >= hit.x0 && event.x < hit.x1);
     if (hit) { hit.action(); return { handled: true, render: false }; }
-    if (event.y > this.imageStart && event.y < this.imageStart + this.imageHeight) {
-      const path = this.imagePath();
+    const { start, height, path } = frame.image;
+    if (event.y > start && event.y < start + height) {
       if (path && this.isDoubleClick(event, `image:${path}`)) {
         this.actions?.openFile(path); return { handled: true, render: false };
       }
@@ -235,13 +245,21 @@ export class Sidebar implements Component {
 
   render(width: number): string[] {
     const height = Math.max(0, this.tui?.terminal.rows ?? 1);
-    if (width <= 0) return Array.from({ length: height }, () => "");
+    if (width <= 0) {
+      this.painted = undefined;
+      return Array.from({ length: height }, () => "");
+    }
+    this.painted = this.buildFrame(width, height);
+    return this.painted.lines;
+  }
+
+  private buildFrame(width: number, height = Math.max(0, this.tui?.terminal.rows ?? 1)): PaneFrame {
     const theme = this.themeProvider?.() ?? this.theme;
     if (theme !== this.theme) { this.theme = theme; this.invalidate(); }
     if (theme) { this.selectedImage?.setTheme?.(theme); this.peekImage?.setTheme?.(theme); }
     const key = `${width}:${height}:${this.revision}:${Math.floor(this.now() / 1000)}`;
-    if (this.cached?.key === key) return this.cached.lines;
-    this.hits = []; this.listRows = [];
+    if (this.cached?.key === key) return this.cached;
+    const hits: Hit[] = [], listRows: PaneFrame["listRows"] = [];
     const inner = Math.max(0, width - 4);
     const header = this.headerRows(inner, height >= 44 ? "full" : "compact");
     const slots = sessionSidebarSlots(height, header.length, this.tasks.length, Boolean(this.imageView()), header.filter(row => row === HEADER_GAP).length);
@@ -250,23 +268,27 @@ export class Sidebar implements Component {
     const add = (row: Row): void => {
       const y = lines.length;
       lines.push(row.divider ? this.dividerLine(width, "├") : this.decorateLine(row.text, width));
-      if (inner > 0) for (const e of row.extra ?? []) this.hits.push({ y, x0: 2 + e.x0, x1: 2 + e.x1, action: e.action });
-      if (row.action && inner > 0) this.hits.push({ y, x0: 2, x1: width - 2, action: row.action });
-      if (row.list) this.listRows.push({ y, list: row.list });
+      if (inner > 0) for (const e of row.extra ?? []) hits.push({ y, x0: 2 + e.x0, x1: 2 + e.x1, action: e.action });
+      if (row.action && inner > 0) hits.push({ y, x0: 2, x1: width - 2, action: row.action });
+      if (row.list) listRows.push({ y, list: row.list });
     };
     if (slots.frame) lines.push(this.dividerLine(width, "┌"));
     for (const row of header.filter(row => row !== HEADER_GAP || dropGaps-- <= 0).slice(0, slots.header)) add(row);
     const middle = this.middle();
-    this.middleRows = middle.length; this.middleHeight = slots.middle; this.middleStart = lines.length;
+    const middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
     for (let i = 0; i < slots.middle; i++) add(middle[this.middleOffset + i] ?? { text: "" });
     for (const row of this.taskRows(inner, slots.tasks)) add(row);
-    this.imageStart = lines.length; this.imageHeight = slots.image;
-    lines.push(...this.imageLines(width, slots.image, lines.length));
+    const imageStart = lines.length;
+    const image = this.imageView();
+    lines.push(...this.imageLines(width, slots.image, imageStart, hits, image));
     if (slots.footer) add({ text: this.paint("dim", "/slate session · details"), action: () => this.actions?.inspect?.("Session", this.sessionDetails()) });
     if (slots.frame) lines.push(this.dividerLine(width, "└"));
-    this.cached = { key, lines: lines.slice(0, height) };
-    return this.cached.lines;
+    return this.cached = {
+      key, lines: lines.slice(0, height), hits, listRows,
+      middle: { start: middleStart, height: slots.middle, rows: middle.length },
+      image: { start: imageStart, height: slots.image, path: image?.filePath },
+    };
   }
 
   private headerRows(width: number, tier: SidebarTier): Row[] {
@@ -277,8 +299,8 @@ export class Sidebar implements Component {
     const shortId = sidebarText(s.id).slice(0, 8) || "—";
     const idWidth = visibleWidth(shortId);
     const showId = width >= idWidth + 13;
-    const copyName = () => { if (this.session.name) this.actions?.copy(this.session.name); };
-    const copyId = () => { if (this.session.id) this.actions?.copy(this.session.id); };
+    const copyName = () => { if (s.name) this.actions?.copy(s.name); };
+    const copyId = () => { if (s.id) this.actions?.copy(s.id); };
     const status: Row = (() => {
       const turns = s.turns === 1 ? "1 turn" : `${s.turns} turns`;
       const left = s.working
@@ -372,8 +394,7 @@ export class Sidebar implements Component {
   private taskDetails(task: BackgroundTask): string {
     return `${task.kind} · ${task.state}\nSource: ${task.source}\nID: ${task.id}\n${task.pid ? `PID: ${task.pid}\n` : ""}Elapsed: ${sidebarDuration(this.now() - task.startedAt)}\n${task.detail ?? ""}`;
   }
-  private imageLines(width: number, height: number, start: number): string[] {
-    const view = this.imageView();
+  private imageLines(width: number, height: number, start: number, hits: Hit[], view?: WorkspaceView): string[] {
     if (height <= 0 || !view) return [];
     const inner = Math.max(0, width - 4);
     const lines = [this.decorateLine(this.heading("Preview"), width)];
@@ -389,15 +410,15 @@ export class Sidebar implements Component {
     const actions = controls.map(x => x.label).join(" ");
     let x = 2;
     if (inner >= visibleWidth(actions)) for (const control of controls) {
-      this.hits.push({ y: start + height - 1, x0: x, x1: x + visibleWidth(control.label), action: control.action });
+      hits.push({ y: start + height - 1, x0: x, x1: x + visibleWidth(control.label), action: control.action });
       x += visibleWidth(control.label) + 1;
     }
     lines.push(this.decorateLine(this.paint("muted", actions), width));
     return lines.slice(0, height);
   }
-  private scrollList(list: ListName, delta: number): boolean {
+  private scrollList(list: ListName, delta: number, frame: PaneFrame): boolean {
     const count = list === "tasks" ? this.tasks.length : this.resources[list].length;
-    const visible = list === "tasks" ? Math.max(1, Math.ceil(this.listRows.filter(x => x.list === "tasks").length / 2)) : list === "mcp" ? 5 : 3;
+    const visible = list === "tasks" ? Math.max(1, Math.ceil(frame.listRows.filter(x => x.list === "tasks").length / 2)) : list === "mcp" ? 5 : 3;
     const next = sidebarListOffset(this.offsets[list] + delta, count, visible);
     if (next === this.offsets[list]) return false;
     this.offsets[list] = next; this.changed(); return true;

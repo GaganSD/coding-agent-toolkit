@@ -89,12 +89,13 @@ for (const method of ["view", "legacy", "throwing"] as const) {
 
     sidebar.setResources(resources);
     assert.equal(pane().handleMouse?.(mouse(row(sidebar, "MCP")))?.render, false, "fold clicks schedule their own repaint");
+    const serverRow = row(sidebar, "server-0");
     const counts = [view, full, forced];
     sidebar.setResources({ ...resources, mcp: resources.mcp.map(server => ({ ...server, source: "project" })) });
     assert.deepEqual([view, full, forced], counts);
     let detail = "";
     sidebar.setActions({ copy() {}, openFile() {}, inspect(_title, text) { detail = text; } });
-    pane().handleMouse?.(mouse(row(sidebar, "server-0")));
+    pane().handleMouse?.(mouse(serverRow));
     assert.match(detail, /Source: project/, "unchanged rows still get current details and hit regions");
     const wheel = mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 });
     assert.equal(split.handleMouse(wheel), undefined);
@@ -228,16 +229,16 @@ test("long titles stay bounded, copy without ellipsis, and refresh on same-sessi
   assert(sidebar.sessionDetails().includes(`Title: ${name}\n`));
   sidebar.setSession({ ...session, name: "改名后的会话" });
   sidebar.handleMouse(mouse(2, { width: 28 }));
-  assert.deepEqual(copied, [name, "改名后的会话"], "a click before repaint never copies the previous title");
+  assert.deepEqual(copied, [name, name], "a click before repaint still copies the painted title");
   const after = sidebar.render(28);
   assert.notEqual(after, before, "renaming invalidates cached rows even with the same clock and ID");
   assert(plain(after)[2]!.startsWith("改名后的会话"));
   sidebar.setSession({ ...session, name: " \n\x1b[2J" });
   sidebar.handleMouse(mouse(2, { width: 28 }));
-  assert.deepEqual(copied, [name, "改名后的会话"], "clearing a title disables copying before repaint");
+  assert.deepEqual(copied, [name, name, "改名后的会话"], "the renamed title stays clickable until its replacement paints");
   assert.match(plain(sidebar.render(28))[2]!, /^Session/);
   assert.equal(sidebar.handleMouse(mouse(2, { width: 28 })), undefined, "an empty title has no stale copy hit");
-  assert.deepEqual(copied, [name, "改名后的会话"]);
+  assert.deepEqual(copied, [name, name, "改名后的会话"]);
 });
 
 test("top title uses bold theme accent and follows theme changes independently of the identity", () => {
