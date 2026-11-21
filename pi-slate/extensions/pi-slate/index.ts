@@ -377,7 +377,14 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   if (owns("sidebar")) {
     pi.on("resources_discover", () => {
-      if (liveContext()?.mode === "tui") queueMicrotask(() => { const ctx = liveContext(); if (ctx && ctx.mode === "tui") refreshResources(ctx); });
+      if (liveContext()?.mode === "tui") queueMicrotask(() => {
+        diagnostics.attempt("resource-refresh", "Could not refresh resources; Slate will retry on the next discovery.", () => {
+          const ctx = liveContext();
+          if (ctx?.mode !== "tui") return;
+          refreshResources(ctx);
+          diagnostics.active("resource-refresh", "Resources refreshed after discovery.");
+        }, () => {}, { retry: true });
+      });
     });
   }
 

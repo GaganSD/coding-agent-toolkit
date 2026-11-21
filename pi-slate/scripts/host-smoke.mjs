@@ -147,6 +147,31 @@ try {
   };
   await assertMounted("startup");
   const ui = Reflect.get(mode, "ui");
+  if (!fault && modeName === "fullscreen" && selected.includes("header") && selected.includes("sidebar")) {
+    const runner = runtime.session.extensionRunner;
+    const hostUi = runner.getUIContext();
+    const theme = Object.getOwnPropertyDescriptor(hostUi, "theme");
+    let themeFaults = 0;
+    Object.defineProperty(hostUi, "theme", { configurable: true, get() {
+      Object.defineProperty(hostUi, "theme", theme);
+      themeFaults++;
+      throw new Error("Injected resource refresh theme fault");
+    } });
+    try {
+      await runner.emitResourcesDiscover(root, "reload");
+      await delay(0); // Let the deferred refresh run outside the extension event handler.
+      assert.equal(themeFaults, 1, "the deferred sidebar refresh must hit the one-shot theme fault");
+      assert.deepEqual(errors, []);
+      await writeFile(mcpPath, '{"mcpServers":{"recovered":{"type":"future-transport"},"second":{"type":"future-transport"}}}');
+      const before = chunks.length;
+      await runner.emitResourcesDiscover(root, "reload");
+      await waitForWrite(before, /MCP · 2 Enabled/, "the next resource discovery must repaint after the fault");
+    } finally {
+      Object.defineProperty(hostUi, "theme", theme);
+      await writeFile(mcpPath, initialMcp);
+      await runner.emitResourcesDiscover(root, "reload");
+    }
+  }
   if (!fault && modeName === "fullscreen" && typeof ui.requestViewRender === "function" && selected.includes("header") && selected.includes("editor") && selected.includes("sidebar")) {
     const sidebar = Reflect.get(ui.layoutRoot, "pane");
     const editor = Reflect.get(mode, "editor");
