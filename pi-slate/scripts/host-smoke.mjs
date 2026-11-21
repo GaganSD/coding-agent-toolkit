@@ -236,6 +236,26 @@ try {
     sidebar.setResources(resources);
     sidebar.setFolds(folds);
   }
+  if (!fault && modeName === "fullscreen" && selected.length === 1 && selected[0] === "editor") {
+    const editor = Reflect.get(mode, "editor");
+    const image = join(root, "retry-drop.png");
+    await writeFile(image, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5AAAAABJRU5ErkJggg==", "base64"));
+    editor.setText("");
+    editor.handleInput(`"${image}"`);
+    ui.renderNow(true);
+    const frame = () => ui.currentLayout.lines.map(stripVTControlCharacters).join("\n");
+    assert.match(frame(), /retry-drop\.png/);
+    const requestRender = ui.requestRender;
+    const attempts = [];
+    try {
+      ui.requestRender = (force = false) => { attempts.push(force); throw new Error("Injected image scheduler fault"); };
+      await delay(100);
+      assert.equal(editor.getText(), "[image-1]");
+      assert.deepEqual(attempts.slice(0, 2), [false, true], "both content request paths must fail during the rewrite");
+      assert.match(frame(), /retry-drop\.png/, "the failed scheduler leaves the raw path painted");
+    } finally { ui.requestRender = requestRender; }
+    await waitForWrite(chunks.length, /\[image-1\]/, "the pending rewrite must repaint after scheduler recovery without another keystroke");
+  }
   if (quietTurn) {
     // Run through Pi's normal turn lifecycle; the offline provider emits nothing until released.
     const before = chunks.length;

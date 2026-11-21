@@ -40,7 +40,7 @@ type PatchableEditor = {
 };
 
 export type ImagePlaceholders = {
-  attachEditor(editor: CustomEditor, requestRender?: () => void): void;
+  attachEditor(editor: CustomEditor, requestRender?: () => boolean | void): void;
   detachEditor(): void;
   dispose(): void;
 };

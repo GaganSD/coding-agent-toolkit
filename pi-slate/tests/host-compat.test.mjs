@@ -44,6 +44,11 @@ for (const mode of ["regular", "fullscreen"]) {
     });
   }
 }
+test(`real Pi ${version}: an editor-only image rewrite repaints after scheduler recovery`, async () => {
+  const result = await runProbe("fullscreen", '["editor"]');
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
+
 for (const [fault, expected] of [["quit-shutdown", /Injected quit-only shutdown fault/], ["transcript", /transcript window did not mount/]]) {
   test(`real Pi ${version}: canary rejects ${fault} instead of reporting a false success`, async () => {
     const result = await runProbe("fullscreen", JSON.stringify(SURFACES), fault);

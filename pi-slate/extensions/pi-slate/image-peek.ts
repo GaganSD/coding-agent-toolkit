@@ -15,6 +15,7 @@ export class ImagePeek {
   private shownId?: string;
   private disposed = false;
   private rewriteTimer?: ReturnType<typeof setTimeout>;
+  private repaintRetry?: ReturnType<typeof setTimeout>;
   private readonly originalHandleMouse: CustomEditor["handleMouse"];
   private readonly originalHandleInput: CustomEditor["handleInput"];
   private readonly store: ImagePathStore;
@@ -23,14 +24,14 @@ export class ImagePeek {
   private readonly handleMouse: CustomEditor["handleMouse"];
   private readonly handleInput: CustomEditor["handleInput"];
   private readonly loadImage: (filePath: string) => ImageAttachment | undefined;
-  private readonly requestRender: () => void;
+  private readonly requestRender: () => boolean | void;
 
   constructor(
     store: ImagePathStore,
     editor: CustomEditor,
     workspace: Sidebar | undefined,
     loadImage: (filePath: string) => ImageAttachment | undefined,
-    requestRender: () => void = () => {},
+    requestRender: () => boolean | void = () => {},
   ) {
     this.store = store;
     this.editor = editor;
@@ -78,9 +79,20 @@ export class ImagePeek {
     const rewritten = rewriteClipboardPaths(text, nextImageNumber(text), this.store);
     if (rewritten !== text) {
       this.editor.setText(rewritten);
-      this.requestRender();
+      this.repaint();
     }
     this.update();
+  }
+
+  private repaint(): void {
+    clearTimeout(this.repaintRetry);
+    this.repaintRetry = undefined;
+    if (this.disposed) return;
+    try {
+      if (this.requestRender() !== false) return;
+    } catch { /* The host may temporarily reject the ownership check. */ }
+    this.repaintRetry = setTimeout(() => this.repaint(), 250);
+    this.repaintRetry.unref?.();
   }
 
   update(): void {
@@ -123,6 +135,8 @@ export class ImagePeek {
   dispose(): void {
     this.disposed = true;
     clearTimeout(this.rewriteTimer);
+    clearTimeout(this.repaintRetry);
+    this.repaintRetry = undefined;
     if (this.editor.handleMouse === this.handleMouse) this.editor.handleMouse = this.originalHandleMouse;
     if (this.editor.handleInput === this.handleInput) this.editor.handleInput = this.originalHandleInput;
     this.hide();

@@ -608,7 +608,10 @@ export default function piSlate(pi: ExtensionAPI): void {
         // Images wrap first so composer-selection stays outermost: select-all
         // followed by backspace must clear the whole prompt before the atomic
         // image-token delete sees the keypress.
-        images?.attachEditor(activeEditor, () => requestNecessaryRender(tui));
+        const editor = activeEditor;
+        images?.attachEditor(editor, () =>
+          // A detached editor has no repaint left to deliver.
+          activeEditor !== editor || !mountedContext() || !editorActive() || requestNecessaryRender(tui));
         selection.attach(activeEditor, {
           copy: (text) => mountedContext() ? copyWithFeedback(tui, notify, text) : Promise.resolve(),
           requestRender: () => tui.requestRender(),
