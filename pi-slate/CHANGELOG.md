@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Slate thinking block: collapsed runs read `∴ Thought for 12s ›`, expanded runs keep a faint rail on every wrapped line, live runs tick as `∴ Thinking 7s`, and restored runs fall back to their word count. `/slate thinking [slate|pi]` toggles it live; stock Pi rendering remains available.
+
 ### Fixed
 
 - Grouped tool calls keep each hidden thought's clickable `Thinking...` row in place, drawn inside the group's tree (#136).

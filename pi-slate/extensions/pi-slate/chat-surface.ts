@@ -46,6 +46,16 @@ export type ChatSurfaceOptions = {
   groups?: ToolGroups;
   active?: () => boolean;
   onGroupingFault?: () => void;
+  /** Presentation-only row decoration; returns the same array when nothing changes. */
+  decorate?: (component: Component, rows: readonly string[], width: number) => readonly string[];
+};
+
+type LayoutChild = Component | { component: Component; height: number };
+/** Pi 1.4 exposes `mouseLayout`; newer hosts expose `childLines` with per-child parts. */
+type ChildLayout = {
+  width: number;
+  children: readonly LayoutChild[];
+  parts?: readonly (readonly string[])[];
 };
 
 /** One owner for the display pipeline: project first, then paint grouped or native rows. */
@@ -59,6 +69,30 @@ export class ChatSurface {
   private readonly display = new Container();
   private paintedGroups: ToolGroups | undefined;
   private disposed = false;
+
+  /** Decorate native rows by child while keeping Container's mouse layout intact. */
+  private decorateNative(rendered: string[], width: number): string[] {
+    const decorate = this.options.decorate;
+    if (!decorate) return rendered;
+    const owner = this.display as unknown as { childLines?: ChildLayout; mouseLayout?: ChildLayout };
+    const layout = owner.childLines ?? owner.mouseLayout;
+    if (!layout || layout.width !== width || layout.children.length !== this.display.children.length) return rendered;
+    let changed = false, offset = 0;
+    const lines: string[] = [];
+    for (let index = 0; index < layout.children.length; index++) {
+      const entry = layout.children[index]!;
+      const component = "component" in entry ? entry.component : entry;
+      const height = layout.parts?.[index]?.length ?? ("height" in entry ? entry.height : undefined);
+      if (height === undefined) return rendered;
+      const rows = rendered.slice(offset, offset + height);
+      offset += height;
+      const decorated = decorate(component, rows, width);
+      if (decorated !== rows) changed = true;
+      for (const row of decorated) lines.push(row);
+    }
+    if (offset !== rendered.length) return rendered;
+    return changed ? lines : rendered;
+  }
 
   constructor(container: Container, options: ChatSurfaceOptions) {
     this.container = container; this.options = { ...options };
@@ -83,7 +117,7 @@ export class ChatSurface {
           this.options.onGroupingFault?.();
         }
       }
-      return this.display.render(width);
+      return this.decorateNative(this.display.render(width), width);
     };
     this.installedMouse = event => {
       if (this.disposed) return this.originalMouse.call(container, event);

@@ -31,6 +31,7 @@ function canGroupAssistant(component: Component): boolean {
 }
 
 type RowOwner = { component: Component; y: number; height: number; inset: number };
+type RowDecorator = (component: Component, rows: readonly string[], width: number) => readonly string[];
 type Segment =
   | { kind: "native"; component: Component }
   | { kind: "group"; start: number; end: number; toolIndices: number[]; failed: number; running: boolean };
@@ -39,8 +40,13 @@ export class ToolGroups {
   private owners: Array<RowOwner | undefined> = [];
   private readonly theme: () => Theme | undefined;
   private readonly hint: () => string;
-  constructor(theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand")) {
-    this.theme = theme; this.hint = hint;
+  private readonly decorate?: RowDecorator;
+  constructor(theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand"), decorate?: RowDecorator) {
+    this.theme = theme; this.hint = hint; this.decorate = decorate;
+  }
+
+  private rows(component: Component, rows: readonly string[], width: number): readonly string[] {
+    return this.decorate?.(component, rows, width) ?? rows;
   }
 
   /** Read all grouping metadata before painting so a fault cannot duplicate earlier renders. */
@@ -72,12 +78,12 @@ export class ToolGroups {
 
   render(children: readonly Component[], width: number): string[] {
     const lines: string[] = [], owners: Array<RowOwner | undefined> = [];
-    const append = (component: Component, rows: string[]): void => {
+    const append = (component: Component, rows: readonly string[]): void => {
       for (let y = 0; y < rows.length; y++) { lines.push(rows[y]!); owners.push({ component, y, height: rows.length, inset: 0 }); }
     };
     for (const segment of this.plan(children, width)) {
       if (segment.kind === "native") {
-        append(segment.component, segment.component.render(width));
+        append(segment.component, this.rows(segment.component, segment.component.render(width), width));
         continue;
       }
       const { start, end, toolIndices, failed, running } = segment;
@@ -96,7 +102,8 @@ export class ToolGroups {
         const isTool = index === toolIndices[nextTool];
         if (isTool) nextTool++;
         // Native assistant rows (thinking toggles) join the tree; local row coordinates keep their click regions.
-        const rows = component.render(Math.max(1, width - 3));
+        const innerWidth = Math.max(1, width - 3);
+        const rows = this.rows(component, component.render(innerWidth), innerWidth);
         const more = nextTool < toolIndices.length;
         let first = isTool;
         for (let y = 0; y < rows.length; y++) {

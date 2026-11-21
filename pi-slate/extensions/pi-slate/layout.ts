@@ -209,7 +209,14 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | diagnostics | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | diagnostics | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | thinking [slate|pi] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+
+export const THINKING_STYLES = ["slate", "pi"] as const;
+export type ThinkingStyle = typeof THINKING_STYLES[number];
+
+export function isThinkingStyle(value: unknown): value is ThinkingStyle {
+  return value === "slate" || value === "pi";
+}
 
 export const LOGO_USAGE = "Usage: /logo [original|minimal]";
 
@@ -249,6 +256,9 @@ const SLATE_COMPLETIONS = [
   "effort-border",
   "effort-border on",
   "effort-border off",
+  "thinking",
+  "thinking slate",
+  "thinking pi",
   "progress",
   "progress waves",
   "progress dna-helix",
@@ -275,6 +285,7 @@ export type SlateArgs =
   | { ok: true; kind: "focused"; value?: boolean }
   | { ok: true; kind: "pid"; value?: boolean }
   | { ok: true; kind: "effort-border"; value?: boolean }
+  | { ok: true; kind: "thinking"; value?: ThinkingStyle }
   | { ok: true; kind: "progress"; value?: ProgressStyle }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
@@ -339,6 +350,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
   if (head === "effort-border") {
     if (!tail) return { ok: true, kind: "effort-border" };
     if (tail === "on" || tail === "off") return { ok: true, kind: "effort-border", value: tail === "on" };
+    return { ok: false };
+  }
+  if (head === "thinking") {
+    if (!tail) return { ok: true, kind: "thinking" };
+    if (tail === "slate" || tail === "pi") return { ok: true, kind: "thinking", value: tail };
     return { ok: false };
   }
   if (head === "progress") {
