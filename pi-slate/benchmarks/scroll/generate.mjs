@@ -2,17 +2,16 @@
 import { parseArgs } from "node:util";
 import { writeFileSync } from "node:fs";
 
-const sizes = { small: 200, medium: 1000, large: 3000 };
 const { values } = parseArgs({ options: {
-  size: { type: "string", default: "medium" }, entries: { type: "string" },
+  entries: { type: "string" },
   seed: { type: "string", default: "42" }, cwd: { type: "string", default: "/" },
   output: { type: "string" },
 } });
-const count = values.entries === undefined ? sizes[values.size] : Number(values.entries);
+const count = Number(values.entries);
 const seed = Number(values.seed);
 if (!values.output || !Number.isSafeInteger(count) || count < 12 || count > 999999 ||
     !Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
-  throw new Error("Usage: node generate.mjs --output FILE [--size small|medium|large | --entries 12..999999] [--seed UINT32] [--cwd DIR]");
+  throw new Error("Usage: node generate.mjs --output FILE --entries 12..999999 [--seed UINT32] [--cwd DIR]");
 }
 
 // Fixed clock and IDs; same seed, count, and cwd produce byte-identical JSONL.

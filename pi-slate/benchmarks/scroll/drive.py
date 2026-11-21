@@ -421,10 +421,35 @@ def summarize_runs(runs):
     return {scenario: median_metrics([run[scenario] for run in runs]) for scenario in SCENARIOS}
 
 
-def value(number, digits=1):
-    if number is None:
+# Metric path → (heading, numeric format). Comparisons use the same paths and order.
+TIMING_COLUMNS = {"wall_s": ("Wall s", ".3f"), "cpu_s": ("CPU s", ".3f")}
+STARTUP_COLUMNS = {**TIMING_COLUMNS, "tty_bytes": ("PTY bytes", ".0f")}
+STEADY_COLUMNS = {
+    **TIMING_COLUMNS,
+    "frames": ("Frames", "g"), "view_frames": ("View", "g"), "content_frames": ("Content", "g"),
+    "content_requests": ("Content requests", "g"),
+    "frame.mean_ms": ("Mean ms", ".1f"), "frame.p50_ms": ("p50 ms", ".1f"),
+    "frame.p95_ms": ("p95 ms", ".1f"), "frame.max_ms": ("Max ms", ".1f"),
+    "view_frame.mean_ms": ("View mean ms", ".1f"), "content_frame.mean_ms": ("Content mean ms", ".1f"),
+    "bytes_per_frame": ("B/frame", ".0f"),
+}
+CASE_HEADERS = ["Terminal", "Variant", "History"]
+
+
+def metric(metrics, path):
+    key, _, nested = path.partition(".")
+    return metrics[key][nested] if nested else metrics[key]
+
+
+def value(number, spec):
+    return "—" if number is None else format(number, spec)
+
+
+def delta(before, after):
+    if before is None or after is None:
         return "—"
-    return f"{number:.{digits}f}"
+    percent = f" ({(after - before) / before:+.1%})" if before else ""
+    return f"{after - before:+.3g}{percent}"
 
 
 def markdown_table(headers, rows, text_cols):
@@ -440,37 +465,46 @@ def case_label(case):
 
 
 def summary_table(report):
+    # Project the detailed metrics, with shorter labels and precision for sharing.
+    wheel = SCENARIOS[2:]
+    projection = [("First paint s", ["startup"], "wall_s", None), ("Idle content frames", ["idle"], "content_frames", None),
+                  ("Wheel CPU s", wheel, "cpu_s", ".2f"), ("View mean ms", wheel, "view_frame.mean_ms", None),
+                  ("Frame p95 ms", wheel, "frame.p95_ms", None), ("Wheel content frames", wheel, "content_frames", ".1f"),
+                  ("B/frame", wheel, "bytes_per_frame", None)]
+    headers, rows = CASE_HEADERS.copy(), [case_label(case) for case in report["cases"]]
+    for heading, scenarios, path, spec in projection:
+        columns = STARTUP_COLUMNS if scenarios == ["startup"] else STEADY_COLUMNS
+        headers.append(heading + (" ↑ / ↓" if scenarios == wheel else ""))
+        for row, case in zip(rows, report["cases"]):
+            row.append(" / ".join(value(metric(case["median"][scenario], path), spec or columns[path][1]) for scenario in scenarios))
+    return markdown_table(headers, rows, len(CASE_HEADERS))
+
+
+def metric_table(cases, scenarios, columns, previous):
+    comparing = previous is not None
+    show_phase = scenarios != ["startup"]
+    labels = [*CASE_HEADERS, "Scenario"] if show_phase else CASE_HEADERS
+    prefix = "Δ " if comparing else ""
     rows = []
-    for case in report["cases"]:
-        m = case["median"]
-        up, down = m["wheel_up"], m["wheel_down"]
-        def pair(read, digits):
-            return f"{value(read(up), digits)} / {value(read(down), digits)}"
+    for case in cases:
+        label = case_label(case)
+        baseline = previous.get(tuple(label)) if comparing else None
+        if comparing and baseline is None:
+            continue
+        for scenario in scenarios:
+            metrics = case["median"][scenario]
+            cells = [value(metric(metrics, path), spec) if baseline is None else delta(metric(baseline[scenario], path), metric(metrics, path))
+                     for path, (_, spec) in columns.items()]
+            rows.append([*(label + [scenario] if show_phase else label), *cells])
+    return markdown_table([*labels, *(prefix + heading for heading, _ in columns.values())], rows, len(labels))
 
-        rows.append([*case_label(case), value(m["startup"]["wall_s"], 3), f"{m['idle']['content_frames']:g}",
-                     pair(lambda x: x["cpu_s"], 2), pair(lambda x: x["view_frame"]["mean_ms"], 1),
-                     pair(lambda x: x["frame"]["p95_ms"], 1), pair(lambda x: x["content_frames"], 1),
-                     pair(lambda x: x["bytes_per_frame"], 0)])
-    return markdown_table(["Terminal", "Variant", "History", "First paint s", "Idle content frames", "Wheel CPU s ↑ / ↓",
-                           "View mean ms ↑ / ↓", "Frame p95 ms ↑ / ↓", "Wheel content frames ↑ / ↓", "B/frame ↑ / ↓"], rows, 3)
 
-
-def table(report):
-    startup, steady = [], []
-    for case in report["cases"]:
-        m = case["median"]["startup"]
-        startup.append([*case_label(case), value(m["wall_s"], 3), value(m["cpu_s"], 3), value(m["tty_bytes"], 0)])
-        for scenario in SCENARIOS[1:]:
-            m = case["median"][scenario]
-            steady.append([*case_label(case), scenario, value(m["wall_s"], 3), value(m["cpu_s"], 3),
-                           *(f"{m[key]:g}" for key in ("frames", "view_frames", "content_frames", "content_requests")),
-                           *(value(m["frame"][key]) for key in ("mean_ms", "p50_ms", "p95_ms", "max_ms")),
-                           value(m["view_frame"]["mean_ms"]), value(m["content_frame"]["mean_ms"]), value(m["bytes_per_frame"], 0)])
-    first = markdown_table(["Terminal", "Variant", "History", "Wall s", "CPU s", "PTY bytes"], startup, 3)
-    post_hook = markdown_table(["Terminal", "Variant", "History", "Scenario", "Wall s", "CPU s", "Frames", "View", "Content",
-                                "Content requests", "Mean ms", "p50 ms", "p95 ms", "Max ms", "View mean ms", "Content mean ms",
-                                "B/frame"], steady, 4)
-    return f"## Spawn to first paint\n\n{first}\n\n## Post-hook steady state\n\n{post_hook}"
+def table(report, previous=None):
+    first = metric_table(report["cases"], ["startup"], STARTUP_COLUMNS, previous)
+    steady = metric_table(report["cases"], SCENARIOS[1:], STEADY_COLUMNS, previous)
+    if previous is not None:
+        return f"{first}\n\n{steady}"
+    return f"## Spawn to first paint\n\n{first}\n\n## Post-hook steady state\n\n{steady}"
 
 
 def compare(old_path, new_path):
@@ -483,35 +517,10 @@ def compare(old_path, new_path):
         print("Warning: the results were collected on different OS/architecture versions", file=sys.stderr)
     print(f"Old: Pi {old['pi_version']}, Slate {old['slate_version']} ({old['slate_git_sha']})")
     print(f"New: Pi {new['pi_version']}, Slate {new['slate_version']} ({new['slate_git_sha']})\n")
-    def extract(m):
-        return [m["wall_s"], m["cpu_s"], m["frames"], m["view_frames"], m["content_frames"], m["content_requests"],
-                *(m["frame"][key] for key in ("mean_ms", "p50_ms", "p95_ms", "max_ms")),
-                m["view_frame"]["mean_ms"], m["content_frame"]["mean_ms"], m["bytes_per_frame"]]
-
-    def delta(a, b):
-        if a is None or b is None:
-            return "—"
-        percent = f" ({(b - a) / a:+.1%})" if a else ""
-        return f"{b - a:+.3g}{percent}"
-
     previous = {tuple(case_label(case)): case["median"] for case in old["cases"]}
-    startup, steady = [], []
-    for case in new["cases"]:
-        key = tuple(case_label(case))
-        if key not in previous:
-            continue
-        before, after = previous[key], case["median"]
-        startup.append([*key, *(delta(before["startup"][k], after["startup"][k]) for k in ("wall_s", "cpu_s", "tty_bytes"))])
-        for scenario in SCENARIOS[1:]:
-            changes = [delta(a, b) for a, b in zip(extract(before[scenario]), extract(after[scenario]))]
-            steady.append([*key, scenario, *changes])
-    if not startup:
+    if not any(tuple(case_label(case)) in previous for case in new["cases"]):
         raise RuntimeError("No matching variant/terminal pairs")
-    print(markdown_table(["Terminal", "Variant", "History", "Δ first paint s", "Δ startup CPU s", "Δ startup PTY bytes"], startup, 3))
-    print()
-    print(markdown_table(["Terminal", "Variant", "History", "Scenario", "Δ wall s", "Δ CPU s", "Δ frames", "Δ view", "Δ content",
-                          "Δ content requests", "Δ mean ms", "Δ p50 ms", "Δ p95 ms", "Δ max ms", "Δ view mean ms",
-                          "Δ content mean ms", "Δ B/frame"], steady, 4))
+    print(table(new, previous))
 
 
 def suite(args):
