@@ -5,6 +5,12 @@
 ### Fixed
 
 - Grouped tool calls keep each hidden thought's clickable `Thinking...` row in place, drawn inside the group's tree (#136).
+- Fullscreen scrolling no longer rebuilds the transcript for unchanged sidebar polls or Git branch checks. On compatible Pi hosts, sidebar updates reuse the transcript. The composer’s working animation uses Pi’s existing frames without a separate timer.
+- Delayed image-path rewrites and focused composer metadata repaint when they change. Metadata repaints retry after a temporary scheduler failure.
+
+### Changed
+
+- Tool cards and groups reuse unchanged rendered rows, and diff previews batch syntax highlighting redraws.
 
 ## 0.3.0
 

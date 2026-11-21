@@ -10,6 +10,7 @@ import type { BackgroundTask } from "./background-tasks.ts";
 import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, type SidebarTier } from "./sidebar-layout.ts";
 import { cacheRows, contextRows, formatCacheHit, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
 import { cacheWarmth, EMPTY_PERF } from "./perf-stats.ts";
+import { sameLines } from "./render-lines.ts";
 
 export const DOUBLE_CLICK_MS = 400;
 type ListName = "mcp" | "skills" | "prompts" | "tasks";
@@ -65,7 +66,7 @@ export class Sidebar implements Component {
   private imageStart = 0;
   private imageHeight = 0;
   private lastClick?: { target: string; at: number };
-  private cached?: { key: string; lines: string[] };
+  private cached?: { key?: string; lines: string[] };
   private revision = 0;
   private actions?: SidebarActions;
 
@@ -77,14 +78,14 @@ export class Sidebar implements Component {
     return theme;
   }
   setThemeProvider(provider: () => Theme | undefined): void { this.themeProvider = provider; this.invalidate(); }
-  attach(tui: TUI, theme: Theme, onYield?: () => void): void {
+  attach(tui: TUI, theme: Theme, onYield?: () => void, onViewRenderFault?: () => void): void {
     this.tui = tui; this.theme = theme;
     if (this.splitActive) return;
     this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth, () => {
       this.splitDispose = undefined;
       this.hideResizeGuide(); this.resizing = false; this.hits = []; this.listRows = [];
       onYield?.();
-    });
+    }, onViewRenderFault);
     this.invalidate();
   }
   isVisible(columns: number, rows: number): boolean { return this.splitActive && !this.hidden && dashboardColumnWidth(columns, rows, this._preferredWidth) > 0; }
@@ -97,11 +98,14 @@ export class Sidebar implements Component {
   setPreferredWidth(width: number | undefined): void {
     const next = width === undefined ? undefined : parseSidebarPercent(width);
     if (next === this._preferredWidth) return;
-    this._preferredWidth = next; this.changed();
+    const previousWidth = this.displayedWidth();
+    this._preferredWidth = next;
+    if (this.displayedWidth() !== previousWidth) this.splitDispose?.requestRender("layout");
   }
   setHidden(hidden: boolean): void {
     if (this.hidden === hidden) return;
-    this.hidden = hidden; if (this.splitActive) this.tui?.requestRender(true);
+    this.hidden = hidden;
+    this.splitDispose?.requestRender("forced-layout");
   }
   setActions(actions: SidebarActions): void { this.actions = actions; }
   setSession(session: SidebarSession): void {
@@ -178,12 +182,24 @@ export class Sidebar implements Component {
       `Saved is estimated from recorded prices only when all branch cache reads are priceable.`,
       `Cache expiry is estimated from the last reported cache activity when its retention tier is known${warmth.state === "unknown" ? " (not established here)" : ""}.`];
   }
-  tick(): void { if (!this.hidden && this.splitActive) this.tui?.requestRender(); }
+  tick(): void { this.refresh(); }
   invalidate(): void {
-    this.cached = undefined;
+    if (this.cached) this.cached.key = undefined;
     this.selectedImage?.invalidate(); this.peekImage?.invalidate();
   }
-  private changed(): void { this.revision += 1; this.cached = undefined; if (this.splitActive) this.tui?.requestRender(); }
+  private changed(): void { this.revision++; this.refresh(); }
+  private refresh(): void {
+    const split = this.splitDispose;
+    if (!split?.active()) return;
+    const width = this.displayedWidth();
+    if (width > 0) {
+      const previous = this.cached?.lines;
+      // Refresh hit regions even when the visible strings didn't change.
+      const lines = this.render(width);
+      if (!previous || !sameLines(previous, lines)) { split.requestRender("pane"); return; }
+    }
+    split.retryRender();
+  }
 
   handleSplitMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     const sidebarWidth = this.displayedWidth(event.width);
@@ -197,21 +213,21 @@ export class Sidebar implements Component {
     if (event.type === "wheel") {
       const delta = -(event.wheelDelta ?? 0);
       const list = this.listRows.find(row => row.y === event.y)?.list;
-      if (list && this.scrollList(list, delta)) return { handled: true, render: true };
+      if (list && this.scrollList(list, delta)) return { handled: true, render: false };
       if (event.y >= this.middleStart && event.y < this.middleStart + this.middleHeight) {
         const next = sidebarListOffset(this.middleOffset + delta, this.middleRows, this.middleHeight);
         if (next !== this.middleOffset) { this.middleOffset = next; this.changed(); }
-        return { handled: true, render: true };
+        return { handled: true, render: false };
       }
       return undefined;
     }
     if (event.type !== "click" || event.button !== "left") return undefined;
     const hit = this.hits.find(hit => hit.y === event.y && event.x >= hit.x0 && event.x < hit.x1);
-    if (hit) { hit.action(); return { handled: true, render: true }; }
+    if (hit) { hit.action(); return { handled: true, render: false }; }
     if (event.y > this.imageStart && event.y < this.imageStart + this.imageHeight) {
       const path = this.imagePath();
       if (path && this.isDoubleClick(event, `image:${path}`)) {
-        this.actions?.openFile(path); return { handled: true };
+        this.actions?.openFile(path); return { handled: true, render: false };
       }
     }
     return undefined;
@@ -402,7 +418,7 @@ export class Sidebar implements Component {
   dispose(): void {
     this.hideResizeGuide(); this.resizing = false;
     this.splitDispose?.(); this.splitDispose = undefined;
-    this.reset(); this.tui = undefined; this.theme = undefined; this.themeProvider = undefined; this.actions = undefined;
+    this.reset(); this.cached = undefined; this.tui = undefined; this.theme = undefined; this.themeProvider = undefined; this.actions = undefined;
   }
 
   private handleResizeMouse(event: TuiMouseEvent, onHandle: boolean): TuiMouseEventResult | undefined {

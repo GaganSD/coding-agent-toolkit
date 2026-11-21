@@ -83,7 +83,7 @@ const RESET = "\x1b[0m";
 
 export class DiffView implements Component {
   readonly rows: DiffRow[];
-  readonly ready: Promise<void>;
+  private highlighting?: Promise<void>;
   private cache = new Map<number, string[]>();
   readonly patch: string;
   readonly path: string;
@@ -91,7 +91,11 @@ export class DiffView implements Component {
   readonly expanded: boolean;
   readonly themeName: string;
   private config: DiffConfig;
-  private requestRender: () => void;
+  private readonly highlighter: DiffHighlighter;
+  private readonly requestRender: () => void;
+
+  /** Observe highlighting started by the first nonzero-width render. */
+  get ready(): Promise<void> | undefined { return this.highlighting; }
 
   constructor(
     patch: string,
@@ -109,13 +113,14 @@ export class DiffView implements Component {
     this.expanded = expanded;
     this.themeName = themeName;
     this.config = config;
+    this.highlighter = highlighter;
     this.requestRender = requestRender;
     this.rows = patchRows(patch);
     emphasizeRows(this.rows);
-    this.ready = this.highlight(highlighter);
   }
 
-  private async highlight(highlighter: DiffHighlighter): Promise<void> {
+  private async highlight(): Promise<void> {
+    let hasTokens = false;
     // Each hunk starts a fresh grammar state; gaps must not leak multiline syntax state.
     let start = 0;
     while (start < this.rows.length) {
@@ -125,13 +130,16 @@ export class DiffView implements Component {
       for (const excluded of ["add", "remove"] as const) {
         const side = hunk.filter((row) => row.kind !== excluded);
         if (!side.length) continue;
-        const tokens = await highlighter.tokens(side.map((row) => row.text).join("\n"), this.path, this.config.theme);
+        const tokens = await this.highlighter.tokens(side.map((row) => row.text).join("\n"), this.path, this.config.theme);
+        if (tokens) hasTokens = true;
         side.forEach((row, i) => { row.tokens = tokens?.[i]; });
       }
       start = end;
     }
-    this.invalidate();
-    this.requestRender();
+    if (hasTokens) {
+      this.invalidate();
+      await this.highlighter.repaint(this.requestRender);
+    }
   }
 
   invalidate(): void { this.cache.clear(); }
@@ -193,6 +201,7 @@ export class DiffView implements Component {
   render(width: number): string[] {
     width = Math.max(0, Math.floor(width));
     if (width === 0) return [];
+    this.highlighting ??= this.highlight();
     const cached = this.cache.get(width);
     if (cached) return cached;
     const split = this.kind === "edit" && width >= this.config.splitMinWidth;

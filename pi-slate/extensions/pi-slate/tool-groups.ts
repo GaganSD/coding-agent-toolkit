@@ -1,6 +1,7 @@
 import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component, type Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { TOOL_STYLE_NAMES } from "./tool-style.ts";
+import { sameLines } from "./render-lines.ts";
 
 const names = new Set(TOOL_STYLE_NAMES);
 type Tool = Component & {
@@ -31,12 +32,15 @@ function canGroupAssistant(component: Component): boolean {
 }
 
 type RowOwner = { component: Component; y: number; height: number; inset: number };
+type Part = { lines: string[]; owners: Array<RowOwner | undefined> };
 type Segment =
   | { kind: "native"; component: Component }
   | { kind: "group"; start: number; end: number; toolIndices: number[]; failed: number; running: boolean };
 /** Paints an explicit display list and maps its mouse rows. Never patches a host component. */
 export class ToolGroups {
-  private owners: Array<RowOwner | undefined> = [];
+  private frame?: Part & { parts: Part[] };
+  private readonly bodies = new WeakMap<Component, { width: number; rows: string[]; first?: string; rest?: string; part: Part }>();
+  private readonly summaries = new WeakMap<Component, { width: number; text: string; part: Part }>();
   private readonly theme: () => Theme | undefined;
   private readonly hint: () => string;
   constructor(theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand")) {
@@ -70,51 +74,76 @@ export class ToolGroups {
     return segments;
   }
 
+  private body(component: Component, width: number, first?: string, rest?: string): Part {
+    const inset = first === undefined ? 0 : 3;
+    const rows = component.render(inset ? Math.max(1, width - inset) : width);
+    const cached = this.bodies.get(component);
+    if (cached?.width === width && cached.first === first && cached.rest === rest && sameLines(cached.rows, rows)) return cached.part;
+    const snapshot = rows.slice();
+    const part: Part = { lines: first === undefined ? snapshot : [], owners: [] };
+    for (let y = 0; y < snapshot.length; y++) {
+      if (first !== undefined) {
+        const row = snapshot[y]!;
+        if (!row.trim()) continue;
+        part.lines.push(truncateToWidth((part.lines.length ? rest! : first) + row, width));
+      }
+      part.owners.push({ component, y, height: snapshot.length, inset });
+    }
+    this.bodies.set(component, { width, rows: snapshot, first, rest, part });
+    return part;
+  }
+
   render(children: readonly Component[], width: number): string[] {
-    const lines: string[] = [], owners: Array<RowOwner | undefined> = [];
-    const append = (component: Component, rows: string[]): void => {
-      for (let y = 0; y < rows.length; y++) { lines.push(rows[y]!); owners.push({ component, y, height: rows.length, inset: 0 }); }
-    };
+    const parts: Part[] = [];
+    let hint: string | undefined;
+    let paint: Theme | undefined;
+    let guides: string[] | undefined;
     for (const segment of this.plan(children, width)) {
       if (segment.kind === "native") {
-        append(segment.component, segment.component.render(width));
+        parts.push(this.body(segment.component, width));
         continue;
       }
       const { start, end, toolIndices, failed, running } = segment;
-      const paint = this.theme();
-      const parts = [`${toolIndices.length} tool calls`];
-      if (failed) parts.push(`${failed} failed`);
+      if (!guides) {
+        paint = this.theme();
+        guides = ["├─ ", "└─ ", "│  ", "   "].map(guide => paint ? paint.fg("dim", guide) : guide);
+      }
+      const counts = `${toolIndices.length} tool calls${failed ? ` · ${failed} failed` : ""}`;
       const mark = running ? "◌" : failed ? "✗" : "✓";
+      hint ??= this.hint();
       const summary = paint
-        ? `${paint.fg(failed ? "error" : running ? "accent" : "success", mark)} ${paint.bold(running ? "Running" : "Done")} ${paint.fg("muted", `(${parts.join(" · ")})`)} ${this.hint()}`
-        : `${mark} ${running ? "Running" : "Done"} (${parts.join(" · ")}) ${this.hint()}`;
-      lines.push("", truncateToWidth(summary, width));
-      owners.push(undefined, undefined);
+        ? `${paint.fg(failed ? "error" : running ? "accent" : "success", mark)} ${paint.bold(running ? "Running" : "Done")} ${paint.fg("muted", `(${counts})`)} ${hint}`
+        : `${mark} ${running ? "Running" : "Done"} (${counts}) ${hint}`;
+      const head = children[start]!;
+      let cached = this.summaries.get(head);
+      if (cached?.width !== width || cached.text !== summary) {
+        cached = { width, text: summary, part: { lines: ["", truncateToWidth(summary, width)], owners: [undefined, undefined] } };
+        this.summaries.set(head, cached);
+      }
+      parts.push(cached.part);
       let nextTool = 0;
       for (let index = start; index < end; index++) {
-        const component = children[index]!;
         const isTool = index === toolIndices[nextTool];
         if (isTool) nextTool++;
-        // Native assistant rows (thinking toggles) join the tree; local row coordinates keep their click regions.
-        const rows = component.render(Math.max(1, width - 3));
         const more = nextTool < toolIndices.length;
-        let first = isTool;
-        for (let y = 0; y < rows.length; y++) {
-          const row = rows[y]!;
-          if (!row.trim()) continue;
-          const guide = first ? more ? "├─ " : "└─ " : more ? "│  " : "   ";
-          first = false;
-          lines.push(truncateToWidth((paint ? paint.fg("dim", guide) : guide) + row, width));
-          owners.push({ component, y, height: rows.length, inset: 3 });
-        }
+        const rest = guides[more ? 2 : 3]!;
+        // Preserve source coordinates when native thinking rows join the tree.
+        parts.push(this.body(children[index]!, width, isTool ? guides[more ? 0 : 1]! : rest, rest));
       }
     }
-    this.owners = owners;
+    const frame = this.frame;
+    if (frame?.parts.length === parts.length && parts.every((part, i) => part === frame.parts[i])) return frame.lines;
+    const lines: string[] = [], owners: Part["owners"] = [];
+    for (const part of parts) {
+      for (const line of part.lines) lines.push(line);
+      for (const owner of part.owners) owners.push(owner);
+    }
+    this.frame = { parts, lines, owners };
     return lines;
   }
 
   handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]> {
-    const owner = this.owners[event.y];
+    const owner = this.frame?.owners[event.y];
     if (!owner) return undefined;
     const local = { ...event, x: event.x - owner.inset, y: owner.y, width: Math.max(1, event.width - owner.inset), height: owner.height };
     if (local.x < 0) return undefined;

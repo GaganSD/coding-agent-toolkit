@@ -58,6 +58,7 @@ export class ChatSurface {
   private readonly installedMouse: Container["handleMouse"];
   private readonly display = new Container();
   private paintedGroups: ToolGroups | undefined;
+  private paintedWidth?: number;
   private disposed = false;
 
   constructor(container: Container, options: ChatSurfaceOptions) {
@@ -70,9 +71,14 @@ export class ChatSurface {
     this.installedRender = width => {
       if (this.disposed) return this.originalRender.call(container, width);
       const limit = this.options.limit ?? Number.POSITIVE_INFINITY;
-      const start = !this.options.active?.() && Number.isFinite(limit) ? -Math.max(1, Math.floor(limit)) : 0;
-      this.display.children = container.children.slice(start);
+      const children = container.children;
+      const start = !this.options.active?.() && Number.isFinite(limit) ? Math.max(0, children.length - Math.max(1, Math.floor(limit))) : 0;
+      const projected = this.display.children;
+      if (projected.length !== children.length - start || !projected.every((child, i) => child === children[start + i])) {
+        this.display.children = children.slice(start);
+      }
       this.paintedGroups = undefined;
+      this.paintedWidth = width;
       if (this.options.groups) {
         try {
           const rows = this.options.groups.render(this.display.children, width);
@@ -87,6 +93,7 @@ export class ChatSurface {
     };
     this.installedMouse = event => {
       if (this.disposed) return this.originalMouse.call(container, event);
+      if (event.type === "wheel" && event.width !== this.paintedWidth) return undefined;
       return this.paintedGroups ? this.paintedGroups.handleMouse(event) : this.display.handleMouse(event);
     };
     try {

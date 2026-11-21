@@ -210,6 +210,67 @@ test("a grouping painter never patches the host or mutates its canonical childre
   assert.deepEqual(chat.children, original);
 });
 
+test("group paint reuses output but rebuilds row owners on width, content and identity changes", () => {
+  const first = mockTool(), second = mockTool(), replacement = mockTool();
+  const painter = new ToolGroups(() => undefined, () => "expand");
+  const firstFrame = painter.render([first, second], 80);
+  assert.equal(painter.render([first, second], 80), firstFrame);
+  const narrow = painter.render([first, second], 18);
+  assert.notEqual(narrow, firstFrame);
+  assert.ok(narrow.every(line => visibleWidth(line) <= 18));
+  first.render = () => ["", "", "new", "extra"];
+  const changed = painter.render([first, second], 18);
+  assert.deepEqual(changed.slice(2, 4), ["├─ new", "│  extra"]);
+  assert.equal(painter.render([first, second], 18), changed);
+  assert.deepEqual(painter.render([first, replacement], 18), changed);
+  const event = { type: "click", button: "left", x: 4, y: 4, width: 18, height: changed.length } as TuiMouseEvent;
+  assert.equal(painter.handleMouse(event)?.handled, true);
+  assert.equal(second.clicks.length, 0);
+  assert.equal(replacement.clicks[0]?.y, 1);
+  assert.equal(replacement.clicks[0]?.width, 15);
+});
+
+test("mutable grouped and native rows update the paint and shift hit ownership", () => {
+  for (const grouped of [true, false]) {
+    const first = mockTool(), second = mockTool();
+    first.expanded = !grouped;
+    const rows = ["first"];
+    first.render = () => rows;
+    const painter = new ToolGroups(() => undefined, () => "expand");
+    const render = () => painter.render([first, second], 80);
+    const initial = render();
+    rows[0] = "changed";
+    assert.match(render().join("\n"), /changed/);
+    rows.push("more");
+    const grown = render();
+    const grownY = grown.findIndex(row => row.includes("Bash"));
+    assert.match(grown[grownY - (grouped ? 1 : 2)]!, /more/);
+    rows.length = 1;
+    const shrunk = render();
+    const shrunkY = shrunk.findIndex(row => row.includes("Bash"));
+    assert.equal(shrunkY, grownY - 1);
+    assert.doesNotMatch(shrunk.join("\n"), /more/);
+    assert.match(initial.join("\n"), /first/);
+    const event = { type: "click", button: "left", x: 5, y: shrunkY, width: 80, height: shrunk.length } as TuiMouseEvent;
+    assert.equal(painter.handleMouse(event)?.handled, true);
+    assert.equal(first.clicks.length, 0);
+    assert.equal(second.clicks[0]?.y, 1);
+  }
+});
+
+test("wheel reaches a grouped tool at its local coordinates", () => {
+  const { chat, first, surface } = setup();
+  chat.render(80);
+  first.handleMouse = event => {
+    first.clicks.push(event);
+    return { handled: true };
+  };
+  const event = { type: "wheel", button: "none", wheelDelta: 1, x: 8, screenX: 8, y: 2, screenY: 2, width: 80, height: 6 } as TuiMouseEvent;
+  assert.equal(chat.handleMouse(event)?.target.component, first);
+  assert.deepEqual([first.clicks[0]?.x, first.clicks[0]?.y, first.clicks[0]?.width], [5, 1, 77]);
+  surface.dispose();
+});
+
 test("grouping metadata faults retain the window and paint selected native children only once", () => {
   const chat = new Container(), broken = mockTool(), normal = new Text("visible normal message", 0, 0);
   let paints = 0, normalPaints = 0, faults = 0;

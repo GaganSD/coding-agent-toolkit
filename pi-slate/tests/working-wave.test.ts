@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  advanceWave,
   isWaveActive,
   progressFrame,
   setProgressStyle,
   setWaveActive,
   WAVE_PERIOD,
+  WAVE_STEP_MS,
   waveFrame,
   waveTick,
 } from "../extensions/pi-slate/working-wave.ts";
@@ -67,19 +67,17 @@ test("progress frame dispatches on the selected style", () => {
   assert.equal(progressFrame(3), waveFrame(3));
 });
 
-test("wave state resets on activation and advances monotonically", () => {
+test("wave phase uses elapsed time", (t) => {
+  t.after(() => setWaveActive(false));
+  const start = 1_000;
+  setWaveActive(true, start);
+  assert.equal(isWaveActive(), true);
+  assert.equal(waveTick(start + WAVE_STEP_MS - 1), 0);
+  assert.equal(waveTick(start + 2 * WAVE_STEP_MS), 2);
+  setWaveActive(true, start + 2 * WAVE_STEP_MS);
+  assert.equal(waveTick(start + 3 * WAVE_STEP_MS), 3, "re-activation keeps the original phase");
   setWaveActive(false);
   assert.equal(isWaveActive(), false);
-  setWaveActive(true);
-  assert.equal(isWaveActive(), true);
-  assert.equal(waveTick(), 0);
-  advanceWave();
-  advanceWave();
-  assert.equal(waveTick(), 2);
-  setWaveActive(true); // re-activation while active keeps the tick
-  assert.equal(waveTick(), 2);
-  setWaveActive(false);
-  setWaveActive(true);
-  assert.equal(waveTick(), 0);
-  setWaveActive(false);
+  setWaveActive(true, start + 1000);
+  assert.equal(waveTick(start + 1000), 0);
 });
