@@ -8,7 +8,6 @@ import {
   WAVE_PERIOD,
   WAVE_STEP_MS,
   waveFrame,
-  waveNeedsFrame,
   waveTick,
 } from "../extensions/pi-slate/working-wave.ts";
 import { cylonFrame } from "../extensions/pi-slate/working-cylon.ts";
@@ -68,7 +67,7 @@ test("progress frame dispatches on the selected style", () => {
   assert.equal(progressFrame(3), waveFrame(3));
 });
 
-test("wave phase uses elapsed time and only needs a frame after a quiet gap", (t) => {
+test("wave phase uses elapsed time", (t) => {
   t.after(() => setWaveActive(false));
   const start = 1_000;
   setWaveActive(true, start);
@@ -77,11 +76,8 @@ test("wave phase uses elapsed time and only needs a frame after a quiet gap", (t
   assert.equal(waveTick(start + 2 * WAVE_STEP_MS), 2);
   setWaveActive(true, start + 2 * WAVE_STEP_MS);
   assert.equal(waveTick(start + 3 * WAVE_STEP_MS), 3, "re-activation keeps the original phase");
-  assert.equal(waveNeedsFrame(0, start + 359), false);
-  assert.equal(waveNeedsFrame(0, start + 360), true);
-  assert.equal(waveNeedsFrame(start + 360, start + 600), false, "a recent host paint suppresses the watchdog");
   setWaveActive(false);
-  assert.equal(waveNeedsFrame(0, start + 1000), false);
+  assert.equal(isWaveActive(), false);
   setWaveActive(true, start + 1000);
   assert.equal(waveTick(start + 1000), 0);
 });

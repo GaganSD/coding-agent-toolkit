@@ -41,7 +41,7 @@ import { ContextUsageCache } from "./context-usage.ts";
 import { branchPerf } from "./perf-stats.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
-import { isProgressStyle, PROGRESS_STYLES, setProgressStyle, setWaveActive, WAVE_STEP_MS, type ProgressStyle } from "./working-wave.ts";
+import { isProgressStyle, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
   type LogoStyle,
@@ -410,7 +410,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     thinkingFold.stop();
     tokenRate.dispose();
     workingWord = undefined;
-    stopWave();
+    setWaveActive(false);
     if (loaded.error) {
       diagnostics.fallback("configuration", "Slate surfaces disabled because pi-slate.json could not be read or parsed. File preserved; repair it and /reload.");
       ctx.ui.notify(loaded.error, "warning");
@@ -618,27 +618,6 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const workingWords = createWordPicker();
   let workingWord: string | undefined;
-  let waveTimer: ReturnType<typeof setInterval> | undefined;
-  const stopWave = (): void => {
-    clearInterval(waveTimer); waveTimer = undefined;
-    setWaveActive(false);
-  };
-  const startWave = (): void => {
-    clearInterval(waveTimer);
-    setWaveActive(true);
-    let lastRequestAt = 0;
-    // Pi's own frames drive the wave; only wake a quiet renderer.
-    waveTimer = setInterval(() => {
-      try {
-        if (!activeEditor || !editorActive()) { stopWave(); return; }
-        if (!sidebar.chatReplaced && activeEditor.needsWaveFrame(lastRequestAt)) {
-          lastRequestAt = performance.now();
-          requestRender();
-        }
-      } catch { stopWave(); }
-    }, WAVE_STEP_MS);
-    waveTimer.unref();
-  };
   const syncThinkingStatus = (): void => {
     try {
       const ctx = liveContext();
@@ -664,7 +643,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     thinkingFold.stop();
     if (activeEditor) {
       workingWord = undefined;
-      startWave();
+      setWaveActive(true); // Pi's working indicator already schedules frames.
       return;
     }
     workingWord = workingWords.next();
@@ -673,7 +652,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("agent_end", (_event, ctx) => {
     currentContext = ctx;
     thinkingFold.stop();
-    stopWave();
+    setWaveActive(false);
     if (turnStartedAt !== undefined) {
       const finishedAt = Date.now();
       lastTurnMs = Math.max(0, finishedAt - turnStartedAt);
@@ -780,7 +759,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("session_shutdown", (_event, ctx) => {
     sessionEpoch += 1;
     workingWord = undefined;
-    stopWave();
+    setWaveActive(false);
     thinkingFold.stop();
     tokenRate.dispose();
     selection.dispose();

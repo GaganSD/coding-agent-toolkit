@@ -92,7 +92,6 @@ export class Sidebar implements Component {
   }
   isVisible(columns: number, rows: number): boolean { return this.splitActive && !this.hidden && dashboardColumnWidth(columns, rows, this._preferredWidth) > 0; }
   ownsFocus(component: Component): boolean { return component === this || this.splitDispose?.ownsFocus(component) === true; }
-  get chatReplaced(): boolean { return this.splitDispose?.chatReplaced() === true; }
   /** Scoped cooperative conversation surface; sidebar and underlying chat remain intact. */
   replaceChat(view: Component): (() => void) | undefined {
     return this.splitDispose?.replaceChat(view);

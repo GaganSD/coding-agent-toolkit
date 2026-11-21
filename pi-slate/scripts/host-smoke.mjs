@@ -36,7 +36,9 @@ await writeFile(mcpPath, initialMcp);
 const modeName = process.env.SLATE_COMPAT_MODE;
 const fault = process.env.SLATE_COMPAT_FAULT;
 const settingsManager = host.SettingsManager.inMemory({ quietStartup: true, tuiMode: modeName, theme: "dark" });
-const model = { id: "compatibility-only", name: "Compatibility only", provider: "compatibility", api: "openai-responses", baseUrl: "http://127.0.0.1:9", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 };
+const model = { id: "compatibility-only", name: "Compatibility only", provider: "compatibility", api: "compatibility-quiet", baseUrl: "http://127.0.0.1:9", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 };
+const quietTurn = !fault && selected.includes("editor") && selected.includes("header");
+const reply = Promise.withResolvers();
 const chunks = [], errors = [];
 async function waitForWrite(from, pattern, description, timeout = 2000) {
   const until = performance.now() + timeout;
@@ -72,6 +74,23 @@ try {
     const loaded = services.resourceLoader.getExtensions();
     assert(loaded.extensions.some(extension => extension.path.endsWith("extensions/pi-slate/index.ts")), "the probe must actually load Slate, not boot an empty native host");
     assert.deepEqual(loaded.errors, []); assert.deepEqual(loaded.warnings ?? [], []);
+    if (quietTurn) {
+      const { createAssistantMessageEventStream } = await import("@earendil-works/pi-ai");
+      services.modelRuntime.registerProvider(model.provider, {
+        api: model.api, baseUrl: model.baseUrl, apiKey: "offline-fixture", models: [model],
+        streamSimple() {
+          const stream = createAssistantMessageEventStream();
+          void reply.promise.then(() => {
+            const message = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
+              content: [{ type: "text", text: "Offline reply" }], stopReason: "stop", timestamp: Date.now(),
+              usage: { ...model.cost, totalTokens: 0, cost: { ...model.cost, total: 0 } } };
+            stream.push({ type: "done", reason: "stop", message });
+            stream.end();
+          });
+          return stream;
+        },
+      });
+    }
     const result = await host.createAgentSessionFromServices({ services, sessionManager, sessionStartEvent, model });
     result.session.extensionRunner.onError(error => errors.push(error));
     return { ...result, services, diagnostics: services.diagnostics };
@@ -139,33 +158,24 @@ try {
       assert.equal(editor.getText(), "[image-1]");
     }
 
-    let before = chunks.length;
+    const before = chunks.length;
     await writeFile(mcpPath, '{"mcpServers":{"fixture":{"type":"future-transport"},"second":{"type":"future-transport"}}}');
     await waitForWrite(before, /2 mcp/, "the next resource poll must repaint the focused composer", 6500);
     await writeFile(mcpPath, initialMcp);
-
-    const chat = Reflect.get(mode, "chatContainer"), originalRender = chat.render;
-    let paints = 0;
-    chat.render = width => { paints++; return originalRender.call(chat, width); };
+  }
+  if (quietTurn) {
+    // Run through Pi's normal turn lifecycle; the offline provider emits nothing until released.
+    const before = chunks.length;
+    const turn = runtime.session.prompt("Wait for the offline reply");
+    void turn.catch(() => {}); // Observe any rejection before waiting for terminal output.
     try {
-      await runtime.session.extensionRunner.emit({ type: "agent_start" });
-      ui.renderNow(true);
-      paints = 0;
-      before = chunks.length;
-      await waitForWrite(before, /[▁-█]{7}/, "the quiet composer must be repainted through the scheduler");
-      assert(paints > 0, "the quiet fallback uses a public content render");
-
-      const dock = Reflect.get(mode, "editorContainer");
-      dock.clear(); dock.addChild(new tui.Text("borrowed composer dock"));
-      try {
-        ui.renderNow(true);
-        paints = 0;
-        await delay(520);
-        assert.equal(paints, 0, "a dialog borrowing the editor dock must not trigger cosmetic renders");
-      } finally { dock.clear(); dock.addChild(editor); }
-      await waitForWrite(chunks.length, /[▁-█]{7}/, "the quiet fallback must resume when the composer returns");
-      await runtime.session.extensionRunner.emit({ type: "agent_end", messages: [] });
-    } finally { chat.render = originalRender; }
+      const wave = /[▁-█]{7}/;
+      const frame = await waitForWrite(before, wave, "the real turn must paint a working wave");
+      assert.equal(Reflect.get(mode, "activeStatusIndicator")?.kind, "working", "Pi must install its own indicator");
+      const firstWave = stripVTControlCharacters(frame).match(wave)[0];
+      await waitForWrite(chunks.length, new RegExp(`(?!${firstWave})[▁-█]{7}`), "the wave must animate while the provider is quiet");
+      assert(runtime.session.isStreaming, "the provider must still be waiting");
+    } finally { reply.resolve(); await turn; }
   }
   await runtime.newSession();
   await assertMounted("replacement");
@@ -176,7 +186,7 @@ try {
   const { readFile } = await import("node:fs/promises");
   if (config === undefined) await assert.rejects(readFile(configPath), { code: "ENOENT" });
   else assert.equal(await readFile(configPath, "utf8"), config, "fallbacks and startup must not rewrite preferences");
-  console.log(JSON.stringify({ host: host.VERSION, mode: modeName, surfaces, mounted: true, rendered: true, replaced: true, shutdown: true, networkRequests }));
+  console.log(JSON.stringify({ host: host.VERSION, mode: modeName, surfaces, mounted: true, rendered: true, replaced: true, shutdown: true, quietTurn, networkRequests }));
 } finally {
   mode?.stop();
   await runtime?.dispose();

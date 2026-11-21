@@ -1,7 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
 import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-works/pi-coding-agent";
 import {
-  Container,
   CURSOR_MARKER,
   truncateToWidth,
   visibleWidth,
@@ -12,7 +11,7 @@ import {
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { footerVisibility, modelStatusLabel, type ModelDisplay } from "./layout.ts";
-import { isWaveActive, progressFrame, waveNeedsFrame, waveTick } from "./working-wave.ts";
+import { isWaveActive, progressFrame, waveTick } from "./working-wave.ts";
 
 export function composerPaddingX(density: "comfortable" | "compact"): number {
   return density === "compact" ? 2 : 4;
@@ -398,8 +397,6 @@ export class ComposerEditor extends CustomEditor {
   private topFrame?: { width: number; hiddenLineCount: number; resources?: string };
   private bottomFrame?: { width: number; hiddenLineCount: number; line: string };
   private readonly source: () => ComposerSource;
-  private lastPaintAt = 0;
-  private sawEditorDock = false;
   private statusIndicator: WorkingStatusIndicatorParameter;
 
   constructor(
@@ -462,18 +459,6 @@ export class ComposerEditor extends CustomEditor {
   private wavePhase(): number | undefined {
     const kind = this.statusIndicator?.kind;
     return this.embedWorkingStatus && isWaveActive() && (kind === undefined || kind === "working") ? waveTick() : undefined;
-  }
-
-  private isInEditorDock(): boolean {
-    return this.tui.children?.some(child => child === this || (child instanceof Container && child.children.includes(this))) ?? false;
-  }
-
-  needsWaveFrame(lastRequestAt: number): boolean {
-    if (!waveNeedsFrame(Math.max(this.lastPaintAt, lastRequestAt)) || this.wavePhase() === undefined) return false;
-    // A dialog borrows Pi's editor container without changing the registered factory.
-    const mounted = this.isInEditorDock();
-    this.sawEditorDock ||= mounted;
-    return mounted || !this.sawEditorDock;
   }
 
   needsContextRepaint(): boolean {
@@ -583,8 +568,6 @@ export class ComposerEditor extends CustomEditor {
       paint,
     );
     noteComposerFrameLines(lines.length);
-    this.lastPaintAt = performance.now();
-    this.sawEditorDock ||= this.isInEditorDock();
     return lines;
   }
 }

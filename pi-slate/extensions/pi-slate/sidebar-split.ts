@@ -60,7 +60,6 @@ export class SidebarSplit extends HStack {
   private chatLease = 0;
 
   chat(): Component { return this.originalChat; }
-  get chatReplaced(): boolean { return this.entries[0]!.component !== this.originalChat; }
 
   /** Lend only our owned main slot. Keep the original chat/editor objects alive. */
   replaceChat(view: Component): () => void {
@@ -151,7 +150,6 @@ export function splitChat(component: Component | undefined): Component | undefin
 }
 
 export type SidebarSplitLease = LayoutLease & {
-  chatReplaced(): boolean;
   replaceChat(view: Component): (() => void) | undefined;
   ownsFocus(component: Component): boolean;
   requestPaneRender(): boolean;
@@ -198,7 +196,6 @@ export function installSidebarSplit(
       return requestNecessaryRender(tui, viewRenderFailed);
     },
     ownsFocus(component: Component) { return dispose.active() && component === split; },
-    chatReplaced() { return split?.chatReplaced === true && dispose.active(); },
     replaceChat(view: Component) {
       // A later layout owner wins; never resurrect a stale slot.
       if (!split || !dispose.active()) return undefined;

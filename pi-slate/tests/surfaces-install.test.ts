@@ -193,79 +193,21 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
   });
 }
 
-test("the wave uses host paints, wakes a quiet composer, and skips a borrowed dock", async (t) => {
+test("the wave advances on host paints without scheduling a Slate frame", async (t) => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
   t.mock.timers.enable({ apis: ["setInterval"] });
   let now = 1000, requests = 0;
   t.mock.method(performance, "now", () => now);
   t.mock.method(f.tui, "requestRender", () => { requests++; });
-  const dock = new Container();
-  dock.addChild(f.composer!);
-  f.tui.addChild(dock);
-  f.composer!.render(80);
-  await f.emit("agent_start");
-  const initial = f.composer!.render(80)[0];
-  for (let i = 0; i < 6; i++) {
-    now += WAVE_STEP_MS;
-    f.composer!.render(80);
-    t.mock.timers.tick(WAVE_STEP_MS);
-  }
-  assert.notEqual(f.composer!.render(80)[0], initial);
-  assert.equal(requests, 0, "recent host paints are enough to animate the wave");
-  dock.clear(); dock.addChild(f.foreign);
-  now += 600; t.mock.timers.tick(600);
-  assert.equal(requests, 0, "a dialog borrowing the dock does not wake the renderer");
-  dock.clear(); dock.addChild(f.composer!);
-  now += WAVE_STEP_MS; t.mock.timers.tick(WAVE_STEP_MS);
-  assert.equal(requests, 1, "a quiet returned composer gets a public render request");
-  now += 240; t.mock.timers.tick(240);
-  assert.equal(requests, 1, "do not flood a quiet scheduler if the last request hasn't painted yet");
-});
-
-test("the wave stays quiet while the chat slot is lent, even with the composer in its dock", async (t) => {
-  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], focused: true }));
-  t.mock.timers.enable({ apis: ["setInterval"] });
-  let now = 1000, requests = 0;
-  t.mock.method(performance, "now", () => now);
-  t.mock.method(f.tui, "requestRender", (force?: boolean) => { if (!force) requests++; });
-  const dock = new Container();
-  dock.addChild(f.composer!);
-  f.tui.addChild(dock);
-  await f.emit("agent_start");
-  f.composer!.render(80);
-
-  let host!: { mount(view: Component): (() => void) | undefined };
-  f.eventBus.emit("subagent:ui-host-request", { version: 1, owner: f.manager.getSessionId(), accept: (value: typeof host) => { host = value; } });
-  const view = new Text("replacement conversation", 0, 0);
-  const release = host.mount(view);
-  assert.ok(release);
-  assert.equal((f.tui as TuiAltScreen).getFocusedComponent(), view);
-  assert.ok(dock.children.includes(f.composer!));
-  for (let i = 0; i < 10; i++) { now += WAVE_STEP_MS; t.mock.timers.tick(WAVE_STEP_MS); }
-  assert.equal(requests, 0, "the visible replacement does not need composer frames");
-  release();
-  now += WAVE_STEP_MS; t.mock.timers.tick(WAVE_STEP_MS);
-  assert.equal(requests, 1, "the watchdog resumes after the slot is restored");
-});
-
-test("a public render delegating to a throwing view scheduler stops the wave without cleanup renders", async (t) => {
-  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
-  t.mock.timers.enable({ apis: ["setInterval"] });
-  let now = 1000, requests = 0, forced = 0;
-  t.mock.method(performance, "now", () => now);
-  const host = Object.assign(f.tui, { requestViewRender() { throw new Error("scheduler unavailable"); } });
-  t.mock.method(f.tui, "requestRender", (force?: boolean) => {
-    if (force) { forced++; return; }
-    requests++;
-    host.requestViewRender();
-  });
   await f.emit("agent_start");
   assert.equal(isWaveActive(), true);
-  now += 360;
-  assert.doesNotThrow(() => t.mock.timers.tick(360));
+  const initial = f.composer!.render(80)[0];
+  now += 6 * WAVE_STEP_MS;
+  t.mock.timers.tick(6 * WAVE_STEP_MS);
+  assert.equal(requests, 0, "Slate must not wake a quiet renderer for the wave");
+  assert.notEqual(f.composer!.render(80)[0], initial);
+  await f.emit("agent_end");
   assert.equal(isWaveActive(), false);
-  now += 600; t.mock.timers.tick(600);
-  assert.deepEqual([requests, forced], [1, 0], "no retry or forced frame for a failed cosmetic animation");
 });
 
 test("focused composer shows ctx and resources on top without duplicating them below", async (t) => {

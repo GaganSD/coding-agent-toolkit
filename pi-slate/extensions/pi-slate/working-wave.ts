@@ -57,7 +57,6 @@ export function progressFrame(tick: number, width?: number): string {
 }
 
 export const WAVE_STEP_MS = 120;
-const WAVE_REPAINT_MS = 360;
 let startedAt: number | undefined;
 
 export function setWaveActive(on: boolean, now = performance.now()): void {
@@ -68,8 +67,4 @@ export function isWaveActive(): boolean { return startedAt !== undefined; }
 
 export function waveTick(now = performance.now()): number {
   return startedAt === undefined ? 0 : Math.floor(Math.max(0, now - startedAt) / WAVE_STEP_MS);
-}
-
-export function waveNeedsFrame(lastPaintAt: number, now = performance.now()): boolean {
-  return startedAt !== undefined && now - Math.max(startedAt, lastPaintAt) >= WAVE_REPAINT_MS;
 }
