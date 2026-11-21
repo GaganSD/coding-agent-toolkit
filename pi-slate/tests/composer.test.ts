@@ -396,7 +396,7 @@ test("working wave sits in the composer top border without growing the frame", (
     { embedWorkingStatus: true },
   );
   editor.setWorkingStatusIndicator(
-    { kind: "working", renderInBorder: () => "" } as unknown as Parameters<ComposerEditor["setWorkingStatusIndicator"]>[0],
+    { kind: "working", frames: ["a", "b"], renderInBorder: () => "" } as unknown as Parameters<ComposerEditor["setWorkingStatusIndicator"]>[0],
   );
   try {
     setWaveActive(false);

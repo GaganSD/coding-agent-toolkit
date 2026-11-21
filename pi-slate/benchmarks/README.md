@@ -38,7 +38,7 @@ The fix makes Slate request only the frame it needs:
 
 - The sidebar compares its painted rows and repaints only itself when they change. It swaps a fresh sidebar leaf into its own split so Pi's view-frame cache misses only the sidebar.
 - Pollers stay quiet when nothing visible changed.
-- The working animation follows frames Pi already paints.
+- The working animation follows Pi’s working indicator. A hidden or static host indicator supplies no animation clock, so Slate leaves that status unchanged.
 - Diff highlighting is lazy and batched.
 - Tool cards cache their rows.
 

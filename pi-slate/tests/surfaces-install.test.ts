@@ -7,6 +7,7 @@ import { stripVTControlCharacters } from "node:util";
 import { ExtensionRunner, SessionManager, type ExtensionAPI, type ExtensionContext, type ExtensionEvent, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Container, Editor, ScrollView, Text, TuiAltScreen, type Component, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
 import piSlate from "../extensions/pi-slate/index.ts";
+import { ComposerEditor } from "../extensions/pi-slate/composer.ts";
 import { Sidebar, type SidebarActions } from "../extensions/pi-slate/sidebar.ts";
 import { GitStatusPoller } from "../extensions/pi-slate/git-status.ts";
 import { FRESH_SURFACES, has, SURFACES, type Surface } from "../extensions/pi-slate/surfaces.ts";
@@ -171,7 +172,7 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
     await f.emit("agent_start");
     await f.emit("message_update", { message, assistantMessageEvent: { type: "thinking_start", contentIndex: 0 } });
     assert.equal(f.calls.includes("working"), false, "the wave does not override the host's working message");
-    if (has(surfaces, "editor")) assert.match(f.composer!.render(80)[0]!, /[▁-█]{7}/);
+    if (has(surfaces, "editor")) assert.doesNotMatch(f.composer!.render(80)[0]!, /[▁-█]{7}/, "no wave without a host indicator");
     f.foreign.insertTextAtCursor(f.imagePath);
     assert.equal(f.foreign.getText(), f.imagePath, "foreign editor insertion is never rewritten");
     const input = await f.emit("input", { text: f.imagePath });
@@ -201,6 +202,10 @@ test("the wave advances on host paints without scheduling a Slate frame", async 
   t.mock.method(f.tui, "requestRender", () => { requests++; });
   await f.emit("agent_start");
   assert.equal(isWaveActive(), true);
+  assert.ok(f.composer instanceof ComposerEditor);
+  f.composer.setWorkingStatusIndicator(
+    { kind: "working", frames: ["a", "b"], renderInBorder: () => "" } as unknown as Parameters<ComposerEditor["setWorkingStatusIndicator"]>[0],
+  );
   const initial = f.composer!.render(80)[0];
   now += 6 * WAVE_STEP_MS;
   t.mock.timers.tick(6 * WAVE_STEP_MS);

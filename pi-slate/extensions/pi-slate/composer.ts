@@ -457,8 +457,11 @@ export class ComposerEditor extends CustomEditor {
   }
 
   private wavePhase(): number | undefined {
-    const kind = this.statusIndicator?.kind;
-    return this.embedWorkingStatus && isWaveActive() && (kind === undefined || kind === "working") ? waveTick() : undefined;
+    const indicator = this.statusIndicator;
+    if (!this.embedWorkingStatus || !isWaveActive() || indicator?.kind !== "working") return undefined;
+    // Pi's Loader schedules redraws only when it has multiple frames to cycle through.
+    const frames: unknown = Reflect.get(indicator, "frames");
+    return Array.isArray(frames) && frames.length > 1 ? waveTick() : undefined;
   }
 
   needsContextRepaint(): boolean {

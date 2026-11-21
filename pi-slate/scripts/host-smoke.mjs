@@ -49,7 +49,7 @@ async function waitForWrite(from, pattern, description, timeout = 2000) {
   } while (performance.now() < until);
   assert.fail(description);
 }
-let mode, runtime;
+let mode, runtime, workingUi;
 const terminal = {
   columns: 140, rows: 40, kittyProtocolActive: false,
   start() {
@@ -65,10 +65,15 @@ const terminal = {
 };
 try {
   const createRuntime = async ({ cwd, sessionManager, sessionStartEvent }) => {
+    const extensionFactories = [];
+    if (fault === "quit-shutdown") extensionFactories.push(pi => pi.on("session_shutdown", event => {
+      if (event.reason === "quit") throw new Error("Injected quit-only shutdown fault");
+    }));
+    if (quietTurn) extensionFactories.push(pi => pi.on("session_start", (_event, ctx) => { workingUi = ctx.ui; }));
     const services = await host.createAgentSessionServices({ cwd, agentDir: root, settingsManager,
       resourceLoaderOptions: {
         additionalExtensionPaths: [join(process.env.SLATE_COMPAT_PACKAGE, "extensions/pi-slate/index.ts")], noSkills: true, noPromptTemplates: true,
-        extensionFactories: fault === "quit-shutdown" ? [pi => pi.on("session_shutdown", event => { if (event.reason === "quit") throw new Error("Injected quit-only shutdown fault"); })] : [],
+        extensionFactories,
       },
     });
     const loaded = services.resourceLoader.getExtensions();
@@ -174,6 +179,20 @@ try {
       assert.equal(Reflect.get(mode, "activeStatusIndicator")?.kind, "working", "Pi must install its own indicator");
       const firstWave = stripVTControlCharacters(frame).match(wave)[0];
       await waitForWrite(chunks.length, new RegExp(`(?!${firstWave})[▁-█]{7}`), "the wave must animate while the provider is quiet");
+      const editor = Reflect.get(mode, "editor");
+      const statusLine = () => stripVTControlCharacters(editor.render(80)[0]);
+      workingUi.setWorkingMessage("Offline working");
+      workingUi.setWorkingVisible(false);
+      assert.doesNotMatch(statusLine(), /Offline working|[▁-█]{7}/, "a hidden indicator must not leave a frozen wave");
+      workingUi.setWorkingIndicator({ frames: [] });
+      workingUi.setWorkingVisible(true);
+      assert.match(statusLine(), /Offline working/, "an empty frame list keeps Pi's static status text");
+      assert.doesNotMatch(statusLine(), wave);
+      workingUi.setWorkingIndicator({ frames: ["STATIC"] });
+      assert.match(statusLine(), /STATIC Offline working/, "a one-frame indicator stays native");
+      assert.doesNotMatch(statusLine(), wave);
+      workingUi.setWorkingIndicator(undefined);
+      assert.match(statusLine(), wave, "restoring Pi's default frames restores the wave");
       assert(runtime.session.isStreaming, "the provider must still be waiting");
     } finally { reply.resolve(); await turn; }
   }
