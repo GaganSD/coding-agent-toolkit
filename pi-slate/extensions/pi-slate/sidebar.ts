@@ -11,7 +11,6 @@ import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, type SidebarTi
 import { cacheRows, contextRows, formatCacheHit, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
 import { cacheWarmth, EMPTY_PERF } from "./perf-stats.ts";
 import { sameLines } from "./render-lines.ts";
-import { requestNecessaryRender } from "./render-request.ts";
 
 export const DOUBLE_CLICK_MS = 400;
 type ListName = "mcp" | "skills" | "prompts" | "tasks";
@@ -69,7 +68,6 @@ export class Sidebar implements Component {
   private lastClick?: { target: string; at: number };
   private cached?: { key?: string; lines: string[] };
   private revision = 0;
-  private repaintPending = false;
   private actions?: SidebarActions;
 
   private readonly now: () => number;
@@ -102,12 +100,12 @@ export class Sidebar implements Component {
     if (next === this._preferredWidth) return;
     const previousWidth = this.displayedWidth();
     this._preferredWidth = next;
-    if (this.tui && this.splitActive && this.displayedWidth() !== previousWidth) this.repaintPending = !requestNecessaryRender(this.tui);
+    if (this.displayedWidth() !== previousWidth) this.splitDispose?.requestRender("layout");
   }
   setHidden(hidden: boolean): void {
     if (this.hidden === hidden) return;
     this.hidden = hidden;
-    if (this.tui && this.splitActive) this.repaintPending = !requestNecessaryRender(this.tui, true);
+    this.splitDispose?.requestRender("forced-layout");
   }
   setActions(actions: SidebarActions): void { this.actions = actions; }
   setSession(session: SidebarSession): void {
@@ -194,14 +192,13 @@ export class Sidebar implements Component {
     const split = this.splitDispose;
     if (!split?.active()) return;
     const width = this.displayedWidth();
-    if (width <= 0) {
-      if (this.tui && this.repaintPending) this.repaintPending = !requestNecessaryRender(this.tui, true);
-      return;
+    if (width > 0) {
+      const previous = this.cached?.lines;
+      // Refresh hit regions even when the visible strings didn't change.
+      const lines = this.render(width);
+      if (!previous || !sameLines(previous, lines)) { split.requestRender("pane"); return; }
     }
-    const previous = this.cached?.lines;
-    const lines = this.render(width);
-    // Refresh hit regions even when the visible strings didn't change.
-    if (this.repaintPending || !previous || !sameLines(previous, lines)) this.repaintPending = !split.requestPaneRender();
+    split.retryRender();
   }
 
   handleSplitMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
@@ -421,7 +418,7 @@ export class Sidebar implements Component {
   dispose(): void {
     this.hideResizeGuide(); this.resizing = false;
     this.splitDispose?.(); this.splitDispose = undefined;
-    this.reset(); this.cached = undefined; this.repaintPending = false; this.tui = undefined; this.theme = undefined; this.themeProvider = undefined; this.actions = undefined;
+    this.reset(); this.cached = undefined; this.tui = undefined; this.theme = undefined; this.themeProvider = undefined; this.actions = undefined;
   }
 
   private handleResizeMouse(event: TuiMouseEvent, onHandle: boolean): TuiMouseEventResult | undefined {

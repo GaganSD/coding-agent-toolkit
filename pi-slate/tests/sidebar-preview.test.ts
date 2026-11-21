@@ -48,7 +48,8 @@ function task(i: number): BackgroundTask {
 
 for (const method of ["view", "legacy", "throwing"] as const) {
   test(`sidebar paints only changed visible rows (${method} host)`, () => {
-    let now = 4000, view = 0, full = 0, forced = 0, faults = 0, forceBlocked = false;
+    let now = 4000, view = 0, full = 0, forced = 0, faults = 0;
+    let fullBlocked = false, forceBlocked = false;
     const chat = new Text("chat", 0, 0);
     const tui = {
       [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
@@ -58,6 +59,7 @@ for (const method of ["view", "legacy", "throwing"] as const) {
       requestRender(force?: boolean) {
         if (force) { forced++; if (forceBlocked) throw new Error("force scheduler unavailable"); return; }
         full++;
+        if (fullBlocked) throw new Error("content scheduler unavailable");
         if (method === "throwing") this.requestViewRender?.();
       },
       ...(method !== "legacy" ? { requestViewRender() { view++; if (method === "throwing") throw new Error("view scheduler unavailable"); } } : {}),
@@ -111,8 +113,8 @@ for (const method of ["view", "legacy", "throwing"] as const) {
       assert.equal(forced, failed + 1, "do not retry after scheduling succeeded");
       const beforeResize = [view, full, forced];
       assert.doesNotThrow(() => sidebar.setPreferredWidth(36));
-      assert.deepEqual([view, full, forced], beforeResize.map(count => count + 1),
-        "when a normal resize request delegates to the throwing view scheduler, use a forced render");
+      assert.deepEqual([view, full, forced], [beforeResize[0], beforeResize[1], beforeResize[2]! + 1],
+        "layout redraws bypass the known failed scheduler for this lease");
     }
     sidebar.setHidden(true);
     const hiddenCounts = [view, full, forced];
@@ -120,6 +122,32 @@ for (const method of ["view", "legacy", "throwing"] as const) {
     sidebar.tick();
     assert.deepEqual([view, full, forced], hiddenCounts);
     assert.equal(faults, method === "throwing" ? 1 : 0, "only a throwing host is diagnosed, once per lease");
+    if (method === "view") {
+      const beforeReveal = [view, full, forced];
+      const leaf = pane();
+      forceBlocked = true;
+      sidebar.setHidden(false);
+      sidebar.setSession({ ...live, model: "replacement-model" });
+      assert.deepEqual([view, full, forced], [beforeReveal[0], beforeReveal[1], beforeReveal[2]! + 2],
+        "a visible pane change cannot downgrade a pending forced layout redraw");
+      assert.equal(pane(), leaf);
+      forceBlocked = false;
+      sidebar.tick();
+      assert.deepEqual([view, full, forced], [beforeReveal[0], beforeReveal[1], beforeReveal[2]! + 3],
+        "the next tick retries the original forced redraw");
+      sidebar.tick();
+      assert.equal(forced, beforeReveal[2]! + 3, "the successful retry clears the pending intent");
+
+      const beforeResize = [view, full, forced];
+      fullBlocked = forceBlocked = true;
+      sidebar.setPreferredWidth(36);
+      assert.deepEqual([view, full, forced], [beforeResize[0], beforeResize[1]! + 1, beforeResize[2]! + 1]);
+      fullBlocked = forceBlocked = false;
+      sidebar.tick();
+      assert.deepEqual([view, full, forced], [beforeResize[0], beforeResize[1]! + 2, beforeResize[2]! + 1],
+        "a width change still retries as a layout redraw when pane rows also change");
+      assert.equal(pane(), leaf);
+    }
   });
 }
 

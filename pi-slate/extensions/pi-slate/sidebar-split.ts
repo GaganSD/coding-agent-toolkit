@@ -149,12 +149,15 @@ export function splitChat(component: Component | undefined): Component | undefin
   return component.chat();
 }
 
+const RENDER_PRIORITY = { pane: 0, layout: 1, "forced-layout": 2 } as const;
+type RenderIntent = keyof typeof RENDER_PRIORITY;
 export type SidebarSplitLease = LayoutLease & {
   replaceChat(view: Component): (() => void) | undefined;
   ownsFocus(component: Component): boolean;
-  requestPaneRender(): boolean;
+  requestRender(intent: RenderIntent): void;
+  retryRender(): void;
 };
-type ViewRenderHost = { requestViewRender?(): void };
+type ViewRenderHost = TUI & { requestViewRender?(): void };
 
 export function installSidebarSplit(
   tui: TUI,
@@ -176,25 +179,29 @@ export function installSidebarSplit(
     splitChat,
     onYield,
   );
+  const host = tui as ViewRenderHost;
+  let pending: RenderIntent | undefined;
   let viewRenderFailed = false;
-  return Object.assign(dispose, {
-    requestPaneRender() {
-      if (!split || !dispose.active()) return false;
-      const host = tui as unknown as ViewRenderHost;
-      if (!viewRenderFailed) {
-        try {
-          if (typeof host.requestViewRender === "function") {
-            split.renewPane();
-            host.requestViewRender();
-            return true;
-          }
-        } catch {
-          viewRenderFailed = true;
-          onViewRenderFault?.();
-        }
+  function flushRender(intent?: RenderIntent): void {
+    if (!split || !dispose.active()) return;
+    if (intent && (!pending || RENDER_PRIORITY[intent] > RENDER_PRIORITY[pending])) pending = intent;
+    if (!pending) return;
+    if (pending === "pane" && !viewRenderFailed && typeof host.requestViewRender === "function") {
+      try {
+        split.renewPane();
+        host.requestViewRender();
+        pending = undefined;
+        return;
+      } catch {
+        viewRenderFailed = true;
+        onViewRenderFault?.();
       }
-      return requestNecessaryRender(tui, viewRenderFailed);
-    },
+    }
+    if (requestNecessaryRender(tui, pending === "forced-layout" || viewRenderFailed)) pending = undefined;
+  }
+  return Object.assign(dispose, {
+    requestRender: flushRender,
+    retryRender: () => flushRender(),
     ownsFocus(component: Component) { return dispose.active() && component === split; },
     replaceChat(view: Component) {
       // A later layout owner wins; never resurrect a stale slot.
