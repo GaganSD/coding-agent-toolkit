@@ -241,7 +241,6 @@ test("edit retains native CRLF/BOM bytes and renders the native normalized patch
   assert.deepEqual(await readFile(join(f.cwd, args.path)), Buffer.from(after));
   const rendered = f.tools.edit.renderResult!(result, { expanded: false, isPartial: false }, theme, renderContext(f.cwd, args));
   assert.ok(rendered instanceof DiffView);
-  await rendered.ready;
   assert.equal(rendered.patch, native.details?.patch);
   assert.equal(applyPatch("alpha\nkept\nomega\n", rendered.patch), "ALPHA\nkept\nomega\n");
 });
@@ -388,12 +387,10 @@ test("edit and write render serialized native-backed details and reuse only matc
       const expanded = render(true, view);
       assert.ok(expanded instanceof DiffView);
       assert.notEqual(expanded, view);
-      await expanded.ready;
       assert.equal(expanded.expanded, true);
       const otherPath = render(false, view, { ...args, path: "other.txt" });
       assert.ok(otherPath instanceof DiffView);
       assert.notEqual(otherPath, view);
-      await otherPath.ready;
       assert.equal(otherPath.path, "other.txt");
     });
   }

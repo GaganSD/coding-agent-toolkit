@@ -26,6 +26,7 @@ function flushDiffTimers(t: test.TestContext, highlighter: DiffHighlighter): voi
 function view(t: test.TestContext, before: string, after: string, options: { kind?: "edit" | "write"; expanded?: boolean; path?: string; themeName?: string } = {}) {
   const highlighter = new DiffHighlighter();
   t.after(() => highlighter.dispose());
+  t.mock.method(highlighter, "repaint", async (invalidate: () => void) => { invalidate(); });
   const live = readDiffConfig({}, options.themeName);
   return new DiffView(patch(before, after), options.path ?? "example.ts", options.kind ?? "edit", options.expanded ?? true, live, highlighter, () => {}, options.themeName ?? "tokyo-night");
 }
@@ -93,6 +94,7 @@ test("character emphasis isolates edits inside words and handles Unicode", () =>
 
 test("Shiki colors are composited with diff and character backgrounds", async (t) => {
   const diff = view(t, "const port = 3000;\n", "const port = 3001;\n");
+  diff.render(120);
   await diff.ready;
   const output = diff.render(120).join("\n");
   assert.ok(output.includes(ansiColor(config.colors.addBg, true)));
@@ -138,10 +140,9 @@ test("diff paints every visible cell, including split dividers and clipped ellip
   assertPainted();
 });
 
-test("edit is responsive to actual pane width; write is always unified", async (t) => {
+test("edit is responsive to actual pane width; write is always unified", (t) => {
   const edit = view(t, "old\n", "new\n");
   const write = view(t, "old\n", "new\n", { kind: "write" });
-  await Promise.all([edit.ready, write.ready]);
   assert.match(plain(edit.render(120)), /split/);
   assert.match(plain(edit.render(120)), /Before.*After/);
   assert.match(plain(edit.render(99)), /unified/);
@@ -152,8 +153,9 @@ test("edit is responsive to actual pane width; write is always unified", async (
 
 test("all lines fit narrow, odd, wide, and resized panes with Unicode and tabs", async (t) => {
   const diff = view(t, "\t中文😀é👩‍💻".repeat(30) + "\n", "\t世界😃é👨‍💻".repeat(30) + "\n");
-  await diff.ready;
   assert.deepEqual(diff.render(0), []);
+  diff.render(80);
+  await diff.ready;
   for (const width of [1, 2, 3, 7, 20, 59, 80, 99, 100, 101, 120, 201]) {
     for (const line of diff.render(width)) assert.ok(visibleWidth(line) <= width, `overflow at ${width}: ${visibleWidth(line)}`);
   }
@@ -168,6 +170,7 @@ test("source terminal escapes are shown as text, never executed", async (t) => {
   const malicious = "\x1b]52;c;Y2xpcGJvYXJk\x07\x1b[2J\x9b31m\r";
   assert.equal(diffText("a\tb"), "a    b");
   const diff = view(t, "old\n", malicious + "\n");
+  diff.render(200);
   await diff.ready;
   const output = diff.render(200).join("\n");
   assert.ok(!output.includes("\x1b]52"));
@@ -178,6 +181,7 @@ test("source terminal escapes are shown as text, never executed", async (t) => {
 
 test("unknown languages and disposed highlighters fall back to plain code", async (t) => {
   const diff = view(t, "old\n", "new\n", { path: "file.unknown" });
+  diff.render(80);
   await diff.ready;
   assert.match(plain(diff.render(80)), /new/);
   assert.equal(diff.rows.find((row) => row.kind === "add")?.tokens, undefined);
@@ -206,10 +210,12 @@ test("diff highlights start on first paint and staggered completions share one r
   const redraws: string[] = [];
   const make = (id: string) => new DiffView(patch("old\n", "new\n"), `${id}.ts`, "edit", false, config, highlighter, () => redraws.push(id));
   const first = make("first"), second = make("second");
-  assert.equal(tokens.mock.callCount(), 0);
+  assert.equal(first.ready === undefined, true, "observing a constructed diff must not start a job");
   first.render(0);
+  assert.equal(first.ready === undefined, true);
   assert.equal(tokens.mock.callCount(), 0);
   first.render(80);
+  assert.ok(first.ready instanceof Promise, "the first real render exposes the job");
   for (let i = 0; i < 5; i++) await Promise.resolve();
   assert.equal(tokens.mock.callCount(), 2);
   t.mock.timers.tick(50);
@@ -223,7 +229,7 @@ test("diff highlights start on first paint and staggered completions share one r
   await Promise.all([first.ready, second.ready]);
 
   const unseen = make("unseen");
-  await unseen.ready;
+  assert.equal(unseen.ready, undefined);
   t.mock.timers.tick(100);
   assert.deepEqual(redraws, ["first", "second"], "an unpainted diff has nothing to invalidate");
   const closing = make("closing");
@@ -235,11 +241,10 @@ test("diff highlights start on first paint and staggered completions share one r
   assert.deepEqual(redraws, ["first", "second"], "disposing the session cancels a pending repaint");
 });
 
-test("collapsed and expanded previews are bounded and disclose omitted rows", async (t) => {
+test("collapsed and expanded previews are bounded and disclose omitted rows", (t) => {
   const after = Array.from({ length: 500 }, (_, i) => `line ${i}\n`).join("");
   const collapsed = view(t, "", after, { expanded: false, path: "file.txt" });
   const expanded = view(t, "", after, { expanded: true, path: "file.txt" });
-  await Promise.all([collapsed.ready, expanded.ready]);
   assert.equal(collapsed.render(80).length, 18);
   assert.equal(expanded.render(80).length, 402);
   assert.match(plain(collapsed.render(80)), /expand tool output/);

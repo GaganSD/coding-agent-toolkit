@@ -6,7 +6,6 @@ interface ComponentNode {
   children?: ComponentNode[];
   entries?: { component: ComponentNode }[];
   child?: ComponentNode; // Slate's padded tool result
-  ready?: Promise<void>; // Slate's DiffView highlighting completion
 }
 interface PrimaryScrollView { primary: boolean; scrollTop: number; contentHeight: number; viewportHeight: number }
 interface LayoutBox {
@@ -84,9 +83,23 @@ export default function (pi: ExtensionAPI) {
   let lastStartupActivity = Date.now();
   let ready = false, sawHeading = false, hostHighlightSettled = false;
   let diffViews = 0, pendingDiffs = 0;
-  const seenDiffs = new WeakSet<Promise<void>>();
-  // This public resolver wraps the actual renderer, not a second import of Slate/Shiki.
-  // Non-diff tools are unchanged. DiffView.ready covers grammar loading and tokenization.
+  const seenDiffs = new WeakSet<ComponentNode>();
+  const unobservedDiffs = new Set<ComponentNode>();
+  function observeHighlightJobs() {
+    for (const diff of unobservedDiffs) {
+      // A data property is set when the host starts highlighting. Never invoke a getter:
+      // some Slate revisions used a lazy getter that would start offscreen work here.
+      const job = Object.getOwnPropertyDescriptor(diff, "ready")?.value
+        ?? Object.getOwnPropertyDescriptor(diff, "highlighting")?.value;
+      if (!(job instanceof Promise)) continue;
+      unobservedDiffs.delete(diff);
+      pendingDiffs++;
+      lastStartupActivity = Date.now();
+      const settled = () => { pendingDiffs--; lastStartupActivity = Date.now(); };
+      void job.then(settled, settled);
+    }
+  }
+  // Count constructed views without requiring all of them to be painted.
   pi.registerToolRenderer((name, next) => {
     const original = next();
     if ((name !== "edit" && name !== "write") || !original?.renderResult) return original;
@@ -94,14 +107,10 @@ export default function (pi: ExtensionAPI) {
       const component = original.renderResult!(...args);
       const node = component as ComponentNode | undefined;
       const diff = node?.constructor.name === "DiffView" ? node : node?.child;
-      const promise = diff?.constructor.name === "DiffView" ? diff.ready : undefined;
-      if (promise && !seenDiffs.has(promise)) {
-        seenDiffs.add(promise);
+      if (diff?.constructor.name === "DiffView" && !seenDiffs.has(diff)) {
+        seenDiffs.add(diff);
         diffViews++;
-        pendingDiffs++;
-        lastStartupActivity = Date.now();
-        const settled = () => { pendingDiffs--; lastStartupActivity = Date.now(); };
-        void promise.then(settled, settled);
+        if (!ready) unobservedDiffs.add(diff);
       }
       return component;
     } };
@@ -176,9 +185,10 @@ export default function (pi: ExtensionAPI) {
       snapshot = () => publish({ ...inspect(tui, diffViews), ready, diffViews, pendingDiffs, hostHighlightSettled });
       process.on("SIGUSR2", snapshot);
       readinessTimer = setInterval(() => {
+        observeHighlightJobs();
         ready = sawHeading && hostHighlightSettled && pendingDiffs === 0 && Date.now() - lastStartupActivity >= quietMs;
         snapshot?.();
-        if (ready) clearInterval(readinessTimer);
+        if (ready) { unobservedDiffs.clear(); clearInterval(readinessTimer); }
       }, 100);
       readinessTimer.unref();
       restore = () => { Object.assign(tui, { doRender, invalidate, requestRender, requestImmediateRender }); };
@@ -191,6 +201,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => {
     clearInterval(timer);
     clearInterval(readinessTimer);
+    unobservedDiffs.clear();
     if (snapshot) process.off("SIGUSR2", snapshot);
     restore?.();
     restore = undefined;
