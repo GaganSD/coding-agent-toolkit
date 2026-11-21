@@ -28,7 +28,7 @@ The header keeps the stock Pi data and builds on it. Fresh settings start focuse
 
 ### Reply Accents
 
-Slate quiets assistant replies without changing them: tree connectors dim, checks and crosses take success/error colors, arrows take the accent, and common status emoji become one-cell glyphs. GitHub callouts (`> [!WARNING]`) draw a colored rail with a short bold title and normal body text instead of a faded blockquote. Display-only, zero tokens; stored messages, copy, and HTML export stay unchanged. Needs Pi 1.5+; toggle with `/slate accents [on|off]` or `"replyAccents": false` in `~/.pi/agent/pi-slate.json` (default on). Older hosts leave the feature off.
+Slate quiets assistant replies without changing them: tree connectors dim, checks and crosses take success/error colors and arrows take the accent. GitHub callouts (`> [!WARNING]`) draw a colored rail with a short bold title and normal body text instead of a faded blockquote. Display-only, zero tokens; stored messages, copy, and HTML export stay unchanged. Needs Pi 1.5+; toggle with `/slate accents [on|off]` or `"replyAccents": false` in `~/.pi/agent/pi-slate.json` (default on). Older hosts leave the feature off.
 
 ### Working Indicator
 

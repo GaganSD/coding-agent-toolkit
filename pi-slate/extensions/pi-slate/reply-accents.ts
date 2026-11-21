@@ -58,18 +58,11 @@ type AccentTone = Exclude<keyof AccentPalette, "boldReopen">;
 interface AccentRule {
   token: string;
   tone: AccentTone;
-  replacement?: string;
 }
 
-// Longest tokens first so a warning with its variation selector is consumed once.
 const ACCENT_RULES: AccentRule[] = [
   { token: "├──", tone: "dim" },
   { token: "└──", tone: "dim" },
-  { token: "✅", tone: "success", replacement: "✓" },
-  { token: "❌", tone: "error", replacement: "✗" },
-  { token: "⚠️", tone: "warning", replacement: "!" },
-  { token: "⚠", tone: "warning", replacement: "!" },
-  { token: "🚧", tone: "warning", replacement: "◔" },
   { token: "✓", tone: "success" },
   { token: "✔", tone: "success" },
   { token: "✗", tone: "error" },
@@ -137,7 +130,7 @@ function decorateProse(text: string, palette: AccentPalette, bold: BoldState): s
       const rule = ACCENT_RULES.find(candidate => text.startsWith(candidate.token, i));
       if (rule) {
         const inBold = bold.marker !== undefined;
-        out += palette[rule.tone](rule.replacement ?? rule.token);
+        out += palette[rule.tone](rule.token);
         if (inBold) out += palette.boldReopen ?? "";
         i += rule.token.length;
         continue;

@@ -42,20 +42,20 @@ const plain: AccentPalette = {
 test("fenced blocks and inline code spans stay untouched", () => {
   const palette = marked();
   const input = [
-    "✓ → ✅",
+    "✓ →",
     "```",
-    "✓ → ✅",
+    "✓ →",
     "```",
     "~~~",
-    "✗ ✘ 🚧",
+    "✗ ✘",
     "~~~",
-    "`✓ → ✅` and ``✗ →`` and `unclosed",
+    "`✓ →` and ``✗ →`` and `unclosed",
   ].join("\n");
   const out = decorateReplyAccents(input, palette);
-  assert.equal(out.split("\n")[0], "<success>✓</success> <accent>→</accent> <success>✓</success>");
-  assert.match(out, /```\n✓ → ✅\n```/);
-  assert.match(out, /~~~\n✗ ✘ 🚧\n~~~/);
-  assert.ok(out.endsWith("`✓ → ✅` and ``✗ →`` and `unclosed"));
+  assert.equal(out.split("\n")[0], "<success>✓</success> <accent>→</accent>");
+  assert.match(out, /```\n✓ →\n```/);
+  assert.match(out, /~~~\n✗ ✘\n~~~/);
+  assert.ok(out.endsWith("`✓ →` and ``✗ →`` and `unclosed"));
   assert.equal(decorateReplyAccents("> ```\n> ✓ →\n> ```", palette), "> ```\n> ✓ →\n> ```");
 });
 
@@ -80,18 +80,14 @@ test("tree connectors, checks, crosses, and arrows take their colors", () => {
   );
 });
 
-test("only the fixed status emoji swap, including the variation selector", () => {
+test("emoji are never touched", () => {
   const palette = marked();
-  assert.equal(
-    decorateReplyAccents("✅ ❌ ⚠️ ⚠ 🚧", palette),
-    "<success>✓</success> <error>✗</error> <warning>!</warning> <warning>!</warning> <warning>◔</warning>",
-  );
-  assert.equal(decorateReplyAccents("🎉 🔥 🙂 🚀", palette), "🎉 🔥 🙂 🚀");
+  assert.equal(decorateReplyAccents("✅ ❌ ⚠️ ⚠ 🚧 🎉", palette), "✅ ❌ ⚠️ ⚠ 🚧 🎉");
 });
 
 test("bold keeps its weight and is never recolored", () => {
   const palette = marked();
-  const out = decorateReplyAccents("**✓ keep bold** and **✅ done**", palette);
+  const out = decorateReplyAccents("**✓ keep bold** and **✓ done**", palette);
   assert.equal(
     out,
     "**<success>✓</success><bold> keep bold** and **<success>✓</success><bold> done**",
@@ -146,7 +142,7 @@ test("wrapped callout bodies keep inline code spans complete", () => {
 
 test("callout bodies still receive accents and inline Markdown", () => {
   const palette = marked();
-  const out = transformReply("> [!TIP]\n> **✅ done** and `✓ →`", palette, 80);
+  const out = transformReply("> [!TIP]\n> **✓ done** and `✓ →`", palette, 80);
   assert.match(out, /<tip>│<\/tip> \*\*<success>✓<\/success><bold> done\*\* and `✓ →`/);
 });
 
@@ -163,7 +159,7 @@ test("markdown without a callout or accent returns the same string", () => {
   for (const input of [
     "",
     "plain text",
-    "## ✅ heading\nbody",
+    "## ✓ heading\nbody",
     "- list\n> ordinary quote",
     "```\n✓ →\n```",
     "**bold** and *italic*",
