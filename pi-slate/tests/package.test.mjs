@@ -27,6 +27,14 @@ test("README screenshots use gallery-compatible Markdown and bundled assets", ()
   assert.ok(pkg.files.includes("assets"));
 });
 
+test("performance docs identify the benchmark controls and report the observed idle CPU", () => {
+  const benchmark = readFileSync(new URL("benchmarks/README.md", root), "utf8");
+  assert.match(benchmark, /^- \*\*`slate`\*\*: all surfaces, Slate's default 100-message transcript window\./m);
+  assert.match(benchmark, /^- \*\*`slate-no-toolcards`\*\*: tool-cards and transcript surfaces off \(so no Slate history window either\)\./m);
+  assert.match(readme, /0\.03 CPU seconds over 5 s idle/);
+  assert.doesNotMatch(readme, /no measurable CPU/i);
+});
+
 test("packing does not mutate the README or require scripts outside the package", () => {
   assert.equal(pkg.scripts.prepack, undefined);
   assert.equal(pkg.scripts.postpack, undefined);

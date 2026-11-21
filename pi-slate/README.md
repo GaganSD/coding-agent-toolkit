@@ -176,7 +176,7 @@ The real-host probe covers regular/fullscreen mode, default/no/full surfaces, in
 
 ## Performance
 
-Slate is benchmarked against native Pi by scrolling a synthetic 3,000-entry session in a real terminal. With every surface on, it paints frame-for-frame with native Pi, and it uses no measurable CPU while idle. See the [benchmark README](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-slate/benchmarks) for results, methodology, and `npm run bench:scroll`.
+Slate is benchmarked against native Pi by scrolling a synthetic 3,000-entry session in a real terminal. With every surface on, it paints frame-for-frame with native Pi and uses 0.03 CPU seconds over 5 s idle. See the [benchmark README](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-slate/benchmarks) for results, methodology, and `npm run bench:scroll`.
 
 ## License
 

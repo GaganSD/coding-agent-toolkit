@@ -51,9 +51,10 @@ On Pi 1.4 and 1.5, which lack the view-frame path, Slate falls back to a full re
 The same 3,000-entry session at both sidebar tiers: full at 200×50, compact at 120×40. The variants:
 
 - **`native`**: Pi without Slate.
-- **`slate`**: Slate's shipped defaults, including the 100-message transcript window.
+- **`slate`**: all surfaces, Slate's default 100-message transcript window.
 - **`slate-matched-history`**: all surfaces with `messageLength: "all"`. This renders the same history depth as native Pi, so it's the fair comparison.
-- **`slate-no-sidebar`** and **`slate-no-toolcards`**: one surface switched off, to attribute cost to it.
+- **`slate-no-sidebar`**: only the sidebar surface is off; Slate's default transcript window is unchanged.
+- **`slate-no-toolcards`**: tool-cards and transcript surfaces off (so no Slate history window either).
 
 "Frames painted" and "Wheel CPU" are totals for both bursts.
 
@@ -72,7 +73,7 @@ The same 3,000-entry session at both sidebar tiers: full at 200×50, compact at 
 
 The native rows are the control. They match between the two columns, so the differences elsewhere come from Slate, not noise. "Before" is Slate 0.3.0 (`6386556`); "after" is this branch (`4276ce3`). No variant dropped any wheel input in this run.
 
-The shipped-default `slate` row barely moves on wheel CPU. Its 100-message window already kept content frames cheap, so its wins are idle CPU, a lower slowest frame, and no periodic hitches. The more history you render, the bigger the gap was.
+The `slate` row with the default transcript window barely moves on wheel CPU. Its 100-message window already kept content frames cheap, so its wins are idle CPU, a lower slowest frame, and no periodic hitches. The more history you render, the bigger the gap was.
 
 ## What is still slower than native
 
