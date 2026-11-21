@@ -6,19 +6,21 @@ Everything here is synthetic and offline: no API keys, no model calls, and no da
 
 ## Headline: scrolling a 3,000-entry session
 
-Fullscreen Pi 1.6.0, 200×50 terminal, every Slate surface on, Slate set to render the full history (`messageLength: "all"`). We sent 400 wheel-up events followed by 400 wheel-down events, one every 5 ms. Values are medians of 3 runs on an Apple M2 (8 GB) with Node 24.
+Fullscreen Pi 1.6.0, 200×50 terminal, every Slate surface on, Slate set to render the full history (`messageLength: "all"`). We sent 400 wheel-up events followed by 400 wheel-down events, one every 5 ms. Values are medians of 3 runs on an Apple M2 (8 GB) with Node 24. The two builds ran alternately, three rounds, so background load hit both equally.
 
 | | Native Pi | Slate 0.3.0 | Slate, this branch |
 |---|---:|---:|---:|
-| Frames painted for 800 wheel events | 298 | **73** | **297** |
-| Slowest frame | 9 ms | **868 ms** | **14 ms** |
-| 95th-percentile frame | 5.2 ms | **838 ms** | **9.2 ms** |
-| CPU time for both wheel bursts | 1.31 s | **8.39 s** | **2.17 s** |
-| CPU time over 5 s of doing nothing | 0.00 s | **4.55 s** | **0.03 s** |
+| Frames painted for 800 wheel events | 307 | **76** | **305** |
+| Slowest frame | 9 ms | **753 ms** | **14 ms** |
+| 95th-percentile frame | 5.1 ms | **751 ms** | **7.4 ms** |
+| CPU time for both wheel bursts | 1.56 s | **7.73 s** | **2.30 s** |
+| CPU time over 5 s of doing nothing | 0.00 s | **4.36 s** | **0.03 s** |
 | Full transcript re-renders while idle (5 s) | 0 | 5 | 0 |
 | Full transcript re-renders while scrolling | 0 | 8 | 0 |
 
-In 0.3.0, Pi could only paint 73 frames for 800 wheel notches, because each frame waited behind a ~850 ms full re-render of the transcript. That's the slideshow. Now Slate keeps up with native Pi frame-for-frame.
+In 0.3.0, Pi could only paint 76 frames for 800 wheel notches, because each frame waited behind a ~750 ms full re-render of the transcript. That's the slideshow. Now Slate keeps up with native Pi frame-for-frame.
+
+0.3.0 also **lost input** when the machine was busy. In an earlier run with another app using a full core, it painted only 10 frames for the same 800 events, and in some runs it dropped 2–4 wheel lines outright. This branch dropped none, quiet or loaded. The benchmark now counts lost wheel lines and fails the run if any are missing (see `--allow-dropped-input`).
 
 ### Why it was slow
 
@@ -53,28 +55,28 @@ The same 3,000-entry session at both sidebar tiers: full at 200×50, compact at 
 - **`slate-matched-history`**: all surfaces with `messageLength: "all"`. This renders the same history depth as native Pi, so it's the fair comparison.
 - **`slate-no-sidebar`** and **`slate-no-toolcards`**: one surface switched off, to attribute cost to it.
 
-The "Wheel CPU" column is the total for both bursts.
+"Frames painted" and "Wheel CPU" are totals for both bursts.
 
-| Terminal | Variant | Idle CPU (5 s) before → after | Wheel CPU before → after | Slowest frame before → after | Full re-renders (idle + scroll) before → after |
-|---|---|---:|---:|---:|---:|
-| 200×50 | native | 0.00 → 0.00 s | 1.63 → 1.31 s | 15 → 9 ms | 0 → 0 |
-| 200×50 | slate | 0.32 → 0.04 s | 2.29 → 2.22 s | 36 → 13 ms | 12 → 0 |
-| 200×50 | slate-matched-history | 4.55 → 0.03 s | 8.39 → 2.17 s | 868 → 14 ms | 13 → 0 |
-| 200×50 | slate-no-sidebar | 0.04 → 0.01 s | 1.13 → 1.29 s | 25 → 9 ms | 2 → 0 |
-| 200×50 | slate-no-toolcards | 0.31 → 0.05 s | 2.07 → 1.92 s | 45 → 13 ms | 13 → 0 |
-| 120×40 | native | 0.01 → 0.00 s | 1.22 → 1.28 s | 15 → 11 ms | 0 → 0 |
-| 120×40 | slate | 0.32 → 0.04 s | 1.88 → 1.79 s | 70 → 59 ms | 13 → 0 |
-| 120×40 | slate-matched-history | 4.28 → 0.03 s | 6.08 → 1.56 s | 701 → 10 ms | 12 → 0 |
-| 120×40 | slate-no-sidebar | 0.04 → 0.02 s | 1.19 → 1.09 s | 17 → 12 ms | 2 → 0 |
-| 120×40 | slate-no-toolcards | 0.18 → 0.05 s | 1.78 → 1.55 s | 25 → 13 ms | 13 → 0 |
+| Terminal | Variant | Frames painted before → after | Idle CPU (5 s) before → after | Wheel CPU before → after | Slowest frame before → after | Full re-renders (idle + scroll) before → after |
+|---|---|---:|---:|---:|---:|---:|
+| 200×50 | native | 307 → 307 | 0.01 → 0.00 s | 1.56 → 1.56 s | 8 → 9 ms | 0 → 0 |
+| 200×50 | slate | 302 → 305 | 0.32 → 0.04 s | 2.49 → 2.43 s | 47 → 16 ms | 12 → 0 |
+| 200×50 | slate-matched-history | **76 → 305** | 4.36 → 0.03 s | 7.73 → 2.30 s | **753 → 14 ms** | 13 → 0 |
+| 200×50 | slate-no-sidebar | 306 → 306 | 0.03 → 0.01 s | 1.45 → 1.46 s | 25 → 7 ms | 2 → 0 |
+| 200×50 | slate-no-toolcards | 307 → 304 | 0.18 → 0.05 s | 2.22 → 2.15 s | 33 → 14 ms | 12 → 0 |
+| 120×40 | native | 305 → 308 | 0.01 → 0.00 s | 1.52 → 1.52 s | 6 → 5 ms | 0 → 0 |
+| 120×40 | slate | 299 → 303 | 0.31 → 0.03 s | 2.14 → 2.05 s | 56 → 11 ms | 12 → 0 |
+| 120×40 | slate-matched-history | **118 → 303** | 3.81 → 0.02 s | 6.10 → 1.99 s | **626 → 9 ms** | 13 → 0 |
+| 120×40 | slate-no-sidebar | 305 → 307 | 0.03 → 0.01 s | 1.32 → 1.33 s | 22 → 6 ms | 2 → 0 |
+| 120×40 | slate-no-toolcards | 303 → 304 | 0.18 → 0.03 s | 2.00 → 1.93 s | 28 → 10 ms | 12 → 0 |
 
-Native rows differ between columns only by run-to-run noise. Expect ±15% on CPU and a few ms on the slowest frame between runs on the same machine. "Before" is Slate 0.3.0 (`06b2a93`). "After" is the same commit plus this branch's uncommitted changes, which is why the results file marks it `slate_extensions_dirty: true`.
+The native rows are the control. They match between the two columns, so the differences elsewhere come from Slate, not noise. "Before" is Slate 0.3.0 (`6386556`); "after" is this branch (`4276ce3`). No variant dropped any wheel input in this run.
 
-The shipped-default `slate` row barely moves on wheel CPU. Its 100-message window already kept content frames cheap, so its win is the idle CPU and the absence of periodic hitches. The more history you render, the bigger the gap was.
+The shipped-default `slate` row barely moves on wheel CPU. Its 100-message window already kept content frames cheap, so its wins are idle CPU, a lower slowest frame, and no periodic hitches. The more history you render, the bigger the gap was.
 
 ## What is still slower than native
 
-With the sidebar showing, an ordinary scroll frame costs about **2× native Pi**: ~6 ms vs ~3 ms at 200×50. This cost is in Pi, not Slate:
+With the sidebar showing, an ordinary scroll frame costs about **1.8× native Pi**: ~6.4 ms vs ~3.5 ms at 200×50. This cost is in Pi, not Slate:
 
 - In pi-tui's `paintBox`, the fast path (copy the line as-is) only applies to boxes that span the full terminal width.
 - Once the chat sits in a column beside the sidebar, every visible row goes through `compositeTuiLine`, which re-parses ANSI and graphemes to splice the two columns together.
@@ -122,6 +124,7 @@ npm run bench:scroll -- --size medium --runs 1 --variants slate --terminals 200x
 | `--capture` | Save the raw startup terminal stream for each case's first run |
 | `--stacks` | Record call stacks of full re-render requests. Adds overhead, so use it for diagnosis only |
 | `--cpu-prof` | Save V8 CPU profiles and print the top functions |
+| `--allow-dropped-input` | Record lost wheel lines as `dropped_wheel_lines` instead of failing the run. Use it to benchmark old builds that drop input, and pass it to both runs you intend to compare |
 
 Each run writes `benchmarks/results/scroll-<timestamp>/`, which is git-ignored:
 
@@ -144,7 +147,8 @@ Each run writes `benchmarks/results/scroll-<timestamp>/`, which is git-ignored:
    - frame count, and how many were view frames vs content frames;
    - mean, p50, p95 and max frame time;
    - process CPU (`/proc` on Linux, `ps` on macOS);
-   - bytes written to the terminal per frame.
+   - bytes written to the terminal per frame;
+   - wheel lines lost, if the transcript didn't move the full 400 lines.
 
 [`scroll/NOTES.md`](scroll/NOTES.md) has the full methodology.
 
