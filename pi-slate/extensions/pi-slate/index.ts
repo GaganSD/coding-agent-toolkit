@@ -44,6 +44,12 @@ import { createWordPicker } from "./working-words.ts";
 import { isProgressStyle, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
+  decorateThinkingRows as paintThinkingRows,
+  HIDDEN_THINKING_LABEL,
+  ThinkingDurations,
+  type ThinkingView,
+} from "./thinking-label.ts";
+import {
   type LogoStyle,
   formatFocusedContextResources,
   formatFocusedContextTokens,
@@ -267,7 +273,28 @@ export default function piSlate(pi: ExtensionAPI): void {
   let chatSurface: ChatSurface | undefined;
   let groupPainter: ToolGroups | undefined;
   const tokenRate = new TokenRateTracker();
-  const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
+  const thinkingDurations = new ThinkingDurations();
+  let hiddenThinkingLabelContext: ExtensionContext | undefined;
+  const setHiddenThinkingLabel = (ctx: ExtensionContext, enabled: boolean): void => {
+    if (!enabled) {
+      const owner = hiddenThinkingLabelContext;
+      if (!owner) return;
+      try { owner.ui.setHiddenThinkingLabel(); } catch { /* A replaced UI context belongs to a successor. */ }
+      hiddenThinkingLabelContext = undefined;
+      return;
+    }
+    if (hiddenThinkingLabelContext === ctx) return;
+    const ui = ctx.ui;
+    if (!ui || typeof ui.setHiddenThinkingLabel !== "function") return;
+    try {
+      ui.setHiddenThinkingLabel(HIDDEN_THINKING_LABEL);
+      hiddenThinkingLabelContext = ctx;
+    } catch { hiddenThinkingLabelContext = undefined; }
+  };
+  const thinkingFold = new ThinkingFoldTracker({
+    onChange: () => syncThinkingStatus(),
+    onComplete: ({ thinking, elapsedMs }) => thinkingDurations.record(thinking, elapsedMs),
+  });
   const branch = new GitBranchPoller(pi, (next) => {
     gitBranch = next;
     if (activeTui && activeEditor && editorActive() && activeEditor.needsBranchRepaint()) return requestNecessaryRender(activeTui);
@@ -288,6 +315,16 @@ export default function piSlate(pi: ExtensionAPI): void {
     } catch { /* Keep the check pending if the host is temporarily unavailable. */ }
   };
 
+  const decorateThinkingRows = (component: Component, rows: readonly string[], _width: number): readonly string[] => {
+    try {
+      return paintThinkingRows(component as ThinkingView, rows, {
+        active: thinkingFold.active(),
+        durations: thinkingDurations,
+      });
+    } catch { return rows; }
+  };
+  const thinkingRowsVersion = (): string => `${thinkingDurations.version}:${thinkingFold.revision}`;
+
   const syncVisibleMessages = (): void => {
     if ((!owns("transcript") && !claudeTools) || liveContext()?.mode !== "tui") return;
     const feature = owns("transcript") ? "transcript" : "tool-groups";
@@ -298,6 +335,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       const options = {
         limit: owns("transcript") ? resolveMessageLength(config.messageLength) : Number.POSITIVE_INFINITY,
         groups: groupPainter,
+        decorate: decorateThinkingRows,
         active: () => {
           const ctx = liveContext();
           return Boolean(ctx && typeof ctx.isIdle === "function" && !ctx.isIdle());
@@ -310,6 +348,8 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (chatSurface) chatSurface.update(options);
       else chatSurface = new ChatSurface(chat, options);
     }, () => { chatSurface?.dispose(); chatSurface = undefined; });
+    const ctx = liveContext();
+    if (ctx) setHiddenThinkingLabel(ctx, Boolean(chatSurface));
     if (owns("transcript")) {
       if (chatSurface) diagnostics.active("transcript", "Display-only message window mounted.");
       else diagnostics.fallback("transcript", "Native transcript retained; no compatible fullscreen chat surface.");
@@ -391,8 +431,9 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const install = (ctx: ExtensionContext): void => {
     chatSurface?.dispose(); chatSurface = undefined;
-    groupPainter = claudeTools ? new ToolGroups(liveTheme) : undefined;
+    groupPainter = claudeTools ? new ToolGroups(liveTheme, undefined, decorateThinkingRows, thinkingRowsVersion) : undefined;
     diagnostics.reset();
+    thinkingDurations.clear();
     if (requestedClaudeTools) {
       if (claudeTools) diagnostics.active("tool-style", "Public tool renderer hook installed.");
       else diagnostics.fallback("tool-style", "Slate default cards retained; the optional renderer hook is unavailable.");
@@ -705,7 +746,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role !== "assistant") return;
     if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.observePartial(estimateAssistantTokens(event.message));
-    if (editorActive() && typeof ctx.ui.setWorkingMessage === "function") {
+    const chatPainter = ctx.mode === "tui" && (owns("transcript") || claudeTools);
+    if ((editorActive() && typeof ctx.ui.setWorkingMessage === "function") || chatPainter) {
       thinkingFold.observe(event.assistantMessageEvent, event.message);
     } else {
       thinkingFold.stop();
@@ -776,6 +818,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     workingWord = undefined;
     setWaveActive(false);
     thinkingFold.stop();
+    thinkingDurations.clear();
     tokenRate.dispose();
     selection.dispose();
     images?.dispose();
@@ -790,6 +833,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     conversations = undefined;
     activeTui = undefined;
     sidebar.dispose();
+    setHiddenThinkingLabel(ctx, false);
     requestRender(true);
     currentContext = undefined;
     if (ctx.mode !== "tui") return;

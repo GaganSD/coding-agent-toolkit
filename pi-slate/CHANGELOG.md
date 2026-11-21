@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Collapsed thinking rows in the `transcript` and `tool-cards` surfaces show `Thinking…` while a run streams, its observed duration (`Thought for 12s`) once complete, and `Thought` in restored sessions.
+
 ### Fixed
 
 - Grouped tool calls keep each hidden thought's clickable `Thinking...` row in place, drawn inside the group's tree (#136).

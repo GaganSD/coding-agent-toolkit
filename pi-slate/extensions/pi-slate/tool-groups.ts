@@ -2,6 +2,7 @@ import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component, type Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { TOOL_STYLE_NAMES } from "./tool-style.ts";
 import { sameLines } from "./render-lines.ts";
+import type { ThinkingView } from "./thinking-label.ts";
 
 const names = new Set(TOOL_STYLE_NAMES);
 type Tool = Component & {
@@ -9,7 +10,7 @@ type Tool = Component & {
   result?: { isError?: boolean; content?: Array<{ type: string }> };
   setExpanded(value: boolean): void;
 };
-type Thought = Component & { hideThinkingBlock?: boolean; thinkingVisibilityOverrides?: Map<number, boolean>; lastMessage?: { role?: string; stopReason?: string; content?: Array<{ type: string; text?: string; thinking?: string; name?: string }> } };
+type Thought = Component & ThinkingView;
 function tool(component: Component): component is Tool {
   const value = component as Partial<Tool>;
   return typeof value.toolCallId === "string" && names.has(value.toolName ?? "")
@@ -33,18 +34,26 @@ function canGroupAssistant(component: Component): boolean {
 
 type RowOwner = { component: Component; y: number; height: number; inset: number };
 type Part = { lines: string[]; owners: Array<RowOwner | undefined> };
+export type RowDecorator = (component: Component, rows: readonly string[], width: number) => readonly string[];
 type Segment =
   | { kind: "native"; component: Component }
   | { kind: "group"; start: number; end: number; toolIndices: number[]; failed: number; running: boolean };
 /** Paints an explicit display list and maps its mouse rows. Never patches a host component. */
 export class ToolGroups {
   private frame?: Part & { parts: Part[] };
-  private readonly bodies = new WeakMap<Component, { width: number; rows: string[]; first?: string; rest?: string; part: Part }>();
+  private readonly bodies = new WeakMap<Component, { width: number; rows: string[]; first?: string; rest?: string; version: string | number; part: Part }>();
   private readonly summaries = new WeakMap<Component, { width: number; text: string; part: Part }>();
   private readonly theme: () => Theme | undefined;
   private readonly hint: () => string;
-  constructor(theme: () => Theme | undefined, hint = () => keyHint("app.tools.expand", "to expand")) {
-    this.theme = theme; this.hint = hint;
+  private readonly decorate?: RowDecorator;
+  private readonly decorateVersion?: () => string | number;
+  constructor(
+    theme: () => Theme | undefined,
+    hint = () => keyHint("app.tools.expand", "to expand"),
+    decorate?: RowDecorator,
+    decorateVersion?: () => string | number,
+  ) {
+    this.theme = theme; this.hint = hint; this.decorate = decorate; this.decorateVersion = decorateVersion;
   }
 
   /** Read all grouping metadata before painting so a fault cannot duplicate earlier renders. */
@@ -77,19 +86,27 @@ export class ToolGroups {
   private body(component: Component, width: number, first?: string, rest?: string): Part {
     const inset = first === undefined ? 0 : 3;
     const rows = component.render(inset ? Math.max(1, width - inset) : width);
+    const version = this.decorateVersion?.() ?? 0;
     const cached = this.bodies.get(component);
-    if (cached?.width === width && cached.first === first && cached.rest === rest && sameLines(cached.rows, rows)) return cached.part;
-    const snapshot = rows.slice();
-    const part: Part = { lines: first === undefined ? snapshot : [], owners: [] };
-    for (let y = 0; y < snapshot.length; y++) {
+    const sameFrame = Boolean(cached && cached.width === width && cached.first === first && cached.rest === rest
+      && sameLines(cached.rows, rows));
+    if (sameFrame && cached && cached.version === version) return cached.part;
+    const snapshot = sameFrame && cached ? cached.rows : rows.slice();
+    const decorated = this.decorate?.(component, rows, width) ?? rows;
+    if (sameFrame && cached && sameLines(decorated, rows)) {
+      this.bodies.set(component, { ...cached, version });
+      return cached.part;
+    }
+    const part: Part = { lines: first === undefined ? (decorated === rows ? snapshot : decorated.slice()) : [], owners: [] };
+    for (let y = 0; y < decorated.length; y++) {
       if (first !== undefined) {
-        const row = snapshot[y]!;
+        const row = decorated[y]!;
         if (!row.trim()) continue;
         part.lines.push(truncateToWidth((part.lines.length ? rest! : first) + row, width));
       }
-      part.owners.push({ component, y, height: snapshot.length, inset });
+      part.owners.push({ component, y, height: decorated.length, inset });
     }
-    this.bodies.set(component, { width, rows: snapshot, first, rest, part });
+    this.bodies.set(component, { width, rows: snapshot, first, rest, version, part });
     return part;
   }
 

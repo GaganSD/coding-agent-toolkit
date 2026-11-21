@@ -315,6 +315,17 @@ test("lost optional styling registrations are diagnostic-only and never blame na
   assert.doesNotMatch(report, /retained for.*read/);
 });
 
+test("a mounted chat painter owns the hidden thinking label and restores it on shutdown", async (t) => {
+  const labels: Array<string | undefined> = [];
+  const f = await fixture(t, JSON.stringify({ version: 1, surfaces: ["transcript"] }), "tui", true, false, (_pi, ui) => {
+    (ui as unknown as { setHiddenThinkingLabel: (label?: string) => void }).setHiddenThinkingLabel = (label) => labels.push(label);
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(labels, ["Thought"]);
+  await f.emit("session_shutdown");
+  assert.deepEqual(labels, ["Thought", undefined]);
+});
+
 test("unselected cards ignore Claude tool style entirely", async (t) => {
   const f = await fixture(t, JSON.stringify({ version: 1, surfaces: [] }));
   assert.deepEqual(f.tools, []);

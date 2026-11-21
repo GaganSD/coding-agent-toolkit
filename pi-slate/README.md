@@ -30,6 +30,8 @@ The header keeps the stock Pi data and builds on it. Fresh settings start focuse
 
 While the model runs, the composer edge shows a progress animation — `/slate progress` picks `waves` (default), `dna-helix`, `snake`, or `cylon-scanner`.
 
+Collapsed thinking rows in the transcript show `Thinking…` while a run streams, its observed duration (`Thought for 12s`) once complete, and `Thought` in restored sessions.
+
 ![Slate working indicator animation](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-working.gif)
 
 ### Diff
