@@ -378,17 +378,23 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
                 check_alive(term)
             term.pump(WHEEL_SETTLE)
 
-        windows["idle"] = measured(pid, term, lambda: term.pump(IDLE_SECONDS))
         initial = viewport()
         start, bottom = initial["scrollTop"], initial["maxScrollTop"]
         # Pi's follow-end ScrollView starts scrollBy() at maxScrollTop.
         if start != bottom:
             raise RuntimeError(f"Primary ScrollView did not start at the bottom: scrollTop {start}, expected {bottom}")
+        distance = WHEEL_EVENTS * WHEEL_LINES
+        if bottom < distance:
+            raise RuntimeError(f"Fixture has only {bottom} scrollable lines; need at least {distance} for a full wheel burst. "
+                               "Use a larger --size or --entries.")
+        windows["idle"] = measured(pid, term, lambda: term.pump(IDLE_SECONDS))
         for scenario, button in (("wheel_up", 64), ("wheel_down", 65)):
-            before = start if scenario == "wheel_up" else viewport()["scrollTop"]
+            before = viewport()["scrollTop"]
+            if scenario == "wheel_up" and before != start:
+                raise RuntimeError(f"Primary ScrollView moved during idle: scrollTop {start} → {before}")
             windows[scenario] = measured(pid, term, lambda: burst(scenario, button))
             after = viewport()["scrollTop"]
-            expected = max(0, start - WHEEL_EVENTS * WHEEL_LINES) if scenario == "wheel_up" else start
+            expected = start - distance if scenario == "wheel_up" else start
             if after != expected:
                 raise RuntimeError(f"Primary ScrollView {scenario}: expected scrollTop {expected}, got {after} "
                                    f"(burst started at {before})")

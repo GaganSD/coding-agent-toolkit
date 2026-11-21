@@ -138,7 +138,7 @@ Each run writes `benchmarks/results/scroll-<timestamp>/`, which is git-ignored:
    - 400 SGR wheel-up events.
    - 400 wheel-down events.
 
-   Wheel scrolling is pinned to one line per event, so every platform does the same work.
+   Wheel scrolling is pinned to one line per event. Each case must have at least 400 scrollable lines; if a custom fixture is too short, increase `--size` or `--entries`.
 4. **Probe.** `scroll/probe/index.ts` is a zero-height Pi widget that times every frame. It classifies frames as view or content by reading Pi's `contentChanged` flag. It also verifies that the expected Slate surfaces are actually mounted and that the transcript really moved 400 lines each way, so the run fails rather than silently benchmarking the wrong thing.
 5. **Metrics.** For every phase it records:
    - frame count, and how many were view frames vs content frames;
