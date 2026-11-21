@@ -55,6 +55,14 @@ test("unknown alerts and ordinary blockquotes are left alone", () => {
   }
 });
 
+test("fenced code closes only on a bare fence", () => {
+  const palette = marked();
+  const fence = ["```", "> [!NOTE]", "> inside", "```still-code", "> [!NOTE]", "> still inside", "```"].join("\n");
+  const out = decorateCallouts(`${fence}\n> [!TIP]\n> after`, palette, 80);
+  assert.ok(out.startsWith(`${fence}\n`), out);
+  assert.match(out, /<tip>│<\/tip> <tip>\*\*Tip\*\*<\/tip>/);
+});
+
 test("wrapped callout bodies keep the rail on every row", () => {
   const body = "This is a long callout body that must wrap onto several lines at a narrow width without losing its rail.";
   const out = decorateCallouts(`> [!NOTE]\n> ${body}`, plain, 24);
@@ -71,6 +79,26 @@ test("wrapped callout bodies keep inline code spans complete", () => {
     const body = out.split("\n").slice(1).map(line => line.trimEnd());
     for (const line of body) assert.equal((line.match(/`/g) ?? []).length % 2, 0, `${width}: ${line}`);
     if (width === 24) assert.ok(body.some(line => line.includes("`pnpm test --watch`")), body.join(" | "));
+  }
+});
+
+test("wrapped multi-backtick code spans keep their delimiters intact", () => {
+  const out = decorateCallouts("> [!NOTE]\n> ``abcdefghijkl``", plain, 12);
+  const rows = out.split("\n").slice(1).map(row => row.trimEnd());
+  assert.deepEqual(rows, ["│ ``abcdef``", "│ ``ghijkl``"]);
+  for (const row of rows) assert.ok(visibleWidth(row) <= 12, row);
+});
+
+test("wrapped callout bodies keep links intact", () => {
+  const links = [
+    "[docs](https://example.com/very/long/path)",
+    "<https://example.com/very/long/path>",
+    "https://example.com/very/long/path",
+  ];
+  for (const link of links) {
+    const out = decorateCallouts(`> [!NOTE]\n> See ${link} now.`, plain, 24);
+    const rows = out.split("\n").slice(1).map(row => row.trimEnd());
+    assert.ok(rows.includes(`│ ${link}`), `${link}: ${out}`);
   }
 });
 

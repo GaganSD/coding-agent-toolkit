@@ -26,12 +26,14 @@ export function createCalloutPalette(theme: Theme): CalloutPalette {
 }
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 const QUOTE_PREFIX = /^ {0,3}>[ \t]?/;
 const CALLOUT = /^ {0,3}>[ \t]?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*$/i;
 
 interface InlinePart {
   text: string;
   code: boolean;
+  link?: boolean;
 }
 
 /** Split on CommonMark code spans, keeping the delimiters and leaving unmatched backticks as text. */
@@ -63,29 +65,38 @@ function splitInlineCode(line: string): InlinePart[] {
   return parts;
 }
 
-// Private-use separators keep code spans atomic while wrapping. They are removed
-// before the Markdown reaches Pi, so the body keeps ordinary spaces and line breaks.
+const LINK = /\[[^\]\n]*\]\([^)\n]*\)|<https?:\/\/[^>\s]+>|(?:https?:\/\/|www\.)[^\s<>()]+/g;
+
+/** Split prose into atomic links while leaving code spans alone. */
+function splitInlineParts(line: string): InlinePart[] {
+  return splitInlineCode(line).flatMap(part => {
+    if (part.code) return [part];
+    const parts: InlinePart[] = [];
+    let start = 0;
+    for (const match of part.text.matchAll(LINK)) {
+      if (match.index > start) parts.push({ text: part.text.slice(start, match.index), code: false });
+      parts.push({ text: match[0], code: false, link: true });
+      start = match.index + match[0].length;
+    }
+    if (start < part.text.length) parts.push({ text: part.text.slice(start), code: false });
+    return parts;
+  });
+}
+
+// Private-use separators keep code spans and links atomic while wrapping. They are
+// removed before the Markdown reaches Pi, so the body keeps ordinary spaces and line breaks.
 const CODE_SPACE = "\uE000";
 const CODE_BREAK = "\uE001";
 
-function protectCodeSpaces(text: string): string {
-  return splitInlineCode(text)
-    .map(part => part.code ? part.text.replaceAll(" ", CODE_SPACE) : part.text)
-    .join("");
-}
-
 /** Split a code span wider than the rail budget into complete, independently wrapped spans. */
-function splitLongCodeSpans(text: string, width: number): string {
-  return splitInlineCode(text).map(part => {
-    if (!part.code) return part.text;
-    const match = /^(`+)([\s\S]*)\1$/.exec(part.text);
-    if (!match || visibleWidth(part.text) <= width) return part.text;
-    const [, fence, content] = match;
-    const contentWidth = Math.max(1, width - fence![0]!.length * 2);
-    return wrapTextWithAnsi(content!, contentWidth)
-      .map(chunk => `${fence}${chunk}${fence}`)
-      .join(CODE_BREAK);
-  }).join("");
+function splitLongCodeSpan(text: string, width: number): string {
+  const match = /^(`+)([\s\S]*)\1$/.exec(text);
+  if (!match || visibleWidth(text) <= width) return text;
+  const [, fence, content] = match;
+  const contentWidth = Math.max(1, width - fence!.length * 2);
+  return wrapTextWithAnsi(content!, contentWidth)
+    .map(chunk => `${fence}${chunk}${fence}`)
+    .join(CODE_BREAK);
 }
 
 function calloutBodyLines(lines: string[], width: number): string[] {
@@ -93,12 +104,31 @@ function calloutBodyLines(lines: string[], width: number): string[] {
   for (const raw of lines) {
     const body = raw.replace(QUOTE_PREFIX, "");
     if (!body) { out.push(""); continue; }
-    for (const segment of splitLongCodeSpans(body, width).split(CODE_BREAK)) {
-      const protectedBody = protectCodeSpaces(segment);
-      for (const wrapped of wrapTextWithAnsi(protectedBody, width)) {
+    let pending = "";
+    const flush = (): void => {
+      if (!pending) return;
+      for (const wrapped of wrapTextWithAnsi(pending, width)) {
         out.push(wrapped.replaceAll(CODE_SPACE, " "));
       }
+      pending = "";
+    };
+    for (const part of splitInlineParts(body)) {
+      if (part.link && visibleWidth(part.text) > width) {
+        flush();
+        out.push(part.text);
+        continue;
+      }
+      if (part.code) {
+        const pieces = splitLongCodeSpan(part.text, width).split(CODE_BREAK);
+        for (let i = 0; i < pieces.length; i++) {
+          if (i > 0) flush();
+          pending += pieces[i]!.replaceAll(" ", CODE_SPACE);
+        }
+        continue;
+      }
+      pending += part.link ? part.text.replaceAll(" ", CODE_SPACE) : part.text;
     }
+    flush();
   }
   return out;
 }
@@ -123,7 +153,8 @@ export function decorateCallouts(
     const content = line.replace(/^(?: {0,3}>[ \t]?)+/, "");
     const fenceMatch = FENCE.exec(content);
     if (fence) {
-      if (fenceMatch && fenceMatch[1]![0] === fence.marker && fenceMatch[1]!.length >= fence.length) fence = undefined;
+      const closeMatch = FENCE_CLOSE.exec(content);
+      if (closeMatch && closeMatch[1]![0] === fence.marker && closeMatch[1]!.length >= fence.length) fence = undefined;
       out.push(line); index++; continue;
     }
     if (fenceMatch) {
