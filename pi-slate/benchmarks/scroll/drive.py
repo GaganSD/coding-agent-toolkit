@@ -300,6 +300,8 @@ def attest(status, variant):
         raise RuntimeError(f"Slate surface mismatch: missing {sorted(expected - active)}, unexpected {sorted(active - expected)}")
     if status["scrollTop"] is None:
         raise RuntimeError("The primary transcript ScrollView was not found")
+    if status["maxScrollTop"] is None:
+        raise RuntimeError("The primary transcript ScrollView's scroll range was not found")
 
 
 def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile_dir, capture):
@@ -364,25 +366,32 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
             os.kill(pid, signal.SIGUSR2)  # No fake terminal input or render request.
             current = wait_status(term, status, 5, lambda s: s["seq"] > previous)
             attest(current, variant)
-            return current["scrollTop"]
+            return current
+
+        def burst(scenario, button):
+            for i in range(WHEEL_EVENTS):
+                try:
+                    term.wheel(button)
+                except RuntimeError as error:
+                    raise RuntimeError(f"{scenario}, event {i + 1}: {error}") from error
+                term.pump(WHEEL_INTERVAL)
+                check_alive(term)
+            term.pump(WHEEL_SETTLE)
 
         windows["idle"] = measured(pid, term, lambda: term.pump(IDLE_SECONDS))
-        for scenario, button, direction in (("wheel_up", 64, -1), ("wheel_down", 65, 1)):
-            def burst():
-                for i in range(WHEEL_EVENTS):
-                    try:
-                        term.wheel(button)
-                    except RuntimeError as error:
-                        raise RuntimeError(f"{scenario}, event {i + 1}: {error}") from error
-                    term.pump(WHEEL_INTERVAL)
-                    check_alive(term)
-                term.pump(WHEEL_SETTLE)
-
-            before = viewport()
-            windows[scenario] = measured(pid, term, burst)
-            after = viewport()
-            if (after - before) * direction <= 0:
-                raise RuntimeError(f"Primary ScrollView did not move {scenario}: {before} → {after}")
+        initial = viewport()
+        start, bottom = initial["scrollTop"], initial["maxScrollTop"]
+        # Pi's follow-end ScrollView starts scrollBy() at maxScrollTop.
+        if start != bottom:
+            raise RuntimeError(f"Primary ScrollView did not start at the bottom: scrollTop {start}, expected {bottom}")
+        for scenario, button in (("wheel_up", 64), ("wheel_down", 65)):
+            before = start if scenario == "wheel_up" else viewport()["scrollTop"]
+            windows[scenario] = measured(pid, term, lambda: burst(scenario, button))
+            after = viewport()["scrollTop"]
+            expected = max(0, start - WHEEL_EVENTS * WHEEL_LINES) if scenario == "wheel_up" else start
+            if after != expected:
+                raise RuntimeError(f"Primary ScrollView {scenario}: expected scrollTop {expected}, got {after} "
+                                   f"(burst started at {before})")
             wheel[scenario] = {"before": before, "after": after}
     samples = [json.loads(line) for line in probe.read_text(encoding="utf-8").splitlines()]
     result = {scenario: metrics(window, samples) for scenario, window in windows.items()}

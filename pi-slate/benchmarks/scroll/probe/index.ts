@@ -8,7 +8,7 @@ interface ComponentNode {
   child?: ComponentNode; // Slate's padded tool result
   ready?: Promise<void>; // Slate's DiffView highlighting completion
 }
-interface PrimaryScrollView { primary: boolean; scrollTop: number }
+interface PrimaryScrollView { primary: boolean; scrollTop: number; contentHeight: number; viewportHeight: number }
 interface LayoutBox {
   component: ComponentNode;
   children: LayoutBox[];
@@ -61,6 +61,8 @@ function inspect(tui: FullscreenTui, diffViews: number) {
   const names = new Set([...components(tui.layoutRoot, chat), ...components(document, chat)].map((node) => node.constructor.name));
   return {
     scrollTop: view?.primary && Number.isFinite(view.scrollTop) ? view.scrollTop : null,
+    maxScrollTop: view?.primary && Number.isFinite(view.contentHeight) && Number.isFinite(view.viewportHeight)
+      ? Math.max(0, view.contentHeight - view.viewportHeight) : null,
     surfaces: { header: names.has("SlateHeader"), footer: names.has("SlateFooter"), editor: names.has("ComposerEditor"),
       sidebar, "tool-cards": diffViews > 0, transcript },
   };
