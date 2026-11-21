@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- GitHub callouts (`> [!NOTE]` …) in assistant replies draw a colored rail and bold title instead of a dim blockquote. Display-only; Pi 1.5+.
+
 ### Fixed
 
 - Grouped tool calls keep each hidden thought's clickable `Thinking...` row in place, drawn inside the group's tree (#136).

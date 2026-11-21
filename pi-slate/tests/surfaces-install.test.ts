@@ -388,6 +388,20 @@ test("effort border commands and picker persist and apply live without rebuildin
   assert.equal(await readFile(f.path, "utf8"), before);
 });
 
+test("GitHub callouts register one assistant markdown transformer", async t => {
+  const registered: Array<{ transformer: (markdown: string, context: { messageType: string; isStreaming: boolean; availableWidth: number }) => string; options?: { messageTypes?: readonly string[] } }> = [];
+  const calloutTheme = { ...theme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as unknown as Theme;
+  await fixture(t, JSON.stringify({ surfaces: [] }), "tui", true, false, (pi, ui) => {
+    Reflect.set(pi, "registerMarkdownTransformer", (transformer: typeof registered[number]["transformer"], options?: typeof registered[number]["options"]) => registered.push({ transformer, options }));
+    Reflect.set(ui, "theme", calloutTheme);
+  });
+  assert.equal(registered.length, 1);
+  assert.deepEqual(registered[0]!.options, { messageTypes: ["assistant"] });
+  const context = { messageType: "assistant", isStreaming: false, availableWidth: 80 };
+  const result = registered[0]!.transformer("> [!TIP]\n> hi", context);
+  assert.match(result, /<success>│<\/success>/);
+});
+
 test("effort border settings never enable an unselected editor", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: [], effortBorderColor: true }));
   await f.commands.get("slate")!.handler("effort-border off", f.ctx);
