@@ -1,3 +1,5 @@
+from contextlib import redirect_stdout
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -43,6 +45,23 @@ class WheelAccountingTest(unittest.TestCase):
         for after in (snapshot(601, bottom=1001, revision=2), snapshot(600, revision=3)):
             with self.subTest(after=after), self.assertRaisesRegex(RuntimeError, "scroll range changed during the burst"):
                 validate_burst("wheel_up", before, after, True)
+
+
+class CompareTest(unittest.TestCase):
+    def test_rejects_matching_older_reports_before_rendering_new_columns(self):
+        steady = {**drive.metrics((0, 1, 1.0, 0.0, 0), []), "dropped_wheel_lines": 0}
+        case = {"terminal": "120x40", "variant": "native", "history": "native-unlimited",
+                "median": {"startup": {"wall_s": 1, "cpu_s": 0, "tty_bytes": 0},
+                           **dict.fromkeys(drive.SCENARIOS[1:], steady)}}
+        old_report = {"format": drive.FORMAT, "workload": {"readiness_revision": 3}, "platform": {},
+                      "pi_version": "1.6.0", "slate_version": "0.3.0", "slate_git_sha": "fixture",
+                      "cases": [case]}
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(StringIO()):
+            old, new = (Path(tmp) / name for name in ("old.json", "new.json"))
+            for path in (old, new):
+                path.write_text(json.dumps(old_report), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "readiness revisions 3 and 3; rerun both workloads"):
+                drive.compare(old, new)
 
 
 @unittest.skipUnless(os.environ.get("SLATE_BENCH_TEST_PTY") == "1", "requires a real Pi 1.6 PTY; set SLATE_BENCH_TEST_PTY=1")

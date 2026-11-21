@@ -543,8 +543,9 @@ def compare(old_path, new_path):
         raise RuntimeError("Incompatible result format")
     old_revision = old["workload"].get("readiness_revision")
     new_revision = new["workload"].get("readiness_revision")
-    if old_revision is None or new_revision is None or old_revision != new_revision:
-        raise RuntimeError("Readiness policy revisions are missing or different; rerun both workloads with the same benchmark protocol")
+    if old_revision != READINESS_REVISION or new_revision != READINESS_REVISION:
+        raise RuntimeError(f"Cannot compare readiness revisions {old_revision!r} and {new_revision!r}; "
+                           f"rerun both workloads with this benchmark (revision {READINESS_REVISION}).")
     if old["workload"] != new["workload"]:
         raise RuntimeError("Workloads differ (fixture, readiness, scroll settings, or diagnostics); compare like for like")
     if old["platform"] != new["platform"]:
