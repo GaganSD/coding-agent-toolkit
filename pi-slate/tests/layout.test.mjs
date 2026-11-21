@@ -219,6 +219,15 @@ test("/slate args route density, footer, and width", () => {
     { value: "effort-border on", label: "effort-border on" },
     { value: "effort-border off", label: "effort-border off" },
   ]);
+  assert.deepEqual(parseSlateArgs("accents"), { ok: true, kind: "accents" });
+  assert.deepEqual(parseSlateArgs("accents on"), { ok: true, kind: "accents", value: true });
+  assert.deepEqual(parseSlateArgs("accents off"), { ok: true, kind: "accents", value: false });
+  assert.deepEqual(parseSlateArgs("accents nope"), { ok: false });
+  assert.deepEqual(slateArgumentCompletions("accents"), [
+    { value: "accents", label: "accents" },
+    { value: "accents on", label: "accents on" },
+    { value: "accents off", label: "accents off" },
+  ]);
   assert.deepEqual(slateArgumentCompletions("pid"), [
     { value: "pid", label: "pid" },
     { value: "pid on", label: "pid on" },

@@ -6,6 +6,8 @@ Select independent surfaces from the closed set: header, footer, editor, sidebar
 
 `/slate surfaces` reports saved and active sets. `/slate surfaces set editor`, `/slate surfaces set header tool-cards`, `/slate surfaces full`, and `/slate surfaces none` save an explicit version-1 array and require `/reload`; appearance remains live. To use only cards, run `/slate surfaces set tool-cards` then `/reload`. Focus/width never enable a disabled sidebar.
 
+`/slate accents [on|off]` toggles or saves `replyAccents` (on by default). On Pi 1.5+ it colors tree connectors, checks, crosses, arrows, and a fixed set of status emoji in assistant replies, and draws GitHub alert blockquotes as a colored rail with a short bold title and normal body text. It is display-only: stored messages, copy, and HTML export are unchanged, with no prompt text, tools, or model calls. Hosts without registerMarkdownTransformer leave it off; /slate diagnostics reports active, off by setting, or unavailable.
+
 `/slate effort-border [on|off]` toggles or saves `effortBorderColor` (off by default; applies live without rebuilding the editor). With editor selected and this enabled, Pi's native thinking-level and bash-mode colors paint the composer frame; Slate does not change effort or theme settings. Bundled thinkingOff through thinkingMax tokens form a restrained neutral-border-to-borderAccent intensity ramp; Catppuccin follows its selected style, Quiet and Black Metal stay neutral. The exact effort label remains visible where space allows. These tokens also apply to Pi's stock editor with a bundled theme selected; external themes keep their own effort colors, and bashMode is unchanged.
 
 Theme and fullscreen remain user preferences, never automatic load actions. `/theme` (or `/slate theme`) opens the Light/Dark picker: Catppuccin Latte and Frappe under Light, Macchiato and Mocha under Dark, each with 15 palettes (rosewater, flamingo, pink, mauve, red, maroon, peach, yellow, green, teal, sky, sapphire, blue, lavender, default). The picker's System default row restores Pi's system theme; Tokyo Night and Black Metal sit under Dark. Installation preserves an existing selection. `/slate theme` takes no arguments and only opens that picker; `/slate style` no longer exists. Saved names like `catppuccin-latte-mauve` and the legacy Mocha Quiet palette stay valid and are still settable through Pi's `/settings`. `composerMetadata` replaces the in-memory footer setting; old `footer` files and `/slate footer` remain compatible (both keys are written). The footer surface hides Pi's footer using a zero-row component; composer git branch comes from an editor-only service.
@@ -26,6 +28,7 @@ Header uses the stock Pi mark plus version, model, and session dir as ~/<name>. 
 
 - [README](README.md): install, features, commands (`/exit` aliases `/quit`), themes, composer keys
 - [Extension entry](extensions/pi-slate/index.ts): selected-surface installers and commands
+- [Reply accents](extensions/pi-slate/reply-accents.ts): display-only accents and GitHub callouts
 - [Surfaces](extensions/pi-slate/surfaces.ts): closed enum, parsing, migration
 - [Diff](extensions/pi-slate/diff.ts): edit/write rendering
 - [Read groups](extensions/pi-slate/read-group.ts): consecutive-read compaction
