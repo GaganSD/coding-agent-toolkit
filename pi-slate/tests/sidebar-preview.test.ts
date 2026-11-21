@@ -113,8 +113,8 @@ for (const method of ["view", "legacy", "throwing"] as const) {
       assert.equal(forced, failed + 1, "do not retry after scheduling succeeded");
       const beforeResize = [view, full, forced];
       assert.doesNotThrow(() => sidebar.setPreferredWidth(36));
-      assert.deepEqual([view, full, forced], [beforeResize[0], beforeResize[1], beforeResize[2]! + 1],
-        "layout redraws bypass the known failed scheduler for this lease");
+      assert.deepEqual([view, full, forced], beforeResize.map(count => count + 1),
+        "layout still tries a normal redraw before forcing when it delegates to the failed scheduler");
     }
     sidebar.setHidden(true);
     const hiddenCounts = [view, full, forced];
@@ -150,6 +150,37 @@ for (const method of ["view", "legacy", "throwing"] as const) {
     }
   });
 }
+
+test("a throwing view getter does not escape or disable ordinary layout retries", () => {
+  const requests: boolean[] = [];
+  let lookups = 0, faults = 0, layoutBlocked = false, forceBlocked = false;
+  const tui = {
+    [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
+    layoutRoot: new Text("chat", 0, 0) as Component | undefined,
+    setLayoutRoot(root: Component | undefined) { this.layoutRoot = root; },
+    terminal: { rows: 60, columns: 200 },
+    get requestViewRender() { lookups++; throw new Error("view capability unavailable"); },
+    requestRender(force = false) {
+      requests.push(force);
+      if (force ? forceBlocked : layoutBlocked) throw new Error("redraw unavailable");
+    },
+  };
+  const sidebar = new Sidebar(() => 4000);
+  sidebar.attach(tui as unknown as TUI, theme(), undefined, () => { faults++; });
+  assert.doesNotThrow(() => sidebar.setSession(session));
+  assert.deepEqual(requests, [true]);
+  assert.deepEqual([lookups, faults], [1, 1]);
+
+  layoutBlocked = forceBlocked = true;
+  sidebar.setPreferredWidth(36);
+  assert.deepEqual(requests, [true, false, true]);
+  layoutBlocked = false;
+  sidebar.tick();
+  assert.deepEqual(requests, [true, false, true, false], "the layout retry succeeds without a forced redraw");
+  sidebar.tick();
+  assert.deepEqual(requests, [true, false, true, false]);
+  assert.deepEqual([lookups, faults], [1, 1]);
+});
 
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();

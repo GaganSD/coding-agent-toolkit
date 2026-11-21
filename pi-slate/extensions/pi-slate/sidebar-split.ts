@@ -186,18 +186,22 @@ export function installSidebarSplit(
     if (!split || !dispose.active()) return;
     if (intent && (!pending || RENDER_PRIORITY[intent] > RENDER_PRIORITY[pending])) pending = intent;
     if (!pending) return;
-    if (pending === "pane" && !viewRenderFailed && typeof host.requestViewRender === "function") {
+    if (pending === "pane" && !viewRenderFailed) {
       try {
-        split.renewPane();
-        host.requestViewRender();
-        pending = undefined;
-        return;
+        const requestViewRender = host.requestViewRender;
+        if (typeof requestViewRender === "function") {
+          split.renewPane();
+          requestViewRender.call(host);
+          pending = undefined;
+          return;
+        }
       } catch {
         viewRenderFailed = true;
         onViewRenderFault?.();
       }
     }
-    if (requestNecessaryRender(tui, pending === "forced-layout" || viewRenderFailed)) pending = undefined;
+    const force = pending === "forced-layout" || (pending === "pane" && viewRenderFailed);
+    if (requestNecessaryRender(tui, force)) pending = undefined;
   }
   return Object.assign(dispose, {
     requestRender: flushRender,
