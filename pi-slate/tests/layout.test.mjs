@@ -214,6 +214,17 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("effort-border on"), { ok: true, kind: "effort-border", value: true });
   assert.deepEqual(parseSlateArgs("effort-border off"), { ok: true, kind: "effort-border", value: false });
   assert.deepEqual(parseSlateArgs("effort-border nope"), { ok: false });
+  assert.deepEqual(parseSlateArgs("thinking"), { ok: true, kind: "thinking" });
+  assert.deepEqual(parseSlateArgs("thinking slate"), { ok: true, kind: "thinking", value: "slate" });
+  assert.deepEqual(parseSlateArgs("thinking pi"), { ok: true, kind: "thinking", value: "pi" });
+  assert.deepEqual(parseSlateArgs("thinking nope"), { ok: false });
+  assert.deepEqual(parseSlateArgs("thinking slate extra"), { ok: false });
+  assert.deepEqual(slateArgumentCompletions("thinking"), [
+    { value: "thinking", label: "thinking" },
+    { value: "thinking slate", label: "thinking slate" },
+    { value: "thinking pi", label: "thinking pi" },
+  ]);
+  assert.equal(slateArgumentCompletions("thinking p")?.length, 1);
   assert.deepEqual(slateArgumentCompletions("effort-border"), [
     { value: "effort-border", label: "effort-border" },
     { value: "effort-border on", label: "effort-border on" },

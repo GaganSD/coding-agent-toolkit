@@ -1,6 +1,6 @@
 export type SlateFeature =
   | "tool-style" | "tool-ownership" | "tool-groups" | "sidebar" | "transcript"
-  | "surface-host" | "session-notices" | "command-catalog" | "mcp-catalog" | "dashboard" | "paste-preview" | "configuration";
+  | "surface-host" | "session-notices" | "command-catalog" | "mcp-catalog" | "dashboard" | "paste-preview" | "thinking-block" | "configuration";
 export type SlateDiagnostic = { feature: SlateFeature; state: "active" | "fallback"; detail: string };
 
 /** Presentation diagnostics are not application/server health. Never notify or retain thrown errors here. */

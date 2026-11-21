@@ -43,6 +43,17 @@ import { createWordPicker } from "./working-words.ts";
 import { advanceWave, isProgressStyle, isWaveActive, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
+  createThinkingPalette,
+  formatThinkingHeader,
+  hiddenThinkingRuns,
+  renderThinkingBlock,
+  replaceHiddenThinkingRows,
+  THINKING_FALLBACK_LABEL,
+  thinkingWordCount,
+  ThinkingDurations,
+  type ThinkingView,
+} from "./thinking-block.ts";
+import {
   type LogoStyle,
   formatFocusedContextResources,
   formatFocusedContextTokens,
@@ -57,6 +68,7 @@ import {
   parseSlateArgs,
   resolveMessageLength,
   messageLengthMessage,
+  isThinkingStyle,
   slateArgumentCompletions,
   SLATE_USAGE,
   SLATE_VERSION,
@@ -70,6 +82,7 @@ import {
   withCurrent,
   withoutCurrent,
   type ModelDisplay,
+  type ThinkingStyle,
 } from "./layout.ts";
 import { SlateHeader } from "./header.ts";
 import {
@@ -101,6 +114,7 @@ type SlateConfig = SurfaceConfig & {
   progress?: ProgressStyle;
   toolStyle?: "default" | "claudecode";
   effortBorderColor?: boolean;
+  thinkingStyle?: ThinkingStyle;
   shortcuts?: SlateShortcuts;
   sidebarSections: SidebarFolds;
 };
@@ -155,6 +169,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
       showPid: value.showPid === true,
       effortBorderColor: value.effortBorderColor === true,
+      ...(isThinkingStyle(value.thinkingStyle) ? { thinkingStyle: value.thinkingStyle } : {}),
       ...(value.logo === "minimal" || value.logo === "original" ? { logo: value.logo } : {}),
       ...(value.toolStyle === "default" ? { toolStyle: "default" as const } : {}),
       ...(isProgressStyle(value.progress) ? { progress: value.progress } : {}),
@@ -207,6 +222,11 @@ export default function piSlate(pi: ExtensionAPI): void {
   const selected = [...config.surfaces];
   const owns = (surface: typeof selected[number]): boolean => has(selected, surface);
   const diagnostics = new SlateDiagnostics();
+  const markdownTransformerSupported = typeof pi.registerMarkdownTransformer === "function";
+  const thinkingDurations = new ThinkingDurations();
+  const thinkingStyle = (): ThinkingStyle => config.thinkingStyle ?? "slate";
+  let thinkingMounted = false;
+  let hiddenThinkingLabelOwned = false;
   const requestedClaudeTools = owns("tool-cards") && config.toolStyle !== "default";
   let claudeTools = false;
   if (owns("tool-cards")) {
@@ -266,12 +286,115 @@ export default function piSlate(pi: ExtensionAPI): void {
   let chatSurface: ChatSurface | undefined;
   let groupPainter: ToolGroups | undefined;
   const tokenRate = new TokenRateTracker();
-  const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
+  const thinkingFold = new ThinkingFoldTracker({
+    onChange: () => {
+      syncThinkingStatus();
+      // A live header ticks even when the composer is not the selected surface.
+      if (thinkingMounted && thinkingStyle() === "slate") requestRender();
+    },
+    onComplete: ({ thinking, elapsedMs }) => {
+      thinkingDurations.record(thinking, elapsedMs);
+      requestRender();
+    },
+  });
   const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
   let contextEdge: { percent: number | null; window: number | null; resources: string } = {
     percent: null, window: null, resources: formatFocusedContextResources(null, false, 0),
   };
   let requestRender = (_force = false) => {};
+
+  type ThinkingTransformContext = {
+    messageType?: string;
+    isStreaming?: boolean;
+    availableWidth?: number;
+    messageId?: string;
+    timestamp?: string;
+  };
+  type ThinkingTransformer = (markdown: string, context: ThinkingTransformContext) => string;
+  if (markdownTransformerSupported) {
+    const register = pi.registerMarkdownTransformer as unknown as
+      (transformer: ThinkingTransformer, options?: { messageTypes: readonly string[] }) => void;
+    register((markdown, context) => {
+      // Pi 1.4 ignores options; the messageType guard keeps older hosts on thinking only.
+      if (!thinkingMounted || thinkingStyle() !== "slate") return markdown;
+      if (context?.messageType && context.messageType !== "assistant-thinking") return markdown;
+      const theme = liveTheme();
+      const text = typeof markdown === "string" ? markdown.trim() : "";
+      if (!theme || !text) return markdown;
+      const live = context.messageId === undefined;
+      const streaming = context.isStreaming === true;
+      return renderThinkingBlock(markdown, {
+        palette: createThinkingPalette(theme),
+        header: formatThinkingHeader({
+          streaming,
+          elapsedMs: streaming ? thinkingFold.elapsedMs() : null,
+          durationMs: !streaming && live ? thinkingDurations.lookup(text) : undefined,
+          words: thinkingWordCount(text),
+          expanded: true,
+        }),
+        availableWidth: context.availableWidth ?? 80,
+      });
+    }, { messageTypes: ["assistant-thinking"] });
+  }
+
+  const setHiddenThinkingLabel = (ctx: ExtensionContext, enabled: boolean): void => {
+    if (typeof ctx.ui.setHiddenThinkingLabel !== "function") return;
+    try {
+      if (enabled) {
+        ctx.ui.setHiddenThinkingLabel(THINKING_FALLBACK_LABEL);
+        hiddenThinkingLabelOwned = true;
+      } else if (hiddenThinkingLabelOwned) {
+        ctx.ui.setHiddenThinkingLabel();
+        hiddenThinkingLabelOwned = false;
+      }
+    } catch { /* A replaced UI context belongs to a successor. */ }
+  };
+
+  const refreshThinkingFeature = (ctx: ExtensionContext): void => {
+    const labelSupported = typeof ctx.ui.setHiddenThinkingLabel === "function";
+    const enabled = thinkingMounted && thinkingStyle() === "slate";
+    if (!enabled) {
+      diagnostics.active("thinking-block", "Off by setting; stock Pi thinking rendering retained.");
+    } else if (markdownTransformerSupported && labelSupported) {
+      diagnostics.active("thinking-block", "Slate thinking headers, rails, and per-run collapsed labels enabled.");
+    } else if (markdownTransformerSupported) {
+      diagnostics.fallback("thinking-block", "Expanded thinking uses Slate headers; collapsed rows keep Pi's label because setHiddenThinkingLabel is unavailable.");
+    } else if (labelSupported) {
+      diagnostics.fallback("thinking-block", "Collapsed rows use Slate labels where the chat painter is active; expanded thinking stays native because the markdown transformer hook is unavailable.");
+    } else {
+      diagnostics.fallback("thinking-block", "Native thinking rendering retained; markdown transformer and hidden-label hooks are unavailable.");
+    }
+    setHiddenThinkingLabel(ctx, enabled);
+  };
+
+  const decorateThinkingRows = (component: Component, rows: readonly string[], _width: number): readonly string[] => {
+    if (!thinkingMounted || thinkingStyle() !== "slate") return rows;
+    try {
+      const view = component as ThinkingView;
+      const hidden = hiddenThinkingRuns(view);
+      if (hidden.length === 0) return rows;
+      const theme = liveTheme();
+      if (!theme) return rows;
+      const palette = createThinkingPalette(theme);
+      const live = view.messageId === undefined;
+      const activeIndex = thinkingFold.activeContentIndex();
+      const elapsed = thinkingFold.elapsedMs();
+      const headers = hidden.map((run) => {
+        const streaming = live && activeIndex !== null && activeIndex >= run.start && activeIndex <= run.end;
+        const durationMs = !streaming && live ? thinkingDurations.lookup(run.thinking) : undefined;
+        return palette.header(formatThinkingHeader({
+          streaming,
+          elapsedMs: streaming ? elapsed : null,
+          durationMs,
+          words: thinkingWordCount(run.thinking),
+          expanded: false,
+        }));
+      });
+      return replaceHiddenThinkingRows(rows, headers, THINKING_FALLBACK_LABEL);
+    } catch {
+      return rows;
+    }
+  };
 
   const syncVisibleMessages = (): void => {
     if ((!owns("transcript") && !claudeTools) || liveContext()?.mode !== "tui") return;
@@ -283,6 +406,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       const options = {
         limit: owns("transcript") ? resolveMessageLength(config.messageLength) : Number.POSITIVE_INFINITY,
         groups: groupPainter,
+        decorate: decorateThinkingRows,
         active: () => {
           const ctx = liveContext();
           return Boolean(ctx && typeof ctx.isIdle === "function" && !ctx.isIdle());
@@ -384,8 +508,10 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const install = (ctx: ExtensionContext): void => {
     chatSurface?.dispose(); chatSurface = undefined;
-    groupPainter = claudeTools ? new ToolGroups(liveTheme) : undefined;
+    groupPainter = claudeTools ? new ToolGroups(liveTheme, undefined, decorateThinkingRows) : undefined;
     diagnostics.reset();
+    thinkingMounted = ctx.mode === "tui";
+    thinkingDurations.clear();
     if (requestedClaudeTools) {
       if (claudeTools) diagnostics.active("tool-style", "Public tool renderer hook installed.");
       else diagnostics.fallback("tool-style", "Slate default cards retained; the optional renderer hook is unavailable.");
@@ -417,6 +543,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       ctx.ui.notify(loaded.error, "warning");
     }
     if (ctx.mode !== "tui") return;
+    refreshThinkingFeature(ctx);
     if (owns("tool-cards")) {
       // Only check tools Slate registers. Claude mode styles the native read
       // renderer without owning its registration, so native read is not a loss.
@@ -719,7 +846,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role !== "assistant") return;
     if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.observePartial(estimateAssistantTokens(event.message));
-    if (editorActive() && typeof ctx.ui.setWorkingMessage === "function") {
+    if ((editorActive() && typeof ctx.ui.setWorkingMessage === "function")
+      || (thinkingMounted && thinkingStyle() === "slate")) {
       thinkingFold.observe(event.assistantMessageEvent, event.message);
     } else {
       thinkingFold.stop();
@@ -785,6 +913,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("session_shutdown", (_event, ctx) => {
     sessionEpoch += 1;
     workingWord = undefined;
+    thinkingMounted = false;
+    thinkingDurations.clear();
     stopWave();
     thinkingFold.stop();
     tokenRate.dispose();
@@ -802,6 +932,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     activeTui = undefined;
     sidebar.dispose();
     requestRender(true);
+    if (ctx.mode === "tui") setHiddenThinkingLabel(ctx, false);
+    hiddenThinkingLabelOwned = false;
     currentContext = undefined;
     if (ctx.mode !== "tui") return;
     // Host chrome has no header/footer ownership getters. /reload resets it;
@@ -817,6 +949,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       saveConfig(next);
       config = next;
       setProgressStyle(next.progress ?? "waves");
+      if (thinkingMounted) refreshThinkingFeature(ctx);
       if (owns("sidebar")) {
         sidebar.setPreferredWidth(config.sidebarPercent);
         sidebar.setHidden(config.focused === true);
@@ -1107,7 +1240,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("slate", {
-    description: "Session dashboard, diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or file a bug",
+    description: "Session dashboard, diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, thinking block, progress indicator, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1118,7 +1251,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Diagnostics", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Thinking block", "Progress indicator", "Message length", "Theme", "Diagnostics", "File a bug"]);
         if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
@@ -1129,6 +1262,7 @@ export default function piSlate(pi: ExtensionAPI): void {
           return;
         }
         if (setting === "Effort border color") kind = "effort-border";
+        else if (setting === "Thinking block") kind = "thinking";
         else if (setting === "Density") kind = "density";
         else if (setting === "Composer metadata") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
@@ -1196,6 +1330,17 @@ export default function piSlate(pi: ExtensionAPI): void {
         apply(
           { ...config, effortBorderColor: on },
           on ? "Effort border color on" : "Effort border color off",
+          ctx,
+        );
+        return;
+      }
+
+      if (kind === "thinking") {
+        const current = thinkingStyle();
+        const next = (parsed.kind === "thinking" ? parsed.value : undefined) ?? (current === "slate" ? "pi" : "slate");
+        apply(
+          { ...config, thinkingStyle: next },
+          next === "slate" ? "Thinking block set to Slate" : "Thinking block set to stock Pi",
           ctx,
         );
         return;

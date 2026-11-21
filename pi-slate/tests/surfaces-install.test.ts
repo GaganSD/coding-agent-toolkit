@@ -11,6 +11,7 @@ import { Sidebar, type SidebarActions } from "../extensions/pi-slate/sidebar.ts"
 import { GitStatusPoller } from "../extensions/pi-slate/git-status.ts";
 import { FRESH_SURFACES, has, SURFACES, type Surface } from "../extensions/pi-slate/surfaces.ts";
 import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js";
+import { THINKING_FALLBACK_LABEL } from "../extensions/pi-slate/thinking-block.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 
 class NullTerminal implements Terminal {
@@ -892,6 +893,46 @@ for (const state of ["live", "invalidated", "replaced"] as const) {
   });
 }
 
+
+test("thinking transformer registers only for assistant-thinking and only when the host supports it", async t => {
+  const registrations: Array<{ transformer: (markdown: string, context: Record<string, unknown>) => string; options?: { messageTypes: readonly string[] } }> = [];
+  const labels: Array<string | undefined> = [];
+  const f = await fixture(t, JSON.stringify({ version: 1, surfaces: ["transcript"] }), "tui", true, false, (pi, ui) => {
+    Reflect.set(pi, "registerMarkdownTransformer", (transformer: typeof registrations[number]["transformer"], options?: { messageTypes: readonly string[] }) => {
+      registrations.push({ transformer, options });
+    });
+    Reflect.set(ui, "setHiddenThinkingLabel", (label?: string) => labels.push(label));
+  });
+  assert.equal(registrations.length, 1);
+  assert.deepEqual(registrations[0]!.options, { messageTypes: ["assistant-thinking"] });
+  assert.deepEqual(labels, [THINKING_FALLBACK_LABEL], "the session installs the static fallback label");
+  const transform = registrations[0]!.transformer;
+  assert.equal(transform("answer", { messageType: "assistant", isStreaming: false, availableWidth: 60 }), "answer");
+  const expanded = transform("alpha beta gamma", { messageType: "assistant-thinking", isStreaming: false, availableWidth: 60 });
+  assert.match(expanded, /∴ Thought · 3 words ⌄/);
+  assert.match(expanded, /│ alpha beta gamma/);
+
+  await f.commands.get("slate")!.handler("thinking pi", f.ctx);
+  assert.equal(labels.at(-1), undefined, "stock Pi restores the native hidden label");
+  assert.equal(JSON.parse(await readFile(f.path, "utf8")).thinkingStyle, "pi");
+  assert.equal(transform("alpha beta gamma", { messageType: "assistant-thinking", isStreaming: false, availableWidth: 60 }), "alpha beta gamma");
+  assert.equal(registrations.length, 1, "the registration stays put and checks the live setting");
+
+  await f.commands.get("slate")!.handler("thinking slate", f.ctx);
+  assert.equal(labels.at(-1), THINKING_FALLBACK_LABEL);
+  assert.equal(JSON.parse(await readFile(f.path, "utf8")).thinkingStyle, "slate");
+  assert.match(transform("alpha beta gamma", { messageType: "assistant-thinking", isStreaming: false, availableWidth: 60 }), /∴ Thought/);
+
+  await f.emit("session_shutdown");
+  assert.equal(labels.at(-1), undefined, "teardown restores Pi's native label");
+});
+
+test("thinking block degrades to native rendering when the host has neither hook", async t => {
+  const f = await fixture(t, JSON.stringify({ version: 1, surfaces: ["transcript"] }));
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /thinking-block: fallback[\s\S]*hidden-label hooks are unavailable/);
+  assert.deepEqual(f.notifications, []);
+});
 
 test("a missing optional renderer hook uses default cards without startup alarms", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["tool-cards"] }), "tui", true, false, pi => {

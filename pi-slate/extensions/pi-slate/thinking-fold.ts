@@ -1,4 +1,5 @@
 import type { AssistantContentBlock } from "./token-rate.ts";
+import { thinkingRunText } from "./thinking-block.ts";
 
 export function formatLiveThinking(word: string, elapsedMs: number | null, rate: number | null): string {
   const parts = [word];
@@ -17,24 +18,40 @@ function scheduleTick(tick: () => void): () => void {
   return () => clearInterval(timer);
 }
 
+export type ThinkingCompletion = { contentIndex: number; elapsedMs: number; thinking: string };
+
 /** Only time observed thinking_start/end pairs; never guess durations from restored content. */
 export class ThinkingFoldTracker {
   private disposed = false;
   private startedAt: number | null = null;
   private contentIndex: number | null = null;
+  private runStartedAt: number | null = null;
+  private runLastIndex: number | null = null;
   private cancelTick?: () => void;
   private onChange?: () => void;
+  private onComplete?: (completion: ThinkingCompletion) => void;
   private readonly now: () => number;
   private readonly schedule: ScheduleTick;
 
-  constructor(options: { now?: () => number; schedule?: ScheduleTick; onChange?: () => void } = {}) {
+  constructor(options: {
+    now?: () => number;
+    schedule?: ScheduleTick;
+    onChange?: () => void;
+    onComplete?: (completion: ThinkingCompletion) => void;
+  } = {}) {
     this.now = options.now ?? Date.now;
     this.schedule = options.schedule ?? scheduleTick;
     this.onChange = options.onChange;
+    this.onComplete = options.onComplete;
   }
 
   elapsedMs(): number | null {
     return this.startedAt === null ? null : Math.max(0, this.now() - this.startedAt);
+  }
+
+  /** The content index being timed, for matching one hidden run during streaming. */
+  activeContentIndex(): number | null {
+    return this.startedAt === null ? null : this.contentIndex;
   }
 
   observe(event: unknown, message: { content?: readonly AssistantContentBlock[] }): void {
@@ -56,12 +73,34 @@ export class ThinkingFoldTracker {
       }
       if (type === "thinking_start") {
         if (this.contentIndex === contentIndex) return;
-        this.stop();
+        const continuesRun = (this.runStartedAt !== null && this.runLastIndex !== null
+          && contentIndex === this.runLastIndex + 1)
+          || (this.runStartedAt !== null && this.contentIndex !== null
+            && contentIndex === this.contentIndex + 1);
+        this.stopActive();
+        if (!continuesRun) {
+          this.runStartedAt = this.now();
+          this.runLastIndex = null;
+        }
         this.contentIndex = contentIndex;
         this.startedAt = this.now();
         this.cancelTick = this.schedule(() => this.onChange?.());
         this.onChange?.();
-      } else if (type === "thinking_end" || contentIndex !== this.contentIndex) {
+      } else if (type === "thinking_end") {
+        if (this.startedAt !== null && contentIndex === this.contentIndex) {
+          const elapsedMs = Math.max(0, this.now() - this.startedAt);
+          const runElapsedMs = this.runStartedAt === null ? elapsedMs : Math.max(0, this.now() - this.runStartedAt);
+          const thinking = thinkingRunText(message.content, contentIndex);
+          if (thinking) {
+            try { this.onComplete?.({ contentIndex, elapsedMs: runElapsedMs, thinking }); }
+            catch { /* Presentation-only sink; never let it interrupt host streaming. */ }
+          }
+          this.runLastIndex = contentIndex;
+        }
+        // Keep the run clock for an adjacent thinking block; message and non-thinking
+        // boundaries call stop() and clear it.
+        this.stopActive();
+      } else if (contentIndex !== this.contentIndex) {
         this.stop();
       }
     } else {
@@ -70,7 +109,7 @@ export class ThinkingFoldTracker {
     }
   }
 
-  stop(): void {
+  private stopActive(): void {
     const wasActive = this.startedAt !== null;
     this.cancelTick?.();
     this.cancelTick = undefined;
@@ -79,9 +118,16 @@ export class ThinkingFoldTracker {
     if (wasActive) this.onChange?.();
   }
 
+  stop(): void {
+    this.stopActive();
+    this.runStartedAt = null;
+    this.runLastIndex = null;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.onChange = undefined;
+    this.onComplete = undefined;
     this.stop();
   }
 }

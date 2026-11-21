@@ -32,6 +32,10 @@ While the model runs, the composer edge shows a progress animation — `/slate p
 
 ![Slate working indicator animation](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-working.gif)
 
+### Thinking Block
+
+Collapsed thinking is one quiet row, `∴ Thought for 12s ›`; click it to expand the same run under a faint `│` rail, with a live `∴ Thinking 7s` header while streaming. Runs observed live show their duration, restored thinking shows its word count, and `/slate thinking pi` restores stock Pi rendering. Display only; thinking is never sent anywhere new.
+
 ### Diff
 
 With `tool-cards` selected, `edit` and `write` results are syntax-highlighted in the transcript even while collapsed: the first 16 diff rows render inline (split view for edits when the row has 100+ columns), and expanding the tool shows the rest. Diffs keep folding into `Done (N tool calls)` groups like any other row.
@@ -122,6 +126,7 @@ These work when `editor` is selected. No terminal configuration.
 | Focused | `/slate focused [on\|off]` | Set focused mode. Focused mode hides the sidebar; standard mode restores it. |
 | PID display | `/slate pid [on\|off]` | Show the agent process ID on the composer's top edge. Off by default; omitted when the frame is too narrow. |
 | Effort border color | `/slate effort-border [on\|off]` | Let Pi's native thinking-level and bash-mode colors paint the composer frame. Off by default: Slate keeps its neutral chrome. Applies immediately with `editor` selected. |
+| Thinking block | `/slate thinking [slate\|pi]` | Slate headers, durations, and railed thinking; `pi` restores stock Pi rendering. Applies immediately. |
 | Working indicator | `/slate progress [waves\|dna-helix\|snake\|cylon-scanner]` | Animate the composer's working-status slot. `waves` is the default. |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
 | Session dashboard | `/slate session [mcp\|skills\|commands\|tasks\|image]` | Inspect facts, expand/collapse resources, insert commands, or manage the image shelf. |
