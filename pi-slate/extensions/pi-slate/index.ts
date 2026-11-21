@@ -16,6 +16,7 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
+import { requestNecessaryRender } from "./render-request.ts";
 import { copyWithFeedback } from "./copy-feedback.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installConversationBridge } from "./conversation-bridge.ts";
@@ -36,11 +37,11 @@ import { pickSidebarItem } from "./sidebar-picker.ts";
 import { mcpDetails } from "./sidebar-mcp.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
-import { resolveContextTokens } from "./context-usage.ts";
+import { ContextUsageCache } from "./context-usage.ts";
 import { branchPerf } from "./perf-stats.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
-import { advanceWave, isProgressStyle, isWaveActive, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
+import { isProgressStyle, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
   type LogoStyle,
@@ -267,11 +268,25 @@ export default function piSlate(pi: ExtensionAPI): void {
   let groupPainter: ToolGroups | undefined;
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
-  const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
-  let contextEdge: { percent: number | null; window: number | null; resources: string } = {
-    percent: null, window: null, resources: formatFocusedContextResources(null, false, 0),
+  const branch = new GitBranchPoller(pi, (next) => {
+    gitBranch = next;
+    if (activeTui && activeEditor && editorActive() && activeEditor.needsBranchRepaint()) return requestNecessaryRender(activeTui);
+  });
+  const contextUsage = new ContextUsageCache();
+  let contextEdge: { percent: number | null; window: number | null; estimated: boolean; resources: string } = {
+    percent: null, window: null, estimated: false, resources: formatFocusedContextResources(null, false, 0),
   };
   let requestRender = (_force = false) => {};
+  let contextRepaintPending = false;
+  const updateContextEdge = (next: Pick<typeof contextEdge, "percent" | "window" | "estimated">): void => {
+    const label = formatFocusedContextResources(next.percent, next.estimated, resources.mcp.filter(server => server.enabled === true).length);
+    contextRepaintPending ||= label !== contextEdge.resources;
+    contextEdge = { ...next, resources: label };
+    if (!contextRepaintPending || !activeTui || !activeEditor) return;
+    try {
+      if (editorActive()) contextRepaintPending = activeEditor.needsContextRepaint() && !requestNecessaryRender(activeTui);
+    } catch { /* Keep the check pending if the host is temporarily unavailable. */ }
+  };
 
   const syncVisibleMessages = (): void => {
     if ((!owns("transcript") && !claudeTools) || liveContext()?.mode !== "tui") return;
@@ -310,22 +325,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const syncSidebar = (ctx: ExtensionContext): void => {
     if (ctx.mode !== "tui" || !ctx.sessionManager || (!owns("sidebar") && !owns("editor")) || (sidebarYielded && !editorActive())) return;
-    let tokens: number | null = null;
-    let percent: number | null = null;
-    let contextWindow: number | null = ctx.model?.contextWindow ?? null;
-    let estimated = true;
-    try {
-      const usage = ctx.getContextUsage();
-      estimated = usage?.tokens == null || !Number.isFinite(usage.tokens);
-      const resolved = resolveContextTokens(
-        usage,
-        estimated ? ctx.sessionManager.buildContextEntries() : [],
-        ctx.model?.contextWindow,
-      );
-      tokens = resolved.tokens;
-      percent = resolved.percent;
-      contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? null;
-    } catch { /* Context can be temporarily unavailable; keep identity and other facts fresh. */ }
+    const { tokens, percent, contextWindow, estimated } = contextUsage.get(ctx);
     if (owns("sidebar") && !sidebarYielded) {
       const leaf = ctx.sessionManager.getLeafId?.();
       if (!branchFacts || leaf === undefined || leaf !== branchFacts.leaf) {
@@ -344,8 +344,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         perf: branchFacts.perf,
       });
     }
-    contextEdge = { percent, window: contextWindow,
-      resources: formatFocusedContextResources(percent, estimated, resources.mcp.filter(server => server.enabled === true).length) };
+    updateContextEdge({ percent, window: contextWindow, estimated });
   };
   const refreshResources = (ctx: ExtensionContext): void => {
     if (ctx.mode !== "tui" || !ctx.sessionManager || (!owns("sidebar") && !owns("editor")) || (sidebarYielded && !editorActive())) return;
@@ -365,6 +364,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     }, () => ({ mcp: resources.mcp, ...(resources.mcpError ? { mcpError: resources.mcpError } : {}) }));
     resources = { commands: catalog.commands, prompts: catalog.prompts, skills: skills.snapshot(), ...mcp };
     if (owns("sidebar") && !sidebarYielded) sidebar.setResources(resources);
+    updateContextEdge(contextEdge);
   };
   const stopDashboard = (): void => {
     clearInterval(dashboardClock); dashboardClock = undefined;
@@ -378,7 +378,14 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   if (owns("sidebar")) {
     pi.on("resources_discover", () => {
-      if (liveContext()?.mode === "tui") queueMicrotask(() => { const ctx = liveContext(); if (ctx && ctx.mode === "tui") refreshResources(ctx); });
+      if (liveContext()?.mode === "tui") queueMicrotask(() => {
+        diagnostics.attempt("resource-refresh", "Could not refresh resources; Slate will retry on the next discovery.", () => {
+          const ctx = liveContext();
+          if (ctx?.mode !== "tui") return;
+          refreshResources(ctx);
+          diagnostics.active("resource-refresh", "Resources refreshed after discovery.");
+        }, () => {}, { retry: true });
+      });
     });
   }
 
@@ -411,7 +418,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     thinkingFold.stop();
     tokenRate.dispose();
     workingWord = undefined;
-    stopWave();
+    setWaveActive(false);
     if (loaded.error) {
       diagnostics.fallback("configuration", "Slate surfaces disabled because pi-slate.json could not be read or parsed. File preserved; repair it and /reload.");
       ctx.ui.notify(loaded.error, "warning");
@@ -430,6 +437,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     if (owns("editor")) branch.start(ctx.cwd);
     sessionStartedAt = Date.now(); turnStartedAt = undefined; lastTurnMs = null; branchFacts = undefined;
+    contextUsage.reset();
+    contextRepaintPending = false;
     if (owns("editor") || owns("sidebar")) {
       skills.reset([]);
       skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
@@ -518,21 +527,25 @@ export default function piSlate(pi: ExtensionAPI): void {
             sidebar.attach(tui, theme, () => {
               sidebarYielded = true; stopDashboard();
               diagnostics.fallback("sidebar", "Native layout retained after a later layout owner replaced Slate.");
-            });
+            }, () => diagnostics.fault("sidebar-view", "Sidebar remains live with full redraws after a view-only redraw failed."));
             return sidebar.splitActive;
           }, () => { sidebar.dispose(); return false; });
           if (attached) diagnostics.active("sidebar", "Sidebar mounted; visibility follows preferences and terminal size.");
           else diagnostics.fallback("sidebar", "Native layout retained; sidebar needs a compatible fullscreen viewport.");
           if (attached && !dashboardClock) {
-            let ticks = 0;
+            let ticks = 0, refreshFaulted = false;
             dashboardClock = setInterval(() => {
-              const ctx = liveContext();
-              if (!ctx || ctx.mode !== "tui" || !sidebar.splitActive) return;
-              diagnostics.attempt("dashboard", "Last dashboard snapshot retained; a background refresh failed.", () => {
+              diagnostics.attempt("dashboard", "A dashboard refresh failed; Slate will retry on the next tick.", () => {
+                const ctx = liveContext();
+                if (!ctx || ctx.mode !== "tui" || !sidebar.splitActive) return;
                 if (++ticks % 5 === 0) { refreshResources(ctx); syncSidebar(ctx); }
                 else if (ctx.sessionManager.getLeafId() !== branchFacts?.leaf) syncSidebar(ctx);
                 sidebar.tick();
-              }, () => {});
+                if (refreshFaulted) {
+                  diagnostics.active("dashboard", "Background dashboard refresh resumed.");
+                  refreshFaulted = false;
+                }
+              }, () => { refreshFaulted = true; }, { retry: true });
             }, 1000);
             dashboardClock.unref?.();
           }
@@ -600,7 +613,10 @@ export default function piSlate(pi: ExtensionAPI): void {
         // Images wrap first so composer-selection stays outermost: select-all
         // followed by backspace must clear the whole prompt before the atomic
         // image-token delete sees the keypress.
-        images?.attachEditor(activeEditor);
+        const editor = activeEditor;
+        images?.attachEditor(editor, () =>
+          // A detached editor has no repaint left to deliver.
+          activeEditor !== editor || !mountedContext() || !editorActive() || requestNecessaryRender(tui));
         selection.attach(activeEditor, {
           copy: (text) => mountedContext() ? copyWithFeedback(tui, notify, text) : Promise.resolve(),
           requestRender: () => tui.requestRender(),
@@ -617,43 +633,13 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const workingWords = createWordPicker();
   let workingWord: string | undefined;
-  let waveTimer: ReturnType<typeof setInterval> | undefined;
-  // The wave rolls in the Slate composer border; without a live custom editor
-  // the working status falls back to the classic word.
-  const waveHost = (ctx: ExtensionContext | undefined): ctx is ExtensionContext =>
-    Boolean(ctx && ctx.mode === "tui" && editorActive() && activeEditor);
-  const stopWave = (): void => {
-    if (waveTimer !== undefined) { clearInterval(waveTimer); waveTimer = undefined; }
-    if (!isWaveActive()) return;
-    setWaveActive(false);
-    // Restore the host default so a blanked message never sticks if the
-    // Slate composer goes away mid-session.
-    try { currentContext?.ui.setWorkingMessage?.(undefined); } catch { /* stale ctx */ }
-    requestRender();
-  };
-  const startWave = (ctx: ExtensionContext): void => {
-    if (waveTimer !== undefined) { clearInterval(waveTimer); waveTimer = undefined; }
-    setWaveActive(true);
-    try {
-      // Blank the indicator text; the composer border renders the wave instead.
-      ctx.ui.setWorkingMessage("");
-      requestRender();
-    } catch { setWaveActive(false); return; }
-    const timer = setInterval(() => {
-      const current = liveContext();
-      if (!waveHost(current)) { stopWave(); return; }
-      try { advanceWave(); requestRender(); } catch { stopWave(); }
-    }, 120);
-    timer.unref();
-    waveTimer = timer;
-  };
   const syncThinkingStatus = (): void => {
-    const ctx = liveContext();
-    if (!editorActive() || !ctx || !workingWord || typeof ctx.ui.setWorkingMessage !== "function") return;
-    const elapsed = thinkingFold.elapsedMs();
-    const rate = tokenRate.rate();
-    const label = elapsed === null ? workingWord : formatLiveThinking(workingWord, elapsed, rate > 0 ? rate : null);
     try {
+      const ctx = liveContext();
+      if (!ctx || !editorActive() || !workingWord || typeof ctx.ui.setWorkingMessage !== "function") return;
+      const elapsed = thinkingFold.elapsedMs();
+      const rate = tokenRate.rate();
+      const label = elapsed === null ? workingWord : formatLiveThinking(workingWord, elapsed, rate > 0 ? rate : null);
       ctx.ui.setWorkingMessage(ctx.ui.theme.italic(label));
       requestRender();
     } catch {
@@ -670,9 +656,9 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     if (!editorActive()) return;
     thinkingFold.stop();
-    if (waveHost(ctx)) {
+    if (activeEditor) {
       workingWord = undefined;
-      startWave(ctx);
+      setWaveActive(true); // Pi's working indicator already schedules frames.
       return;
     }
     workingWord = workingWords.next();
@@ -681,7 +667,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("agent_end", (_event, ctx) => {
     currentContext = ctx;
     thinkingFold.stop();
-    stopWave();
+    setWaveActive(false);
     if (turnStartedAt !== undefined) {
       const finishedAt = Date.now();
       lastTurnMs = Math.max(0, finishedAt - turnStartedAt);
@@ -769,23 +755,26 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("session_compact", (_event, ctx) => {
     currentContext = ctx;
+    contextUsage.reset();
     syncSidebar(ctx);
   });
   pi.on("session_tree", (_event, ctx) => {
     currentContext = ctx;
+    contextUsage.reset();
     thinkingFold.stop();
     if (owns("sidebar") && ctx.mode === "tui") {
       branchFacts = undefined; skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
       background.reset(ctx.sessionManager.getSessionId?.() ?? ""); sidebar.setTasks([]);
       pi.events.emit?.(BACKGROUND_TASKS_REQUEST, { version: 1, sessionId: ctx.sessionManager.getSessionId?.() ?? "" });
-      refreshResources(ctx); syncSidebar(ctx);
+      refreshResources(ctx);
     }
+    syncSidebar(ctx);
     syncVisibleMessages();
   });
   pi.on("session_shutdown", (_event, ctx) => {
     sessionEpoch += 1;
     workingWord = undefined;
-    stopWave();
+    setWaveActive(false);
     thinkingFold.stop();
     tokenRate.dispose();
     selection.dispose();
@@ -807,6 +796,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     // Host chrome has no header/footer ownership getters. /reload resets it;
     // cleanup must not clear a successor's slots (or any unselected surface).
     activeEditor = undefined;
+    contextUsage.reset();
     gitBranch = null;
     requestRender = () => {};
   });

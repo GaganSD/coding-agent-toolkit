@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Container, ScrollView, Text, VStack } from "@earendil-works/pi-tui";
+import { Container, ScrollView, Text, VStack, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { MESSAGE_LENGTH_DEFAULT } from "../extensions/pi-slate/layout.ts";
 import { ChatSurface, findChatContainer } from "../extensions/pi-slate/chat-surface.ts";
 import { ToolGroups } from "../extensions/pi-slate/tool-groups.ts";
@@ -111,10 +111,47 @@ test("even unbounded and active projections give painters a copy of the host arr
   const chat = new Container(); chat.addChild(new Text("native", 0, 0));
   const groups = new ToolGroups(() => undefined);
   const render = groups.render.bind(groups);
-  groups.render = (children, width) => { assert.notEqual(children, chat.children); return render(children, width); };
+  const projections: Array<Parameters<ToolGroups["render"]>[0]> = [];
+  groups.render = (children, width) => {
+    assert.notEqual(children, chat.children);
+    projections.push(children);
+    return render(children, width);
+  };
   const surface = new ChatSurface(chat, { groups });
   assert.deepEqual(rows(chat), ["native"]);
   surface.update({ groups, limit: 1, active: () => true });
   assert.deepEqual(rows(chat), ["native"]);
+  assert.equal(projections[0], projections[1]);
+  chat.children[0] = new Text("updated", 0, 0);
+  assert.deepEqual(rows(chat), ["updated"]);
+  assert.notEqual(projections[2], projections[1]);
+  surface.dispose();
+});
+
+test("wheel is offered to the painted message once; an unhandled wheel falls through", () => {
+  const chat = new Container();
+  let paints = 0, wheels = 0;
+  chat.addChild(new Text("ordinary message", 0, 0));
+  chat.addChild({
+    render() { paints++; return ["custom message"]; }, invalidate() {},
+    handleMouse(event: TuiMouseEvent) {
+      assert.equal(event.type, "wheel"); assert.equal(event.y, 0);
+      wheels++; return { handled: true, render: false };
+    },
+  });
+  const surface = new ChatSurface(chat, {});
+  const event = { type: "wheel", button: "none", x: 2, y: 0, width: 80, height: 2 } as TuiMouseEvent;
+  assert.equal(chat.handleMouse(event), undefined, "do not paint in order to discover a wheel target");
+  for (const groups of [undefined, new ToolGroups(() => undefined)]) {
+    surface.update({ groups });
+    chat.render(80);
+    const before = paints;
+    assert.equal(chat.handleMouse(event), undefined);
+    const result = chat.handleMouse({ ...event, y: 1 });
+    assert.equal(result?.handled, true);
+    assert.equal(result?.render, false);
+    assert.equal(paints, before);
+  }
+  assert.equal(wheels, 2);
   surface.dispose();
 });

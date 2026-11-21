@@ -4,12 +4,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 export class GitBranchPoller {
   private timer?: ReturnType<typeof setInterval>;
   private generation = 0;
-  private pending = false;
 
   private readonly pi: Pick<ExtensionAPI, "exec">;
-  private readonly onChange: (branch: string | null) => void;
+  private readonly onChange: (branch: string | null) => boolean | void;
 
-  constructor(pi: Pick<ExtensionAPI, "exec">, onChange: (branch: string | null) => void) {
+  constructor(pi: Pick<ExtensionAPI, "exec">, onChange: (branch: string | null) => boolean | void) {
     this.pi = pi;
     this.onChange = onChange;
   }
@@ -17,17 +16,26 @@ export class GitBranchPoller {
   start(cwd: string): void {
     this.dispose();
     const generation = this.generation;
+    let pending = false;
+    let repaintPending = false;
+    let previous: string | null | undefined;
     const refresh = async (): Promise<void> => {
-      if (this.pending) return;
-      this.pending = true;
+      if (pending) return;
+      pending = true;
+      let branch: string | null = null;
       try {
         const result = await this.pi.exec("git", ["-C", cwd, "branch", "--show-current"], { timeout: 2000 });
-        if (generation === this.generation) this.onChange(result.code === 0 ? result.stdout.trim() || null : null);
-      } catch {
-        if (generation === this.generation) this.onChange(null);
-      } finally {
-        this.pending = false;
-      }
+        if (result.code === 0) branch = result.stdout.trim() || null;
+      } catch { /* No branch label when Git is unavailable. */ }
+      finally { pending = false; }
+      if (generation !== this.generation || (!repaintPending && branch === previous)) return;
+      repaintPending = true;
+      try {
+        if (this.onChange(branch) !== false) {
+          previous = branch;
+          repaintPending = false;
+        }
+      } catch { /* Check again next poll if the editor or TUI threw. */ }
     };
     void refresh();
     this.timer = setInterval(() => void refresh(), 5000);

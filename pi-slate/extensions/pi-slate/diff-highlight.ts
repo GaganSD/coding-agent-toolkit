@@ -25,6 +25,31 @@ export class DiffHighlighter {
   private highlighter?: Promise<Highlighter>;
   private disposed = false;
   private loads = new Map<string, Promise<void>>();
+  private redraw?: {
+    timer: ReturnType<typeof setTimeout>; callbacks: Set<() => void>; done: Promise<void>; finish(): void;
+  };
+
+  repaint(invalidate: () => void): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    if (!this.redraw) {
+      const callbacks = new Set<() => void>();
+      let finish!: () => void;
+      const done = new Promise<void>(resolve => { finish = resolve; });
+      // Tool contexts own their invalidation. Flush all of them in one turn so
+      // Pi schedules one content frame for a burst of completed highlights.
+      const timer = setTimeout(() => {
+        this.redraw = undefined;
+        for (const callback of callbacks) {
+          try { callback(); } catch { /* Tool may belong to a closed session. */ }
+        }
+        finish();
+      }, 100);
+      timer.unref?.();
+      this.redraw = { timer, callbacks, done, finish };
+    }
+    this.redraw.callbacks.add(invalidate);
+    return this.redraw.done;
+  }
 
   async tokens(code: string, path: string, theme: BundledTheme): Promise<ThemedToken[][] | undefined> {
     const lang = diffLanguage(path);
@@ -50,6 +75,11 @@ export class DiffHighlighter {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.redraw) {
+      clearTimeout(this.redraw.timer);
+      this.redraw.finish();
+      this.redraw = undefined;
+    }
     void this.highlighter?.then((highlighter) => highlighter.dispose(), () => {});
     this.loads.clear();
   }

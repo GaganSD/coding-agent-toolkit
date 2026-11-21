@@ -40,7 +40,7 @@ type PatchableEditor = {
 };
 
 export type ImagePlaceholders = {
-  attachEditor(editor: CustomEditor): void;
+  attachEditor(editor: CustomEditor, requestRender?: () => boolean | void): void;
   detachEditor(): void;
   dispose(): void;
 };
@@ -248,10 +248,10 @@ export function installImagePlaceholders(
   });
 
   return {
-    attachEditor(editor) {
+    attachEditor(editor, requestRender) {
       this.detachEditor();
       uninstallEditorPatch = installEditorPatch(store, () => peek?.rewrite(), editor);
-      peek = new ImagePeek(store, editor, workspace, loadImage);
+      peek = new ImagePeek(store, editor, workspace, loadImage, requestRender);
     },
     detachEditor() {
       peek?.dispose();

@@ -1,6 +1,6 @@
 export type SlateFeature =
-  | "tool-style" | "tool-ownership" | "tool-groups" | "sidebar" | "transcript"
-  | "surface-host" | "session-notices" | "command-catalog" | "mcp-catalog" | "dashboard" | "paste-preview" | "configuration";
+  | "tool-style" | "tool-ownership" | "tool-groups" | "sidebar" | "sidebar-view" | "transcript"
+  | "surface-host" | "session-notices" | "command-catalog" | "mcp-catalog" | "resource-refresh" | "dashboard" | "paste-preview" | "configuration";
 export type SlateDiagnostic = { feature: SlateFeature; state: "active" | "fallback"; detail: string };
 
 /** Presentation diagnostics are not application/server health. Never notify or retain thrown errors here. */
@@ -18,12 +18,13 @@ export class SlateDiagnostics {
     this.failed.add(feature);
     this.entries.set(feature, { feature, state: "fallback", detail });
   }
-  /** Synchronous optional adapters only. A throwing adapter is quarantined until the next session/reload. */
-  attempt<T>(feature: SlateFeature, detail: string, operation: () => T, fallback: () => T): T {
+  /** Synchronous optional adapters only. Quarantine failures by default; background refreshes can opt into retry. */
+  attempt<T>(feature: SlateFeature, detail: string, operation: () => T, fallback: () => T, options?: { retry?: boolean }): T {
     if (this.failed.has(feature)) return fallback();
     try { return operation(); }
     catch {
-      this.fault(feature, detail);
+      if (options?.retry) this.fallback(feature, detail);
+      else this.fault(feature, detail);
       return fallback();
     }
   }

@@ -34,15 +34,21 @@ async function runProbe(mode, surfaces, fault) {
 
 for (const mode of ["regular", "fullscreen"]) {
   for (const [label, surfaces] of [["defaults", "fresh"], ["none", "[]"], ["full", JSON.stringify(SURFACES)]]) {
-    test(`real Pi ${version}: ${mode}, ${label} — init, mount, render, replace, shutdown`, async () => {
+    test(`real Pi ${version}: ${mode}, ${label} — init, mount, render${label === "full" ? ", animate quiet turn" : ""}, replace, shutdown`, async () => {
       const result = await runProbe(mode, surfaces);
       assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
       const receipt = JSON.parse(result.stdout.trim());
       assert.equal(receipt.host, version); assert.equal(receipt.rendered, true);
       assert.equal(receipt.replaced, true); assert.equal(receipt.shutdown, true); assert.equal(receipt.networkRequests, 0);
+      assert.equal(receipt.quietTurn, label === "full");
     });
   }
 }
+test(`real Pi ${version}: an editor-only image rewrite repaints after scheduler recovery`, async () => {
+  const result = await runProbe("fullscreen", '["editor"]');
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
+
 for (const [fault, expected] of [["quit-shutdown", /Injected quit-only shutdown fault/], ["transcript", /transcript window did not mount/]]) {
   test(`real Pi ${version}: canary rejects ${fault} instead of reporting a false success`, async () => {
     const result = await runProbe("fullscreen", JSON.stringify(SURFACES), fault);

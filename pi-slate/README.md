@@ -174,6 +174,10 @@ npm run test:compat:latest     # temporary latest host + packed Slate consumer
 
 The real-host probe covers regular/fullscreen mode, default/no/full surfaces, initialization, rendering, session replacement, and shutdown. Each case runs in a fresh process with isolated settings/HOME, no provider credentials, and execution-time networking blocked. The latest-host canary runs in Slate's PR validation and a dedicated daily workflow. Optional UI tree/editor adapters still require contract coverage; these checks detect upstream drift rather than promising compatibility with every future host.
 
+## Performance
+
+Slate is benchmarked against native Pi by scrolling a synthetic 3,000-entry session in a real terminal. With every surface on, it paints frame-for-frame with native Pi and uses 0.03 CPU seconds over 5 s idle. See the [benchmark README](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-slate/benchmarks) for results, methodology, and `npm run bench:scroll`.
+
 ## License
 
 [MIT](LICENSE) © [Gagan Devagiri](https://github.com/GaganSD)

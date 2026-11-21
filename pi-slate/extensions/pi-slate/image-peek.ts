@@ -15,6 +15,7 @@ export class ImagePeek {
   private shownId?: string;
   private disposed = false;
   private rewriteTimer?: ReturnType<typeof setTimeout>;
+  private repaintRetry?: ReturnType<typeof setTimeout>;
   private readonly originalHandleMouse: CustomEditor["handleMouse"];
   private readonly originalHandleInput: CustomEditor["handleInput"];
   private readonly store: ImagePathStore;
@@ -23,17 +24,20 @@ export class ImagePeek {
   private readonly handleMouse: CustomEditor["handleMouse"];
   private readonly handleInput: CustomEditor["handleInput"];
   private readonly loadImage: (filePath: string) => ImageAttachment | undefined;
+  private readonly requestRender: () => boolean | void;
 
   constructor(
     store: ImagePathStore,
     editor: CustomEditor,
     workspace: Sidebar | undefined,
     loadImage: (filePath: string) => ImageAttachment | undefined,
+    requestRender: () => boolean | void = () => {},
   ) {
     this.store = store;
     this.editor = editor;
     this.workspace = workspace;
     this.loadImage = loadImage;
+    this.requestRender = requestRender;
     this.originalHandleMouse = this.editor.handleMouse;
     this.originalHandleInput = this.editor.handleInput;
     this.handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
@@ -53,7 +57,12 @@ export class ImagePeek {
       if (data && !/[\x00-\x1f\x7f]/.test(data) && this.editor.getText() === before + data) {
         // ponytail: unbracketed drops have no completion marker. A 50 ms quiet
         // period avoids replacing prefixes during a burst, not a manual pause.
-        this.rewriteTimer = setTimeout(() => this.rewrite(), 50);
+        this.rewriteTimer = setTimeout(() => {
+          this.rewriteTimer = undefined;
+          // This runs outside Pi's input handler. An optional preview failure
+          // must not escape the timer or undo a completed text rewrite.
+          try { this.rewrite(); } catch { /* A later caret update can retry the preview. */ }
+        }, 50);
       }
       this.update();
     };
@@ -73,8 +82,22 @@ export class ImagePeek {
       return;
     }
     const rewritten = rewriteClipboardPaths(text, nextImageNumber(text), this.store);
-    if (rewritten !== text) this.editor.setText(rewritten);
+    if (rewritten !== text) {
+      this.editor.setText(rewritten);
+      this.repaint();
+    }
     this.update();
+  }
+
+  private repaint(): void {
+    clearTimeout(this.repaintRetry);
+    this.repaintRetry = undefined;
+    if (this.disposed) return;
+    try {
+      if (this.requestRender() !== false) return;
+    } catch { /* The host may temporarily reject the ownership check. */ }
+    this.repaintRetry = setTimeout(() => this.repaint(), 250);
+    this.repaintRetry.unref?.();
   }
 
   update(): void {
@@ -117,6 +140,8 @@ export class ImagePeek {
   dispose(): void {
     this.disposed = true;
     clearTimeout(this.rewriteTimer);
+    clearTimeout(this.repaintRetry);
+    this.repaintRetry = undefined;
     if (this.editor.handleMouse === this.handleMouse) this.editor.handleMouse = this.originalHandleMouse;
     if (this.editor.handleInput === this.handleInput) this.editor.handleInput = this.originalHandleInput;
     this.hide();

@@ -371,6 +371,24 @@ test("editing away from the end and navigating during a drop preserve the caret"
   assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
 });
 
+test("detaching the editor cancels a pending image repaint", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const filePath = image("detach.png");
+  const editor = new Editor({} as TUI, {} as EditorTheme);
+  const pi = { on() {}, registerMarkdownTransformer() {} } as unknown as ExtensionAPI;
+  const placeholders = installImagePlaceholders(pi);
+  t.after(() => placeholders.dispose());
+  let attempts = 0;
+  placeholders.attachEditor(editor as unknown as CustomEditor, () => { attempts++; return false; });
+  editor.handleInput(filePath);
+  t.mock.timers.tick(50);
+  assert.equal(editor.getText(), "[image-1]");
+  assert.equal(attempts, 1);
+  placeholders.detachEditor();
+  t.mock.timers.tick(1000);
+  assert.equal(attempts, 1, "never repaint a detached editor");
+});
+
 test("does not emit legacy rewrite notices during ordinary typing or navigation", async (t) => {
   const editor = new Editor({} as TUI, {} as EditorTheme);
   const sidebar = attachSidebar();

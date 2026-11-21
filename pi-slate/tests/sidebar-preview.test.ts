@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Text, visibleWidth, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { SidebarSplit } from "../extensions/pi-slate/sidebar-split.ts";
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
 import { perfFixture } from "./perf-fixture.ts";
 import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
@@ -44,6 +45,143 @@ function image(id = "a"): WorkspaceView {
 function task(i: number): BackgroundTask {
   return { id: `task-${i}`, source: "sample", label: `job-${i}`, kind: "subagent", state: i === 1 ? "waiting" : "running", startedAt: 1000, detail: "No control action is performed" };
 }
+
+for (const method of ["view", "legacy", "throwing"] as const) {
+  test(`sidebar paints only changed visible rows (${method} host)`, () => {
+    let now = 4000, view = 0, full = 0, forced = 0, faults = 0;
+    let fullBlocked = false, forceBlocked = false;
+    const chat = new Text("chat", 0, 0);
+    const tui = {
+      [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
+      layoutRoot: chat as Component | undefined,
+      setLayoutRoot(component: Component | undefined) { this.layoutRoot = component; },
+      terminal: { rows: 60, columns: 200 },
+      requestRender(force?: boolean) {
+        if (force) { forced++; if (forceBlocked) throw new Error("force scheduler unavailable"); return; }
+        full++;
+        if (fullBlocked) throw new Error("content scheduler unavailable");
+        if (method === "throwing") this.requestViewRender?.();
+      },
+      ...(method !== "legacy" ? { requestViewRender() { view++; if (method === "throwing") throw new Error("view scheduler unavailable"); } } : {}),
+    };
+    const sidebar = new Sidebar(() => now);
+    sidebar.attach(tui as unknown as TUI, theme(), undefined, () => { faults++; });
+    const split = tui.layoutRoot as SidebarSplit;
+    const pane = () => split.children[1]!;
+    const first = pane();
+    pane().render(40);
+    now += 1000;
+    sidebar.invalidate();
+    sidebar.tick();
+    assert.deepEqual([view, full], [0, 0], "an idle second with no visible timer is unchanged even after invalidation");
+
+    const live = { ...session, turnStartedAt: now, perf: EMPTY_PERF };
+    sidebar.setSession(live);
+    assert.equal(pane() === first, method === "legacy", "supported view renders renew only the sidebar leaf");
+    assert.equal(split.children[0], chat);
+    assert.match(plain(pane().render(40))[1]!, /0:00$/);
+    sidebar.setSession({ ...live, cwd: "/different-detail-only-path" });
+    assert.deepEqual([view, full, forced], method === "view" ? [1, 0, 0] : method === "legacy" ? [0, 1, 0] : [1, 0, 1]);
+    now += 1000;
+    sidebar.tick();
+    assert.match(plain(pane().render(40))[1]!, /0:01$/);
+    assert.deepEqual([view, full, forced], method === "view" ? [2, 0, 0] : method === "legacy" ? [0, 2, 0] : [1, 0, 2]);
+
+    sidebar.setResources(resources);
+    assert.equal(pane().handleMouse?.(mouse(row(sidebar, "MCP")))?.render, false, "fold clicks schedule their own repaint");
+    const serverRow = row(sidebar, "server-0");
+    const counts = [view, full, forced];
+    sidebar.setResources({ ...resources, mcp: resources.mcp.map(server => ({ ...server, source: "project" })) });
+    assert.deepEqual([view, full, forced], counts);
+    let detail = "";
+    sidebar.setActions({ copy() {}, openFile() {}, inspect(_title, text) { detail = text; } });
+    pane().handleMouse?.(mouse(serverRow));
+    assert.match(detail, /Source: project/, "unchanged rows still get current details and hit regions");
+    const wheel = mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 });
+    assert.equal(split.handleMouse(wheel), undefined);
+    assert.deepEqual(pane().handleMouse?.(wheel)?.render, false, "do not ask dispatch for a full frame");
+    assert.match(plain(pane().render(40)).join("\n"), /server-5/);
+    assert.deepEqual([view - counts[0]!, full - counts[1]!, forced - counts[2]!],
+      method === "view" ? [1, 0, 0] : method === "legacy" ? [0, 1, 0] : [0, 0, 1]);
+    if (method === "throwing") {
+      now += 1000; forceBlocked = true;
+      assert.doesNotThrow(() => sidebar.tick(), "the forced fallback may throw too");
+      const failed = forced;
+      forceBlocked = false;
+      sidebar.tick();
+      assert.equal(forced, failed + 1, "retry a necessary frame after scheduling failed");
+      sidebar.tick();
+      assert.equal(forced, failed + 1, "do not retry after scheduling succeeded");
+      const beforeResize = [view, full, forced];
+      assert.doesNotThrow(() => sidebar.setPreferredWidth(36));
+      assert.deepEqual([view, full, forced], beforeResize.map(count => count + 1),
+        "layout still tries a normal redraw before forcing when it delegates to the failed scheduler");
+    }
+    sidebar.setHidden(true);
+    const hiddenCounts = [view, full, forced];
+    now += 1000;
+    sidebar.tick();
+    assert.deepEqual([view, full, forced], hiddenCounts);
+    assert.equal(faults, method === "throwing" ? 1 : 0, "only a throwing host is diagnosed, once per lease");
+    if (method === "view") {
+      const beforeReveal = [view, full, forced];
+      const leaf = pane();
+      forceBlocked = true;
+      sidebar.setHidden(false);
+      sidebar.setSession({ ...live, model: "replacement-model" });
+      assert.deepEqual([view, full, forced], [beforeReveal[0], beforeReveal[1], beforeReveal[2]! + 2],
+        "a visible pane change cannot downgrade a pending forced layout redraw");
+      assert.equal(pane(), leaf);
+      forceBlocked = false;
+      sidebar.tick();
+      assert.deepEqual([view, full, forced], [beforeReveal[0], beforeReveal[1], beforeReveal[2]! + 3],
+        "the next tick retries the original forced redraw");
+      sidebar.tick();
+      assert.equal(forced, beforeReveal[2]! + 3, "the successful retry clears the pending intent");
+
+      const beforeResize = [view, full, forced];
+      fullBlocked = forceBlocked = true;
+      sidebar.setPreferredWidth(36);
+      assert.deepEqual([view, full, forced], [beforeResize[0], beforeResize[1]! + 1, beforeResize[2]! + 1]);
+      fullBlocked = forceBlocked = false;
+      sidebar.tick();
+      assert.deepEqual([view, full, forced], [beforeResize[0], beforeResize[1]! + 2, beforeResize[2]! + 1],
+        "a width change still retries as a layout redraw when pane rows also change");
+      assert.equal(pane(), leaf);
+    }
+  });
+}
+
+test("a throwing view getter does not escape or disable ordinary layout retries", () => {
+  const requests: boolean[] = [];
+  let lookups = 0, faults = 0, layoutBlocked = false, forceBlocked = false;
+  const tui = {
+    [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
+    layoutRoot: new Text("chat", 0, 0) as Component | undefined,
+    setLayoutRoot(root: Component | undefined) { this.layoutRoot = root; },
+    terminal: { rows: 60, columns: 200 },
+    get requestViewRender() { lookups++; throw new Error("view capability unavailable"); },
+    requestRender(force = false) {
+      requests.push(force);
+      if (force ? forceBlocked : layoutBlocked) throw new Error("redraw unavailable");
+    },
+  };
+  const sidebar = new Sidebar(() => 4000);
+  sidebar.attach(tui as unknown as TUI, theme(), undefined, () => { faults++; });
+  assert.doesNotThrow(() => sidebar.setSession(session));
+  assert.deepEqual(requests, [true]);
+  assert.deepEqual([lookups, faults], [1, 1]);
+
+  layoutBlocked = forceBlocked = true;
+  sidebar.setPreferredWidth(36);
+  assert.deepEqual(requests, [true, false, true]);
+  layoutBlocked = false;
+  sidebar.tick();
+  assert.deepEqual(requests, [true, false, true, false], "the layout retry succeeds without a forced redraw");
+  sidebar.tick();
+  assert.deepEqual(requests, [true, false, true, false]);
+  assert.deepEqual([lookups, faults], [1, 1]);
+});
 
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
@@ -91,16 +229,16 @@ test("long titles stay bounded, copy without ellipsis, and refresh on same-sessi
   assert(sidebar.sessionDetails().includes(`Title: ${name}\n`));
   sidebar.setSession({ ...session, name: "改名后的会话" });
   sidebar.handleMouse(mouse(2, { width: 28 }));
-  assert.deepEqual(copied, [name, "改名后的会话"], "a click before repaint never copies the previous title");
+  assert.deepEqual(copied, [name, name], "a click before repaint still copies the painted title");
   const after = sidebar.render(28);
   assert.notEqual(after, before, "renaming invalidates cached rows even with the same clock and ID");
   assert(plain(after)[2]!.startsWith("改名后的会话"));
   sidebar.setSession({ ...session, name: " \n\x1b[2J" });
   sidebar.handleMouse(mouse(2, { width: 28 }));
-  assert.deepEqual(copied, [name, "改名后的会话"], "clearing a title disables copying before repaint");
+  assert.deepEqual(copied, [name, name, "改名后的会话"], "the renamed title stays clickable until its replacement paints");
   assert.match(plain(sidebar.render(28))[2]!, /^Session/);
   assert.equal(sidebar.handleMouse(mouse(2, { width: 28 })), undefined, "an empty title has no stale copy hit");
-  assert.deepEqual(copied, [name, "改名后的会话"]);
+  assert.deepEqual(copied, [name, name, "改名后的会话"]);
 });
 
 test("top title uses bold theme accent and follows theme changes independently of the identity", () => {

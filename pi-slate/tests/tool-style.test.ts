@@ -77,6 +77,38 @@ test("timeout appears in result only, including zero", () => {
   assert.equal(plain(output(tool, result(""), ctx)), "└ 0 lines · timeout=0s · 0ms");
 });
 
+test("tool padding reuses equal child rows and invalidates on width or content change", () => {
+  let rows = ["long heading", "汉字 text"], paints = 0, invalidates = 0;
+  const child = { render() { paints++; return [...rows]; }, invalidate() { invalidates++; } };
+  const component = call(setup({ renderCall: () => child })("bash"), {}, context({ expanded: true, outputPad: 2 }));
+  const first = component.render(20);
+  assert.equal(component.render(20), first, "fresh but equal rows reuse the padded output");
+  assert.equal(paints, 2, "children still get a chance to change");
+  const narrow = component.render(8);
+  assert.notEqual(narrow, first);
+  assert.ok(narrow.every(line => visibleWidth(line) <= 8));
+  rows = ["new"];
+  const updated = component.render(8);
+  assert.deepEqual(updated, ["  new"]);
+  component.invalidate();
+  assert.equal(invalidates, 1);
+  assert.notEqual(component.render(8), updated);
+});
+
+test("tool padding notices replacement, growth and shrink in the same child array", () => {
+  const rows = ["first"];
+  const child = { render: () => rows, invalidate() {} };
+  const component = call(setup({ renderCall: () => child })("bash"), {}, context({ expanded: true, outputPad: 1 }));
+  const first = component.render(20);
+  rows[0] = "changed";
+  assert.deepEqual(component.render(20), [" changed"]);
+  rows.push("second");
+  assert.deepEqual(component.render(20), [" changed", " second"]);
+  rows.length = 1;
+  assert.deepEqual(component.render(20), [" changed"]);
+  assert.deepEqual(first, [" first"], "old painted rows are immutable");
+});
+
 test("spinner changes on host redraw with no extra timer", (t) => {
   let now = 0;
   t.mock.method(Date, "now", () => now);
