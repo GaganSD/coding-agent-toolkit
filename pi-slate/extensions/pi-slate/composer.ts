@@ -1,6 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-works/pi-coding-agent";
 import {
+  Container,
   CURSOR_MARKER,
   truncateToWidth,
   visibleWidth,
@@ -11,7 +12,7 @@ import {
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { footerVisibility, modelStatusLabel, type ModelDisplay } from "./layout.ts";
-import { isWaveActive, progressFrame, waveTick } from "./working-wave.ts";
+import { isWaveActive, progressFrame, waveNeedsFrame, waveTick } from "./working-wave.ts";
 
 export function composerPaddingX(density: "comfortable" | "compact"): number {
   return density === "compact" ? 2 : 4;
@@ -394,7 +395,11 @@ export class ComposerEditor extends CustomEditor {
   selectionActive = false;
   /** Cooperative navigation: invoked only after normal editor navigation reaches its boundary. */
   onDownBoundary?: () => void;
+  private topFrame?: { width: number; hiddenLineCount: number; resources?: string };
+  private bottomFrame?: { width: number; hiddenLineCount: number; line: string };
   private readonly source: () => ComposerSource;
+  private lastPaintAt = 0;
+  private sawEditorDock = false;
   private statusIndicator: WorkingStatusIndicatorParameter;
 
   constructor(
@@ -447,22 +452,53 @@ export class ComposerEditor extends CustomEditor {
   }
 
   protected renderTopBorder(width: number, hiddenLineCount: number): string {
-    if (width <= 2) return super.renderTopBorder(width, hiddenLineCount);
+    if (width <= 2) { this.topFrame = undefined; return super.renderTopBorder(width, hiddenLineCount); }
     const src = this.source();
+    const resources = src.context?.resources;
+    this.topFrame = { width, hiddenLineCount, resources };
+    return this.paintTopBorder(width, hiddenLineCount, src, resources, this.wavePhase());
+  }
+
+  private wavePhase(): number | undefined {
+    const kind = this.statusIndicator?.kind;
+    return this.embedWorkingStatus && isWaveActive() && (kind === undefined || kind === "working") ? waveTick() : undefined;
+  }
+
+  private isInEditorDock(): boolean {
+    return this.tui.children?.some(child => child === this || (child instanceof Container && child.children.includes(this))) ?? false;
+  }
+
+  needsWaveFrame(lastRequestAt: number): boolean {
+    if (!waveNeedsFrame(Math.max(this.lastPaintAt, lastRequestAt)) || this.wavePhase() === undefined) return false;
+    // A dialog borrows Pi's editor container without changing the registered factory.
+    const mounted = this.isInEditorDock();
+    this.sawEditorDock ||= mounted;
+    return mounted || !this.sawEditorDock;
+  }
+
+  needsContextRepaint(): boolean {
+    const frame = this.topFrame;
+    if (!frame) return false;
+    const src = this.source();
+    const resources = src.context?.resources;
+    if (resources === undefined || resources === frame.resources) return false;
+    // Hold the animation phase fixed so only the changed label is compared.
+    const phase = this.wavePhase();
+    return this.paintTopBorder(frame.width, frame.hiddenLineCount, src, resources, phase)
+      !== this.paintTopBorder(frame.width, frame.hiddenLineCount, src, frame.resources, phase);
+  }
+
+  private paintTopBorder(width: number, hiddenLineCount: number, src: ComposerSource, contextResources: string | undefined, phase: number | undefined): string {
     const paint = (text: string) => this.borderColor(text);
     // While the progress indicator runs it owns the working-status slot: a
     // tiny animation in place where the italic working word used to sit.
     const renderStatus = this.embedWorkingStatus
-      ? (statusWidth: number) => {
-          const kind = this.statusIndicator?.kind;
-          if (isWaveActive() && (kind === undefined || kind === "working")) {
-            return src.theme.fg("accent", progressFrame(waveTick(), statusWidth));
-          }
-          return composerStatusLabel(this.statusIndicator, src.theme, statusWidth);
-        }
+      ? (statusWidth: number) => phase === undefined
+        ? composerStatusLabel(this.statusIndicator, src.theme, statusWidth)
+        : src.theme.fg("accent", progressFrame(phase, statusWidth))
       : undefined;
     const pidLabel = src.showPid === true ? src.theme.fg("dim", `PID-${AGENT_PID}`) : "";
-    const resourceParts = src.context ? src.context.resources.split(" · ") : [];
+    const resourceParts = contextResources?.split(" · ") ?? [];
     if (src.dashboardVisible === false && src.context && src.footer === "standard" && src.thinking) {
       resourceParts.push(src.thinking);
     }
@@ -481,6 +517,18 @@ export class ComposerEditor extends CustomEditor {
   }
 
   protected renderBottomBorder(width: number, hiddenLineCount: number): string {
+    const line = this.paintBottomBorder(width, hiddenLineCount);
+    this.bottomFrame = { width, hiddenLineCount, line };
+    return line;
+  }
+
+  needsBranchRepaint(): boolean {
+    const frame = this.bottomFrame;
+    return frame !== undefined && footerVisibility(frame.width).showBranch
+      && frame.line !== this.paintBottomBorder(frame.width, frame.hiddenLineCount);
+  }
+
+  private paintBottomBorder(width: number, hiddenLineCount: number): string {
     const src = this.source();
     const more = hiddenLineCount > 0 ? this.borderColor(` ↓ ${hiddenLineCount} more `) : "";
     const { left, right } = composerLabels(
@@ -535,6 +583,8 @@ export class ComposerEditor extends CustomEditor {
       paint,
     );
     noteComposerFrameLines(lines.length);
+    this.lastPaintAt = performance.now();
+    this.sawEditorDock ||= this.isInEditorDock();
     return lines;
   }
 }

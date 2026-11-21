@@ -1,6 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import type { ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { sameLines } from "./render-lines.ts";
 
 type ToolRenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 
@@ -41,16 +42,24 @@ function argumentsText(name: string, args: Record<string, unknown>): string {
 
 /** A shell without backgrounds; applies SDK outputPad on both sides, including narrow terminals. */
 class Padded implements Component {
-  private child: Component;
-  private pad: number;
+  private readonly child: Component;
+  private readonly pad: number;
+  private cached?: { width: number; rows: string[]; lines: string[] };
   constructor(child: Component, pad: number) { this.child = child; this.pad = pad; }
   render(width: number): string[] {
     if (width <= 0) return [];
     const pad = Math.min(Math.max(0, this.pad), Math.floor(width / 2));
-    return this.child.render(Math.max(0, width - 2 * pad)).map((line) =>
-      truncateToWidth(" ".repeat(pad) + truncateToWidth(line, width - 2 * pad, ""), width, ""));
+    const inner = width - 2 * pad;
+    const rows = this.child.render(inner);
+    const cached = this.cached;
+    if (cached?.width === width && sameLines(cached.rows, rows)) return cached.lines;
+    const gutter = " ".repeat(pad);
+    const snapshot = rows.slice();
+    const lines = snapshot.map(line => truncateToWidth(gutter + truncateToWidth(line, inner, ""), width, ""));
+    this.cached = { width, rows: snapshot, lines };
+    return lines;
   }
-  invalidate(): void { this.child.invalidate(); }
+  invalidate(): void { this.cached = undefined; this.child.invalidate(); }
 }
 
 function line(text: () => string): Component {

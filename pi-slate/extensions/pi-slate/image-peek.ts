@@ -23,17 +23,20 @@ export class ImagePeek {
   private readonly handleMouse: CustomEditor["handleMouse"];
   private readonly handleInput: CustomEditor["handleInput"];
   private readonly loadImage: (filePath: string) => ImageAttachment | undefined;
+  private readonly requestRender: () => void;
 
   constructor(
     store: ImagePathStore,
     editor: CustomEditor,
     workspace: Sidebar | undefined,
     loadImage: (filePath: string) => ImageAttachment | undefined,
+    requestRender: () => void = () => {},
   ) {
     this.store = store;
     this.editor = editor;
     this.workspace = workspace;
     this.loadImage = loadImage;
+    this.requestRender = requestRender;
     this.originalHandleMouse = this.editor.handleMouse;
     this.originalHandleInput = this.editor.handleInput;
     this.handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
@@ -73,7 +76,10 @@ export class ImagePeek {
       return;
     }
     const rewritten = rewriteClipboardPaths(text, nextImageNumber(text), this.store);
-    if (rewritten !== text) this.editor.setText(rewritten);
+    if (rewritten !== text) {
+      this.editor.setText(rewritten);
+      this.requestRender();
+    }
     this.update();
   }
 

@@ -6,6 +6,7 @@ import {
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
+import { requestNecessaryRender } from "./render-request.ts";
 import {
   SIDEBAR_MIN_WIDTH,
   dashboardColumnWidth,
@@ -59,6 +60,7 @@ export class SidebarSplit extends HStack {
   private chatLease = 0;
 
   chat(): Component { return this.originalChat; }
+  get chatReplaced(): boolean { return this.entries[0]!.component !== this.originalChat; }
 
   /** Lend only our owned main slot. Keep the original chat/editor objects alive. */
   replaceChat(view: Component): () => void {
@@ -74,7 +76,31 @@ export class SidebarSplit extends HStack {
     };
   }
 
+  renewPane(): void {
+    // Pi reuses view output by component identity. Change only our owned leaf,
+    // and keep the original pane as the mouse capture/click target.
+    const pane = this.pane;
+    const view: Component = {
+      render: width => pane.render(width),
+      invalidate: () => pane.invalidate?.(),
+      handleMouse(event) {
+        const result = pane.handleMouse?.(event);
+        if (!result || "target" in result) return result;
+        if (!result.handled && !result.capture && !result.focus) return undefined;
+        return {
+          ...result, handled: true, target: {
+            component: pane, originX: event.screenX - event.x, originY: event.screenY - event.y,
+            width: event.width, height: event.height,
+          },
+        };
+      },
+    };
+    this.entries[1]!.component = view;
+    this.children[1] = view;
+  }
+
   override handleMouse(event: TuiMouseEvent) {
+    if (event.type === "wheel") return undefined;
     const result = this.pane.handleSplitMouse?.(event);
     if (!result?.handled && !result?.capture && !result?.focus) return undefined;
     return {
@@ -124,13 +150,20 @@ export function splitChat(component: Component | undefined): Component | undefin
   return component.chat();
 }
 
-export type SidebarSplitLease = LayoutLease & { replaceChat(view: Component): (() => void) | undefined; ownsFocus(component: Component): boolean };
+export type SidebarSplitLease = LayoutLease & {
+  chatReplaced(): boolean;
+  replaceChat(view: Component): (() => void) | undefined;
+  ownsFocus(component: Component): boolean;
+  requestPaneRender(): boolean;
+};
+type ViewRenderHost = { requestViewRender?(): void };
 
 export function installSidebarSplit(
   tui: TUI,
   pane: Component,
   preferredWidth?: () => number | undefined,
   onYield?: () => void,
+  onViewRenderFault?: () => void,
 ): SidebarSplitLease | undefined {
   if (!isViewportTUI(tui) || !(tui as TUI & { layoutRoot?: Component }).layoutRoot) return undefined;
 
@@ -145,8 +178,27 @@ export function installSidebarSplit(
     splitChat,
     onYield,
   );
+  let viewRenderFailed = false;
   return Object.assign(dispose, {
+    requestPaneRender() {
+      if (!split || !dispose.active()) return false;
+      const host = tui as unknown as ViewRenderHost;
+      if (!viewRenderFailed) {
+        try {
+          if (typeof host.requestViewRender === "function") {
+            split.renewPane();
+            host.requestViewRender();
+            return true;
+          }
+        } catch {
+          viewRenderFailed = true;
+          onViewRenderFault?.();
+        }
+      }
+      return requestNecessaryRender(tui, viewRenderFailed);
+    },
     ownsFocus(component: Component) { return dispose.active() && component === split; },
+    chatReplaced() { return split?.chatReplaced === true && dispose.active(); },
     replaceChat(view: Component) {
       // A later layout owner wins; never resurrect a stale slot.
       if (!split || !dispose.active()) return undefined;

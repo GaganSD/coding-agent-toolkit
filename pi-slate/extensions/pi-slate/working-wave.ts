@@ -56,26 +56,20 @@ export function progressFrame(tick: number, width?: number): string {
   return waveFrame(tick);
 }
 
-// Shared animation state: index.ts advances it on a timer, the composer reads
-// it while rendering the top border. Module-level so the render path stays
-// trivial and the generator above stays pure.
-let active = false;
-let tick = 0;
+export const WAVE_STEP_MS = 120;
+const WAVE_REPAINT_MS = 360;
+let startedAt: number | undefined;
 
-export function setWaveActive(on: boolean): void {
-  if (on && !active) tick = 0;
-  active = on;
+export function setWaveActive(on: boolean, now = performance.now()): void {
+  startedAt = on ? startedAt ?? now : undefined;
 }
 
-export function isWaveActive(): boolean {
-  return active;
+export function isWaveActive(): boolean { return startedAt !== undefined; }
+
+export function waveTick(now = performance.now()): number {
+  return startedAt === undefined ? 0 : Math.floor(Math.max(0, now - startedAt) / WAVE_STEP_MS);
 }
 
-export function waveTick(): number {
-  return tick;
-}
-
-export function advanceWave(): number {
-  tick += 1;
-  return tick;
+export function waveNeedsFrame(lastPaintAt: number, now = performance.now()): boolean {
+  return startedAt !== undefined && now - Math.max(startedAt, lastPaintAt) >= WAVE_REPAINT_MS;
 }

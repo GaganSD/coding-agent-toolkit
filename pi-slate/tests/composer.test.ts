@@ -20,7 +20,7 @@ import {
   scrollComposerByLines,
 } from "../extensions/pi-slate/composer.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { advanceWave, setWaveActive, WAVE_PERIOD } from "../extensions/pi-slate/working-wave.ts";
+import { setWaveActive, WAVE_PERIOD, WAVE_STEP_MS } from "../extensions/pi-slate/working-wave.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 
 const theme = {
@@ -168,6 +168,49 @@ test("composer metadata separators match the surrounding metadata tone", () => {
   );
   assert.match(labels.right, /\[muted\] · /);
   assert.doesNotMatch(labels.right, /\[borderMuted\]/);
+});
+
+test("branch polling only needs a repaint when a painted footer would change", () => {
+  let branch: string | null = null;
+  const editor = new ComposerEditor(
+    { terminal: { rows: 24, columns: 100 }, requestRender() {} } as TUI,
+    { borderColor: (text) => text } as EditorTheme,
+    new KeybindingsManager(),
+    () => ({ project: "slate", branch, model: undefined, footer: "minimal", theme }),
+  );
+  assert.equal(editor.needsBranchRepaint(), false);
+  editor.render(40);
+  branch = "topic";
+  assert.equal(editor.needsBranchRepaint(), false);
+  editor.render(80);
+  assert.equal(editor.needsBranchRepaint(), false);
+  branch = "main";
+  assert.equal(editor.needsBranchRepaint(), true);
+  assert.match(editor.render(80).join("\n"), /slate \/ main/);
+  assert.equal(editor.needsBranchRepaint(), false);
+});
+
+test("a changed focused context label needs a repaint only if it can be seen", () => {
+  let dashboardVisible = false, resources = "ctx 10% · 1 mcp";
+  const editor = new ComposerEditor(
+    { terminal: { rows: 24, columns: 100 }, requestRender() {} } as TUI,
+    { borderColor: (text) => text } as EditorTheme,
+    new KeybindingsManager(),
+    () => ({ project: "slate", branch: null, model: undefined, footer: "standard", theme, dashboardVisible,
+      context: dashboardVisible ? undefined : { tokens: "10%", resources } }),
+  );
+  editor.render(8);
+  resources = "ctx 10% · 2 mcp";
+  assert.equal(editor.needsContextRepaint(), false, "the different suffix is clipped");
+  editor.render(80);
+  resources = "ctx 10% · 3 mcp";
+  assert.equal(editor.needsContextRepaint(), true);
+  assert.match(editor.render(80)[0]!, /3 mcp/);
+  assert.equal(editor.needsContextRepaint(), false);
+  dashboardVisible = true;
+  editor.render(80);
+  resources = "ctx 10% · 4 mcp";
+  assert.equal(editor.needsContextRepaint(), false);
 });
 
 test("focused composer puts thinking after MCP on the top edge, leaving the model below", () => {
@@ -341,7 +384,9 @@ test("composer editor renders PID only when enabled and hides it if it cannot fi
   assert.doesNotMatch(stripVTControlCharacters(editor.render(80)[0] ?? ""), /PID-/);
 });
 
-test("working wave sits in the composer top border without growing the frame", () => {
+test("working wave sits in the composer top border without growing the frame", (t) => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
   const borderTheme = { fg: (_name: string, text: string) => text, italic: (text: string) => text } as Theme;
   const editor = new ComposerEditor(
     { terminal: { rows: 24, columns: 80 }, requestRender() {} } as TUI,
@@ -363,7 +408,7 @@ test("working wave sits in the composer top border without growing the frame", (
       assert.equal(lines.length, idle.length, `tick ${tick}: frame never grows`);
       assert.equal(visibleWidth(lines[0]!), 80, `tick ${tick}: border keeps its width`);
       assert.match(lines[0]!, /^┌── [▁▂▃▄▅▆▇█]{7} /, `tick ${tick}: wave sits in the word slot`);
-      advanceWave();
+      now += WAVE_STEP_MS;
     }
     setWaveActive(false);
     assert.deepEqual(editor.render(80), idle, "inactive border is byte-identical to before the wave");

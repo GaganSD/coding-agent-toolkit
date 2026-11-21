@@ -10,6 +10,7 @@ import piSlate from "../extensions/pi-slate/index.ts";
 import { Sidebar, type SidebarActions } from "../extensions/pi-slate/sidebar.ts";
 import { GitStatusPoller } from "../extensions/pi-slate/git-status.ts";
 import { FRESH_SURFACES, has, SURFACES, type Surface } from "../extensions/pi-slate/surfaces.ts";
+import { isWaveActive, WAVE_STEP_MS } from "../extensions/pi-slate/working-wave.ts";
 import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 
@@ -169,7 +170,8 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
     const message = { role: "assistant", content: [{ type: "thinking", thinking: "reasoning" }] };
     await f.emit("agent_start");
     await f.emit("message_update", { message, assistantMessageEvent: { type: "thinking_start", contentIndex: 0 } });
-    assert.equal(f.calls.includes("working"), has(surfaces, "editor"));
+    assert.equal(f.calls.includes("working"), false, "the wave does not override the host's working message");
+    if (has(surfaces, "editor")) assert.match(f.composer!.render(80)[0]!, /[▁-█]{7}/);
     f.foreign.insertTextAtCursor(f.imagePath);
     assert.equal(f.foreign.getText(), f.imagePath, "foreign editor insertion is never rewritten");
     const input = await f.emit("input", { text: f.imagePath });
@@ -191,6 +193,81 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
   });
 }
 
+test("the wave uses host paints, wakes a quiet composer, and skips a borrowed dock", async (t) => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let now = 1000, requests = 0;
+  t.mock.method(performance, "now", () => now);
+  t.mock.method(f.tui, "requestRender", () => { requests++; });
+  const dock = new Container();
+  dock.addChild(f.composer!);
+  f.tui.addChild(dock);
+  f.composer!.render(80);
+  await f.emit("agent_start");
+  const initial = f.composer!.render(80)[0];
+  for (let i = 0; i < 6; i++) {
+    now += WAVE_STEP_MS;
+    f.composer!.render(80);
+    t.mock.timers.tick(WAVE_STEP_MS);
+  }
+  assert.notEqual(f.composer!.render(80)[0], initial);
+  assert.equal(requests, 0, "recent host paints are enough to animate the wave");
+  dock.clear(); dock.addChild(f.foreign);
+  now += 600; t.mock.timers.tick(600);
+  assert.equal(requests, 0, "a dialog borrowing the dock does not wake the renderer");
+  dock.clear(); dock.addChild(f.composer!);
+  now += WAVE_STEP_MS; t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(requests, 1, "a quiet returned composer gets a public render request");
+  now += 240; t.mock.timers.tick(240);
+  assert.equal(requests, 1, "do not flood a quiet scheduler if the last request hasn't painted yet");
+});
+
+test("the wave stays quiet while the chat slot is lent, even with the composer in its dock", async (t) => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], focused: true }));
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let now = 1000, requests = 0;
+  t.mock.method(performance, "now", () => now);
+  t.mock.method(f.tui, "requestRender", (force?: boolean) => { if (!force) requests++; });
+  const dock = new Container();
+  dock.addChild(f.composer!);
+  f.tui.addChild(dock);
+  await f.emit("agent_start");
+  f.composer!.render(80);
+
+  let host!: { mount(view: Component): (() => void) | undefined };
+  f.eventBus.emit("subagent:ui-host-request", { version: 1, owner: f.manager.getSessionId(), accept: (value: typeof host) => { host = value; } });
+  const view = new Text("replacement conversation", 0, 0);
+  const release = host.mount(view);
+  assert.ok(release);
+  assert.equal((f.tui as TuiAltScreen).getFocusedComponent(), view);
+  assert.ok(dock.children.includes(f.composer!));
+  for (let i = 0; i < 10; i++) { now += WAVE_STEP_MS; t.mock.timers.tick(WAVE_STEP_MS); }
+  assert.equal(requests, 0, "the visible replacement does not need composer frames");
+  release();
+  now += WAVE_STEP_MS; t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(requests, 1, "the watchdog resumes after the slot is restored");
+});
+
+test("a public render delegating to a throwing view scheduler stops the wave without cleanup renders", async (t) => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let now = 1000, requests = 0, forced = 0;
+  t.mock.method(performance, "now", () => now);
+  const host = Object.assign(f.tui, { requestViewRender() { throw new Error("scheduler unavailable"); } });
+  t.mock.method(f.tui, "requestRender", (force?: boolean) => {
+    if (force) { forced++; return; }
+    requests++;
+    host.requestViewRender();
+  });
+  await f.emit("agent_start");
+  assert.equal(isWaveActive(), true);
+  now += 360;
+  assert.doesNotThrow(() => t.mock.timers.tick(360));
+  assert.equal(isWaveActive(), false);
+  now += 600; t.mock.timers.tick(600);
+  assert.deepEqual([requests, forced], [1, 0], "no retry or forced frame for a failed cosmetic animation");
+});
+
 test("focused composer shows ctx and resources on top without duplicating them below", async (t) => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "header"], focused: true }));
   Object.assign(f.ctx, { getContextUsage: () => ({ tokens: 10000, percent: 10, contextWindow: 100000 }) });
@@ -204,6 +281,63 @@ test("focused composer shows ctx and resources on top without duplicating them b
   assert.match(bottom, new RegExp(`${basename(f.ctx.cwd)} / test-branch`));
   assert.match(bottom, /no model/);
   assert.doesNotMatch(bottom, /ctx 10%/);
+});
+
+test("focused composer retries unchanged metadata on the next poll after both schedulers fail", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], focused: true }));
+  const mcp = join(dirname(f.path), "mcp.json");
+  const paint = () => stripVTControlCharacters(f.composer!.render(100)[0]!);
+  const poll = () => { for (let i = 0; i < 5; i++) t.mock.timers.tick(1000); };
+  await writeFile(mcp, '{"mcpServers":{"a":{"command":"a"}}}');
+  poll();
+  let shown = paint();
+  assert.match(shown, /1 mcp/);
+
+  const attempts: boolean[] = [];
+  let blocked = true;
+  t.mock.method(f.tui, "requestRender", (force = false) => {
+    attempts.push(force);
+    if (blocked) throw new Error("scheduler unavailable");
+    shown = paint();
+  });
+  await writeFile(mcp, '{"mcpServers":{"a":{"command":"a"},"b":{"command":"b"}}}');
+  poll();
+  assert.deepEqual(new Set(attempts), new Set([false, true]));
+  assert.match(shown, /1 mcp/);
+
+  blocked = false;
+  attempts.length = 0;
+  poll();
+  assert.deepEqual(attempts, [false]);
+  assert.match(shown, /2 mcp/);
+  poll();
+  assert.deepEqual(attempts, [false], "unchanged metadata stays quiet after recovery");
+});
+
+test("the branch poll retries a changed label after both schedulers fail", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
+  const paint = () => stripVTControlCharacters(f.composer!.render(100).at(-1)!);
+  let shown = paint();
+  assert.match(shown, /test-branch/);
+  t.mock.method(f.pi, "exec", async () => ({ code: 0, stdout: "new-branch\n", stderr: "", killed: false }));
+  const attempts: boolean[] = [];
+  let blocked = true;
+  t.mock.method(f.tui, "requestRender", (force = false) => {
+    attempts.push(force);
+    if (blocked) throw new Error("scheduler unavailable");
+    shown = paint();
+  });
+  const poll = async () => { t.mock.timers.tick(5000); await Promise.resolve(); };
+  await poll();
+  assert.deepEqual(attempts, [false, true]);
+  assert.match(shown, /test-branch/);
+  blocked = false;
+  await poll();
+  assert.match(shown, /new-branch/);
+  await poll();
+  assert.deepEqual(attempts, [false, true, false]);
 });
 
 test("Claude tool style is the default for tool-cards and skips legacy read grouping", async (t) => {

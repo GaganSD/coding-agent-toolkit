@@ -375,8 +375,9 @@ test("edit and write render serialized native-backed details and reuse only matc
       };
       const view = render(false);
       assert.ok(view instanceof DiffView);
+      view.render(120);
       await view.ready;
-      assert.equal(redraws, 1);
+      assert.equal(redraws, 0, "plain-text diffs have no syntax repaint");
       assert.equal(view.patch, serializedPatch);
       assert.equal(view.path, path);
       assert.equal(view.kind, name);

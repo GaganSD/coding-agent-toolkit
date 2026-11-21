@@ -1,5 +1,5 @@
 export type SlateFeature =
-  | "tool-style" | "tool-ownership" | "tool-groups" | "sidebar" | "transcript"
+  | "tool-style" | "tool-ownership" | "tool-groups" | "sidebar" | "sidebar-view" | "transcript"
   | "surface-host" | "session-notices" | "command-catalog" | "mcp-catalog" | "dashboard" | "paste-preview" | "configuration";
 export type SlateDiagnostic = { feature: SlateFeature; state: "active" | "fallback"; detail: string };
 
