@@ -50,6 +50,7 @@ READY = b"Synthetic scroll benchmark ready"
 MOUSE = b"\x1b[?1006h"
 BEGIN_PAINT, END_PAINT = b"\x1b[?2026h", b"\x1b[?2026l"
 FORMAT = 2
+READINESS_REVISION = 2  # Wait for render-started diff jobs without warming offscreen diffs.
 
 
 def clock_ms():
@@ -517,6 +518,10 @@ def compare(old_path, new_path):
     old, new = (json.loads(Path(p).read_text(encoding="utf-8")) for p in (old_path, new_path))
     if old.get("format") != FORMAT or new.get("format") != FORMAT:
         raise RuntimeError("Incompatible result format")
+    old_revision = old["workload"].get("readiness_revision")
+    new_revision = new["workload"].get("readiness_revision")
+    if old_revision is None or new_revision is None or old_revision != new_revision:
+        raise RuntimeError("Readiness policy revisions are missing or different; rerun both workloads with the same benchmark protocol")
     if old["workload"] != new["workload"]:
         raise RuntimeError("Workloads differ (fixture, readiness, scroll settings, or diagnostics); compare like for like")
     if old["platform"] != new["platform"]:
@@ -567,7 +572,7 @@ def suite(args):
             "node_version": command([node, "--version"], env=env),
             "platform": {"os": platform.system(), "arch": platform.machine(), "release": platform.release()},
             "workload": {"entries": entries, "seed": args.seed, "fixture_sha256": fixture_hash,
-                         "readiness_quiet_ms": QUIET_MS, "readiness_timeout_s": args.readiness_timeout, "idle_s": IDLE_SECONDS,
+                         "readiness_revision": READINESS_REVISION, "readiness_quiet_ms": QUIET_MS, "readiness_timeout_s": args.readiness_timeout, "idle_s": IDLE_SECONDS,
                          "wheel_events": WHEEL_EVENTS, "wheel_interval_s": WHEEL_INTERVAL, "wheel_settle_s": WHEEL_SETTLE,
                          "fullscreenWheelScrollLines": WHEEL_LINES, "slate_messageLength": MESSAGE_LENGTH, "offline": True,
                          "stacks": args.stacks, "cpu_prof": args.cpu_prof},
