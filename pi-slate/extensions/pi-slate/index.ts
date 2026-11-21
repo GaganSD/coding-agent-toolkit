@@ -317,9 +317,12 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const decorateThinkingRows = (component: Component, rows: readonly string[], _width: number): readonly string[] => {
     try {
+      const theme = liveTheme();
+      if (!theme) return rows;
       return paintThinkingRows(component as ThinkingView, rows, {
         active: thinkingFold.active(),
         durations: thinkingDurations,
+        styledLabel: theme.italic(theme.fg("thinkingText", HIDDEN_THINKING_LABEL)),
       });
     } catch { return rows; }
   };

@@ -93,10 +93,6 @@ export class ToolGroups {
     if (sameFrame && cached && cached.version === version) return cached.part;
     const snapshot = sameFrame && cached ? cached.rows : rows.slice();
     const decorated = this.decorate?.(component, rows, width) ?? rows;
-    if (sameFrame && cached && sameLines(decorated, rows)) {
-      this.bodies.set(component, { ...cached, version });
-      return cached.part;
-    }
     const part: Part = { lines: first === undefined ? (decorated === rows ? snapshot : decorated.slice()) : [], owners: [] };
     for (let y = 0; y < decorated.length; y++) {
       if (first !== undefined) {

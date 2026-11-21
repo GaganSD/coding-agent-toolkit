@@ -7,6 +7,7 @@ import { ThinkingFoldTracker } from "../extensions/pi-slate/thinking-fold.ts";
 import {
   decorateThinkingRows,
   HIDDEN_THINKING_LABEL,
+  replaceHiddenThinkingRows,
   STREAMING_THINKING_LABEL,
   ThinkingDurations,
   thinkingLabel,
@@ -14,11 +15,19 @@ import {
 } from "../extensions/pi-slate/thinking-label.ts";
 import { ChatSurface } from "../extensions/pi-slate/chat-surface.ts";
 import { ToolGroups } from "../extensions/pi-slate/tool-groups.ts";
+import { theme as hostTheme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 const thinking = (value: string) => ({ type: "thinking" as const, thinking: value });
 const text = (value: string) => ({ type: "text" as const, text: value });
 const call = (id: string) => ({ type: "toolCall" as const, id, name: "bash", arguments: {} });
 const theme = { fg: (_: string, value: string) => value, bold: (value: string) => value } as Theme;
+const labelTheme = {
+  fg(color: string, value: string) { return color === "thinkingText" ? `\x1b[38;5;109m${value}\x1b[39m` : value; },
+  italic(value: string) { return `\x1b[3m${value}\x1b[23m`; },
+};
+const styledThinking = (label: string) => labelTheme.italic(labelTheme.fg("thinkingText", label));
+const padRow = (row: string, width = 60) => row + " ".repeat(Math.max(0, width - visibleWidth(row)));
+const hostStyledLabel = () => hostTheme.italic(hostTheme.fg("thinkingText", HIDDEN_THINKING_LABEL));
 
 function durationsFixture() {
   let now = 0;
@@ -36,6 +45,7 @@ function durationsFixture() {
       return decorateThinkingRows(component as ThinkingView, rows, {
         active: tracker.active(),
         durations,
+        styledLabel: hostStyledLabel(),
       });
     },
     version: () => `${durations.version}:${tracker.revision}`,
@@ -70,26 +80,26 @@ test("duration memory is bounded, cleared, and versioned", () => {
 });
 
 test("row replacement keeps Pi's styling and row width, and returns the input when unchanged", () => {
-  initTheme("dark", false);
-  const message = {
-    role: "assistant" as const,
-    stopReason: "toolUse" as const,
-    content: [thinking("first run"), text("answer"), thinking("second run")],
+  const styled = styledThinking(HIDDEN_THINKING_LABEL);
+  const rows = ["", ` ${styled}`, " answer", ` ${styled}`].map((row) => padRow(row));
+  const view: ThinkingView = {
+    lastMessage: { content: [thinking("first run"), text("answer"), thinking("second run")] },
+    hideThinkingBlock: true,
   };
-  const assistant = new AssistantMessageComponent(message as never, true, undefined, HIDDEN_THINKING_LABEL);
-  const rows = assistant.render(60);
   const durations = new ThinkingDurations();
   durations.record("first run", 12_000);
-  const decorated = decorateThinkingRows(assistant as unknown as ThinkingView, rows, { active: null, durations });
-  const plain = decorated.map((row) => stripVTControlCharacters(row).trimEnd());
-  assert.deepEqual(plain, ["", " Thought for 12s", "", " answer", " Thought"]);
+  const decorated = decorateThinkingRows(view, rows, { active: null, durations, styledLabel: styled });
+  assert.deepEqual(decorated.map((row) => stripVTControlCharacters(row).trimEnd()), [
+    "", " Thought for 12s", " answer", " Thought",
+  ]);
   const original = rows.find((row) => stripVTControlCharacters(row).trim() === HIDDEN_THINKING_LABEL)!;
   const changed = decorated.find((row) => stripVTControlCharacters(row).includes("Thought for 12s"))!;
   assert.equal(changed.slice(0, changed.indexOf("Thought")), original.slice(0, original.indexOf("Thought")));
   assert.equal(visibleWidth(changed), visibleWidth(original));
-  assert.equal(decorateThinkingRows(assistant as unknown as ThinkingView, rows, {
+  assert.equal(decorateThinkingRows(view, rows, {
     active: null,
     durations: new ThinkingDurations(),
+    styledLabel: styled,
   }), rows);
 });
 
@@ -185,6 +195,43 @@ test("group frames reuse decorated rows until the label key changes", () => {
   assert.equal(decorations, repainted);
 });
 
+
+test("a stopped run without thinking_end clears the cached streaming label", () => {
+  initTheme("dark", false);
+  const f = durationsFixture();
+  const message = { role: "assistant", stopReason: "toolUse", content: [thinking("stopped run")] };
+  const assistant = new AssistantMessageComponent(message as never, true, undefined, HIDDEN_THINKING_LABEL);
+  const groups = new ToolGroups(
+    () => undefined,
+    () => "expand",
+    (component, rows) => f.decorate(component, rows),
+    f.version,
+  );
+  const rows = () => groups.render([assistant], 80).map((row) => stripVTControlCharacters(row)).join("\n");
+
+  f.tracker.observe({ type: "thinking_start", contentIndex: 0 }, message);
+  assert.match(rows(), /Thinking…/);
+  f.tracker.stop();
+  assert.match(rows(), /Thought/);
+  assert.doesNotMatch(rows(), /Thinking…/);
+});
+
+test("an answer line named Thought is not treated as the hidden row", () => {
+  const styled = styledThinking(HIDDEN_THINKING_LABEL);
+  const rows = ["", ` ${HIDDEN_THINKING_LABEL}`, ` ${styled}`].map((row) => padRow(row));
+  const view: ThinkingView = {
+    lastMessage: { content: [text("Thought"), thinking("hidden run")] },
+    hideThinkingBlock: true,
+  };
+  const durations = new ThinkingDurations();
+  durations.record("hidden run", 5_000);
+  const expected = ["", " Thought", " Thought for 5s"];
+  const decorated = decorateThinkingRows(view, rows, { active: null, durations, styledLabel: styled })
+    .map((row) => stripVTControlCharacters(row).trimEnd());
+  assert.deepEqual(decorated, expected);
+  assert.deepEqual(replaceHiddenThinkingRows(rows, ["Thought for 5s"], styled)
+    .map((row) => stripVTControlCharacters(row).trimEnd()), expected);
+});
 
 test("only the streaming message shows Thinking…", () => {
   initTheme("dark", false);

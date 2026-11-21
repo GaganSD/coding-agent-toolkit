@@ -113,23 +113,25 @@ export class ThinkingDurations {
 export function replaceHiddenThinkingRows(
   rows: readonly string[],
   labels: readonly string[],
+  styledLabel: string,
 ): readonly string[] {
-  if (labels.length === 0) return rows;
+  if (labels.length === 0 || !styledLabel) return rows;
   let next = 0;
   let output: string[] | undefined;
   for (let y = 0; y < rows.length && next < labels.length; y++) {
     const row = rows[y]!;
     if (stripVTControlCharacters(row).trim() !== HIDDEN_THINKING_LABEL) continue;
+    const index = row.indexOf(styledLabel);
+    if (index < 0) continue;
     const label = labels[next++]!;
     if (label === HIDDEN_THINKING_LABEL) continue;
-    const index = row.indexOf(HIDDEN_THINKING_LABEL);
-    if (index < 0) continue;
     const width = visibleWidth(row);
     const leading = /^\s*/u.exec(stripVTControlCharacters(row))?.[0] ?? "";
     const available = Math.max(0, width - visibleWidth(leading));
     const text = truncateToWidth(label, available, "…", false);
-    const suffix = row.slice(index + HIDDEN_THINKING_LABEL.length).replace(/ +$/u, "");
-    let replaced = row.slice(0, index) + text + suffix;
+    const styled = styledLabel.replace(HIDDEN_THINKING_LABEL, text);
+    const suffix = row.slice(index + styledLabel.length).replace(/ +$/u, "");
+    let replaced = row.slice(0, index) + styled + suffix;
     const padding = width - visibleWidth(replaced);
     if (padding > 0) replaced += " ".repeat(padding);
     output ??= rows.slice();
@@ -142,7 +144,11 @@ export function replaceHiddenThinkingRows(
 export function decorateThinkingRows(
   view: ThinkingView | undefined,
   rows: readonly string[],
-  options: { active: { message: object; contentIndex: number } | null; durations: ThinkingDurations },
+  options: {
+    active: { message: object; contentIndex: number } | null;
+    durations: ThinkingDurations;
+    styledLabel: string;
+  },
 ): readonly string[] {
   const hidden = hiddenThinkingRuns(view);
   if (hidden.length === 0) return rows;
@@ -155,5 +161,5 @@ export function decorateThinkingRows(
       durationMs: streaming ? null : options.durations.lookup(run.thinking),
     });
   });
-  return replaceHiddenThinkingRows(rows, labels);
+  return replaceHiddenThinkingRows(rows, labels, options.styledLabel);
 }
