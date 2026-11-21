@@ -57,7 +57,12 @@ export class ImagePeek {
       if (data && !/[\x00-\x1f\x7f]/.test(data) && this.editor.getText() === before + data) {
         // ponytail: unbracketed drops have no completion marker. A 50 ms quiet
         // period avoids replacing prefixes during a burst, not a manual pause.
-        this.rewriteTimer = setTimeout(() => this.rewrite(), 50);
+        this.rewriteTimer = setTimeout(() => {
+          this.rewriteTimer = undefined;
+          // This runs outside Pi's input handler. An optional preview failure
+          // must not escape the timer or undo a completed text rewrite.
+          try { this.rewrite(); } catch { /* A later caret update can retry the preview. */ }
+        }, 50);
       }
       this.update();
     };

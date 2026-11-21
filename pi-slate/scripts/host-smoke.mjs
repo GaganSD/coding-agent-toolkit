@@ -40,6 +40,13 @@ const model = { id: "compatibility-only", name: "Compatibility only", provider: 
 const quietTurn = !fault && selected.includes("editor") && selected.includes("header");
 const reply = Promise.withResolvers();
 const chunks = [], errors = [];
+const fixturePng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5AAAAABJRU5ErkJggg==", "base64");
+function withThemeGetter(hostUi, get, run) {
+  const theme = Object.getOwnPropertyDescriptor(hostUi, "theme");
+  Object.defineProperty(hostUi, "theme", { configurable: true, get });
+  try { return run(); }
+  finally { Object.defineProperty(hostUi, "theme", theme); }
+}
 async function waitForWrite(from, pattern, description, timeout = 2000) {
   const until = performance.now() + timeout;
   do {
@@ -172,11 +179,38 @@ try {
       await runner.emitResourcesDiscover(root, "reload");
     }
   }
+  if (!fault && modeName === "fullscreen" && selected.includes("header") && selected.includes("editor") && selected.includes("sidebar")) {
+    const sidebar = Reflect.get(ui.layoutRoot, "pane");
+    const editor = Reflect.get(mode, "editor");
+    const hostUi = runtime.session.extensionRunner.getUIContext();
+    const image = join(root, "preview-fault.png");
+    await writeFile(image, fixturePng);
+    const drop = () => { editor.setText(""); editor.handleInput(`"${image}"`); };
+    drop();
+    const requireTheme = sidebar.requireTheme;
+    let themeFaults = 0;
+    sidebar.requireTheme = function () {
+      return withThemeGetter(hostUi, () => {
+        themeFaults++;
+        throw new Error("Injected delayed image preview theme fault");
+      }, () => requireTheme.call(this));
+    };
+    try {
+      await waitForWrite(chunks.length, /\[image-1\]/, "a failed preview must not stop the rewritten token from painting");
+      assert.equal(themeFaults, 1, "the delayed preview must hit the throwing host theme getter");
+      assert.equal(editor.getText(), "[image-1]");
+      assert.equal(sidebar.currentViewId(), undefined, "a failed preview must not mount a sidebar view");
+    } finally { sidebar.requireTheme = requireTheme; }
+    const beforeRetry = chunks.length;
+    drop();
+    await waitForWrite(beforeRetry, /Preview/, "a later image drop must preview after the theme recovers");
+    assert.equal(sidebar.currentViewId(), `image:1:${image}`);
+  }
   if (!fault && modeName === "fullscreen" && typeof ui.requestViewRender === "function" && selected.includes("header") && selected.includes("editor") && selected.includes("sidebar")) {
     const sidebar = Reflect.get(ui.layoutRoot, "pane");
     const editor = Reflect.get(mode, "editor");
     const image = join(root, "compat-drop.png");
-    await writeFile(image, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5AAAAABJRU5ErkJggg==", "base64"));
+    await writeFile(image, fixturePng);
     for (const hidden of [false, true]) {
       sidebar.setHidden(hidden);
       editor.setText("");
@@ -257,7 +291,7 @@ try {
   if (!fault && modeName === "fullscreen" && selected.length === 1 && selected[0] === "editor") {
     const editor = Reflect.get(mode, "editor");
     const image = join(root, "retry-drop.png");
-    await writeFile(image, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5AAAAABJRU5ErkJggg==", "base64"));
+    await writeFile(image, fixturePng);
     editor.setText("");
     editor.handleInput(`"${image}"`);
     ui.renderNow(true);
