@@ -47,6 +47,15 @@ class WheelAccountingTest(unittest.TestCase):
                 validate_burst("wheel_up", before, after, True)
 
 
+class VariantConfigTest(unittest.TestCase):
+    def test_slate_controls_select_surfaces_and_history_window(self):
+        self.assertCountEqual(drive.VARIANTS["slate"], drive.SURFACES)
+        self.assertIsNone(drive.MESSAGE_LENGTH["slate"], "use Slate's default transcript window")
+        self.assertCountEqual(drive.VARIANTS["slate-no-toolcards"], ["header", "footer", "editor", "sidebar"])
+        self.assertIsNone(drive.MESSAGE_LENGTH["slate-no-toolcards"])
+        self.assertEqual(drive.MESSAGE_LENGTH["slate-matched-history"], "all")
+
+
 class CompareTest(unittest.TestCase):
     def test_rejects_matching_older_reports_before_rendering_new_columns(self):
         steady = {**drive.metrics((0, 1, 1.0, 0.0, 0), []), "dropped_wheel_lines": 0}
