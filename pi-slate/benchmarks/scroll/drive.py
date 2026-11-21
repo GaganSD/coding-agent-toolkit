@@ -50,7 +50,7 @@ READY = b"Synthetic scroll benchmark ready"
 MOUSE = b"\x1b[?1006h"
 BEGIN_PAINT, END_PAINT = b"\x1b[?2026h", b"\x1b[?2026l"
 FORMAT = 2
-READINESS_REVISION = 2  # Wait for render-started diff jobs without warming offscreen diffs.
+READINESS_REVISION = 3  # 2: wait only for render-started diff jobs. 3: record dropped wheel lines.
 
 
 def clock_ms():
@@ -365,7 +365,8 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
             nonlocal current
             previous = current["seq"]
             os.kill(pid, signal.SIGUSR2)  # No fake terminal input or render request.
-            current = wait_status(term, status, 5, lambda s: s["seq"] > previous)
+            # A host stuck in long frames (e.g. 0.3.0, full history) can starve the signal for seconds.
+            current = wait_status(term, status, 20, lambda s: s["seq"] > previous)
             attest(current, variant)
             return current
 
@@ -395,13 +396,18 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
                 raise RuntimeError(f"Primary ScrollView moved during idle: scrollTop {start} → {before}")
             windows[scenario] = measured(pid, term, lambda: burst(scenario, button))
             after = viewport()["scrollTop"]
-            expected = start - distance if scenario == "wheel_up" else start
-            if after != expected:
+            # A host that blocks for long frames can lose wheel input; count it rather than hide it.
+            expected = before - distance if scenario == "wheel_up" else min(bottom, before + distance)
+            dropped = abs(expected - after)
+            if dropped and not args.allow_dropped_input:
                 raise RuntimeError(f"Primary ScrollView {scenario}: expected scrollTop {expected}, got {after} "
-                                   f"(burst started at {before})")
-            wheel[scenario] = {"before": before, "after": after}
+                                   f"(burst started at {before}); {dropped} wheel lines lost. "
+                                   "Pass --allow-dropped-input to record this instead of failing.")
+            wheel[scenario] = {"before": before, "after": after, "dropped_lines": dropped}
     samples = [json.loads(line) for line in probe.read_text(encoding="utf-8").splitlines()]
     result = {scenario: metrics(window, samples) for scenario, window in windows.items()}
+    for scenario in result:
+        result[scenario]["dropped_wheel_lines"] = wheel[scenario]["dropped_lines"] if scenario in wheel else None
     if any(not result[s]["frames"] or not result[s]["tty_bytes"] for s in ("wheel_up", "wheel_down")):
         raise RuntimeError("Wheel input did not produce frames and PTY output in both directions")
     return {"startup": startup, **result, "validation": validation}
@@ -438,7 +444,7 @@ STEADY_COLUMNS = {
     "frame.mean_ms": ("Mean ms", ".1f"), "frame.p50_ms": ("p50 ms", ".1f"),
     "frame.p95_ms": ("p95 ms", ".1f"), "frame.max_ms": ("Max ms", ".1f"),
     "view_frame.mean_ms": ("View mean ms", ".1f"), "content_frame.mean_ms": ("Content mean ms", ".1f"),
-    "bytes_per_frame": ("B/frame", ".0f"),
+    "bytes_per_frame": ("B/frame", ".0f"), "dropped_wheel_lines": ("Dropped wheel lines", "g"),
 }
 CASE_HEADERS = ["Terminal", "Variant", "History"]
 
@@ -477,7 +483,7 @@ def summary_table(report):
     projection = [("First paint s", ["startup"], "wall_s", None), ("Idle content frames", ["idle"], "content_frames", None),
                   ("Wheel CPU s", wheel, "cpu_s", ".2f"), ("View mean ms", wheel, "view_frame.mean_ms", None),
                   ("Frame p95 ms", wheel, "frame.p95_ms", None), ("Wheel content frames", wheel, "content_frames", ".1f"),
-                  ("B/frame", wheel, "bytes_per_frame", None)]
+                  ("B/frame", wheel, "bytes_per_frame", None), ("Dropped wheel lines", wheel, "dropped_wheel_lines", None)]
     headers, rows = CASE_HEADERS.copy(), [case_label(case) for case in report["cases"]]
     for heading, scenarios, path, spec in projection:
         columns = STARTUP_COLUMNS if scenarios == ["startup"] else STEADY_COLUMNS
@@ -575,7 +581,7 @@ def suite(args):
                          "readiness_revision": READINESS_REVISION, "readiness_quiet_ms": QUIET_MS, "readiness_timeout_s": args.readiness_timeout, "idle_s": IDLE_SECONDS,
                          "wheel_events": WHEEL_EVENTS, "wheel_interval_s": WHEEL_INTERVAL, "wheel_settle_s": WHEEL_SETTLE,
                          "fullscreenWheelScrollLines": WHEEL_LINES, "slate_messageLength": MESSAGE_LENGTH, "offline": True,
-                         "stacks": args.stacks, "cpu_prof": args.cpu_prof},
+                         "stacks": args.stacks, "cpu_prof": args.cpu_prof, "allow_dropped_input": args.allow_dropped_input},
             "runs": args.runs, "cases": [],
         }
         heading = (f"Pi {pi_version} · Slate {report['slate_version']} ({report['slate_git_sha']}) · "
@@ -636,6 +642,8 @@ def main():
     parser.add_argument("--capture", action="store_true", help="save a raw startup PTY capture for each case's first run")
     parser.add_argument("--stacks", action="store_true", help="collect content request stacks (diagnostic overhead)")
     parser.add_argument("--cpu-prof", action="store_true", help="save and summarize whole-process V8 CPU profiles")
+    parser.add_argument("--allow-dropped-input", action="store_true",
+                        help="record lost wheel lines instead of failing (for benchmarking builds that drop input)")
     parser.add_argument("--compare", nargs=2, metavar=("OLD_JSON", "NEW_JSON"))
     args = parser.parse_args()
     if args.compare:
