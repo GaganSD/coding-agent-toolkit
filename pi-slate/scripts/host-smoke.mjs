@@ -191,7 +191,25 @@ try {
     const before = chunks.length;
     await writeFile(mcpPath, '{"mcpServers":{"fixture":{"type":"future-transport"},"second":{"type":"future-transport"}}}');
     await waitForWrite(before, /2 mcp/, "the next resource poll must repaint the focused composer", 6500);
-    await writeFile(mcpPath, initialMcp);
+
+    const runner = runtime.session.extensionRunner;
+    const needsContextRepaint = editor.needsContextRepaint;
+    let checks = 0;
+    editor.needsContextRepaint = function () {
+      if (++checks === 1) throw new Error("Injected focused composer border fault");
+      return needsContextRepaint.call(this);
+    };
+    try {
+      await writeFile(mcpPath, initialMcp);
+      const retryFrame = chunks.length;
+      await runner.emitResourcesDiscover(root, "reload");
+      assert.equal(checks, 1, "the changed label must hit the one-shot fault");
+      await runner.emitResourcesDiscover(root, "reload");
+      assert.equal(checks, 2, "an identical label must retry the failed check");
+      await waitForWrite(retryFrame, /1 mcp/, "the retried focused metadata must reach the terminal");
+      await runner.emitResourcesDiscover(root, "reload");
+      assert.equal(checks, 2, "a successful check deduplicates subsequent identical labels");
+    } finally { editor.needsContextRepaint = needsContextRepaint; }
   }
   if (!fault && modeName === "fullscreen" && selected.includes("header") && selected.includes("sidebar")) {
     const sidebar = Reflect.get(ui.layoutRoot, "pane");

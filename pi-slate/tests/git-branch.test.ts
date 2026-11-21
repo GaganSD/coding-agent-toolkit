@@ -32,19 +32,23 @@ test("editor branch service polls independently and stops on disposal", async (t
   assert.equal(calls.length, 4);
 });
 
-test("a throwing repaint callback does not reject the background poll", async (t) => {
+test("an unchanged branch retries a thrown metadata check and failed redraw before deduplicating", async (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
-  let branch = "first";
   const branches: string[] = [];
-  const pi = { exec: async () => ({ code: 0, stdout: branch, stderr: "", killed: false }) } as Pick<ExtensionAPI, "exec">;
-  const poller = new GitBranchPoller(pi, next => { branches.push(next!); if (next === "first") throw new Error("stale UI"); });
+  const pi = { exec: async () => ({ code: 0, stdout: "feature", stderr: "", killed: false }) } as Pick<ExtensionAPI, "exec">;
+  const poller = new GitBranchPoller(pi, next => {
+    branches.push(next!);
+    if (branches.length === 1) throw new Error("stale UI");
+    return branches.length > 2;
+  });
   t.after(() => poller.dispose());
   poller.start("/workspace");
   await Promise.resolve();
-  branch = "second";
-  t.mock.timers.tick(5000);
-  await Promise.resolve();
-  assert.deepEqual(branches, ["first", "second"]);
+  for (let i = 0; i < 4; i++) {
+    t.mock.timers.tick(5000);
+    await Promise.resolve();
+  }
+  assert.deepEqual(branches, ["feature", "feature", "feature"]);
 });
 
 test("replacement can poll immediately and a stale branch cannot repaint", async (t) => {

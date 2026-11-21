@@ -17,6 +17,7 @@ export class GitBranchPoller {
     this.dispose();
     const generation = this.generation;
     let pending = false;
+    let repaintPending = false;
     let previous: string | null | undefined;
     const refresh = async (): Promise<void> => {
       if (pending) return;
@@ -27,10 +28,14 @@ export class GitBranchPoller {
         if (result.code === 0) branch = result.stdout.trim() || null;
       } catch { /* No branch label when Git is unavailable. */ }
       finally { pending = false; }
-      if (generation !== this.generation || branch === previous) return;
-      previous = branch;
-      // A failed repaint must not deduplicate the next poll.
-      try { if (this.onChange(branch) === false) previous = undefined; } catch { /* The editor or TUI may have been replaced. */ }
+      if (generation !== this.generation || (!repaintPending && branch === previous)) return;
+      repaintPending = true;
+      try {
+        if (this.onChange(branch) !== false) {
+          previous = branch;
+          repaintPending = false;
+        }
+      } catch { /* Check again next poll if the editor or TUI threw. */ }
     };
     void refresh();
     this.timer = setInterval(() => void refresh(), 5000);

@@ -280,11 +280,12 @@ export default function piSlate(pi: ExtensionAPI): void {
   let contextRepaintPending = false;
   const updateContextEdge = (next: Pick<typeof contextEdge, "percent" | "window" | "estimated">): void => {
     const label = formatFocusedContextResources(next.percent, next.estimated, resources.mcp.filter(server => server.enabled === true).length);
-    const changed = label !== contextEdge.resources;
+    contextRepaintPending ||= label !== contextEdge.resources;
     contextEdge = { ...next, resources: label };
-    if ((changed || contextRepaintPending) && activeTui && activeEditor && editorActive()) {
-      contextRepaintPending = activeEditor.needsContextRepaint() && !requestNecessaryRender(activeTui);
-    }
+    if (!contextRepaintPending || !activeTui || !activeEditor) return;
+    try {
+      if (editorActive()) contextRepaintPending = activeEditor.needsContextRepaint() && !requestNecessaryRender(activeTui);
+    } catch { /* Keep the check pending if the host is temporarily unavailable. */ }
   };
 
   const syncVisibleMessages = (): void => {
