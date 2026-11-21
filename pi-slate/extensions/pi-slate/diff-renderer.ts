@@ -83,8 +83,7 @@ const RESET = "\x1b[0m";
 
 export class DiffView implements Component {
   readonly rows: DiffRow[];
-  /** Completion of highlighting started by the first nonzero-width render. */
-  ready?: Promise<void>;
+  private highlighting?: Promise<void>;
   private cache = new Map<number, string[]>();
   readonly patch: string;
   readonly path: string;
@@ -94,6 +93,9 @@ export class DiffView implements Component {
   private config: DiffConfig;
   private readonly highlighter: DiffHighlighter;
   private readonly requestRender: () => void;
+
+  /** Observe highlighting started by the first nonzero-width render. */
+  get ready(): Promise<void> | undefined { return this.highlighting; }
 
   constructor(
     patch: string,
@@ -199,7 +201,7 @@ export class DiffView implements Component {
   render(width: number): string[] {
     width = Math.max(0, Math.floor(width));
     if (width === 0) return [];
-    this.ready ??= this.highlight();
+    this.highlighting ??= this.highlight();
     const cached = this.cache.get(width);
     if (cached) return cached;
     const split = this.kind === "edit" && width >= this.config.splitMinWidth;

@@ -87,10 +87,10 @@ export default function (pi: ExtensionAPI) {
   const unobservedDiffs = new Set<ComponentNode>();
   function observeHighlightJobs() {
     for (const diff of unobservedDiffs) {
-      // A data property is set when the host starts highlighting. Never invoke a getter:
-      // some Slate revisions used a lazy getter that would start offscreen work here.
-      const job = Object.getOwnPropertyDescriptor(diff, "ready")?.value
-        ?? Object.getOwnPropertyDescriptor(diff, "highlighting")?.value;
+      // Read existing jobs only. Older Slate revisions used a `ready` data property
+      // or a lazy getter; never invoke that getter and start offscreen work.
+      const job = Object.getOwnPropertyDescriptor(diff, "highlighting")?.value
+        ?? Object.getOwnPropertyDescriptor(diff, "ready")?.value;
       if (!(job instanceof Promise)) continue;
       unobservedDiffs.delete(diff);
       pendingDiffs++;

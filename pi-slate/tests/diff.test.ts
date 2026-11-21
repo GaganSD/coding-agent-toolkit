@@ -211,6 +211,7 @@ test("diff highlights start on first paint and staggered completions share one r
   const make = (id: string) => new DiffView(patch("old\n", "new\n"), `${id}.ts`, "edit", false, config, highlighter, () => redraws.push(id));
   const first = make("first"), second = make("second");
   assert.equal(first.ready === undefined, true, "observing a constructed diff must not start a job");
+  assert.equal(Reflect.set(first, "ready", Promise.resolve()), false, "callers cannot replace the highlight job");
   first.render(0);
   assert.equal(first.ready === undefined, true);
   assert.equal(tokens.mock.callCount(), 0);
