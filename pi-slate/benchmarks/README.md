@@ -20,7 +20,7 @@ Fullscreen Pi 1.6.0, 200×50 terminal, every Slate surface on, Slate set to rend
 
 In 0.3.0, Pi could only paint 76 frames for 800 wheel notches, because each frame waited behind a ~750 ms full re-render of the transcript. That's the slideshow. Now Slate keeps up with native Pi frame-for-frame.
 
-0.3.0 also **lost input** when the machine was busy. In an earlier run with another app using a full core, it painted only 10 frames for the same 800 events, and in some runs it dropped 2–4 wheel lines outright. This branch dropped none, quiet or loaded. The benchmark now counts lost wheel lines and fails the run if any are missing (see `--allow-dropped-input`).
+0.3.0 also **lost input** when the machine was busy. In an earlier run with another app using a full core, it painted only 10 frames for the same 800 events, and in some runs it dropped 2–4 wheel lines outright. This branch dropped none, quiet or loaded. The benchmark counts wheel lines received by Pi's transcript scroll view and fails the run if any are missing (see `--allow-dropped-input`).
 
 ### Why it was slow
 
@@ -142,13 +142,13 @@ Each run writes `benchmarks/results/scroll-<timestamp>/`, which is git-ignored:
    - 400 wheel-down events.
 
    Wheel scrolling is pinned to one line per event. Each case must have at least 400 scrollable lines; if a custom fixture is too short, increase `--size` or `--entries`.
-4. **Probe.** `scroll/probe/index.ts` is a zero-height Pi widget that times every frame. It classifies frames as view or content by reading Pi's `contentChanged` flag. It also verifies that the expected Slate surfaces are actually mounted and that the transcript really moved 400 lines each way, so the run fails rather than silently benchmarking the wrong thing.
+4. **Probe.** `scroll/probe/index.ts` is a zero-height Pi widget that times every frame. It classifies frames as view or content by reading Pi's `contentChanged` flag. It verifies that the expected Slate surfaces are mounted and counts the wheel lines Pi delivers to the primary transcript scroll view, even when capped at the end. The driver rejects a scroll range change during either burst, even with `--allow-dropped-input`.
 5. **Metrics.** For every phase it records:
    - frame count, and how many were view frames vs content frames;
    - mean, p50, p95 and max frame time;
    - process CPU (`/proc` on Linux, `ps` on macOS);
    - bytes written to the terminal per frame;
-   - wheel lines lost, if the transcript didn't move the full 400 lines.
+   - per wheel burst, input lines lost and viewport lines moved (reported separately).
 
 [`scroll/NOTES.md`](scroll/NOTES.md) has the full methodology.
 

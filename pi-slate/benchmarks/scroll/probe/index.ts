@@ -7,7 +7,13 @@ interface ComponentNode {
   entries?: { component: ComponentNode }[];
   child?: ComponentNode; // Slate's padded tool result
 }
-interface PrimaryScrollView { primary: boolean; scrollTop: number; contentHeight: number; viewportHeight: number }
+interface PrimaryScrollView {
+  primary: boolean;
+  scrollTop: number;
+  contentHeight: number;
+  viewportHeight: number;
+  scrollBy(lines: number): number;
+}
 interface LayoutBox {
   component: ComponentNode;
   children: LayoutBox[];
@@ -19,6 +25,7 @@ interface FullscreenTui {
   invalidate(): void;
   requestRender(force?: boolean): void;
   requestImmediateRender(): void;
+  routeWheel(event: unknown, delta: number): void;
   contentChanged: boolean;
   altScreenActive: boolean;
   stopped: boolean;
@@ -47,6 +54,11 @@ function primaryBox(box: LayoutBox | undefined, view: PrimaryScrollView): Layout
   }
 }
 
+function maxScrollTop(view: PrimaryScrollView | undefined): number | null {
+  return view?.primary && Number.isFinite(view.contentHeight) && Number.isFinite(view.viewportHeight)
+    ? Math.max(0, view.contentHeight - view.viewportHeight) : null;
+}
+
 function inspect(tui: FullscreenTui, diffViews: number) {
   const frame = tui.currentLayout;
   const view = frame?.primaryScrollView;
@@ -60,8 +72,7 @@ function inspect(tui: FullscreenTui, diffViews: number) {
   const names = new Set([...components(tui.layoutRoot, chat), ...components(document, chat)].map((node) => node.constructor.name));
   return {
     scrollTop: view?.primary && Number.isFinite(view.scrollTop) ? view.scrollTop : null,
-    maxScrollTop: view?.primary && Number.isFinite(view.contentHeight) && Number.isFinite(view.viewportHeight)
-      ? Math.max(0, view.contentHeight - view.viewportHeight) : null,
+    maxScrollTop: maxScrollTop(view),
     surfaces: { header: names.has("SlateHeader"), footer: names.has("SlateFooter"), editor: names.has("ComposerEditor"),
       sidebar, "tool-cards": diffViews > 0, transcript },
   };
@@ -73,7 +84,10 @@ export default function (pi: ExtensionAPI) {
   if (!out || !status) throw new Error("PI_SCROLL_PROBE and PI_SCROLL_STATUS are required");
   const stacks = process.env.PI_SCROLL_STACKS === "1";
   const quietMs = Number(process.env.PI_SCROLL_QUIET_MS);
-  type Status = ReturnType<typeof inspect> & { ready: boolean; diffViews: number; pendingDiffs: number; hostHighlightSettled: boolean };
+  type Status = ReturnType<typeof inspect> & {
+    ready: boolean; diffViews: number; pendingDiffs: number; hostHighlightSettled: boolean;
+    wheelLines: { wheel_up: number; wheel_down: number }; scrollRangeRevision: number;
+  };
   let sequence = 0;
   function publish(sample: Status | { error: string }) {
     writeFileSync(`${status}.tmp`, JSON.stringify({ seq: ++sequence, ...sample }));
@@ -134,12 +148,37 @@ export default function (pi: ExtensionAPI) {
       if (restore) return widget;
       if (typeof tui.doRender !== "function" || typeof tui.invalidate !== "function" ||
           typeof tui.requestRender !== "function" || typeof tui.requestImmediateRender !== "function" ||
+          typeof tui.routeWheel !== "function" ||
           typeof tui.contentChanged !== "boolean" || typeof tui.altScreenActive !== "boolean" || typeof tui.stopped !== "boolean") {
         publish({ error: "Pi fullscreen TUI does not expose the expected render hooks" });
         return widget;
       }
 
-      const { doRender, invalidate, requestRender, requestImmediateRender } = tui;
+      const { doRender, invalidate, requestRender, requestImmediateRender, routeWheel } = tui;
+      const wheelLines = { wheel_up: 0, wheel_down: 0 };
+      let routingWheel = false;
+      let primary: PrimaryScrollView | undefined;
+      let restoreScroll: (() => void) | undefined;
+      let scrollRange: number | null = null, scrollRangeRevision = 0;
+      function observeScrollRange() {
+        const range = maxScrollTop(tui.currentLayout?.primaryScrollView);
+        if (range !== scrollRange) { scrollRange = range; scrollRangeRevision++; }
+      }
+      tui.routeWheel = function (event, delta) {
+        routingWheel = true;
+        try { routeWheel.call(this, event, delta); }
+        finally { routingWheel = false; }
+      };
+      function observeWheelInput(view: PrimaryScrollView) {
+        const { scrollBy } = view;
+        view.scrollBy = function (lines) {
+          const overflow = scrollBy.call(this, lines);
+          // Count signed wheel lines delivered to the transcript, including any clipped at its edges.
+          if (routingWheel) wheelLines[lines < 0 ? "wheel_up" : "wheel_down"] += Math.abs(lines);
+          return overflow;
+        };
+        restoreScroll = () => { view.scrollBy = scrollBy; };
+      }
       let requesting = false;
       function noteRequest(hook: string) {
         const at = Date.now();
@@ -177,12 +216,24 @@ export default function (pi: ExtensionAPI) {
         doRender.call(this);
         const elapsed = performance.now() - started;
         pending.push(["frame", Date.now(), content, elapsed]);
+        if (ready) observeScrollRange();
         if (!sawHeading && this.currentLayout?.lines.some((line) => line.includes(HEADING))) {
           sawHeading = true;
           lastStartupActivity = Date.now();
         }
       };
-      snapshot = () => publish({ ...inspect(tui, diffViews), ready, diffViews, pendingDiffs, hostHighlightSettled });
+      snapshot = () => {
+        if (ready) {
+          const view = tui.currentLayout?.primaryScrollView;
+          if (!view?.primary || typeof view.scrollBy !== "function" || (primary && primary !== view)) {
+            publish({ error: "The primary transcript ScrollView is missing or changed during the benchmark" });
+            return;
+          }
+          if (!primary) { primary = view; observeWheelInput(view); }
+          observeScrollRange();
+        }
+        publish({ ...inspect(tui, diffViews), ready, diffViews, pendingDiffs, hostHighlightSettled, wheelLines, scrollRangeRevision });
+      };
       process.on("SIGUSR2", snapshot);
       readinessTimer = setInterval(() => {
         observeHighlightJobs();
@@ -191,7 +242,10 @@ export default function (pi: ExtensionAPI) {
         if (ready) { unobservedDiffs.clear(); clearInterval(readinessTimer); }
       }, 100);
       readinessTimer.unref();
-      restore = () => { Object.assign(tui, { doRender, invalidate, requestRender, requestImmediateRender }); };
+      restore = () => {
+        restoreScroll?.();
+        Object.assign(tui, { doRender, invalidate, requestRender, requestImmediateRender, routeWheel });
+      };
       timer = setInterval(flush, 250);
       timer.unref();
       return widget;

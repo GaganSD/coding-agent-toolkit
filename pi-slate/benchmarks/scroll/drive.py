@@ -50,7 +50,7 @@ READY = b"Synthetic scroll benchmark ready"
 MOUSE = b"\x1b[?1006h"
 BEGIN_PAINT, END_PAINT = b"\x1b[?2026h", b"\x1b[?2026l"
 FORMAT = 2
-READINESS_REVISION = 3  # 2: wait only for render-started diff jobs. 3: record dropped wheel lines.
+READINESS_REVISION = 4  # Count wheel lines delivered to Pi instead of inferring drops from displacement.
 
 
 def clock_ms():
@@ -305,6 +305,27 @@ def attest(status, variant):
         raise RuntimeError("The primary transcript ScrollView's scroll range was not found")
 
 
+def validate_burst(scenario, before, after, allow_dropped_input):
+    bottom = before["maxScrollTop"]
+    if after["maxScrollTop"] != bottom or after["scrollRangeRevision"] != before["scrollRangeRevision"]:
+        raise RuntimeError(f"Primary ScrollView {scenario}: scroll range changed during the burst "
+                           f"(maxScrollTop {bottom} → {after['maxScrollTop']}).")
+    distance = WHEEL_EVENTS * WHEEL_LINES
+    received = after["wheelLines"][scenario] - before["wheelLines"][scenario]
+    if not 0 <= received <= distance:
+        raise RuntimeError(f"Primary ScrollView {scenario}: expected up to {distance} wheel lines, got {received}")
+    dropped = distance - received
+    if dropped and not allow_dropped_input:
+        raise RuntimeError(f"Primary ScrollView {scenario}: received {received} of {distance} wheel lines; "
+                           f"{dropped} wheel lines lost. Pass --allow-dropped-input to record this instead of failing.")
+    start, end = before["scrollTop"], after["scrollTop"]
+    expected = max(0, start - received) if scenario == "wheel_up" else min(bottom, start + received)
+    if end != expected:
+        raise RuntimeError(f"Primary ScrollView {scenario}: expected scrollTop {expected} after {received} wheel lines, got {end}")
+    return {"before": start, "after": end, "received_lines": received, "dropped_lines": dropped,
+            "viewport_displacement_lines": abs(end - start)}
+
+
 def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile_dir, capture):
     home, agent, sessions = (root / name for name in ("home", "agent", "sessions"))
     for directory in (home, agent, sessions):
@@ -391,23 +412,17 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
                                "Use a larger --size or --entries.")
         windows["idle"] = measured(pid, term, lambda: term.pump(IDLE_SECONDS))
         for scenario, button in (("wheel_up", 64), ("wheel_down", 65)):
-            before = viewport()["scrollTop"]
-            if scenario == "wheel_up" and before != start:
-                raise RuntimeError(f"Primary ScrollView moved during idle: scrollTop {start} → {before}")
+            before = viewport()
+            if scenario == "wheel_up" and before["scrollTop"] != start:
+                raise RuntimeError(f"Primary ScrollView moved during idle: scrollTop {start} → {before['scrollTop']}")
             windows[scenario] = measured(pid, term, lambda: burst(scenario, button))
-            after = viewport()["scrollTop"]
-            # A host that blocks for long frames can lose wheel input; count it rather than hide it.
-            expected = before - distance if scenario == "wheel_up" else min(bottom, before + distance)
-            dropped = abs(expected - after)
-            if dropped and not args.allow_dropped_input:
-                raise RuntimeError(f"Primary ScrollView {scenario}: expected scrollTop {expected}, got {after} "
-                                   f"(burst started at {before}); {dropped} wheel lines lost. "
-                                   "Pass --allow-dropped-input to record this instead of failing.")
-            wheel[scenario] = {"before": before, "after": after, "dropped_lines": dropped}
+            wheel[scenario] = validate_burst(scenario, before, viewport(), args.allow_dropped_input)
     samples = [json.loads(line) for line in probe.read_text(encoding="utf-8").splitlines()]
     result = {scenario: metrics(window, samples) for scenario, window in windows.items()}
-    for scenario in result:
-        result[scenario]["dropped_wheel_lines"] = wheel[scenario]["dropped_lines"] if scenario in wheel else None
+    for scenario, row in result.items():
+        burst_stat = wheel.get(scenario, {})
+        row["dropped_wheel_lines"] = burst_stat.get("dropped_lines")
+        row["viewport_displacement_lines"] = burst_stat.get("viewport_displacement_lines")
     if any(not result[s]["frames"] or not result[s]["tty_bytes"] for s in ("wheel_up", "wheel_down")):
         raise RuntimeError("Wheel input did not produce frames and PTY output in both directions")
     return {"startup": startup, **result, "validation": validation}
@@ -445,6 +460,7 @@ STEADY_COLUMNS = {
     "frame.p95_ms": ("p95 ms", ".1f"), "frame.max_ms": ("Max ms", ".1f"),
     "view_frame.mean_ms": ("View mean ms", ".1f"), "content_frame.mean_ms": ("Content mean ms", ".1f"),
     "bytes_per_frame": ("B/frame", ".0f"), "dropped_wheel_lines": ("Dropped wheel lines", "g"),
+    "viewport_displacement_lines": ("Viewport lines moved", "g"),
 }
 CASE_HEADERS = ["Terminal", "Variant", "History"]
 
@@ -483,7 +499,8 @@ def summary_table(report):
     projection = [("First paint s", ["startup"], "wall_s", None), ("Idle content frames", ["idle"], "content_frames", None),
                   ("Wheel CPU s", wheel, "cpu_s", ".2f"), ("View mean ms", wheel, "view_frame.mean_ms", None),
                   ("Frame p95 ms", wheel, "frame.p95_ms", None), ("Wheel content frames", wheel, "content_frames", ".1f"),
-                  ("B/frame", wheel, "bytes_per_frame", None), ("Dropped wheel lines", wheel, "dropped_wheel_lines", None)]
+                  ("B/frame", wheel, "bytes_per_frame", None), ("Dropped wheel lines", wheel, "dropped_wheel_lines", None),
+                  ("Viewport lines moved", wheel, "viewport_displacement_lines", None)]
     headers, rows = CASE_HEADERS.copy(), [case_label(case) for case in report["cases"]]
     for heading, scenarios, path, spec in projection:
         columns = STARTUP_COLUMNS if scenarios == ["startup"] else STEADY_COLUMNS
