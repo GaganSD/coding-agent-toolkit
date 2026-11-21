@@ -222,11 +222,32 @@ try {
       assert.equal(editor.getText(), "[image-1]");
     }
 
+    const runner = runtime.session.extensionRunner;
+    const hostUi = runner.getUIContext();
+    const tick = sidebar.tick;
+    const tickFaulted = Promise.withResolvers();
+    sidebar.setHidden(false);
+    sidebar.tick = function () {
+      return withThemeGetter(hostUi, () => {
+        tickFaulted.resolve();
+        throw new Error("Injected dashboard tick theme fault");
+      }, () => tick.call(this));
+    };
+    const waitForTick = new AbortController();
+    try {
+      await Promise.race([
+        tickFaulted.promise,
+        delay(3500, undefined, { signal: waitForTick.signal }).then(() => assert.fail("the dashboard tick must hit the throwing theme getter")),
+      ]);
+    } finally {
+      waitForTick.abort();
+      sidebar.tick = tick;
+      sidebar.setHidden(true);
+    }
+
     const before = chunks.length;
     await writeFile(mcpPath, '{"mcpServers":{"fixture":{"type":"future-transport"},"second":{"type":"future-transport"}}}');
-    await waitForWrite(before, /2 mcp/, "the next resource poll must repaint the focused composer", 6500);
-
-    const runner = runtime.session.extensionRunner;
+    await waitForWrite(before, /2 mcp/, "dashboard polling must refresh the catalog and repaint after a failed tick", 6500);
     const needsContextRepaint = editor.needsContextRepaint;
     let checks = 0;
     editor.needsContextRepaint = function () {

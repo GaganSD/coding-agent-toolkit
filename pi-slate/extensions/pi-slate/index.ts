@@ -533,15 +533,19 @@ export default function piSlate(pi: ExtensionAPI): void {
           if (attached) diagnostics.active("sidebar", "Sidebar mounted; visibility follows preferences and terminal size.");
           else diagnostics.fallback("sidebar", "Native layout retained; sidebar needs a compatible fullscreen viewport.");
           if (attached && !dashboardClock) {
-            let ticks = 0;
+            let ticks = 0, refreshFaulted = false;
             dashboardClock = setInterval(() => {
-              diagnostics.attempt("dashboard", "Last dashboard snapshot retained; a background refresh failed.", () => {
+              diagnostics.attempt("dashboard", "A dashboard refresh failed; Slate will retry on the next tick.", () => {
                 const ctx = liveContext();
                 if (!ctx || ctx.mode !== "tui" || !sidebar.splitActive) return;
                 if (++ticks % 5 === 0) { refreshResources(ctx); syncSidebar(ctx); }
                 else if (ctx.sessionManager.getLeafId() !== branchFacts?.leaf) syncSidebar(ctx);
                 sidebar.tick();
-              }, () => {});
+                if (refreshFaulted) {
+                  diagnostics.active("dashboard", "Background dashboard refresh resumed.");
+                  refreshFaulted = false;
+                }
+              }, () => { refreshFaulted = true; }, { retry: true });
             }, 1000);
             dashboardClock.unref?.();
           }
