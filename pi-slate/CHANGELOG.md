@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Quiet reply accents and GitHub callout rails for assistant replies. Display-only and zero tokens; `/slate accents [on|off]` toggles `replyAccents` (on by default) on Pi 1.5+.
+
 ### Fixed
 
 - Grouped tool calls keep each hidden thought's clickable `Thinking...` row in place, drawn inside the group's tree (#136).

@@ -82,6 +82,7 @@ import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts"
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
+import { createAccentPalette, transformReply, type AccentPalette } from "./reply-accents.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
   waves: "Waves",
@@ -101,8 +102,16 @@ type SlateConfig = SurfaceConfig & {
   progress?: ProgressStyle;
   toolStyle?: "default" | "claudecode";
   effortBorderColor?: boolean;
+  replyAccents?: boolean;
   shortcuts?: SlateShortcuts;
   sidebarSections: SidebarFolds;
+};
+
+type MarkdownTransformerHost = {
+  registerMarkdownTransformer?: (
+    transformer: (markdown: string, context: { messageType: string; isStreaming: boolean; availableWidth: number }) => string,
+    options?: { messageTypes?: readonly string[] },
+  ) => void;
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -155,6 +164,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
       showPid: value.showPid === true,
       effortBorderColor: value.effortBorderColor === true,
+      replyAccents: value.replyAccents !== false,
       ...(value.logo === "minimal" || value.logo === "original" ? { logo: value.logo } : {}),
       ...(value.toolStyle === "default" ? { toolStyle: "default" as const } : {}),
       ...(isProgressStyle(value.progress) ? { progress: value.progress } : {}),
@@ -253,6 +263,32 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (ctx) cachedTheme = ctx.ui.theme;
     return cachedTheme;
   };
+  const markdownHost = pi as unknown as MarkdownTransformerHost;
+  const replyAccentsAvailable = typeof markdownHost.registerMarkdownTransformer === "function";
+  let accentPalette: { theme: Theme; palette: AccentPalette } | undefined;
+  const paletteFor = (theme: Theme): AccentPalette => {
+    if (accentPalette?.theme !== theme) accentPalette = { theme, palette: createAccentPalette(theme) };
+    return accentPalette.palette;
+  };
+  const syncReplyAccents = (ctx: ExtensionContext): void => {
+    if (!replyAccentsAvailable) {
+      diagnostics.fallback("reply-accents", "Reply accents unavailable; this host has no registerMarkdownTransformer (needs Pi 1.5+).");
+    } else if (config.replyAccents === false) {
+      diagnostics.fallback("reply-accents", "Reply accents off by setting replyAccents; display stays native.");
+    } else if (ctx.mode !== "tui") {
+      diagnostics.fallback("reply-accents", "Reply accents need TUI mode; display stays native.");
+    } else {
+      diagnostics.active("reply-accents", "Quiet reply accents and callouts active; display-only, zero tokens.");
+    }
+  };
+  if (replyAccentsAvailable) {
+    markdownHost.registerMarkdownTransformer!((markdown, context) => {
+      if (config.replyAccents === false) return markdown;
+      const ctx = liveContext();
+      if (!ctx || ctx.mode !== "tui") return markdown;
+      return transformReply(markdown, paletteFor(ctx.ui.theme), context.availableWidth);
+    }, { messageTypes: ["assistant"] });
+  }
   let activeEditor: ComposerEditor | undefined;
   let gitBranch: string | null = null;
   let activeTui: TUI | undefined;
@@ -386,6 +422,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     chatSurface?.dispose(); chatSurface = undefined;
     groupPainter = claudeTools ? new ToolGroups(liveTheme) : undefined;
     diagnostics.reset();
+    syncReplyAccents(ctx);
     if (requestedClaudeTools) {
       if (claudeTools) diagnostics.active("tool-style", "Public tool renderer hook installed.");
       else diagnostics.fallback("tool-style", "Slate default cards retained; the optional renderer hook is unavailable.");
@@ -816,6 +853,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     try {
       saveConfig(next);
       config = next;
+      syncReplyAccents(ctx);
       setProgressStyle(next.progress ?? "waves");
       if (owns("sidebar")) {
         sidebar.setPreferredWidth(config.sidebarPercent);
@@ -1107,7 +1145,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("slate", {
-    description: "Session dashboard, diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or file a bug",
+    description: "Session dashboard, diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, reply accents, progress indicator, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1118,7 +1156,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Diagnostics", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Reply accents", "Progress indicator", "Message length", "Theme", "Diagnostics", "File a bug"]);
         if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
@@ -1129,6 +1167,7 @@ export default function piSlate(pi: ExtensionAPI): void {
           return;
         }
         if (setting === "Effort border color") kind = "effort-border";
+        else if (setting === "Reply accents") kind = "accents";
         else if (setting === "Density") kind = "density";
         else if (setting === "Composer metadata") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
@@ -1196,6 +1235,16 @@ export default function piSlate(pi: ExtensionAPI): void {
         apply(
           { ...config, effortBorderColor: on },
           on ? "Effort border color on" : "Effort border color off",
+          ctx,
+        );
+        return;
+      }
+
+      if (kind === "accents") {
+        const on = parsed.kind === "accents" && parsed.value !== undefined ? parsed.value : config.replyAccents === false;
+        apply(
+          { ...config, replyAccents: on },
+          on ? "Reply accents on" : "Reply accents off",
           ctx,
         );
         return;

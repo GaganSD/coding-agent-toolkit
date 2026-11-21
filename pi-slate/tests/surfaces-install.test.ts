@@ -307,6 +307,41 @@ test("effort border commands and picker persist and apply live without rebuildin
   assert.equal(await readFile(f.path, "utf8"), before);
 });
 
+test("reply accents default on, toggle live, and report an unavailable host hook", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: [], replyAccents: false }));
+  const command = f.commands.get("slate")!;
+  const saved = async () => JSON.parse(await readFile(f.path, "utf8"));
+  assert.equal((await saved()).replyAccents, false);
+  await command.handler("accents on", f.ctx);
+  assert.equal((await saved()).replyAccents, true);
+  assert.equal(f.notices.at(-1), "Reply accents on");
+  await command.handler("accents", f.ctx);
+  assert.equal((await saved()).replyAccents, false, "bare command toggles off");
+  f.choices.push("Reply accents");
+  await command.handler("", f.ctx);
+  assert.equal((await saved()).replyAccents, true, "picker toggles on");
+  await command.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /reply-accents: fallback[\s\S]*registerMarkdownTransformer/);
+});
+
+test("reply accents register an assistant transformer that follows the live setting", async t => {
+  const registered: Array<{ transformer: (markdown: string, context: { messageType: string; isStreaming: boolean; availableWidth: number }) => string; options?: { messageTypes?: readonly string[] } }> = [];
+  const accentTheme = { ...theme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as unknown as Theme;
+  const f = await fixture(t, JSON.stringify({ surfaces: [] }), "tui", true, false, (pi, ui) => {
+    Reflect.set(pi, "registerMarkdownTransformer", (transformer: typeof registered[number]["transformer"], options?: typeof registered[number]["options"]) => registered.push({ transformer, options }));
+    Reflect.set(ui, "theme", accentTheme);
+  });
+  assert.equal(registered.length, 1);
+  assert.deepEqual(registered[0]!.options, { messageTypes: ["assistant"] });
+  const context = { messageType: "assistant", isStreaming: false, availableWidth: 80 };
+  assert.equal(registered[0]!.transformer("✓", context), "<success>✓</success>", "fresh settings default on");
+  assert.match(registered[0]!.transformer("> [!TIP]\n> ✓", context), /<success>│<\/success> <success>\*\*Tip\*\*<\/success>/);
+  await f.commands.get("slate")!.handler("accents off", f.ctx);
+  assert.equal(registered[0]!.transformer("✓", context), "✓");
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /reply-accents: fallback[\s\S]*off by setting/);
+});
+
 test("effort border settings never enable an unselected editor", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: [], effortBorderColor: true }));
   await f.commands.get("slate")!.handler("effort-border off", f.ctx);
