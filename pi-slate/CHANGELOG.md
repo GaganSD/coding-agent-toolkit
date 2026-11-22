@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.1
+
+* Smoother scrolling while Pi is working.
+* Sidebar: SPEED and CACHE side by side, default width capped at 40 columns, spend in the status row.
+* Removed: the Tasks section, `/slate session` (use `/mcp`, `/skill:` and `/`), the details row and image pinning.
+* `/slate bug` opens GitHub issues.
+
 ## 0.4.0
 
 * **Performance fix:** scrolling large sessions no longer stutters. The slowest frame dropped by 98% (753 → 14 ms), frames painted per scroll rose 4× (76 → 305, matching native Pi), and idle CPU fell 99% (4.36 → 0.03 s per 5 s), because Slate no longer re-renders the whole transcript for sidebar, poller and animation updates.
