@@ -36,7 +36,9 @@ await writeFile(mcpPath, initialMcp);
 const modeName = process.env.SLATE_COMPAT_MODE;
 const fault = process.env.SLATE_COMPAT_FAULT;
 const thinkingClick = process.env.SLATE_COMPAT_THINKING_CLICK === "1";
-const settingsManager = host.SettingsManager.inMemory({ quietStartup: true, tuiMode: modeName, theme: "dark", hideThinkingBlock: thinkingClick });
+const settingsManager = host.SettingsManager.inMemory({
+  quietStartup: true, tuiMode: modeName, theme: "dark", hideThinkingBlock: thinkingClick, fullscreenCopyOnSelect: false,
+});
 const model = { id: "compatibility-only", name: "Compatibility only", provider: "compatibility", api: "compatibility-quiet", baseUrl: "http://127.0.0.1:9", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 };
 const quietTurn = !fault && selected.includes("editor") && selected.includes("header");
 const reply = Promise.withResolvers();
