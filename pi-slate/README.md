@@ -6,6 +6,12 @@
 
 ![Slate workspace](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png)
 
+![Slate mid-session: grouped tool calls, a timed thinking row, GitHub callouts, and the live sidebar](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/8cad9693affd8646916a7b9142704defcdc66040/pi-slate/assets/slate-workbench-working.png)
+
+![Slate sidebar while the agent works: context, speed, and cache](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/8cad9693affd8646916a7b9142704defcdc66040/pi-slate/assets/slate-sidebar-working.png) ![Slate sidebar once the agent is idle](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/8cad9693affd8646916a7b9142704defcdc66040/pi-slate/assets/slate-sidebar-idle.png)
+
+*The sidebar while the agent works (left) and once it's idle (right): context use, token speed, and cache hits.*
+
 ## Setup
 
 ```bash
