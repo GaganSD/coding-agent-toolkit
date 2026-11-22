@@ -83,6 +83,7 @@ import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts"
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
+import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
   waves: "Waves",
@@ -104,6 +105,13 @@ type SlateConfig = SurfaceConfig & {
   effortBorderColor?: boolean;
   shortcuts?: SlateShortcuts;
   sidebarSections: SidebarFolds;
+};
+
+type MarkdownTransformerHost = {
+  registerMarkdownTransformer?: (
+    transformer: (markdown: string, context: { messageType: string; isStreaming: boolean; availableWidth: number }) => string,
+    options?: { messageTypes?: readonly string[] },
+  ) => void;
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -254,6 +262,14 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (ctx) cachedTheme = ctx.ui.theme;
     return cachedTheme;
   };
+  const markdownHost = pi as unknown as MarkdownTransformerHost;
+  if (typeof markdownHost.registerMarkdownTransformer === "function") {
+    markdownHost.registerMarkdownTransformer((markdown, context) => {
+      const ctx = liveContext();
+      if (!ctx || ctx.mode !== "tui") return markdown;
+      return decorateCallouts(markdown, createCalloutPalette(ctx.ui.theme), context.availableWidth);
+    }, { messageTypes: ["assistant"] });
+  }
   let activeEditor: ComposerEditor | undefined;
   let gitBranch: string | null = null;
   let activeTui: TUI | undefined;

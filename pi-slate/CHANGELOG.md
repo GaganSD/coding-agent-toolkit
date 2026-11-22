@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- GitHub callouts (`> [!NOTE]` …) in assistant replies draw a colored rail and bold title instead of a dim blockquote. Display-only; Pi 1.5+.
+
 ### Fixed
 
 - The full-layout SPEED graph draws solid block bars instead of dotted braille (#143).
