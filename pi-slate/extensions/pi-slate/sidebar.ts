@@ -5,7 +5,7 @@ import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts"
 import { mcpDetails } from "./sidebar-mcp.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
-import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
+import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, sidebarUsage, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
 import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, type SidebarTier } from "./sidebar-layout.ts";
 import { cacheRows, contextRows, formatCacheHit, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
@@ -25,6 +25,7 @@ type PaneFrame = {
   image: { start: number; height: number; path?: string };
 };
 const HEADER_GAP: Row = { text: "" };
+const HEADER_PAD: Row = { text: "" };
 export type SidebarActions = {
   copy(text: string): void;
   openFile(filePath: string): void;
@@ -37,7 +38,7 @@ const EMPTY_SESSION: SidebarSession = {
   id: "", name: "", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
   percent: null, contextWindow: null, estimated: false, rate: null, startedAt: 0,
   lastTurnMs: null, working: false, turns: 0, messages: 0,
-  usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null, saved: null },
+  usage: sidebarUsage([]),
   perf: EMPTY_PERF,
 };
 const EMPTY_RESOURCES: SidebarResources = { skills: [], commands: [], prompts: [], mcp: [] };
@@ -262,8 +263,12 @@ export class Sidebar implements Component {
     const hits: Hit[] = [], listRows: PaneFrame["listRows"] = [];
     const inner = Math.max(0, width - 4);
     const header = this.headerRows(inner, height >= 44 ? "full" : "compact");
-    const slots = sessionSidebarSlots(height, header.length, this.tasks.length, Boolean(this.imageView()), header.filter(row => row === HEADER_GAP).length);
+    const gap = (row: Row): boolean => row === HEADER_GAP || row.divider === true;
+    const gaps = header.filter(gap).length;
+    const slack = gaps + header.filter(row => row === HEADER_PAD).length;
+    const slots = sessionSidebarSlots(height, header.length, this.tasks.length, Boolean(this.imageView()), slack);
     let dropGaps = header.length - slots.header;
+    let dropPad = dropGaps - gaps;
     const lines: string[] = [];
     const add = (row: Row): void => {
       const y = lines.length;
@@ -273,7 +278,7 @@ export class Sidebar implements Component {
       if (row.list) listRows.push({ y, list: row.list });
     };
     if (slots.frame) lines.push(this.dividerLine(width, "┌"));
-    for (const row of header.filter(row => row !== HEADER_GAP || dropGaps-- <= 0).slice(0, slots.header)) add(row);
+    for (const row of header.filter(row => (!gap(row) || dropGaps-- <= 0) && (row !== HEADER_PAD || dropPad-- <= 0)).slice(0, slots.header)) add(row);
     const middle = this.middle();
     const middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
@@ -322,7 +327,12 @@ export class Sidebar implements Component {
     const input: PerfInput = { perf: s.perf, usage: s.usage, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) };
     const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
       .map(text => ({ text, action: branchUsage }));
-    const rows = (lines: string[]): Row[] => lines.map(text => ({ text }));
+    const rows = (lines: string[]): Row[] => {
+      // Reclaim trailing reserve rows under pressure, not the continuation above a track.
+      let end = lines.length;
+      while (lines[end - 1] === "") end--;
+      return lines.map((text, i) => i < end ? { text } : HEADER_PAD);
+    };
     return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP,
       ...rows(speedRows(input)), HEADER_GAP,
       ...rows(cacheRows(input)), HEADER_GAP, divider];
@@ -373,7 +383,7 @@ export class Sidebar implements Component {
     return rows;
   }
   private taskRows(width: number, height: number): Row[] {
-    if (height <= 0 || !this.tasks.length) return [];
+    if (height < 2 || !this.tasks.length) return [];
     const live = this.tasks.filter(t => t.state !== "failed" && t.state !== "cleanup_unknown").length;
     const rows: Row[] = height >= 4 ? [{ text: "" }] : [];
     rows.push({ text: this.pair(this.heading("Tasks"), this.paint("muted", live ? `${live} live` : `${this.tasks.length} recorded`), width),

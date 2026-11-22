@@ -6,6 +6,7 @@ interface ComponentNode {
   children?: ComponentNode[];
   entries?: { component: ComponentNode }[];
   child?: ComponentNode; // Slate's padded tool result
+  render?(width: number): string[];
 }
 interface PrimaryScrollView {
   primary: boolean;
@@ -74,22 +75,57 @@ export function checkedWheelScroll(view: PrimaryScrollView, scrollBy: PrimaryScr
   return overflow;
 }
 
+function transcript(tui: FullscreenTui) {
+  const frame = tui.currentLayout;
+  const view = frame?.primaryScrollView;
+  const box = view && primaryBox(frame?.root, view)?.children[0];
+  const document = box?.component;
+  // Mirrors Slate's findChatContainer. ChatSurface owns both methods on this instance.
+  const chat = document && (document.children?.filter((child) => child.constructor.name === "Container").at(-1) ?? document);
+  return { document, chat, width: box?.rect.width };
+}
+
+/** Sample one warm render at its actual layout width, before any timed burst. */
+function sampleProjection(tui: FullscreenTui) {
+  const { chat, width } = transcript(tui);
+  if (!chat?.children || !chat.render || !width) throw new Error("Cannot inspect the rendered chat projection");
+  const children = chat.children;
+  const painted = new Set<ComponentNode>();
+  const restore: Array<() => void> = [];
+  try {
+    for (const child of children) {
+      const { render } = child;
+      if (!render) throw new Error("Cannot observe a chat child's render");
+      const ownRender = Object.getOwnPropertyDescriptor(child, "render");
+      child.render = function (columns) { painted.add(child); return render.call(this, columns); };
+      restore.push(() => {
+        if (ownRender) Object.defineProperty(child, "render", ownRender);
+        else delete child.render;
+      });
+    }
+    chat.render(width);
+  } finally {
+    for (const undo of restore) undo();
+  }
+  return { children: children.length, rendered: painted.size };
+}
+
 function inspect(tui: FullscreenTui, diffViews: number) {
   const frame = tui.currentLayout;
   const view = frame?.primaryScrollView;
   const split = Boolean(tui.layoutRoot && Reflect.get(tui.layoutRoot, SPLIT));
   const sidebar = split && frame?.root.component === tui.layoutRoot && Boolean(frame?.root.children.slice(1)
     .some((box) => box.rect.width > 0 && box.rect.height > 0));
-  const document = view && primaryBox(frame?.root, view)?.children[0]?.component;
-  // Mirrors Slate's findChatContainer. ChatSurface owns both methods on this instance.
-  const chat = document && (document.children?.filter((child) => child.constructor.name === "Container").at(-1) ?? document);
-  const transcript = chat !== undefined && Object.hasOwn(chat, "render") && Object.hasOwn(chat, "handleMouse");
+  const { document, chat } = transcript(tui);
+  const chatAdapter = chat !== undefined && Object.hasOwn(chat, "render") && Object.hasOwn(chat, "handleMouse");
   const names = new Set([...components(tui.layoutRoot, chat), ...components(document, chat)].map((node) => node.constructor.name));
   return {
     scrollTop: view?.primary && Number.isFinite(view.scrollTop) ? view.scrollTop : null,
     maxScrollTop: maxScrollTop(view),
+    starlineEditor: names.has("PolishedEditor"),
+    chat_adapter: chatAdapter,
     surfaces: { header: names.has("SlateHeader"), footer: names.has("SlateFooter"), editor: names.has("ComposerEditor"),
-      sidebar, "tool-cards": diffViews > 0, transcript },
+      sidebar, "tool-cards": diffViews > 0 },
   };
 }
 
@@ -105,6 +141,7 @@ export default async function (pi: ExtensionAPI) {
     ready: boolean; diffViews: number; pendingDiffs: number; hostHighlightSettled: boolean;
     wheelLines: { wheel_up: number; wheel_down: number }; scrollRangeRevision: number;
     busy?: NonNullable<typeof busy>["state"];
+    chat_projection?: ReturnType<typeof sampleProjection>;
   };
   let sequence = 0;
   function publish(sample: Status | { error: string }) {
@@ -172,7 +209,7 @@ export default async function (pi: ExtensionAPI) {
         return widget;
       }
 
-      const { doRender, invalidate, requestRender, requestImmediateRender, routeWheel } = tui;
+      const { doRender, invalidate, requestRender, requestImmediateRender } = tui;
       const wheelLines = { wheel_up: 0, wheel_down: 0 };
       let routingWheel = false;
       let wheelError: string | undefined;
@@ -180,23 +217,27 @@ export default async function (pi: ExtensionAPI) {
       let primary: PrimaryScrollView | undefined;
       let restoreScroll: (() => void) | undefined;
       let scrollRange: number | null = null, scrollRangeRevision = 0;
+      let projection: ReturnType<typeof sampleProjection> | undefined;
       function observeScrollRange() {
         const range = maxScrollTop(tui.currentLayout?.primaryScrollView);
         if (range !== scrollRange) { scrollRange = range; scrollRangeRevision++; }
       }
-      tui.routeWheel = function (event, delta) {
-        routingWheel = true;
-        try { routeWheel.call(this, event, delta); }
-        finally { routingWheel = false; }
-      };
       function observeWheelInput(view: PrimaryScrollView) {
+        // Wrap the live router after session_start so we observe Starline's
+        // prototype patch as well as Pi's wheel routing, without bypassing either.
+        const { routeWheel } = tui;
+        tui.routeWheel = function (event, delta) {
+          routingWheel = true;
+          try { routeWheel.call(this, event, delta); }
+          finally { routingWheel = false; }
+        };
         const { scrollBy } = view;
         view.scrollBy = function (lines) {
           if (!routingWheel) return scrollBy.call(this, lines);
           wheelLines[lines < 0 ? "wheel_up" : "wheel_down"] += Math.abs(lines);
           return busy ? checkedWheelScroll(this, scrollBy, lines, recordWheelError) : scrollBy.call(this, lines);
         };
-        restoreScroll = () => { view.scrollBy = scrollBy; };
+        restoreScroll = () => { view.scrollBy = scrollBy; tui.routeWheel = routeWheel; };
       }
       let requesting = false;
       function noteRequest(hook: string) {
@@ -249,13 +290,17 @@ export default async function (pi: ExtensionAPI) {
             publish({ error: "The primary transcript ScrollView is missing or changed during the benchmark" });
             return;
           }
+          if (!projection) {
+            try { projection = sampleProjection(tui); }
+            catch (error) { publish({ error: String(error) }); return; }
+          }
           if (!primary) { primary = view; observeWheelInput(view); }
           observeScrollRange();
         }
         if (busy && stagePath) busy.advance(Number(readFileSync(stagePath, "utf8")));
         if (busy?.state.error) { publish({ error: busy.state.error }); return; }
         publish({ ...inspect(tui, diffViews), ready, diffViews, pendingDiffs, hostHighlightSettled, wheelLines,
-          scrollRangeRevision, busy: busy?.state });
+          scrollRangeRevision, busy: busy?.state, chat_projection: projection });
       };
       process.on("SIGUSR2", snapshot);
       readinessTimer = setInterval(() => {
@@ -267,7 +312,7 @@ export default async function (pi: ExtensionAPI) {
       readinessTimer.unref();
       restore = () => {
         restoreScroll?.();
-        Object.assign(tui, { doRender, invalidate, requestRender, requestImmediateRender, routeWheel });
+        Object.assign(tui, { doRender, invalidate, requestRender, requestImmediateRender });
       };
       timer = setInterval(flush, 250);
       timer.unref();

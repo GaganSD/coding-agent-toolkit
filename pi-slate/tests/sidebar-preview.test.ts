@@ -9,9 +9,10 @@ import { SidebarSplit } from "../extensions/pi-slate/sidebar-split.ts";
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
 import { perfFixture } from "./perf-fixture.ts";
 import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
-import { SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
+import { sidebarUsage, SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts";
+import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
 
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
@@ -304,7 +305,7 @@ test("speed and cache replace the usage lane; full accounting stays in details",
 test("header height follows the terminal tier and its divider closes the header", () => {
   const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  for (const [rows, header] of [[60, 21], [44, 21], [43, 16], [30, 16]] as const) {
+  for (const [rows, header] of [[60, 23], [44, 23], [43, 17], [30, 17]] as const) {
     terminal.rows = rows;
     assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), header, `rows ${rows}`);
   }
@@ -550,6 +551,7 @@ test("unknown values and invalid MCP config remain explicit even when folded", (
   assert(!lines.some(line => line.includes("MCP config unreadable") || line.includes("config error")));
   sidebar.setThemeProvider(() => ({ fg: (tone: string, text: string) => tone === "error" ? `\x1b[31m${text}\x1b[0m` : text, bold: (text: string) => text }) as Theme);
   assert(sidebar.render(80).some(line => line.includes("\x1b[31m · 1 Error\x1b[0m")));
+  assert(lines.includes("spent —"));
   assert(!lines.some(line => line.includes("$0.00")));
 });
 
@@ -637,15 +639,38 @@ test("working status shows the running turn's elapsed time and ticks each second
   assert.match(plain(sidebar.render(44))[1]!, /○ Idle · 2 turns\s+last 5s$/);
 });
 
-test("empty speed and cache sections collapse and give their rows to the resource list", () => {
-  const { sidebar } = fixture(46);
-  sidebar.setSession({ ...session, usage: noUsage, perf: EMPTY_PERF });
-  const empty = plain(sidebar.render(44));
-  const mcpEmpty = empty.findIndex(line => line.includes("MCP"));
-  assert(empty.some(line => line.includes("no timed replies")));
-  assert(empty.some(line => line.includes("no cache activity reported")));
-  sidebar.setSession(session);
-  const full = plain(sidebar.render(44));
-  assert.equal(full.findIndex(line => line.includes("MCP")) - mcpEmpty, 7, "5 speed + 2 cache rows are reclaimed");
-  assert.equal(empty.length, full.length, "the rail still fills the terminal");
+test("the minimum viewport keeps the live task item and its action", () => {
+  const { sidebar, terminal } = fixture(30);
+  terminal.columns = 100;
+  const width = dashboardColumnWidth(terminal.columns, terminal.rows);
+  assert.equal(width, 28);
+  sidebar.setTasks([task(0)]);
+  let inspected = "";
+  sidebar.setActions({ copy() {}, openFile() {}, inspect(title) { inspected = title; } });
+  const lines = plain(sidebar.render(width));
+  const heading = lines.findIndex(line => /Tasks\s+1 live/.test(line));
+  assert(heading > lines.findIndex(line => line.includes("MCP")));
+  assert.match(lines[heading + 1]!, /job-0\s+running/);
+  assert.equal(sidebar.handleMouse(mouse(heading + 1, { width, height: 30 }))?.handled, true);
+  assert.equal(inspected, "job-0");
+});
+
+test("the first reply fills the performance charts without shifting the resource list", () => {
+  for (const height of [38, 60]) for (const width of [24, 30, 40, 56]) {
+    const { sidebar } = fixture(height);
+    sidebar.setSession({ ...session, percent: 0, tokens: 0, usage: sidebarUsage([]), perf: EMPTY_PERF });
+    const empty = plain(sidebar.render(width));
+    const mcp = empty.findIndex(line => line.includes("MCP"));
+    assert(mcp > 0);
+    assert(empty.some(line => line.includes("— tok/s")));
+    assert(empty.some(line => /^CACHE\s+—% hit$/.test(line)));
+    assert.equal(empty.filter(line => line === "─".repeat(width - 4)).length, height >= 44 && width < 26 ? 1 : 2);
+    assert(empty.some(line => line.includes("spent $0.00")));
+    sidebar.setSession(session);
+    const full = plain(sidebar.render(width));
+    assert.equal(full.findIndex(line => line.includes("MCP")), mcp, `${width}×${height}`);
+    for (const stat of ["avg 26.7", "peak 45.0", "out 12k", "78.18% hit", "◉ 4:38", "read 48k", "write 6.1k", "new 7.3k", "spent $0.12"]) {
+      assert(full.some(line => line.includes(stat)), `missing ${stat} at ${width}×${height}`);
+    }
+  }
 });
