@@ -69,6 +69,8 @@ export class ChatSurface {
   private readonly display = new Container();
   private paintedGroups: ToolGroups | undefined;
   private paintedWidth?: number;
+  private paintedStart?: number;
+  private press?: { x: number; y: number; start: number | undefined };
   private groupingFailed = false;
   private disposed = false;
 
@@ -122,6 +124,7 @@ export class ChatSurface {
       }
       this.paintedGroups = undefined;
       this.paintedWidth = width;
+      this.paintedStart = start;
       const groups = this.options.groups;
       if (groups) {
         let rows: string[] | undefined;
@@ -138,6 +141,21 @@ export class ChatSurface {
     this.installedMouse = event => {
       if (this.disposed) return this.originalMouse.call(container, event);
       if (event.type === "wheel" && event.width !== this.paintedWidth) return undefined;
+      if (event.button === "left") {
+        if (event.type === "press") this.press = { x: event.screenX, y: event.screenY, start: this.paintedStart };
+        else if (event.type === "click") {
+          const press = this.press;
+          this.press = undefined;
+          // Pi resolves the click on release. If the idle window trimmed the prefix
+          // since the press, the same screen cell may now belong to another child.
+          if (press && press.x === event.screenX && press.y === event.screenY && press.start !== this.paintedStart) {
+            return { handled: true, render: false, target: {
+              component: container, originX: event.screenX - event.x, originY: event.screenY - event.y,
+              width: event.width, height: event.height,
+            } };
+          }
+        }
+      }
       return this.paintedGroups ? this.paintedGroups.handleMouse(event) : this.display.handleMouse(event);
     };
     try {
@@ -154,6 +172,7 @@ export class ChatSurface {
     if (this.container.handleMouse === this.installedMouse) this.container.handleMouse = this.originalMouse;
     this.display.children = [];
     this.paintedGroups = undefined;
+    this.press = undefined;
     this.options = {};
   }
 }

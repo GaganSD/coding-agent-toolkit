@@ -40,6 +40,7 @@ const settingsManager = host.SettingsManager.inMemory({ quietStartup: true, tuiM
 const model = { id: "compatibility-only", name: "Compatibility only", provider: "compatibility", api: "compatibility-quiet", baseUrl: "http://127.0.0.1:9", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 };
 const quietTurn = !fault && selected.includes("editor") && selected.includes("header");
 const reply = Promise.withResolvers();
+const finishProjectionTurn = Promise.withResolvers();
 const chunks = [], errors = [];
 const fixturePath = join(root, "thinking-fixture.txt");
 if (thinkingClick) await writeFile(fixturePath, "Offline tool result\n");
@@ -53,6 +54,7 @@ async function streamThoughtFixture(stream, step) {
   const message = assistantMessage([], step < 2 ? "toolUse" : "stop");
   const push = event => stream.push({ ...event, partial: { ...message, content: message.content.slice() } });
   push({ type: "start" });
+  if (step === 3) await finishProjectionTurn.promise;
   const thought = step === 1 ? insideThought : step === 2 ? outsideThought : undefined;
   if (thought) {
     message.content.push({ type: "thinking", thinking: "" });
@@ -69,7 +71,8 @@ async function streamThoughtFixture(stream, step) {
     }
   } else {
     message.content.push({ type: "text", text: "Offline thinking fixture complete." });
-    push({ type: "text_delta", contentIndex: 1, delta: message.content[1].text });
+    const contentIndex = message.content.length - 1;
+    push({ type: "text_delta", contentIndex, delta: message.content[contentIndex].text });
   }
   // Mirror Chat Completions: the thinking end arrives after text/tool output starts.
   if (thought) push({ type: "thinking_end", contentIndex: 0, content: thought });
@@ -194,17 +197,21 @@ try {
     await runtime.session.prompt("Exercise click-to-toggle thinking");
     const chat = Reflect.get(mode, "chatContainer");
     const lines = () => ui.currentLayout.lines.map(stripVTControlCharacters);
+    const pointFor = pattern => {
+      const rows = lines(), row = rows.findIndex(line => pattern.test(line));
+      assert(row >= 0, `${pattern} must be in the committed Pi frame:\n${rows.join("\n")}`);
+      const { index } = rows[row].match(pattern);
+      return { x: tui.visibleWidth(rows[row].slice(0, index)) + 1, y: row + 1 };
+    };
+    const mouse = ({ x, y }, suffix) => input(`\x1b[<0;${x};${y}${suffix}`);
     const click = pattern => {
-      const row = lines().findIndex(line => pattern.test(line));
-      assert(row >= 0, `${pattern} must be in the committed Pi frame:\n${lines().join("\n")}`);
-      const { index } = lines()[row].match(pattern);
-      const x = tui.visibleWidth(lines()[row].slice(0, index)) + 1;
-      input(`\x1b[<0;${x};${row + 1}M`);
-      input(`\x1b[<0;${x};${row + 1}m`);
+      const point = pointFor(pattern);
+      mouse(point, "M");
+      mouse(point, "m");
       ui.renderNow(true);
     };
     const frame = () => lines().join("\n");
-    const collapsed = /Thought(?: for \d+s)?(?= *$)/;
+    const collapsed = /(?<=^│ +)Thought(?: for \d+s)?\b/;
     const group = /Done \(4 tool calls\)/;
     const assertSplit = () => {
       assert.match(frame(), /Reasoning inside the tool group\./);
@@ -248,6 +255,58 @@ try {
     click(/Reasoning outside the tool group\./);
     assert.doesNotMatch(frame(), /Reasoning outside the tool group\./);
     assert.match(frame(), group);
+
+    const standalone = chat.children.find(child => child.lastMessage?.content?.[0]?.thinking === outsideThought);
+    const standaloneLabel = /(?<=^ )Thought for \d+s/;
+    const tools = chat.children.filter(child => child.toolCallId);
+    assert.equal(tools.length, 4);
+    const state = () => [overrides.get(0), standalone.thinkingVisibilityOverrides.get(0), ...tools.map(tool => tool.expanded)];
+    assert.deepEqual(state(), [true, true, false, false, false, false]);
+    chat.addChild(new tui.Text(Array.from({ length: 54 }, (_, i) => `Transcript tail ${i}`).join("\n"), 0, 0));
+    const started = Promise.withResolvers();
+    const unsubscribe = runtime.session.subscribe(event => {
+      if (event.type === "message_start" && event.message.role === "assistant") started.resolve();
+    });
+    const turn = runtime.session.prompt("Finish a turn while scrolled up");
+    try {
+      await Promise.race([started.promise, turn.then(() => assert.fail("the projection fixture did not stream"))]);
+      // While busy Slate paints every child. On idle, the completion receipt pushes this
+      // two-row first child off the 100-child window, moving a tool under the pressed cell.
+      const oldHistory = [new tui.Text("Trimmed history row 1\nTrimmed history row 2", 0, 0)];
+      while (chat.children.length + oldHistory.length < 100) oldHistory.push(new tui.Text("Older history", 0, 0));
+      chat.children.unshift(...oldHistory);
+      ui.renderNow(true);
+      const wheelUp = () => { input("\x1b[<64;20;15M"); ui.renderNow(true); };
+      for (let i = 0; i < 70 && lines().findIndex(line => group.test(line)) < 4; i++) wheelUp();
+      const scroll = ui.currentLayout.primaryScrollView;
+      assert(scroll.scrollTop > 0 && !scroll.isFollowingEnd, "the click must occur in a scrolled viewport");
+      assert.match(ui.previousScreen.map(stripVTControlCharacters).join("\n"), /Jump to latest message/);
+      const point = pointFor(collapsed), scrollTop = scroll.scrollTop;
+      mouse(point, "M");
+      finishProjectionTurn.resolve();
+      await turn;
+      ui.renderNow(true);
+      assert.equal(scroll.scrollTop, scrollTop, "the projection must move the rows, not scroll the viewport");
+      assert.match(lines()[point.y - 1], /└ 1 line/, "the old screen cell now belongs to a tool result");
+      mouse(point, "m");
+      ui.renderNow(true);
+      assert.deepEqual(state(), [true, true, false, false, false, false], "a release across the window change must not toggle another row");
+      assert.match(frame(), group);
+
+      click(collapsed);
+      assert.deepEqual(state(), [false, true, false, false, false, false]);
+      assertSplit();
+      click(/Reasoning inside the tool group\./);
+      click(standaloneLabel);
+      assert.deepEqual(state(), [true, false, false, false, false, false]);
+      assert.match(frame(), group);
+      click(/Reasoning outside the tool group\./);
+      assert.deepEqual(state(), [true, true, false, false, false, false]);
+    } finally {
+      unsubscribe();
+      finishProjectionTurn.resolve();
+      await turn;
+    }
   }
   await assertMounted("startup");
   if (!fault && modeName === "fullscreen" && selected.includes("header") && selected.includes("sidebar")) {
