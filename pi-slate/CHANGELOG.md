@@ -2,16 +2,6 @@
 
 ## Unreleased
 
-- Remove the sidebar Tasks section and the `pi:background-tasks` listener. Task lists from extensions such as pi-tasks no longer have a competing shelf in the sidebar.
-- Remove the `/slate session · details` row from the bottom of the sidebar. Session details are one click away on the usage rows.
-- Remove `/slate session` and its subcommands. Pi already covers them: `/mcp` for MCP servers, `/skill:` for skills, and `/` for commands and prompts. Sidebar sections still fold by clicking their headings.
-- `/slate bug` opens the GitHub issue tracker directly, replacing the copy-a-report menu and the npm page link.
-- Remove image pinning. The sidebar image preview follows the caret, and `[open]`, `[copy]` and double-click still work.
-- Show SPEED and CACHE as compact side-by-side cards from a 32-column sidebar, cap the default sidebar at 40 columns, and put known spend in the status row. SPEED shows average and peak; CACHE shows hit share, reads and new input, without the output count, write count or cache timer.
-- Wrap performance stats in narrow sidebars and show empty SPEED and CACHE charts at session start.
-- Fix scrolling hitches when thinking ends or a reply hands off to tools.
-- Keep fullscreen scrolling responsive during replies and tool runs by retaining the configured transcript window and appending the live turn, rather than repainting the entire history.
-
 ## 0.4.0
 
 * **Performance fix:** scrolling large sessions no longer stutters. The slowest frame dropped by 98% (753 → 14 ms), frames painted per scroll rose 4× (76 → 305, matching native Pi), and idle CPU fell 99% (4.36 → 0.03 s per 5 s), because Slate no longer re-renders the whole transcript for sidebar, poller and animation updates.
