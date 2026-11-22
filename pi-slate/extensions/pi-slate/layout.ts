@@ -419,8 +419,8 @@ export function sidebarPercentFromColumns(totalWidth: number, columns: number): 
   const fallback = workspaceColumnWidth(totalWidth);
   if (columns <= SIDEBAR_MIN_WIDTH && fallback > SIDEBAR_MIN_WIDTH) return SIDEBAR_PERCENT_NARROW;
   const percent = percentFromColumns(totalWidth, columns);
-  // The default is capped, so a wide 20% drag must persist as an explicit percent.
-  if (percent === SIDEBAR_PERCENT_DEFAULT && clampSidebarColumns(totalWidth, columns) === fallback) return undefined;
+  // The default is capped, so compare columns rather than percents.
+  if (clampSidebarColumns(totalWidth, columns) === fallback) return undefined;
   if (percent === SIDEBAR_PERCENT_MEDIUM || percent === SIDEBAR_PERCENT_WIDE) return percent;
   return percent;
 }

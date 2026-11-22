@@ -69,7 +69,6 @@ import {
   slateArgumentCompletions,
   SLATE_USAGE,
   SLATE_VERSION,
-  SIDEBAR_PERCENT_DEFAULT,
   SIDEBAR_PERCENT_MEDIUM,
   SIDEBAR_PERCENT_NARROW,
   SIDEBAR_PERCENT_WIDE,
@@ -929,19 +928,18 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const pickWidth = async (ctx: ExtensionContext): Promise<{ picked: true; width?: number } | undefined> => {
     const percent = sidebar.preferredWidth ?? config.sidebarPercent;
-    const defaultLabel = "Default (20%)";
+    const defaultLabel = "Default (20%, up to 40 columns)";
     const narrowLabel = "Narrow (minimum)";
     const mediumLabel = "Medium (30%)";
     const wideLabel = "Wide (40%)";
     const customLabel = percent !== undefined
       && percent !== SIDEBAR_PERCENT_NARROW
-      && percent !== SIDEBAR_PERCENT_DEFAULT
       && percent !== SIDEBAR_PERCENT_MEDIUM
       && percent !== SIDEBAR_PERCENT_WIDE
       ? `Custom (${percent}%)`
       : "Custom…";
     const choice = await ctx.ui.select("Sidebar width", [
-      withCurrent(defaultLabel, percent === undefined || percent === SIDEBAR_PERCENT_DEFAULT),
+      withCurrent(defaultLabel, percent === undefined),
       withCurrent(narrowLabel, percent === SIDEBAR_PERCENT_NARROW),
       withCurrent(mediumLabel, percent === SIDEBAR_PERCENT_MEDIUM),
       withCurrent(wideLabel, percent === SIDEBAR_PERCENT_WIDE),
