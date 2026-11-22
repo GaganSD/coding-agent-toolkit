@@ -46,6 +46,16 @@ class WheelAccountingTest(unittest.TestCase):
             with self.subTest(after=after), self.assertRaisesRegex(RuntimeError, "scroll range changed during the burst"):
                 validate_burst("wheel_up", before, after, True)
 
+    def test_busy_delivery_is_counted_when_streaming_changes_the_range(self):
+        distance = WHEEL_EVENTS * WHEEL_LINES
+        before = snapshot(950)
+        after = snapshot(1010, down=distance - 1, bottom=1010, revision=2)
+        burst = validate_burst("wheel_down", before, after, True, busy=True)
+        self.assertEqual(burst["dropped_lines"], 1)
+        self.assertEqual(burst["viewport_displacement_lines"], 60)
+        with self.assertRaisesRegex(RuntimeError, "1 wheel lines lost"):
+            validate_burst("wheel_down", before, after, False, busy=True)
+
 
 class VariantConfigTest(unittest.TestCase):
     def test_slate_controls_select_surfaces_and_history_window(self):
@@ -84,7 +94,7 @@ class PtyWheelAccountingTest(unittest.TestCase):
             if sent[button] > 4:
                 wheel(term, button)
 
-        args = SimpleNamespace(size="small", entries=None, seed=42, runs=1, variants=["native"], terminals=["120x40"],
+        args = SimpleNamespace(size="small", entries=None, seed=42, runs=1, scenario="idle", variants=["native"], terminals=["120x40"],
                                startup_timeout=30, readiness_timeout=30, capture=False, stacks=False,
                                cpu_prof=False, allow_dropped_input=True)
         with tempfile.TemporaryDirectory() as tmp, patch.object(drive, "RESULTS", Path(tmp)), \
