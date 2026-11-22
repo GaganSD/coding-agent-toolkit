@@ -36,18 +36,37 @@ test("finder uses the last nested container inside the primary scroll view", () 
   assert.equal(findChatContainer(new VStack([new Container(), new Text("footer", 0, 0)])), undefined);
 });
 
-test("active work does not hide a live assistant when multiple tools are appended", () => {
-  const chat = new Container(); let active = true;
+test("the transcript keeps its visible history and the entire live turn as tools append", () => {
+  const chat = new Container(); let active = false;
+  const old = new Text("old", 0, 0), recent = new Text("recent", 0, 0);
   const assistant = new Text("assistant", 0, 0), a = new Text("tool a", 0, 0), b = new Text("tool b", 0, 0);
-  chat.addChild(assistant);
+  chat.addChild(old); chat.addChild(recent);
   const window = new ChatSurface(chat, { limit: 1, active: () => active });
+  assert.deepEqual(rows(chat), ["recent"]);
+  active = true;
+  chat.addChild(assistant);
+  assert.deepEqual(rows(chat), ["recent", "assistant"]);
   chat.addChild(a); chat.addChild(b);
-  assert.deepEqual(rows(chat), ["assistant", "tool a", "tool b"]);
+  assert.deepEqual(rows(chat), ["recent", "assistant", "tool a", "tool b"]);
   active = false;
   assert.deepEqual(rows(chat), ["tool b"]);
-  assert.deepEqual(chat.children, [assistant, a, b]);
+  assert.deepEqual(chat.children, [old, recent, assistant, a, b]);
   window.dispose();
-  assert.deepEqual(rows(chat), ["assistant", "tool a", "tool b"]);
+  assert.deepEqual(rows(chat), ["old", "recent", "assistant", "tool a", "tool b"]);
+});
+
+test("an active transcript reanchors when Pi replaces the chat history", () => {
+  const chat = new Container();
+  chat.addChild(new Text("before", 0, 0));
+  const window = new ChatSurface(chat, { limit: 1, active: () => true });
+  assert.deepEqual(rows(chat), ["before"]);
+  chat.clear();
+  chat.addChild(new Text("replaced", 0, 0));
+  chat.addChild(new Text("summary", 0, 0));
+  assert.deepEqual(rows(chat), ["summary"]);
+  chat.addChild(new Text("continuing", 0, 0));
+  assert.deepEqual(rows(chat), ["summary", "continuing"]);
+  window.dispose();
 });
 
 test("default visible length stays synced at 100", () => { assert.equal(MESSAGE_LENGTH_DEFAULT, 100); });

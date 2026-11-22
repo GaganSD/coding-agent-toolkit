@@ -62,8 +62,18 @@ class Padded implements Component {
   invalidate(): void { this.cached = undefined; this.child.invalidate(); }
 }
 
-function line(text: () => string): Component {
-  return { render: (width) => width > 0 ? [truncateToWidth(text(), width)] : [], invalidate() {} };
+function line(text: () => string, live = false): Component {
+  let cached: { width: number; source: string; rows: string[] } | undefined;
+  return {
+    render(width) {
+      if (width <= 0) return [];
+      const source = !live && cached ? cached.source : text();
+      if (cached?.width === width && cached.source === source) return cached.rows;
+      cached = { width, source, rows: [truncateToWidth(source, width)] };
+      return cached.rows;
+    },
+    invalidate() { cached = undefined; },
+  };
 }
 
 type Result = Parameters<NonNullable<ToolRenderers["renderResult"]>>[0];
@@ -154,7 +164,8 @@ export function installToolStyle(pi: ExtensionAPI): void {
         const color = context.isError ? "error" : context.isPartial ? "muted" : "success";
         const heading = theme.fg("toolTitle", theme.bold(names[name]!))
           + theme.fg("muted", ` (${argumentsText(name, (args ?? {}) as Record<string, unknown>)})`);
-        return new Padded(line(() => theme.fg(color, status()) + " " + heading), context.outputPad);
+        const spinning = !context.isError && context.isPartial && context.executionStarted;
+        return new Padded(line(() => theme.fg(color, status()) + " " + heading, spinning), context.outputPad);
       },
       renderResult(result, options, theme, context) {
         const saved = originals.get(context.state);

@@ -70,6 +70,7 @@ export class ChatSurface {
   private readonly installedRender: Container["render"];
   private readonly installedMouse: Container["handleMouse"];
   private readonly display = new Container();
+  private projectedStart = 0;
   private paintedGroups: ToolGroups | undefined;
   private paintedWidth?: number;
   /** null means the press did not hit a child row; undefined means no press was seen. */
@@ -145,11 +146,19 @@ export class ChatSurface {
       if (this.disposed) return this.originalRender.call(container, width);
       const limit = this.options.limit ?? Number.POSITIVE_INFINITY;
       const children = container.children;
-      const start = !this.options.active?.() && Number.isFinite(limit) ? Math.max(0, children.length - Math.max(1, Math.floor(limit))) : 0;
+      let start = Number.isFinite(limit) ? Math.max(0, children.length - Math.max(1, Math.floor(limit))) : 0;
       const projected = this.display.children;
+      const head = projected[0];
+      if (start > 0 && head && this.options.active?.()) {
+        // Keep the existing window and append live rows. Sliding it would drop
+        // the live assistant after enough tool calls and shift a scrolled viewport.
+        const previous = children[this.projectedStart] === head ? this.projectedStart : children.indexOf(head);
+        if (previous !== -1) start = Math.min(start, previous);
+      }
       if (projected.length !== children.length - start || !projected.every((child, i) => child === children[start + i])) {
         this.display.children = children.slice(start);
       }
+      this.projectedStart = start;
       this.paintedGroups = undefined;
       this.paintedWidth = width;
       const groups = this.options.groups;
