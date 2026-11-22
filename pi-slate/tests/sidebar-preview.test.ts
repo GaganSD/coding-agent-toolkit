@@ -187,7 +187,7 @@ test("a throwing view getter does not escape or disable ordinary layout retries"
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["Working", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "78.18% hit", "spent $0.12", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
+  for (const label of ["Working", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "78.18% hit", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
     assert(lines.some(line => line.includes(label)), label);
   for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0", "prompt-0"])
     assert(!lines.some(line => line.includes(label)), label);
@@ -289,10 +289,10 @@ test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny t
 test("speed and cache replace the usage lane; full accounting stays in details", () => {
   const { sidebar } = fixture();
   for (const width of [18, 28, 40, 80]) {
-    const text = plain(sidebar.render(width)).join("\n");
+    const text = plain(sidebar.render(width)).join("\n").replace(/ {2,}/g, " ");
     assert(text.includes("CACHE") && text.includes("SPEED"));
     assert.doesNotMatch(text, /● streaming/);
-    if (width >= 28) for (const value of ["6.1k", "$0.12", "78.18%"]) assert(text.includes(value), value);
+    if (width >= 28) for (const value of ["read 48k", "new 7.3k", "$0.12", "78.18%"]) assert(text.includes(value), value);
     assert(!/\bCached\b|Uncached|\bPID\b/.test(text), "old usage rows are gone");
   }
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
@@ -305,7 +305,7 @@ test("speed and cache replace the usage lane; full accounting stays in details",
 test("header height follows the terminal tier and its divider closes the header", () => {
   const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  for (const [rows, header] of [[60, 23], [44, 23], [43, 17], [30, 17]] as const) {
+  for (const [rows, header] of [[60, 15], [44, 15], [43, 14], [30, 14]] as const) {
     terminal.rows = rows;
     assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), header, `rows ${rows}`);
   }
@@ -551,8 +551,8 @@ test("unknown values and invalid MCP config remain explicit even when folded", (
   assert(!lines.some(line => line.includes("MCP config unreadable") || line.includes("config error")));
   sidebar.setThemeProvider(() => ({ fg: (tone: string, text: string) => tone === "error" ? `\x1b[31m${text}\x1b[0m` : text, bold: (text: string) => text }) as Theme);
   assert(sidebar.render(80).some(line => line.includes("\x1b[31m · 1 Error\x1b[0m")));
-  assert(lines.includes("spent —"));
-  assert(!lines.some(line => line.includes("$0.00")));
+  assert(lines.some(line => /read +—/.test(line)) && lines.some(line => /new +—/.test(line)));
+  assert(!lines[1]!.includes("$"));
 });
 
 test("unknown MCP declarations are neutral when folded or expanded and inspection explains the boundary", () => {
@@ -632,11 +632,44 @@ test("sidebar closes both rails and joins every horizontal divider at the right 
 test("working status shows the running turn's elapsed time and ticks each second", () => {
   const { sidebar, advance } = fixture();
   sidebar.setSession({ ...session, working: true, turnStartedAt: 4000 - 42_000 });
-  assert.match(plain(sidebar.render(44))[1]!, /● Working\s+0:42$/);
+  assert.match(plain(sidebar.render(44))[1]!, /● Working\s+\$0\.12 · 0:42$/);
+  assert.match(plain(sidebar.render(24))[1]!, /● Working\s+0:42$/);
   advance(1000);
   assert.match(plain(sidebar.render(44))[1]!, /0:43$/);
   sidebar.setSession({ ...session, working: false, turnStartedAt: null });
-  assert.match(plain(sidebar.render(44))[1]!, /○ Idle · 2 turns\s+last 5s$/);
+  assert.match(plain(sidebar.render(44))[1]!, /○ Idle · 2 turns\s+\$0\.12 · last 5s$/);
+});
+
+test("status spend is normal text, shown only for positive known cost", () => {
+  const { sidebar } = fixture();
+  const tinted = (tone: string, text: string) => tone === "text" ? `\x1b[37m${text}\x1b[0m` : tone === "dim" ? `\x1b[90m${text}\x1b[0m` : text;
+  sidebar.setThemeProvider(() => ({ fg: tinted, bold: (text: string) => text }) as Theme);
+  for (const cost of [0.09, null, 0]) {
+    sidebar.setSession({ ...session, working: false, turns: 1, lastTurnMs: 95_000, usage: { ...session.usage, cost } });
+    const lines = sidebar.render(44);
+    const status = lines[1]!;
+    assert.equal(status.includes(tinted("text", "$0.09")), cost === 0.09);
+    assert(status.includes(tinted("dim", "last 1m 35s")));
+    assert.equal(lines.slice(2).some(line => line.includes("$")), false);
+    if (cost === 0.09) {
+      const narrow = sidebar.render(28);
+      assert.match(plain(narrow)[1]!, /^○ Idle · 1 turn +\$0\.09$/);
+      assert.equal(visibleWidth(narrow[1]!), 28);
+    } else assert(!status.includes("$"));
+  }
+});
+
+test("sub-cent spend that rounds to zero does not displace the last turn", () => {
+  const { sidebar } = fixture();
+  const status = (cost: number, width: number) => {
+    sidebar.setSession({ ...session, working: false, turns: 1, lastTurnMs: 95_000, usage: { ...session.usage, cost } });
+    return plain(sidebar.render(width))[1]!;
+  };
+  for (const width of [28, 44]) {
+    assert.match(status(0.0049, width), /last 1m 35s$/);
+    assert.doesNotMatch(status(0.0049, width), /\$/);
+    assert.match(status(0.005, width), /\$0\.01\b/);
+  }
 });
 
 test("the minimum viewport keeps the live task item and its action", () => {
@@ -655,22 +688,99 @@ test("the minimum viewport keeps the live task item and its action", () => {
   assert.equal(inspected, "job-0");
 });
 
+test("the first reply does not shift MCP or tasks at 100×30 with a preview", () => {
+  const { sidebar, terminal } = fixture(30);
+  terminal.columns = 100;
+  const width = dashboardColumnWidth(terminal.columns, terminal.rows);
+  sidebar.setView(image());
+  sidebar.setTasks([task(0), task(1), task(2)]);
+  sidebar.setSession({ ...session, usage: sidebarUsage([]), perf: EMPTY_PERF });
+  const mcp = row(sidebar, "MCP", width);
+  const firstTask = row(sidebar, "job-0", width);
+  sidebar.setSession(session);
+  assert(row(sidebar, "read 48k", width) > 0);
+  assert.equal(row(sidebar, "MCP", width), mcp);
+  assert.equal(row(sidebar, "job-0", width), firstTask);
+});
+
 test("the first reply fills the performance charts without shifting the resource list", () => {
-  for (const height of [38, 60]) for (const width of [24, 30, 40, 56]) {
+  for (const height of [38, 60]) for (const width of [24, 30, 40, 50, 51, 56]) {
     const { sidebar } = fixture(height);
     sidebar.setSession({ ...session, percent: 0, tokens: 0, usage: sidebarUsage([]), perf: EMPTY_PERF });
     const empty = plain(sidebar.render(width));
     const mcp = empty.findIndex(line => line.includes("MCP"));
     assert(mcp > 0);
     assert(empty.some(line => line.includes("— tok/s")));
-    assert(empty.some(line => /^CACHE\s+—% hit$/.test(line)));
-    assert.equal(empty.filter(line => line === "─".repeat(width - 4)).length, height >= 44 && width < 26 ? 1 : 2);
-    assert(empty.some(line => line.includes("spent $0.00")));
+    assert(empty.some(line => line.includes("—% hit")));
+    assert(empty.some(line => /read +0/.test(line)));
+    assert(empty.some(line => /new +0/.test(line)));
+    assert(!empty[1]!.includes("$"));
     sidebar.setSession(session);
-    const full = plain(sidebar.render(width));
+    const full = plain(sidebar.render(width)).map(line => line.replace(/ {2,}/g, " "));
     assert.equal(full.findIndex(line => line.includes("MCP")), mcp, `${width}×${height}`);
-    for (const stat of ["avg 26.7", "peak 45.0", "out 12k", "78.18% hit", "◉ 4:38", "read 48k", "write 6.1k", "new 7.3k", "spent $0.12"]) {
+    for (const stat of ["avg 26.7", "peak 45.0", "78.18% hit", "read 48k", "new 7.3k"]) {
       assert(full.some(line => line.includes(stat)), `missing ${stat} at ${width}×${height}`);
+    }
+  }
+});
+
+const perfPreviewSession: SidebarSession = { ...session, working: false, lastTurnMs: 95_000, turns: 1,
+  usage: { input: 118_378, output: 1700, total: 120_078, cacheRead: 87_600, cacheWrite: 578, uncached: 30_200, cacheSeen: true, cost: 0.09, saved: null },
+  perf: { timedReplies: 10, rates: [9, 16, 12, 20, 21, 17, 24, 20, 27.2, 22.4], peak: 27.2,
+    turn: { output: 1700, rate: 20.9 }, cache: { lastHit: 0.74 } } };
+
+test("performance cards switch at 28 inner columns and align within the painted rails", () => {
+  const { sidebar } = fixture(38);
+  const populated = perfPreviewSession;
+  const empty: SidebarSession = { ...session, working: false, lastTurnMs: null, turns: 0, usage: sidebarUsage([]), perf: EMPTY_PERF };
+  const dividers = new Map<number, number>();
+  for (const inner of [24, 27, 28, 32, 40]) for (const [state, data] of [["empty", empty], ["populated", populated]] as const) {
+    sidebar.setSession(data);
+    const painted = sidebar.render(inner + 4);
+    assert(painted.every(line => visibleWidth(line) === inner + 4));
+    const lines = plain(painted);
+    const speed = lines.findIndex(line => line.startsWith("SPEED"));
+    const cache = lines.findIndex(line => line.includes("CACHE"));
+    const track = state === "empty" ? "─" : "━";
+    if (inner < 28) {
+      assert(cache > speed);
+      assert.equal(lines[cache - 1], "");
+      assert.equal(lines[cache + 1], track.repeat(inner));
+    } else {
+      const left = Math.floor((inner - 2) / 2);
+      const offset = left + 2;
+      const half = (row: number) => [lines[speed + row]!.slice(0, left).trimEnd(), lines[speed + row]!.slice(offset)];
+      assert.equal(cache, speed);
+      assert.equal(lines[speed]!.indexOf("CACHE"), offset);
+      assert.deepEqual(half(1), state === "empty" ? ["— tok/s", "—% hit"] : ["22.4 tok/s", "74% hit"]);
+      assert.match(half(2)[0]!, state === "empty" ? /^─+$/ : /^[▁-█]+$/);
+      assert.equal(half(2)[1], track.repeat(inner - offset));
+      assert.deepEqual([3, 4].map(half), state === "empty"
+        ? [["avg  —", "read  0"], ["peak —", "new   0"]]
+        : [["avg  20.9", "read  87.6k"], ["peak 27.2", "new   30.2k"]]);
+    }
+    const divider = lines.findIndex(line => line.startsWith("├"));
+    if (state === "empty") dividers.set(inner, divider);
+    else assert.equal(divider, dividers.get(inner), `header height at ${inner}`);
+    assert.equal(lines[divider - 1], "");
+    assert.notEqual(lines[divider - 2], "");
+    assert.doesNotMatch(lines.slice(speed, divider).join("\n"), /\bwrite\b/);
+  }
+});
+
+test("full-tier performance previews retain cache savings", () => {
+  const { sidebar } = fixture(60);
+  sidebar.setSession({ ...perfPreviewSession, usage: { ...perfPreviewSession.usage, input: 117_800, total: 119_500, cacheWrite: 0, saved: 12.34 } });
+  for (const inner of [24, 30, 47, 49, 52]) {
+    const painted = sidebar.render(inner + 4);
+    const lines = plain(painted);
+    const speed = lines.findIndex(line => line.startsWith("SPEED"));
+    const divider = lines.findIndex(line => line.startsWith("├"));
+    const perf = lines.slice(speed, divider).join("\n");
+    assert.match(perf, /saved ~\$12\.34/);
+    assert(painted.every(line => visibleWidth(line) === inner + 4));
+    if (process.env.SLATE_PERF_PREVIEW) {
+      console.log([`${inner} inner columns · full tier`, stripAnsi(painted[1]!), "…", ...painted.slice(speed, divider + 1).map(stripAnsi)].join("\n"));
     }
   }
 });

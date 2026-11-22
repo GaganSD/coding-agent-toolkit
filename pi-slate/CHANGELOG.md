@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show SPEED and CACHE as compact side-by-side cards from a 32-column sidebar, cap the default sidebar at 40 columns, and put known spend in the status row. SPEED shows average and peak; CACHE shows hit share, reads and new input, without the output count, write count or cache timer.
 - Wrap performance stats in narrow sidebars and show empty SPEED and CACHE charts at session start.
 - Fix scrolling hitches when thinking ends or a reply hands off to tools.
 - Keep fullscreen scrolling responsive during replies and tool runs by retaining the configured transcript window and appending the live turn, rather than repainting the entire history.

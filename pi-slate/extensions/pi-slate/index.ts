@@ -385,13 +385,14 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (!branchFacts || leaf === undefined || leaf !== branchFacts.leaf) {
         const entries = ctx.sessionManager.getBranch();
         branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries),
-          perf: branchPerf(entries, (provider, model) => ctx.modelRegistry.find(provider, model)?.promptCache) };
+          perf: branchPerf(entries) };
       }
-      const rate = tokenRate.rate();
+      const rate = tokenRate.rate(), model = ctx.model;
       sidebar.setSession({
         id: ctx.sessionManager.getSessionId?.() ?? "",
         name: ctx.sessionManager.getSessionName?.(),
-        pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(ctx.model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
+        pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
+        usingOAuth: model ? ctx.modelRegistry.isUsingOAuth?.(model) : undefined,
         tokens, percent, contextWindow, estimated,
         rate: rate > 0 ? rate : null, startedAt: sessionStartedAt, lastTurnMs, turnStartedAt: turnStartedAt ?? null,
         working: typeof ctx.isIdle === "function" && !ctx.isIdle(), ...branchFacts.counts, usage: branchFacts.usage,

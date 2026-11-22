@@ -67,9 +67,9 @@ test("growing usage and money keep a stable label lane and value edge with the r
       sidebar.setSession({ ...session, usage: { ...session.usage, input: value, output: value, cost: value } });
       const rows = sidebar.render(width).map(stripVTControlCharacters);
       assert(rows.every(row => visibleWidth(row) === width), `bounded rows at ${width} for ${value}`);
-      const spent = rows.find(row => row.includes("spent"))!;
-      assert(spent, "spent line");
-      if (width > 28) assert(spent.includes(`spent ${sidebarCost(value)}`), `${sidebarCost(value)} on the spent line`);
+      const status = rows[1]!;
+      if (value !== null && value > 0) assert(status.includes(sidebarCost(value)), `${sidebarCost(value)} on the status line`);
+      else assert(!status.includes("$"));
     }
   }
   assert.equal(formatCompactTokenCount(1e9), "1B"); assert.equal(formatCompactTokenCount(1e12), "1T");
@@ -87,17 +87,17 @@ test("high context usage and cache reads follow live accent changes within the s
   sidebar.attach({ terminal: { rows: 40, columns: 140 }, requestRender() {} } as unknown as TUI, lavender);
   sidebar.setThemeProvider(() => active);
   sidebar.setSession({ ...session, percent: 88 });
-  const contextFill = "█".repeat(35) + "▎";
-  const cacheBar = () => sidebar.render(44).find(row => stripVTControlCharacters(row).includes("━".repeat(40)))!;
-  const reads = "━".repeat(29);
+  const contextFill = "█".repeat(21) + "▏";
+  const cacheBar = () => sidebar.render(28).find(row => stripVTControlCharacters(row).includes("━".repeat(24)))!;
+  const reads = "━".repeat(18);
   assert.equal(lavender.fg("success", reads), peach.fg("success", reads), "status color is fixed across these accents");
   assert(cacheBar().includes(lavender.fg("accent", reads)));
-  assert(sidebar.render(44).some(row => row.includes(lavender.fg("accent", contextFill))));
+  assert(sidebar.render(28).some(row => row.includes(lavender.fg("accent", contextFill))));
   active = peach;
   const after = cacheBar();
   assert(after.includes(peach.fg("accent", reads)));
   assert(!after.includes(lavender.fg("accent", reads)));
-  assert(sidebar.render(44).some(row => row.includes(peach.fg("accent", contextFill))));
+  assert(sidebar.render(28).some(row => row.includes(peach.fg("accent", contextFill))));
   sidebar.dispose();
 });
 

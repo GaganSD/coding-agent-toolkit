@@ -6,8 +6,8 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatCompactTokenCount } from "./layout.ts";
 import { sidebarCacheHit, type SidebarUsage } from "./sidebar-data.ts";
-import { sidebarCost, type SidebarTier } from "./sidebar-layout.ts";
-import { cacheWarmth, type SidebarPerf } from "./perf-stats.ts";
+import { sidebarCost, sidebarPerfColumns, type SidebarTier } from "./sidebar-layout.ts";
+import type { SidebarPerf } from "./perf-stats.ts";
 
 export type Tone = "text" | "muted" | "dim" | "accent" | "success" | "warning" | "error" | "mdHeading";
 export type PerfPaint = {
@@ -67,13 +67,6 @@ export function stackedBar(parts: readonly number[], width: number): number[] {
   });
 }
 
-export function formatIdle(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  return `${Math.floor(s / 3600)}h`;
-}
-
 // ---- row composition -------------------------------------------------------------------------
 // One grammar for CONTEXT, SPEED and CACHE: heading row (label left, key figure right), one
 // full-width visual row, then `label value · label value` detail rows. Padding is always spaces.
@@ -108,9 +101,9 @@ function wrapStats<T>(items: readonly T[], width: number, sep: number, measure: 
 
 const headingRoom = (width: number, label: string): number => Math.max(0, width - visibleWidth(label) - 1);
 
-function statRows(i: PerfInput, stats: readonly Seg[][], sep: Seg = DOT, label?: string): string[] {
-  const first = label ? headingRoom(i.inner, label) : i.inner;
-  return wrapStats(stats, i.inner, visibleWidth(sep[1]), segWidth, first).map((row, n) => {
+function statRows(i: PerfInput, stats: readonly Seg[][], sep: Seg = DOT, label?: string, minRoom = 0): string[] {
+  const room = label ? headingRoom(i.inner, label) : i.inner;
+  return wrapStats(stats, i.inner, visibleWidth(sep[1]), segWidth, room < minRoom ? 0 : room).map((row, n) => {
     const right = row.map(s => truncateToWidth(paintSegs(i, s), i.inner, "…")).join(i.paint(...sep));
     if (!label) return right;
     const left = n === 0 ? i.heading(label) : "";
@@ -118,12 +111,15 @@ function statRows(i: PerfInput, stats: readonly Seg[][], sep: Seg = DOT, label?:
   });
 }
 
-function detailRows(i: PerfInput, pairs: ReadonlyArray<readonly [string, string, Tone?]>): string[] {
-  return statRows(i, pairs.map(([l, v, tone]) => [["dim", l + " "], [tone ?? (v === "—" ? "muted" : "text"), v]]));
+const detailStat = (label: string, value: string, tone?: Tone): Seg[] =>
+  [["dim", label + " "], [tone ?? (value === "—" ? "muted" : "text"), value]];
+
+/** Lay out ordinary values and placeholders alike; let unusually long values wrap. */
+function shapedRows(i: PerfInput, stats: readonly Seg[][], widths: readonly number[]): string[] {
+  return wrapStats(stats.map((stat, n) => ({ stat, width: widths[n]! })), i.inner, visibleWidth(DOT[1]), s => s.width)
+    .flatMap(row => statRows(i, row.map(s => s.stat)));
 }
 
-// Budget with the widest fields for sections that must keep a fixed height, rather than
-// with the shorter placeholders. Other sections can reserve only their ordinary values.
 const rowBudget = (i: PerfInput, widths: readonly number[], sep = DOT, label?: string): number =>
   wrapStats(widths, i.inner, visibleWidth(sep[1]), n => n, label ? headingRoom(i.inner, label) : i.inner).length;
 const padRows = (rows: string[], height: number): string[] => {
@@ -171,25 +167,23 @@ function speedSparkline(rates: readonly number[], width: number, rows = 1): stri
   });
 }
 
+const SPEED_RATE_WIDTH = visibleWidth("99.9 tok/s");
+const SPEED_DETAIL_WIDTHS = ["avg 20.9", "peak 27.2"].map(visibleWidth);
+const SPEED_CAPTION = "last timed reply";
+
 /** Headline is always the exact last eligible response. */
-export function speedRows(i: PerfInput): string[] {
+function speedRows(i: PerfInput): string[] {
   const { perf, inner, paint } = i;
   const digits = formatRate(perf.rates.at(-1));
   const empty = digits === "—";
   const rate: Seg[] = [[empty ? "muted" : "text", digits], [empty ? "muted" : "dim", " tok/s"]];
-  const detail = detailRows(i, [["avg", formatRate(perf.turn.rate)], ["peak", formatRate(perf.peak)],
-    ["out", formatCompactTokenCount(perf.turn.output), empty && perf.turn.output === 0 ? "muted" : undefined]]);
-  const detailBudget = rowBudget(i, [8, 9, 9]);
+  const stats = [detailStat("avg", formatRate(perf.turn.rate)), detailStat("peak", formatRate(perf.peak))];
+  const detail = shapedRows(i, stats, SPEED_DETAIL_WIDTHS);
   const graph = (height: number): string[] => empty ? [...Array<string>(height - 1).fill(""), baseline(i)]
     : speedSparkline(perf.rates, inner, height).map(g => paint("accent", g));
-  if (i.tier !== "full") {
-    const rows = statRows(i, [rate], DOT, "SPEED");
-    return padRows([...rows, ...graph(1), ...detail], rowBudget(i, [10], DOT, "SPEED") + 1 + detailBudget);
-  }
-  const caption = "last timed reply";
-  const parts = visibleWidth(caption) <= inner ? [caption] : caption.split(" ");
+  if (i.tier !== "full") return [...statRows(i, [rate], SPACE, "SPEED", SPEED_RATE_WIDTH), ...graph(1), ...detail];
+  const parts = visibleWidth(SPEED_CAPTION) <= inner ? [SPEED_CAPTION] : SPEED_CAPTION.split(" ");
   const rows = statRows(i, parts.map(text => [["dim", text]]), ["dim", " "], "SPEED");
-  const headerHeight = rows.length;
   const [a, b, c] = bigDigits(digits) as [string, string, string];
   const digitWidth = visibleWidth(a);
   const big = inner >= 19; // Room for a typical block rate (14.6) and its unit.
@@ -201,7 +195,7 @@ export function speedRows(i: PerfInput): string[] {
   }
   const graphHeight = inner >= 22 ? 2 : 0;
   if (graphHeight) rows.push(...graph(graphHeight));
-  return padRows([...rows, ...detail], headerHeight + (big ? 3 : 1) + graphHeight + detailBudget);
+  return [...rows, ...detail];
 }
 
 export function formatCacheHit(rate: number | null): string {
@@ -210,45 +204,85 @@ export function formatCacheHit(rate: number | null): string {
   return `${Math.min(99.99, Math.round(rate * 10_000) / 100)}%`;
 }
 
-// Bounds from the formatters: exponential counts and dollars just below the compact-money cutoff.
-const CACHE_COUNT_WIDTH = visibleWidth(formatCompactTokenCount(Number.MAX_VALUE));
-const CACHE_COST_WIDTH = visibleWidth(sidebarCost(999_999.999));
-const CACHE_TOKEN_WIDTHS = ["read ", "write ", "new "].map(label => visibleWidth(label) + CACHE_COUNT_WIDTH);
-const CACHE_SPENT_WIDTH = visibleWidth("spent ") + CACHE_COST_WIDTH;
-const CACHE_SAVED_WIDTH = visibleWidth("saved ~") + CACHE_COST_WIDTH;
-const CACHE_HIT_WIDTH = visibleWidth(formatCacheHit(1));
-const CACHE_CLOCK_WIDTH = visibleWidth("◉ 9999:59:59");
+const CACHE_TOKEN_WIDTHS = ["read 87.6k", "new 30.2k"].map(visibleWidth);
+const CACHE_SAVED_WIDTH = visibleWidth("saved ~$12.34");
+const CACHE_HIT_WIDTH = visibleWidth("99.99% hit");
 
-/** Headline uses the same branch totals as the bar; warmth is based on the latest request. */
-function cacheSegs(i: PerfInput): Seg[][] {
+/** Headline uses the same branch totals as the bar. */
+function cacheHit(i: PerfInput): Seg[] {
   const rate = sidebarCacheHit(i.usage);
-  const hit: Seg[] = rate === null ? [["muted", "—% hit"]]
+  return rate === null ? [["muted", "—% hit"]]
     : rate === 1 ? [["text", formatCacheHit(rate)]] : [["text", formatCacheHit(rate)], ["dim", " hit"]];
-  if (!i.usage.cacheSeen) return [hit];
-  const w = cacheWarmth(i.perf.cache, i.now);
-  const warm: Seg | null = w.state === "warm" ? ["success", `◉ ${formatCountdown(w.remainingMs ?? 0)}`]
-    : w.state === "cold" ? ["warning", "cold"]
-    : w.idleMs !== null && w.idleMs >= 60_000 ? ["dim", `idle ${formatIdle(w.idleMs)}`] : null;
-  return warm ? [hit, [[warm[0], truncateToWidth(warm[1], CACHE_CLOCK_WIDTH, "…")]]] : [hit];
 }
 
-export function cacheRows(i: PerfInput): string[] {
+/** Hit share of input; writes still count toward input, so all non-hit input shares one color. */
+function cacheBar(i: PerfInput): string {
   const { usage, inner, paint } = i;
-  const empty = usage.total === 0 && usage.cost === 0;
-  const tone = empty ? "muted" : undefined;
-  const spent = ["spent", sidebarCost(usage.cost), tone] as const;
-  const [r = 0, w = 0, u = 0] = usage.input === null ? [] : stackedBar([usage.cacheRead ?? 0, usage.cacheWrite ?? 0, usage.uncached ?? 0], inner);
-  const bar = r || w || u ? paint("accent", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u)) : baseline(i);
-  const tokens = [["read", formatCompactTokenCount(usage.cacheRead), tone], ["write", formatCompactTokenCount(usage.cacheWrite), tone],
-    ["new", formatCompactTokenCount(usage.uncached), tone]] as const;
-  const heading = padRows(statRows(i, cacheSegs(i), DOT, "CACHE"), rowBudget(i, [CACHE_HIT_WIDTH, CACHE_CLOCK_WIDTH], DOT, "CACHE"));
-  const rows = [...heading, bar];
-  const headerHeight = rows.length;
-  if (i.tier === "full") {
-    const saved = usage.saved;
-    rows.push(...detailRows(i, tokens), ...detailRows(i, nonneg(saved) ? [spent, ["saved", `~${sidebarCost(saved)}`]] : [spent]));
-    return padRows(rows, headerHeight + rowBudget(i, CACHE_TOKEN_WIDTHS) + rowBudget(i, [CACHE_SPENT_WIDTH, CACHE_SAVED_WIDTH]));
-  }
-  rows.push(...detailRows(i, [...tokens, spent]));
-  return padRows(rows, headerHeight + rowBudget(i, [...CACHE_TOKEN_WIDTHS, CACHE_SPENT_WIDTH]));
+  const [r = 0, other = 0] = usage.input === null ? [] : stackedBar([usage.cacheRead ?? 0, (usage.cacheWrite ?? 0) + (usage.uncached ?? 0)], inner);
+  return r || other ? paint("accent", "━".repeat(r)) + paint("muted", "━".repeat(other)) : baseline(i);
+}
+
+function cacheSection(i: PerfInput): { rows: string[]; footerSlot: boolean } {
+  const { usage } = i;
+  const tone = usage.total === 0 ? "muted" : undefined;
+  const bar = cacheBar(i);
+  const tokens = [detailStat("read", formatCompactTokenCount(usage.cacheRead), tone),
+    detailStat("new", formatCompactTokenCount(usage.uncached), tone)];
+  const heading = statRows(i, [cacheHit(i)], DOT, "CACHE", CACHE_HIT_WIDTH);
+  const saved = i.tier === "full" && nonneg(usage.saved) ? detailStat("saved", `~${sidebarCost(usage.saved)}`) : null;
+  const splitSaved = i.tier === "full" && rowBudget(i, [...CACHE_TOKEN_WIDTHS, CACHE_SAVED_WIDTH]) > 1;
+  const details = shapedRows(i, saved && !splitSaved ? [...tokens, saved] : tokens, [...CACHE_TOKEN_WIDTHS, CACHE_SAVED_WIDTH]);
+  // A wrapped savings stat gets a reserved row so its first appearance cannot move the rail.
+  const footer = splitSaved ? padRows(saved ? statRows(i, [saved]) : [], 1) : [];
+  return { rows: [...heading, bar, ...details, ...footer], footerSlot: splitSaved };
+}
+
+/** The narrow-rail layout: SPEED above CACHE, each a full-width section. */
+export function stackedPerfRows(i: PerfInput): Array<Array<string | null>> {
+  const cache = cacheSection(i);
+  return [[...speedRows(i), null], cache.footerSlot ? cache.rows : [...cache.rows, null]];
+}
+
+// ---- side-by-side cards -----------------------------------------------------------------------
+// A card stacks heading, key figure, chart and one aligned stat per row, so each half stays
+// narrow. Both cards have a fixed row structure: empty and populated sessions are the same height.
+
+const cardStat = (i: PerfInput, label: string, pad: number, value: string, tone?: Tone): string =>
+  paintSegs(i, [["dim", label.padEnd(pad)], [tone ?? (value === "—" ? "muted" : "text"), value]]);
+
+function speedCard(i: PerfInput): string[] {
+  const { perf, inner } = i;
+  const digits = formatRate(perf.rates.at(-1));
+  const empty = digits === "—";
+  return [
+    i.heading("SPEED"),
+    paintSegs(i, [[empty ? "muted" : "text", digits], [empty ? "muted" : "dim", " tok/s"]]),
+    empty ? baseline(i) : i.paint("accent", speedSparkline(perf.rates, inner)[0]!),
+    cardStat(i, "avg", 5, formatRate(perf.turn.rate)),
+    cardStat(i, "peak", 5, formatRate(perf.peak)),
+  ];
+}
+
+function cacheCard(i: PerfInput): string[] {
+  const { usage } = i;
+  const tone = usage.total === 0 ? "muted" : undefined;
+  const rows = [i.heading("CACHE"), paintSegs(i, cacheHit(i)), cacheBar(i),
+    cardStat(i, "read", 6, formatCompactTokenCount(usage.cacheRead), tone),
+    cardStat(i, "new", 6, formatCompactTokenCount(usage.uncached), tone)];
+  if (i.tier === "full") rows.push(nonneg(usage.saved) ? cardStat(i, "saved", 6, `~${sidebarCost(usage.saved)}`) : "");
+  return rows;
+}
+
+/** Null is a droppable separator; empty strings are reserved content rows. */
+export function perfRows(i: PerfInput): Array<Array<string | null>> {
+  const columns = sidebarPerfColumns(i.inner);
+  if (!columns) return stackedPerfRows(i);
+  const speed = speedCard({ ...i, inner: columns.speed });
+  const cache = cacheCard({ ...i, inner: columns.cache });
+  const rows = Array.from({ length: Math.max(speed.length, cache.length) }, (_, row) => {
+    const left = truncateToWidth(speed[row] ?? "", columns.speed, "…");
+    const right = truncateToWidth(cache[row] ?? "", columns.cache, "…");
+    return right ? left + " ".repeat(columns.speed - visibleWidth(left)) + columns.gap + right : left;
+  });
+  return [[...rows, null]];
 }

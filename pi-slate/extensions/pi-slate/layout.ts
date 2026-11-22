@@ -137,6 +137,8 @@ export const SIDEBAR_MIN_TERMINAL_WIDTH = 60;
 export const SIDEBAR_MIN_WIDTH = 28;
 export const SIDEBAR_EDITOR_RESERVE = 5;
 export const SIDEBAR_DEFAULT_RATIO = 0.2;
+/** The default rail stops growing on very wide terminals; an explicit width is not capped. */
+export const SIDEBAR_DEFAULT_MAX_WIDTH = 40;
 export const SIDEBAR_PERCENT_DEFAULT = Math.round(SIDEBAR_DEFAULT_RATIO * 100);
 export const SIDEBAR_MAIN_MIN_WIDTH = SIDEBAR_MIN_TERMINAL_WIDTH - SIDEBAR_MIN_WIDTH;
 export const SIDEBAR_HANDLE_MAX_X = 1;
@@ -396,8 +398,10 @@ export function clampSidebarColumns(totalWidth: number, columns: number): number
 export function workspaceColumnWidth(totalWidth: number, preferredPercent?: number): number {
   if (preferredPercent === SIDEBAR_HIDDEN) return 0;
   if (preferredPercent === SIDEBAR_PERCENT_NARROW) return clampSidebarColumns(totalWidth, SIDEBAR_MIN_WIDTH);
-  const ratio = preferredPercent === undefined ? SIDEBAR_DEFAULT_RATIO : preferredPercent / 100;
-  return clampSidebarColumns(totalWidth, Math.floor(totalWidth * ratio));
+  if (preferredPercent === undefined) {
+    return clampSidebarColumns(totalWidth, Math.min(SIDEBAR_DEFAULT_MAX_WIDTH, Math.floor(totalWidth * SIDEBAR_DEFAULT_RATIO)));
+  }
+  return clampSidebarColumns(totalWidth, Math.floor(totalWidth * preferredPercent / 100));
 }
 
 /** Quiet workbench: short/narrow viewports keep the composer, not a cramped rail. */

@@ -7,9 +7,9 @@ import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, sidebarUsage, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
-import { sessionSidebarSlots, sidebarDuration, sidebarListOffset, type SidebarTier } from "./sidebar-layout.ts";
-import { cacheRows, contextRows, formatCacheHit, formatCountdown, formatRate, speedRows, type PerfInput } from "./perf-graphics.ts";
-import { cacheWarmth, EMPTY_PERF } from "./perf-stats.ts";
+import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, type SidebarTier } from "./sidebar-layout.ts";
+import { contextRows, formatCacheHit, formatCountdown, formatRate, perfRows, type PerfInput } from "./perf-graphics.ts";
+import { EMPTY_PERF } from "./perf-stats.ts";
 import { sameLines } from "./render-lines.ts";
 
 export const DOUBLE_CLICK_MS = 400;
@@ -25,7 +25,6 @@ type PaneFrame = {
   image: { start: number; height: number; path?: string };
 };
 const HEADER_GAP: Row = { text: "" };
-const HEADER_PAD: Row = { text: "" };
 export type SidebarActions = {
   copy(text: string): void;
   openFile(filePath: string): void;
@@ -175,15 +174,13 @@ export class Sidebar implements Component {
   private speedCacheDetails(): string[] {
     const perf = this.session.perf;
     const c = perf.cache;
-    const warmth = cacheWarmth(c, this.now());
     return ["", "Speed & cache",
       `Speed is output tokens ÷ Pi's recorded provider-stream duration, not total turn time.`,
       `Replies with less than 32 output tokens, less than 300 ms, or missing timing are excluded from speed.`,
       `The composer's live rate is an estimate (visible text ÷ 4) and is marked ~.`,
       `Timed replies: ${perf.timedReplies} · last timed reply: ${formatRate(perf.rates.at(-1))} tok/s · peak: ${formatRate(perf.peak)} tok/s · this turn: ${formatRate(perf.turn.rate)} tok/s`,
       `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`,
-      `Saved is estimated from recorded prices only when all branch cache reads are priceable.`,
-      `Cache expiry is estimated from the last reported cache activity when its retention tier is known${warmth.state === "unknown" ? " (not established here)" : ""}.`];
+      `Saved is estimated from recorded prices only when all branch cache reads are priceable.`];
   }
   tick(): void { this.refresh(); }
   invalidate(): void {
@@ -265,10 +262,8 @@ export class Sidebar implements Component {
     const header = this.headerRows(inner, height >= 44 ? "full" : "compact");
     const gap = (row: Row): boolean => row === HEADER_GAP || row.divider === true;
     const gaps = header.filter(gap).length;
-    const slack = gaps + header.filter(row => row === HEADER_PAD).length;
-    const slots = sessionSidebarSlots(height, header.length, this.tasks.length, Boolean(this.imageView()), slack);
+    const slots = sessionSidebarSlots(height, header.length, this.tasks.length, Boolean(this.imageView()), gaps);
     let dropGaps = header.length - slots.header;
-    let dropPad = dropGaps - gaps;
     const lines: string[] = [];
     const add = (row: Row): void => {
       const y = lines.length;
@@ -278,7 +273,7 @@ export class Sidebar implements Component {
       if (row.list) listRows.push({ y, list: row.list });
     };
     if (slots.frame) lines.push(this.dividerLine(width, "┌"));
-    for (const row of header.filter(row => (!gap(row) || dropGaps-- <= 0) && (row !== HEADER_PAD || dropPad-- <= 0)).slice(0, slots.header)) add(row);
+    for (const row of header.filter(row => !gap(row) || dropGaps-- <= 0).slice(0, slots.header)) add(row);
     const middle = this.middle();
     const middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
@@ -312,9 +307,17 @@ export class Sidebar implements Component {
         ? this.paint("success", "● Working")
         : this.paint("dim", "○ Idle") + (s.turns > 0 ? this.paint("muted", ` · ${turns}`) : "");
       const started = s.turnStartedAt;
-      const right = s.working
+      const timing = s.working
         ? typeof started === "number" && Number.isFinite(started) ? this.paint("warning", formatCountdown(Math.max(0, this.now() - started))) : ""
         : s.lastTurnMs !== null ? this.paint("dim", `last ${sidebarDuration(s.lastTurnMs)}`) : "";
+      const cost = s.usingOAuth ? "—" : sidebarCost(s.usage.cost);
+      const spend = cost === "—" || cost === "$0.00" ? "" : this.paint("text", cost);
+      let right = spend || timing;
+      if (spend && timing) {
+        const both = spend + this.paint("dim", " · ") + timing;
+        // Preserve the status label when adding spend, and prioritize the live clock over spend.
+        right = visibleWidth(left) + 1 + visibleWidth(both) <= width ? both : s.working ? timing : spend;
+      }
       return { text: this.pair(left, right, width) };
     })();
     const identity: Row = {
@@ -327,15 +330,8 @@ export class Sidebar implements Component {
     const input: PerfInput = { perf: s.perf, usage: s.usage, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) };
     const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
       .map(text => ({ text, action: branchUsage }));
-    const rows = (lines: string[]): Row[] => {
-      // Reclaim trailing reserve rows under pressure, not the continuation above a track.
-      let end = lines.length;
-      while (lines[end - 1] === "") end--;
-      return lines.map((text, i) => i < end ? { text } : HEADER_PAD);
-    };
-    return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP,
-      ...rows(speedRows(input)), HEADER_GAP,
-      ...rows(cacheRows(input)), HEADER_GAP, divider];
+    const performance = perfRows(input).flat().map(text => text === null ? HEADER_GAP : { text });
+    return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP, ...performance, divider];
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
