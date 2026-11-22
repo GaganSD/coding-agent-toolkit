@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 import globals from "globals";
 
 export default [
-  { ignores: ["**/node_modules/**", "**/dist/**", ".artifacts/**", ".pi/**"] },
+  { ignores: ["**/node_modules/**", "**/dist/**", ".artifacts/**", ".pi/**", "pi-slate/benchmarks/.cache/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

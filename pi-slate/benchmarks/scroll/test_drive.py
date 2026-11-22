@@ -53,6 +53,8 @@ class WheelAccountingTest(unittest.TestCase):
         burst = validate_burst("wheel_down", before, after, True, busy=True)
         self.assertEqual(burst["dropped_lines"], 1)
         self.assertEqual(burst["viewport_displacement_lines"], 60)
+        self.assertEqual(burst["max_scroll_top"], 1000)
+        self.assertEqual(burst["max_scroll_top_after"], 1010)
         with self.assertRaisesRegex(RuntimeError, "1 wheel lines lost"):
             validate_burst("wheel_down", before, after, False, busy=True)
 
@@ -64,6 +66,54 @@ class VariantConfigTest(unittest.TestCase):
         self.assertCountEqual(drive.VARIANTS["slate-no-toolcards"], ["header", "footer", "editor", "sidebar"])
         self.assertIsNone(drive.MESSAGE_LENGTH["slate-no-toolcards"])
         self.assertEqual(drive.MESSAGE_LENGTH["slate-matched-history"], "all")
+        self.assertCountEqual(drive.VARIANTS["slate-0.4.0"], drive.SURFACES)
+        self.assertIsNone(drive.MESSAGE_LENGTH.get("slate-0.4.0"))
+
+    def test_extension_paths_distinguish_builds_in_one_suite(self):
+        variants = ["native", "slate", "slate-0.4.0", "starline"]
+        with tempfile.TemporaryDirectory() as tmp:
+            release, starline = (Path(tmp).resolve() / name for name in ("release", "starline"))
+            release.mkdir()
+            starline.mkdir()
+            self.assertEqual(drive.extension_paths(variants, [("starline", starline), ("slate-0.4.0", release)]),
+                             {"native": None, "slate": drive.SLATE, "slate-0.4.0": release, "starline": starline})
+            for overrides in ([("native", starline)], [("starline", starline), ("starline", starline)]):
+                with self.subTest(overrides=overrides), self.assertRaisesRegex(RuntimeError, "unique selected non-native"):
+                    drive.extension_paths(variants, overrides)
+            with self.assertRaisesRegex(RuntimeError, "starline requires --extension-path"):
+                drive.extension_paths(["starline"], [])
+            with self.assertRaisesRegex(RuntimeError, "Extension directory for starline not found"):
+                drive.extension_paths(["starline"], [("starline", starline / "missing")])
+        self.assertNotIn("starline", drive.DEFAULT_VARIANTS)
+        self.assertNotIn("slate-0.4.0", drive.DEFAULT_VARIANTS)
+
+    def test_starline_requires_its_editor_and_native_scroll_view_without_slate(self):
+        status = {**snapshot(1000), "surfaces": {}, "starlineEditor": True, "chat_adapter": False}
+        drive.attest(status, "starline", [], False)
+        with self.assertRaisesRegex(RuntimeError, "PolishedEditor was not mounted"):
+            drive.attest({**status, "starlineEditor": False}, "starline", [], False)
+        with self.assertRaisesRegex(RuntimeError, "primary transcript ScrollView was not found"):
+            drive.attest({**status, "scrollTop": None}, "starline", [], False)
+        with self.assertRaisesRegex(RuntimeError, "unexpected.*editor"):
+            drive.attest({**status, "surfaces": {"editor": True}}, "starline", [], False)
+
+    def test_chat_adapter_does_not_imply_a_transcript_window(self):
+        fresh = SimpleNamespace(slate_fresh=True)
+        shipped = SimpleNamespace(slate_fresh=False)
+        status = {**snapshot(1000), "surfaces": {"editor": True, "tool-cards": True},
+                  "starlineEditor": False, "chat_adapter": True}
+        for variant in ("slate", "slate-0.4.0", "slate-main-before"):
+            with self.subTest(variant=variant):
+                self.assertTrue(drive.uses_fresh_slate(variant, fresh))
+                surfaces = drive.visible_surfaces(variant, fresh)
+                self.assertCountEqual(surfaces, ["editor", "tool-cards"])
+                drive.attest(status, variant, surfaces, True)
+                with self.assertRaisesRegex(RuntimeError, "Expected chat_adapter=True"):
+                    drive.attest({**status, "chat_adapter": False}, variant, surfaces, True)
+                self.assertEqual(drive.transcript_config(variant, fresh), {"owned": False, "limit": "all"})
+                self.assertEqual(drive.transcript_config(variant, shipped), {"owned": True, "limit": "shipped-default"})
+        self.assertEqual(drive.transcript_config("slate-matched-history", fresh), {"owned": True, "limit": "all"})
+        self.assertFalse(drive.uses_fresh_slate("starline", fresh))
 
 
 class CompareTest(unittest.TestCase):
@@ -96,7 +146,7 @@ class PtyWheelAccountingTest(unittest.TestCase):
 
         args = SimpleNamespace(size="small", entries=None, seed=42, runs=1, scenario="idle", variants=["native"], terminals=["120x40"],
                                startup_timeout=30, readiness_timeout=30, capture=False, stacks=False,
-                               cpu_prof=False, allow_dropped_input=True)
+                               cpu_prof=False, allow_dropped_input=True, extension_path=[], slate_fresh=False)
         with tempfile.TemporaryDirectory() as tmp, patch.object(drive, "RESULTS", Path(tmp)), \
                 patch.object(drive.Terminal, "wheel", omit_first_four):
             drive.suite(args)

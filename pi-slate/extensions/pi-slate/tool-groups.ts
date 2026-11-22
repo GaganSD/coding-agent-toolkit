@@ -42,19 +42,19 @@ type Segment =
 /** Paints an explicit display list and maps its mouse rows. Never patches a host component. */
 export class ToolGroups {
   private frame?: Part & { parts: Part[] };
-  private readonly bodies = new WeakMap<Component, { width: number; rows: string[]; first?: string; rest?: string; version: string | number; part: Part }>();
+  private readonly bodies = new WeakMap<Component, { width: number; rows: string[]; first?: string; rest?: string; key?: string; part: Part }>();
   private readonly summaries = new WeakMap<Component, { width: number; text: string; part: Part }>();
   private readonly theme: () => Theme | undefined;
   private readonly hint: () => string;
   private readonly decorate?: RowDecorator;
-  private readonly decorateVersion?: () => string | number;
+  private readonly decorateKey?: (component: Component) => string;
   constructor(
     theme: () => Theme | undefined,
     hint = () => keyHint("app.tools.expand", "to expand"),
     decorate?: RowDecorator,
-    decorateVersion?: () => string | number,
+    decorateKey?: (component: Component) => string,
   ) {
-    this.theme = theme; this.hint = hint; this.decorate = decorate; this.decorateVersion = decorateVersion;
+    this.theme = theme; this.hint = hint; this.decorate = decorate; this.decorateKey = decorateKey;
   }
 
   /** Read all grouping metadata before painting so a fault cannot duplicate earlier renders. */
@@ -87,11 +87,11 @@ export class ToolGroups {
   private body(component: Component, width: number, first?: string, rest?: string): Part {
     const inset = first === undefined ? 0 : 3;
     const rows = component.render(inset ? Math.max(1, width - inset) : width);
-    const version = this.decorateVersion?.() ?? 0;
+    const key = this.decorateKey?.(component);
     const cached = this.bodies.get(component);
     const sameFrame = Boolean(cached && cached.width === width && cached.first === first && cached.rest === rest
       && sameLines(cached.rows, rows));
-    if (sameFrame && cached && cached.version === version) return cached.part;
+    if (sameFrame && cached && cached.key === key) return cached.part;
     const snapshot = sameFrame && cached ? cached.rows : rows.slice();
     const decorated = this.decorate?.(component, rows, width) ?? rows;
     const part: Part = { lines: first === undefined ? (decorated === rows ? snapshot : decorated.slice()) : [], owners: [] };
@@ -103,7 +103,7 @@ export class ToolGroups {
       }
       part.owners.push({ component, y, height: decorated.length, inset });
     }
-    this.bodies.set(component, { width, rows: snapshot, first, rest, version, part });
+    this.bodies.set(component, { width, rows: snapshot, first, rest, key, part });
     return part;
   }
 

@@ -36,8 +36,13 @@ VARIANTS = {
     "slate-no-toolcards": [s for s in SURFACES if s not in ("tool-cards", "transcript")],
     "slate-matched-history": SURFACES,
 }
-MESSAGE_LENGTH = {variant: ("all" if variant == "slate-matched-history" else None) for variant in VARIANTS}
-HISTORY = {variant: ("matched-history" if MESSAGE_LENGTH[variant] == "all" else
+DEFAULT_VARIANTS = tuple(VARIANTS)
+EXTERNAL_VARIANTS = {"slate-0.4.0": SURFACES, "slate-main-before": SURFACES, "starline": []}
+VARIANTS.update(EXTERNAL_VARIANTS)
+FRESH_SLATE_VARIANTS = {"slate", "slate-0.4.0", "slate-main-before"}
+# Keep the workload fingerprint comparable with reports before the opt-in variants.
+MESSAGE_LENGTH = {variant: ("all" if variant == "slate-matched-history" else None) for variant in DEFAULT_VARIANTS}
+HISTORY = {variant: ("matched-history" if MESSAGE_LENGTH.get(variant) == "all" else
                      "shipped-default" if "transcript" in surfaces else "native-unlimited")
            for variant, surfaces in VARIANTS.items()}
 TERMINALS = {"200x50": (200, 50), "120x40": (120, 40)}
@@ -87,6 +92,31 @@ def isolated_path():
         if not any(root == path or root in path.parents or root == resolved or root in resolved.parents for root in roots):
             paths.append(entry)
     return os.pathsep.join(paths)
+
+
+def extension_paths(variants, overrides):
+    paths = {variant: None if variant == "native" else SLATE for variant in variants}
+    seen = set()
+    for variant, directory in overrides:
+        if variant not in paths or variant == "native" or variant in seen:
+            raise RuntimeError(f"--extension-path needs a unique selected non-native variant, got {variant!r}")
+        path = Path(directory).expanduser().resolve()
+        if not path.is_dir():
+            raise RuntimeError(f"Extension directory for {variant} not found: {path}")
+        paths[variant] = path
+        seen.add(variant)
+    for variant in variants:
+        if variant in EXTERNAL_VARIANTS and variant not in seen:
+            raise RuntimeError(f"{variant} requires --extension-path {variant} DIR")
+    return paths
+
+
+def extension_metadata(path):
+    if path is None:
+        return None
+    manifest = path / "package.json"
+    package = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
+    return {"path": str(path), "name": package.get("name"), "version": package.get("version")}
 
 
 def write_json(path, value):
@@ -294,11 +324,33 @@ def wait_status(term, path, timeout, predicate):
     raise RuntimeError(f"Timed out waiting for the fullscreen probe; last status: {status}")
 
 
-def attest(status, variant):
+def uses_fresh_slate(variant, args):
+    return args.slate_fresh and variant in FRESH_SLATE_VARIANTS
+
+
+def visible_surfaces(variant, args):
+    # Fresh Slate starts focused, so the sidebar is not visible. The chat adapter is
+    # not a surface: both tool grouping and the optional transcript window use it.
+    if uses_fresh_slate(variant, args):
+        return ["editor", "tool-cards"]
+    return [surface for surface in VARIANTS[variant] if surface != "transcript"]
+
+
+def transcript_config(variant, args):
+    owned = not uses_fresh_slate(variant, args) and "transcript" in VARIANTS[variant]
+    limit = (MESSAGE_LENGTH.get(variant) or "shipped-default") if owned else "all"
+    return {"owned": owned, "limit": limit}
+
+
+def attest(status, variant, expected_surfaces, expected_chat_adapter):
     active = {name for name, enabled in status["surfaces"].items() if enabled}
-    expected = set(VARIANTS[variant])
+    expected = set(expected_surfaces)
     if active != expected:
         raise RuntimeError(f"Slate surface mismatch: missing {sorted(expected - active)}, unexpected {sorted(active - expected)}")
+    if status["chat_adapter"] != expected_chat_adapter:
+        raise RuntimeError(f"Expected chat_adapter={expected_chat_adapter}, got {status['chat_adapter']}")
+    if variant == "starline" and not status["starlineEditor"]:
+        raise RuntimeError("Starline's PolishedEditor was not mounted")
     if status["scrollTop"] is None:
         raise RuntimeError("The primary transcript ScrollView was not found")
     if status["maxScrollTop"] is None:
@@ -324,10 +376,11 @@ def validate_burst(scenario, before, after, allow_dropped_input, *, busy=False):
     if end != expected and not range_changed:
         raise RuntimeError(f"Primary ScrollView {scenario}: expected scrollTop {expected} after {received} wheel lines, got {end}")
     return {"before": start, "after": end, "received_lines": received, "dropped_lines": dropped,
-            "viewport_displacement_lines": abs(end - start)}
+            "viewport_displacement_lines": abs(end - start), "max_scroll_top": bottom,
+            "max_scroll_top_after": after["maxScrollTop"]}
 
 
-def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile_dir, capture):
+def run_one(node, cli, env, root, cwd, fixture, variant, extension, terminal, args, profile_dir, capture):
     home, agent, sessions = (root / name for name in ("home", "agent", "sessions"))
     for directory in (home, agent, sessions):
         directory.mkdir(parents=True)
@@ -337,10 +390,14 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
     write_json(agent / "settings.json", {"packages": [], "theme": "dark", "hideThinkingBlock": busy,
                                           "quietStartup": True, "fullscreenExitOutput": "resume-hint",
                                           "fullscreenWheelScrollLines": WHEEL_LINES})
-    slate_settings = {"version": 1, "surfaces": VARIANTS[variant], "focused": False}
-    if MESSAGE_LENGTH[variant] is not None:
-        slate_settings["messageLength"] = MESSAGE_LENGTH[variant]
-    write_json(agent / "pi-slate.json", slate_settings)
+    expected_surfaces = visible_surfaces(variant, args)
+    transcript = transcript_config(variant, args)
+    expected_chat_adapter = transcript["owned"] or "tool-cards" in expected_surfaces
+    if VARIANTS[variant] and not uses_fresh_slate(variant, args):
+        slate_settings = {"version": 1, "surfaces": VARIANTS[variant], "focused": False}
+        if MESSAGE_LENGTH.get(variant) is not None:
+            slate_settings["messageLength"] = MESSAGE_LENGTH[variant]
+        write_json(agent / "pi-slate.json", slate_settings)
     session = sessions / "synthetic.jsonl"
     shutil.copyfile(fixture, session)
     probe, status = root / "probe.jsonl", root / "status.json"
@@ -355,8 +412,8 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
     argv += [str(cli), "--tui-mode", "fullscreen", "--no-extensions", "--no-mcp", "--no-skills",
              "--no-prompt-templates", "--no-context-files", "--tools", "bash,read,grep,ls,find,edit,write",
              "-e", str(HERE / "probe/index.ts"), "--session-dir", str(sessions), "--session", str(session)]
-    if variant != "native":
-        argv += ["-e", str(SLATE)]
+    if extension is not None:
+        argv += ["-e", str(extension)]
     if busy:
         stage_path = root / "stage"
         stage_path.write_text("0", encoding="utf-8")
@@ -385,9 +442,11 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
         term.capturing = False
         before_ready = time.monotonic()
         current = wait_status(term, status, args.readiness_timeout, lambda s: s["ready"])
-        attest(current, variant)
-        validation = {"surfaces": current["surfaces"], "diff_views": current["diffViews"],
-                      "pending_diffs": current["pendingDiffs"], "host_highlight_settled": current["hostHighlightSettled"],
+        attest(current, variant, expected_surfaces, expected_chat_adapter)
+        validation = {"surfaces": current["surfaces"], "chat_adapter": current["chat_adapter"],
+                      "diff_views": current["diffViews"],
+                      "starline_editor": current["starlineEditor"], "pending_diffs": current["pendingDiffs"],
+                      "host_highlight_settled": current["hostHighlightSettled"],
                       "readiness_wait_s": time.monotonic() - before_ready, "wheel": wheel}
 
         def viewport():
@@ -396,7 +455,7 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
             os.kill(pid, signal.SIGUSR2)  # No fake terminal input or render request.
             # A host stuck in long frames (e.g. 0.3.0, full history) can starve the signal for seconds.
             current = wait_status(term, status, 20, lambda s: s["seq"] > previous)
-            attest(current, variant)
+            attest(current, variant, expected_surfaces, expected_chat_adapter)
             return current
 
         def burst(scenario, button):
@@ -445,7 +504,7 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
                 if deltas < (2 if scenario == "wheel_up" else 6) or after["busy"]["settled"] or (
                         scenario == "wheel_down" and after["busy"]["toolsFinished"] != 1):
                     raise RuntimeError(f"Synthetic stream was not active during {scenario}: {after['busy']}")
-                wheel[scenario].update(stream_deltas=deltas, max_scroll_top=before["maxScrollTop"])
+                wheel[scenario]["stream_deltas"] = deltas
         if busy:
             validation["busy"] = busy_stage(3, lambda s: s["settled"])["busy"]
     samples = [json.loads(line) for line in probe.read_text(encoding="utf-8").splitlines()]
@@ -454,6 +513,7 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
         burst_stat = wheel.get(scenario, {})
         row["dropped_wheel_lines"] = burst_stat.get("dropped_lines")
         row["viewport_displacement_lines"] = burst_stat.get("viewport_displacement_lines")
+        row["max_scroll_top"] = burst_stat.get("max_scroll_top_after")
     if any(not result[s]["frames"] or not result[s]["tty_bytes"] for s in ("wheel_up", "wheel_down")):
         raise RuntimeError("Wheel input did not produce frames and PTY output in both directions")
     return {"startup": startup, **result, "validation": validation}
@@ -492,13 +552,14 @@ STEADY_COLUMNS = {
     "view_frame.mean_ms": ("View mean ms", ".1f"), "content_frame.mean_ms": ("Content mean ms", ".1f"),
     "bytes_per_frame": ("B/frame", ".0f"), "dropped_wheel_lines": ("Dropped wheel lines", "g"),
     "viewport_displacement_lines": ("Viewport lines moved", "g"),
+    "max_scroll_top": ("Max scroll offset (lines)", "g"),
 }
 CASE_HEADERS = ["Terminal", "Variant", "History"]
 
 
 def metric(metrics, path):
     key, _, nested = path.partition(".")
-    return metrics[key][nested] if nested else metrics[key]
+    return metrics[key][nested] if nested else metrics.get(key)
 
 
 def value(number, spec):
@@ -531,7 +592,8 @@ def summary_table(report):
                   ("Wheel CPU s", wheel, "cpu_s", ".2f"), ("View mean ms", wheel, "view_frame.mean_ms", None),
                   ("Frame p95 ms", wheel, "frame.p95_ms", None), ("Wheel content frames", wheel, "content_frames", ".1f"),
                   ("B/frame", wheel, "bytes_per_frame", None), ("Dropped wheel lines", wheel, "dropped_wheel_lines", None),
-                  ("Viewport lines moved", wheel, "viewport_displacement_lines", None)]
+                  ("Viewport lines moved", wheel, "viewport_displacement_lines", None),
+                  ("Max scroll offset (lines)", wheel, "max_scroll_top", None)]
     headers, rows = CASE_HEADERS.copy(), [case_label(case) for case in report["cases"]]
     for heading, scenarios, path, spec in projection:
         columns = STARTUP_COLUMNS if scenarios == ["startup"] else STEADY_COLUMNS
@@ -593,6 +655,8 @@ def suite(args):
     if sys.platform not in ("darwin", "linux"):
         raise RuntimeError("The live benchmark needs a macOS or Linux PTY; --compare is portable")
     suite_start = time.monotonic()
+    extensions = extension_paths(args.variants, args.extension_path)
+    extension_builds = {variant: extension_metadata(path) for variant, path in extensions.items()}
     child_path = isolated_path()
     node = shutil.which("node", path=child_path) if child_path else None
     if not node:
@@ -637,6 +701,8 @@ def suite(args):
             report["workload"]["busy_stream_revision"] = 4
         heading = (f"Pi {pi_version} · Slate {report['slate_version']} ({report['slate_git_sha']}) · "
                    f"{entries} entries · {args.runs} runs" + (" · busy" if args.scenario == "busy" else ""))
+        if args.slate_fresh:
+            heading += " · fresh Slate defaults"
         print(heading, flush=True)
         print(f"Results: {results}", flush=True)
         for terminal in args.terminals:
@@ -648,7 +714,8 @@ def suite(args):
                     capture = results / f"{name}.ansi" if args.capture and i == 1 else None
                     profile_dir = results / "profiles" / name
                     try:
-                        runs.append(run_one(node, cli, env, temp / name, cwd, fixture, variant, terminal, args, profile_dir, capture))
+                        runs.append(run_one(node, cli, env, temp / name, cwd, fixture, variant, extensions[variant],
+                                            terminal, args, profile_dir, capture))
                     except Exception as error:
                         raise RuntimeError(f"{name}: {error}") from error
                     if capture:
@@ -661,8 +728,12 @@ def suite(args):
                             profiles.append(str(path.relative_to(results)))
                             print(f"\nProfile: {path.relative_to(results)}", flush=True)
                             subprocess.run([node, str(HERE / "prof.mjs"), str(path)], env=env, check=True, timeout=60)
-                report["cases"].append({"variant": variant, "terminal": terminal, "history": HISTORY[variant],
-                                        "surfaces": VARIANTS[variant], "median": summarize_runs(runs), "runs": runs,
+                history = "fresh-unlimited" if uses_fresh_slate(variant, args) else HISTORY[variant]
+                report["cases"].append({"variant": variant, "terminal": terminal, "history": history,
+                                        "extension": extension_builds[variant], "surfaces": visible_surfaces(variant, args),
+                                        "chat_adapter": runs[0]["validation"]["chat_adapter"],
+                                        "transcript": transcript_config(variant, args),
+                                        "median": summarize_runs(runs), "runs": runs,
                                         "captures": captures, "profiles": profiles})
         for case in report["cases"]:
             for run in case["runs"]:
@@ -688,7 +759,11 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--scenario", choices=("idle", "busy"), default="idle",
                         help="stream a local synthetic reply during the wheel bursts (busy), or scroll at idle (default)")
-    parser.add_argument("--variants", choices=VARIANTS, nargs="+", default=list(VARIANTS))
+    parser.add_argument("--variants", choices=VARIANTS, nargs="+", default=DEFAULT_VARIANTS)
+    parser.add_argument("--extension-path", nargs=2, metavar=("VARIANT", "DIR"), action="append", default=[],
+                        help="load a different unpacked extension directory for a selected variant (repeatable)")
+    parser.add_argument("--slate-fresh", action="store_true",
+                        help="use untouched first-install settings for slate, slate-main-before, and slate-0.4.0")
     parser.add_argument("--terminals", choices=TERMINALS, nargs="+", default=list(TERMINALS))
     parser.add_argument("--startup-timeout", type=float, default=30.0)
     parser.add_argument("--readiness-timeout", type=float, default=30.0, help="max seconds to settle after the transcript paint")

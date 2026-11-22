@@ -11,6 +11,7 @@ import {
   STREAMING_THINKING_LABEL,
   ThinkingDurations,
   thinkingLabel,
+  thinkingRowsKey,
   type ThinkingView,
 } from "../extensions/pi-slate/thinking-label.ts";
 import { ChatSurface } from "../extensions/pi-slate/chat-surface.ts";
@@ -48,7 +49,7 @@ function durationsFixture() {
         styledLabel: hostStyledLabel(),
       });
     },
-    version: () => `${durations.version}:${tracker.revision}`,
+    key: (component: unknown) => thinkingRowsKey(component as ThinkingView, { active: tracker.active(), durations }),
   };
 }
 
@@ -61,9 +62,8 @@ test("collapsed labels cover streaming, observed durations, and restored runs", 
   assert.equal(thinkingLabel({ streaming: false }), "Thought");
 });
 
-test("duration memory is bounded, cleared, and versioned", () => {
+test("duration memory is bounded and can be cleared", () => {
   const durations = new ThinkingDurations(2);
-  const initial = durations.version;
   durations.record("one", 1_000);
   durations.record("two", 2_000);
   durations.record("one", 3_000);
@@ -71,12 +71,9 @@ test("duration memory is bounded, cleared, and versioned", () => {
   assert.equal(durations.lookup("one"), 3_000);
   assert.equal(durations.lookup("two"), undefined);
   assert.equal(durations.lookup("three"), 4_000);
-  assert.ok(durations.version > initial);
-  const recorded = durations.version;
   durations.clear();
   assert.equal(durations.lookup("one"), undefined);
   assert.equal(durations.lookup("three"), undefined);
-  assert.ok(durations.version > recorded);
 });
 
 test("row replacement keeps Pi's styling and row width, and returns the input when unchanged", () => {
@@ -146,7 +143,7 @@ test("a grouped run goes live again after a pause, keeps its duration, and still
     () => theme,
     () => "expand",
     (component, rows) => f.decorate(component, rows),
-    f.version,
+    f.key,
   );
   const rows = () => groups.render(children, 80).map((row) => stripVTControlCharacters(row));
 
@@ -174,33 +171,44 @@ test("a grouped run goes live again after a pause, keeps its duration, and still
   assert.doesNotMatch(rows().join("\n"), /Thought for 3s/);
 });
 
-test("group frames reuse decorated rows until the label key changes", () => {
+test("thinking end repaints only the changed thought, reusing truncated tool rows", () => {
   initTheme("dark", false);
   const f = durationsFixture();
-  const message = { role: "assistant", stopReason: "toolUse", content: [thinking("cached run"), call("a")] };
+  const older = { role: "assistant", stopReason: "toolUse", content: [thinking("older run"), call("a")] };
+  const message = { role: "assistant", stopReason: "toolUse", content: [thinking("live run"), call("b")] };
+  const oldAssistant = new AssistantMessageComponent(older as never, true, undefined, HIDDEN_THINKING_LABEL);
   const assistant = new AssistantMessageComponent(message as never, true, undefined, HIDDEN_THINKING_LABEL);
-  const other = { render: () => ["", "✓ Bash (pwd)"], invalidate() {} };
-  const children = [assistant, other];
-  let decorations = 0;
+  const tool = (id: string) => ({
+    toolCallId: id, toolName: "bash", expanded: false, isPartial: false,
+    result: { content: [] }, render: () => ["", `✓ Bash (${id})`], invalidate() {}, setExpanded() {},
+  });
+  const children = [oldAssistant, tool("a"), assistant, tool("b")];
+  const decorated: unknown[] = [];
   const groups = new ToolGroups(
     () => undefined,
     () => "expand",
-    (component, rows) => { decorations++; return f.decorate(component, rows); },
-    f.version,
+    (component, rows) => { decorated.push(component); return f.decorate(component, rows); },
+    f.key,
   );
 
-  const first = groups.render(children, 80);
-  const painted = decorations;
-  assert.equal(groups.render(children, 80), first);
-  assert.equal(decorations, painted, "an unchanged frame reuses decorated rows");
-
+  f.durations.record("older run", 2_000);
   f.tracker.observe({ type: "thinking_start", contentIndex: 0 }, message);
   const streaming = groups.render(children, 80);
-  assert.notEqual(streaming, first);
-  assert.ok(decorations > painted);
-  const repainted = decorations;
-  assert.equal(groups.render(children, 80), streaming);
-  assert.equal(decorations, repainted);
+  assert.match(streaming.map(stripVTControlCharacters).join("\n"), /Done \(2 tool calls\)[\s\S]*Thought for 2s[\s\S]*Thinking…/);
+  assert.deepEqual(decorated, children);
+  const toolRow = streaming.findIndex((line) => line.includes("Bash (a)"));
+  const toolOwner = groups.rowOwner(toolRow);
+  assert.ok(toolOwner);
+  decorated.length = 0;
+
+  f.advance(4_000);
+  f.tracker.observe({ type: "thinking_end", contentIndex: 0 }, message);
+  const completed = groups.render(children, 80);
+  assert.match(completed.map(stripVTControlCharacters).join("\n"), /Thought for 2s[\s\S]*Thought for 4s/);
+  assert.deepEqual(decorated, [assistant]);
+  assert.equal(groups.rowOwner(toolRow), toolOwner, "the grouped tool body and its row mapping were reused");
+  assert.equal(groups.render(children, 80), completed);
+  assert.deepEqual(decorated, [assistant]);
 });
 
 
@@ -213,7 +221,7 @@ test("a stopped run without thinking_end clears the cached streaming label", () 
     () => undefined,
     () => "expand",
     (component, rows) => f.decorate(component, rows),
-    f.version,
+    f.key,
   );
   const rows = () => groups.render([assistant], 80).map((row) => stripVTControlCharacters(row)).join("\n");
 

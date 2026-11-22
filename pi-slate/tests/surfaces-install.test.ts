@@ -315,15 +315,27 @@ test("lost optional styling registrations are diagnostic-only and never blame na
   assert.doesNotMatch(report, /retained for.*read/);
 });
 
-test("a mounted chat painter owns the hidden thinking label and restores it on shutdown", async (t) => {
+test("the chat painter sets the hidden thinking label once per UI and restores it on shutdown", async (t) => {
   const labels: Array<string | undefined> = [];
   const f = await fixture(t, JSON.stringify({ version: 1, surfaces: ["transcript"] }), "tui", true, false, (_pi, ui) => {
-    (ui as unknown as { setHiddenThinkingLabel: (label?: string) => void }).setHiddenThinkingLabel = (label) => labels.push(label);
+    ui.setHiddenThinkingLabel = (label) => { labels.push(label); };
   });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(labels, ["Thought"]);
-  await f.emit("session_shutdown");
-  assert.deepEqual(labels, ["Thought", undefined]);
+  const message = { role: "assistant", content: [] };
+  for (let i = 0; i < 3; i++) await f.emit("message_end", { message }, { ...f.ctx });
+  assert.deepEqual(labels, ["Thought"], "fresh event wrappers share one UI owner");
+
+  const replacementLabels: Array<string | undefined> = [];
+  const ui = { ...f.ctx.ui, setHiddenThinkingLabel: (label?: string) => { replacementLabels.push(label); } };
+  for (let i = 0; i < 3; i++) await f.emit("message_end", { message }, { ...f.ctx, ui });
+  assert.deepEqual(replacementLabels, ["Thought"], "a replacement UI gets its own label");
+  await f.emit("session_shutdown", {}, { ...f.ctx, ui });
+  assert.deepEqual(replacementLabels, ["Thought", undefined]);
+  assert.deepEqual(labels, ["Thought"], "the replaced UI is not used for cleanup");
+
+  await f.emit("session_start", {}, { ...f.ctx, ui });
+  await f.emit("message_end", { message }, { ...f.ctx, ui });
+  assert.deepEqual(replacementLabels, ["Thought", undefined, "Thought"], "remounting resets the guard");
+  await f.emit("session_shutdown", {}, { ...f.ctx, ui });
 });
 
 test("unselected cards ignore Claude tool style entirely", async (t) => {

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix scrolling hitches when thinking ends or a reply hands off to tools.
 - Keep fullscreen scrolling responsive during replies and tool runs by retaining the configured transcript window and appending the live turn, rather than repainting the entire history.
 
 ## 0.4.0

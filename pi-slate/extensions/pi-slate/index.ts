@@ -47,6 +47,7 @@ import {
   decorateThinkingRows as paintThinkingRows,
   HIDDEN_THINKING_LABEL,
   ThinkingDurations,
+  thinkingRowsKey,
   type ThinkingView,
 } from "./thinking-label.ts";
 import {
@@ -290,22 +291,16 @@ export default function piSlate(pi: ExtensionAPI): void {
   let groupPainter: ToolGroups | undefined;
   const tokenRate = new TokenRateTracker();
   const thinkingDurations = new ThinkingDurations();
-  let hiddenThinkingLabelContext: ExtensionContext | undefined;
-  const setHiddenThinkingLabel = (ctx: ExtensionContext, enabled: boolean): void => {
-    if (!enabled) {
-      const owner = hiddenThinkingLabelContext;
-      if (!owner) return;
-      try { owner.ui.setHiddenThinkingLabel(); } catch { /* A replaced UI context belongs to a successor. */ }
-      hiddenThinkingLabelContext = undefined;
-      return;
-    }
-    if (hiddenThinkingLabelContext === ctx) return;
-    const ui = ctx.ui;
-    if (!ui || typeof ui.setHiddenThinkingLabel !== "function") return;
+  let appliedThinkingLabel: { ui: ExtensionContext["ui"]; label: string } | undefined;
+  const syncHiddenThinkingLabel = (ui: ExtensionContext["ui"], label?: string): void => {
+    // Pi creates a fresh event context, but its UI owner is stable. The setter
+    // rebuilds every assistant message, so only call it when the label changes.
+    if (appliedThinkingLabel?.ui !== ui) appliedThinkingLabel = undefined;
+    if (appliedThinkingLabel?.label === label || typeof ui?.setHiddenThinkingLabel !== "function") return;
     try {
-      ui.setHiddenThinkingLabel(HIDDEN_THINKING_LABEL);
-      hiddenThinkingLabelContext = ctx;
-    } catch { hiddenThinkingLabelContext = undefined; }
+      ui.setHiddenThinkingLabel(label);
+      appliedThinkingLabel = label === undefined ? undefined : { ui, label };
+    } catch { /* Optional presentation hook; retry on the next sync. */ }
   };
   const thinkingFold = new ThinkingFoldTracker({
     onChange: () => syncThinkingStatus(),
@@ -331,18 +326,18 @@ export default function piSlate(pi: ExtensionAPI): void {
     } catch { /* Keep the check pending if the host is temporarily unavailable. */ }
   };
 
+  const thinkingRowState = () => ({ active: thinkingFold.active(), durations: thinkingDurations });
   const decorateThinkingRows = (component: Component, rows: readonly string[], _width: number): readonly string[] => {
     try {
       const theme = liveTheme();
       if (!theme) return rows;
       return paintThinkingRows(component as ThinkingView, rows, {
-        active: thinkingFold.active(),
-        durations: thinkingDurations,
+        ...thinkingRowState(),
         styledLabel: theme.italic(theme.fg("thinkingText", HIDDEN_THINKING_LABEL)),
       });
     } catch { return rows; }
   };
-  const thinkingRowsVersion = (): string => `${thinkingDurations.version}:${thinkingFold.revision}`;
+  const thinkingDecorationKey = (component: Component): string => thinkingRowsKey(component as ThinkingView, thinkingRowState());
   const groupingActive = () => diagnostics.active("tool-groups", "Consecutive tool cards can be grouped.");
 
   const syncVisibleMessages = (): void => {
@@ -369,7 +364,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       else chatSurface = new ChatSurface(chat, options);
     }, () => { chatSurface?.dispose(); chatSurface = undefined; });
     const ctx = liveContext();
-    if (ctx) setHiddenThinkingLabel(ctx, Boolean(chatSurface));
+    if (ctx) syncHiddenThinkingLabel(ctx.ui, chatSurface ? HIDDEN_THINKING_LABEL : undefined);
     if (owns("transcript")) {
       if (chatSurface) diagnostics.active("transcript", "Display-only message window mounted.");
       else diagnostics.fallback("transcript", "Native transcript retained; no compatible fullscreen chat surface.");
@@ -451,7 +446,8 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const install = (ctx: ExtensionContext): void => {
     chatSurface?.dispose(); chatSurface = undefined;
-    groupPainter = claudeTools ? new ToolGroups(liveTheme, undefined, decorateThinkingRows, thinkingRowsVersion) : undefined;
+    appliedThinkingLabel = undefined;
+    groupPainter = claudeTools ? new ToolGroups(liveTheme, undefined, decorateThinkingRows, thinkingDecorationKey) : undefined;
     diagnostics.reset();
     thinkingDurations.clear();
     if (requestedClaudeTools) {
@@ -853,7 +849,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     conversations = undefined;
     activeTui = undefined;
     sidebar.dispose();
-    setHiddenThinkingLabel(ctx, false);
+    if (appliedThinkingLabel) {
+      try { syncHiddenThinkingLabel(ctx.ui); } catch { /* The session UI may already be gone. */ }
+      appliedThinkingLabel = undefined;
+    }
     requestRender(true);
     currentContext = undefined;
     if (ctx.mode !== "tui") return;

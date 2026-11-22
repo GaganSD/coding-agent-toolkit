@@ -83,13 +83,15 @@ function inspect(tui: FullscreenTui, diffViews: number) {
   const document = view && primaryBox(frame?.root, view)?.children[0]?.component;
   // Mirrors Slate's findChatContainer. ChatSurface owns both methods on this instance.
   const chat = document && (document.children?.filter((child) => child.constructor.name === "Container").at(-1) ?? document);
-  const transcript = chat !== undefined && Object.hasOwn(chat, "render") && Object.hasOwn(chat, "handleMouse");
+  const chatAdapter = chat !== undefined && Object.hasOwn(chat, "render") && Object.hasOwn(chat, "handleMouse");
   const names = new Set([...components(tui.layoutRoot, chat), ...components(document, chat)].map((node) => node.constructor.name));
   return {
     scrollTop: view?.primary && Number.isFinite(view.scrollTop) ? view.scrollTop : null,
     maxScrollTop: maxScrollTop(view),
+    starlineEditor: names.has("PolishedEditor"),
+    chat_adapter: chatAdapter,
     surfaces: { header: names.has("SlateHeader"), footer: names.has("SlateFooter"), editor: names.has("ComposerEditor"),
-      sidebar, "tool-cards": diffViews > 0, transcript },
+      sidebar, "tool-cards": diffViews > 0 },
   };
 }
 
@@ -172,7 +174,7 @@ export default async function (pi: ExtensionAPI) {
         return widget;
       }
 
-      const { doRender, invalidate, requestRender, requestImmediateRender, routeWheel } = tui;
+      const { doRender, invalidate, requestRender, requestImmediateRender } = tui;
       const wheelLines = { wheel_up: 0, wheel_down: 0 };
       let routingWheel = false;
       let wheelError: string | undefined;
@@ -184,19 +186,22 @@ export default async function (pi: ExtensionAPI) {
         const range = maxScrollTop(tui.currentLayout?.primaryScrollView);
         if (range !== scrollRange) { scrollRange = range; scrollRangeRevision++; }
       }
-      tui.routeWheel = function (event, delta) {
-        routingWheel = true;
-        try { routeWheel.call(this, event, delta); }
-        finally { routingWheel = false; }
-      };
       function observeWheelInput(view: PrimaryScrollView) {
+        // Wrap the live router after session_start so we observe Starline's
+        // prototype patch as well as Pi's wheel routing, without bypassing either.
+        const { routeWheel } = tui;
+        tui.routeWheel = function (event, delta) {
+          routingWheel = true;
+          try { routeWheel.call(this, event, delta); }
+          finally { routingWheel = false; }
+        };
         const { scrollBy } = view;
         view.scrollBy = function (lines) {
           if (!routingWheel) return scrollBy.call(this, lines);
           wheelLines[lines < 0 ? "wheel_up" : "wheel_down"] += Math.abs(lines);
           return busy ? checkedWheelScroll(this, scrollBy, lines, recordWheelError) : scrollBy.call(this, lines);
         };
-        restoreScroll = () => { view.scrollBy = scrollBy; };
+        restoreScroll = () => { view.scrollBy = scrollBy; tui.routeWheel = routeWheel; };
       }
       let requesting = false;
       function noteRequest(hook: string) {
@@ -267,7 +272,7 @@ export default async function (pi: ExtensionAPI) {
       readinessTimer.unref();
       restore = () => {
         restoreScroll?.();
-        Object.assign(tui, { doRender, invalidate, requestRender, requestImmediateRender, routeWheel });
+        Object.assign(tui, { doRender, invalidate, requestRender, requestImmediateRender });
       };
       timer = setInterval(flush, 250);
       timer.unref();

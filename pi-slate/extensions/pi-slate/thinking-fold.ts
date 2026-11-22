@@ -29,7 +29,6 @@ export class ThinkingFoldTracker {
   private message: object | null = null;
   private runStartedAt: number | null = null;
   private runLastIndex: number | null = null;
-  private revisionCount = 0;
   private cancelTick?: () => void;
   private onChange?: () => void;
   private onComplete?: (completion: ThinkingCompletion) => void;
@@ -57,10 +56,6 @@ export class ThinkingFoldTracker {
     return this.startedAt === null || this.pausedAt !== null || this.contentIndex === null || this.message === null
       ? null
       : { message: this.message, contentIndex: this.contentIndex };
-  }
-
-  get revision(): number {
-    return this.revisionCount;
   }
 
   observe(event: unknown, message: { content?: readonly AssistantContentBlock[] }): void {
@@ -128,7 +123,6 @@ export class ThinkingFoldTracker {
         this.pausedAt = this.now();
         this.cancelTick?.();
         this.cancelTick = undefined;
-        this.revisionCount += 1;
         this.onChange?.();
       }
     } else {
@@ -138,7 +132,6 @@ export class ThinkingFoldTracker {
 
   private startTicks(): void {
     this.cancelTick = this.schedule(() => this.onChange?.());
-    this.revisionCount += 1;
     this.onChange?.();
   }
 
@@ -150,10 +143,7 @@ export class ThinkingFoldTracker {
     this.pausedAt = null;
     this.contentIndex = null;
     this.message = null;
-    if (wasActive) {
-      this.revisionCount += 1;
-      this.onChange?.();
-    }
+    if (wasActive) this.onChange?.();
   }
 
   stop(): void {
