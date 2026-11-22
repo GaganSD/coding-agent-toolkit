@@ -1073,7 +1073,7 @@ test("production editor teardown unwinds selection before image adapters", async
   assert.equal(editor.getText(), f.imagePath, "a retained disposed editor must not retain image rewrite wrappers");
 });
 
-test("a production grouping fault keeps windowing mounted across synchronization", async t => {
+test("a production grouping fault keeps windowing mounted and diagnostics recover", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["transcript", "tool-cards"] }));
   let paints = 0;
   const broken = {
@@ -1094,6 +1094,12 @@ test("a production grouping fault keeps windowing mounted across synchronization
   await f.commands.get("slate")!.handler("diagnostics", f.ctx);
   assert.match(f.inspected.join("\n"), /tool-groups: fallback/);
   assert.match(f.inspected.join("\n"), /transcript: active/);
+  Reflect.set(broken.result, "content", []);
+  assert.equal(f.chat.render(80).length, 100);
+  await new Promise<void>(resolve => setImmediate(resolve)); // Let the first inspector close.
+  f.inspected.length = 0;
+  await f.commands.get("slate")!.handler("diagnostics", f.ctx);
+  assert.match(f.inspected.join("\n"), /tool-groups: active/);
 });
 
 test("a changed optional command-catalog shape cannot abort unrelated surface setup", async t => {

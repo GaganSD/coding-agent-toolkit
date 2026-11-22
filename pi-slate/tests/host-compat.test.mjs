@@ -15,7 +15,7 @@ const { version } = JSON.parse(await readFile(join(hostDir, "package.json"), "ut
 const packageDir = await realpath(process.env.SLATE_COMPAT_PACKAGE ?? fileURLToPath(new URL("../", import.meta.url)));
 const probe = fileURLToPath(new URL("../scripts/host-smoke.mjs", import.meta.url));
 
-async function runProbe(mode, surfaces, fault) {
+async function runProbe(mode, surfaces, fault, thinkingClick) {
   const root = await mkdtemp(join(tmpdir(), "slate-host-compat-"));
   try {
     // Deliberately do not inherit provider keys, credentials, project settings or operator HOME.
@@ -25,6 +25,7 @@ async function runProbe(mode, surfaces, fault) {
       PI_CODING_AGENT_DIR: root, PI_OFFLINE: "1", TERM: "xterm-256color", NO_COLOR: "1",
       SLATE_COMPAT_HOST_ENTRY: entry, SLATE_COMPAT_HOST_DIR: hostDir, SLATE_COMPAT_VERSION: version,
       SLATE_COMPAT_PACKAGE: packageDir, SLATE_COMPAT_MODE: mode, SLATE_COMPAT_SURFACES: surfaces, SLATE_COMPAT_FAULT: fault,
+      SLATE_COMPAT_THINKING_CLICK: thinkingClick,
     };
     const result = spawnSync(process.execPath, [probe], { env, cwd: root, encoding: "utf8", timeout: 60000, maxBuffer: 2 * 1024 * 1024 });
     assert.ifError(result.error);
@@ -47,6 +48,12 @@ for (const mode of ["regular", "fullscreen"]) {
 test(`real Pi ${version}: an editor-only image rewrite repaints after scheduler recovery`, async () => {
   const result = await runProbe("fullscreen", '["editor"]');
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
+
+test(`real Pi ${version}: fullscreen thinking clicks preserve grouping and live durations`, async () => {
+  const result = await runProbe("fullscreen", '["tool-cards","transcript"]', undefined, "1");
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(JSON.parse(result.stdout.trim()).thinkingClick, true);
 });
 
 for (const [fault, expected] of [["quit-shutdown", /Injected quit-only shutdown fault/], ["transcript", /transcript window did not mount/]]) {

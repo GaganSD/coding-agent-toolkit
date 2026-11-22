@@ -45,7 +45,7 @@ export type ChatSurfaceOptions = {
   limit?: number;
   groups?: ToolGroups;
   active?: () => boolean;
-  onGroupingFault?: () => void;
+  onGroupingFaultChange?: (faulted: boolean) => void;
   /** Presentation-only row decoration; returns the same array when nothing changes. */
   decorate?: RowDecorator;
 };
@@ -69,7 +69,16 @@ export class ChatSurface {
   private readonly display = new Container();
   private paintedGroups: ToolGroups | undefined;
   private paintedWidth?: number;
+  private groupingFailed = false;
   private disposed = false;
+
+  get groupingFaulted(): boolean { return this.groupingFailed; }
+
+  private setGroupingFault(faulted: boolean): void {
+    if (faulted === this.groupingFailed) return;
+    this.groupingFailed = faulted;
+    this.options.onGroupingFaultChange?.(faulted);
+  }
 
   /** Decorate native rows by child while keeping Container's mouse layout intact. */
   private decorateNative(rendered: string[], width: number): string[] {
@@ -113,16 +122,17 @@ export class ChatSurface {
       }
       this.paintedGroups = undefined;
       this.paintedWidth = width;
-      if (this.options.groups) {
-        try {
-          const rows = this.options.groups.render(this.display.children, width);
-          this.paintedGroups = this.options.groups;
+      const groups = this.options.groups;
+      if (groups) {
+        let rows: string[] | undefined;
+        try { rows = groups.render(this.display.children, width); }
+        catch { /* Paint and route this frame natively; retry on the next content render. */ }
+        this.setGroupingFault(rows === undefined);
+        if (rows) {
+          this.paintedGroups = groups;
           return rows;
-        } catch {
-          this.options.groups = undefined;
-          this.options.onGroupingFault?.();
         }
-      }
+      } else this.setGroupingFault(false);
       return this.decorateNative(this.display.render(width), width);
     };
     this.installedMouse = event => {

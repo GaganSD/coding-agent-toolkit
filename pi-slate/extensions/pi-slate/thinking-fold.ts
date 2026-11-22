@@ -24,6 +24,7 @@ export type ThinkingCompletion = { elapsedMs: number; thinking: string };
 export class ThinkingFoldTracker {
   private disposed = false;
   private startedAt: number | null = null;
+  private pausedAt: number | null = null;
   private contentIndex: number | null = null;
   private message: object | null = null;
   private runStartedAt: number | null = null;
@@ -48,12 +49,12 @@ export class ThinkingFoldTracker {
   }
 
   elapsedMs(): number | null {
-    return this.startedAt === null ? null : Math.max(0, this.now() - this.startedAt);
+    return this.startedAt === null || this.pausedAt !== null ? null : Math.max(0, this.now() - this.startedAt);
   }
 
   /** The message and content index being timed, for matching one hidden run during streaming. */
   active(): { message: object; contentIndex: number } | null {
-    return this.startedAt === null || this.contentIndex === null || this.message === null
+    return this.startedAt === null || this.pausedAt !== null || this.contentIndex === null || this.message === null
       ? null
       : { message: this.message, contentIndex: this.contentIndex };
   }
@@ -98,11 +99,10 @@ export class ThinkingFoldTracker {
         this.onChange?.();
       } else if (type === "thinking_end") {
         if (this.startedAt !== null && contentIndex === this.contentIndex) {
-          const elapsedMs = Math.max(0, this.now() - this.startedAt);
-          const runElapsedMs = this.runStartedAt === null ? elapsedMs : Math.max(0, this.now() - this.runStartedAt);
+          const elapsedMs = Math.max(0, (this.pausedAt ?? this.now()) - (this.runStartedAt ?? this.startedAt));
           const thinking = thinkingRunText(message.content, contentIndex);
           if (thinking) {
-            try { this.onComplete?.({ elapsedMs: runElapsedMs, thinking }); }
+            try { this.onComplete?.({ elapsedMs, thinking }); }
             catch { /* Presentation-only sink; never let it interrupt host streaming. */ }
           }
           this.runLastIndex = contentIndex;
@@ -112,18 +112,30 @@ export class ThinkingFoldTracker {
         this.stopActive();
       } else if (contentIndex !== this.contentIndex) {
         this.stop();
+      } else if (this.pausedAt !== null) {
+        this.pausedAt = this.now(); // Reasoning can continue after the first text/tool update.
+      }
+    } else if (this.startedAt !== null && /^(?:text|toolcall)_(?:start|delta|end)$/.test(type)) {
+      // Some adapters (notably OpenAI Chat Completions) emit thinking_end only
+      // after streaming text or a tool call. Stop the live clock but keep the pair.
+      if (this.pausedAt === null) {
+        this.pausedAt = this.now();
+        this.cancelTick?.();
+        this.cancelTick = undefined;
+        this.revisionCount += 1;
+        this.onChange?.();
       }
     } else {
-      // Missing thinking_end or a changed event shape must not leave a live timer behind.
       this.stop();
     }
   }
 
   private stopActive(): void {
-    const wasActive = this.startedAt !== null;
+    const wasActive = this.startedAt !== null && this.pausedAt === null;
     this.cancelTick?.();
     this.cancelTick = undefined;
     this.startedAt = null;
+    this.pausedAt = null;
     this.contentIndex = null;
     this.message = null;
     if (wasActive) {

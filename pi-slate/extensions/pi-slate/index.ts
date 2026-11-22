@@ -343,6 +343,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     } catch { return rows; }
   };
   const thinkingRowsVersion = (): string => `${thinkingDurations.version}:${thinkingFold.revision}`;
+  const groupingActive = () => diagnostics.active("tool-groups", "Consecutive tool cards can be grouped.");
 
   const syncVisibleMessages = (): void => {
     if ((!owns("transcript") && !claudeTools) || liveContext()?.mode !== "tui") return;
@@ -359,9 +360,9 @@ export default function piSlate(pi: ExtensionAPI): void {
           const ctx = liveContext();
           return Boolean(ctx && typeof ctx.isIdle === "function" && !ctx.isIdle());
         },
-        onGroupingFault: () => {
-          groupPainter = undefined;
-          diagnostics.fault("tool-groups", "Native tool rendering restored after the optional grouping painter failed.");
+        onGroupingFaultChange: (faulted: boolean) => {
+          if (faulted) diagnostics.fallback("tool-groups", "Native cards shown for this frame; grouping will retry on the next content render.");
+          else groupingActive();
         },
       };
       if (chatSurface) chatSurface.update(options);
@@ -374,8 +375,8 @@ export default function piSlate(pi: ExtensionAPI): void {
       else diagnostics.fallback("transcript", "Native transcript retained; no compatible fullscreen chat surface.");
     }
     if (claudeTools) {
-      if (chatSurface && groupPainter) diagnostics.active("tool-groups", "Consecutive tool cards can be grouped.");
-      else diagnostics.fallback("tool-groups", "Ungrouped cards retained; no compatible chat surface.");
+      if (!chatSurface || !groupPainter) diagnostics.fallback("tool-groups", "Ungrouped cards retained; no compatible chat surface.");
+      else if (!chatSurface.groupingFaulted) groupingActive();
     }
   };
 

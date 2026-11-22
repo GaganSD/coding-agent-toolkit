@@ -273,25 +273,27 @@ test("wheel reaches a grouped tool at its local coordinates", () => {
 
 test("grouping metadata faults retain the window and paint selected native children only once", () => {
   const chat = new Container(), broken = mockTool(), normal = new Text("visible normal message", 0, 0);
-  let paints = 0, normalPaints = 0, faults = 0;
+  let paints = 0, normalPaints = 0;
+  const states: boolean[] = [];
   const render = broken.render.bind(broken);
   broken.render = width => { paints++; return render(width); };
   const renderNormal = normal.render.bind(normal);
   normal.render = width => { normalPaints++; return renderNormal(width); };
   chat.addChild(new Text("hidden older message", 0, 0)); chat.addChild(normal); chat.addChild(broken);
-  let groups: ToolGroups | undefined = new ToolGroups(() => undefined);
-  const onGroupingFault = () => { faults++; groups = undefined; };
-  const surface = new ChatSurface(chat, { limit: 2, groups, onGroupingFault });
+  const surface = new ChatSurface(chat, { limit: 2, groups: new ToolGroups(() => undefined),
+    onGroupingFaultChange: faulted => states.push(faulted) });
   Reflect.set(broken.result, "content", {});
   assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/);
   assert.equal(normalPaints, 1, "metadata is checked before any selected native child paints");
   assert.equal(paints, 1, "the faulting frame paints the selected native child only once");
-  assert.equal(faults, 1);
-  surface.update({ limit: 2, groups, onGroupingFault });
+  assert.deepEqual(states, [true]);
   assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/);
   assert.equal(normalPaints, 2, "each later native frame paints once");
   assert.equal(paints, 2);
-  assert.equal(faults, 1, "synchronization does not retry a quarantined painter");
+  assert.deepEqual(states, [true], "persistent failures do not repeat the diagnostic");
+  Reflect.set(broken.result, "content", []);
+  assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/);
+  assert.deepEqual(states, [true, false], "valid metadata restores grouping on the next render");
   assert.equal(chat.children.length, 3);
   surface.dispose();
 });
