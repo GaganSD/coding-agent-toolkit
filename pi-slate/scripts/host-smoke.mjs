@@ -172,8 +172,8 @@ try {
         assert(paints > 0, "a content frame must render the chat");
         paints = 0;
         const before = chunks.length;
-        sidebar.setTasks([{ id: phase, label: `probe-task-${phase}`, source: "compat", kind: "shell", state: "running", startedAt: Date.now() }]);
-        await waitForWrite(before, /probe-task/, "the scheduled sidebar change did not reach the terminal");
+        sidebar.setSession({ ...Reflect.get(sidebar, "session"), name: `probe-${phase}` });
+        await waitForWrite(before, /probe-/, "the scheduled sidebar change did not reach the terminal");
         assert.equal(paints > 0, typeof ui.requestViewRender !== "function", "view-only hosts must reuse the transcript");
       } finally { chat.render = originalRender; }
     }

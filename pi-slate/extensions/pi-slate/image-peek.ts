@@ -102,7 +102,7 @@ export class ImagePeek {
 
   update(): void {
     if (this.disposed) return;
-    if (!this.workspace?.splitActive || this.workspace.isImagePinned()) return;
+    if (!this.workspace?.splitActive) return;
     const number = imageTokenAtCursor(this.editor.getText(), this.editor.getCursor());
     const filePath = number ? this.store.get(number) : undefined;
     if (!number || !filePath) {

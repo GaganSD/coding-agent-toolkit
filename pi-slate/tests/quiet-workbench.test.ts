@@ -49,10 +49,9 @@ test("compact viewport hides the rail without changing stored width or focus", (
 
 test("empty shelves allocate zero rows and all allocations remain bounded", () => {
   for (let height = 0; height < 80; height++) {
-    const empty = sessionSidebarSlots(height, 11, 0, false);
-    assert.equal(empty.tasks, 0); assert.equal(empty.image, 0);
-    for (const tasks of [0, 1, 10]) for (const image of [false, true]) {
-      const values = Object.values(sessionSidebarSlots(height, 11, tasks, image));
+    assert.equal(sessionSidebarSlots(height, 11, false).image, 0);
+    for (const image of [false, true]) {
+      const values = Object.values(sessionSidebarSlots(height, 11, image));
       assert.equal(values.reduce((a, b) => a + b, 0), height);
       assert(values.every(n => n >= 0));
     }
