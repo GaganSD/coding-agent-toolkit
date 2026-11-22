@@ -400,9 +400,6 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
             return current
 
         def burst(scenario, button):
-            if busy and scenario == "wheel_down":
-                stage_path.write_text("2", encoding="utf-8")
-                viewport()  # Acknowledge the transition before taking any later snapshots.
             for i in range(WHEEL_EVENTS):
                 try:
                     term.wheel(button)
@@ -432,7 +429,9 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
             raise RuntimeError(f"Synthetic stream did not reach stage {stage}: {current.get('busy')}")
 
         for scenario, button in (("wheel_up", 64), ("wheel_down", 65)):
-            before = viewport()
+            if busy and scenario == "wheel_down":
+                stage_path.write_text("2", encoding="utf-8")
+            before = viewport()  # Acknowledge any stage transition before starting the timer.
             if scenario == "wheel_up" and before["scrollTop"] != start:
                 raise RuntimeError(f"Primary ScrollView moved during idle: scrollTop {start} → {before['scrollTop']}")
             counter = "thinkingDeltas" if scenario == "wheel_up" else "textDeltas"
@@ -635,7 +634,7 @@ def suite(args):
             "runs": args.runs, "cases": [],
         }
         if args.scenario == "busy":
-            report["workload"]["busy_stream_revision"] = 2
+            report["workload"]["busy_stream_revision"] = 3
         heading = (f"Pi {pi_version} · Slate {report['slate_version']} ({report['slate_git_sha']}) · "
                    f"{entries} entries · {args.runs} runs" + (" · busy" if args.scenario == "busy" else ""))
         print(heading, flush=True)

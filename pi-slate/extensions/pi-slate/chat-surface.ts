@@ -1,3 +1,4 @@
+import { AssistantMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Container, ScrollView, isViewportTUI, type Component, type TUI } from "@earendil-works/pi-tui";
 import type { PaintedRow, RowDecorator, ToolGroups } from "./tool-groups.ts";
 
@@ -60,6 +61,18 @@ type ChildLayout = {
 const childHeight = (layout: ChildLayout, index: number, entry: LayoutChild): number | undefined =>
   layout.parts?.[index]?.length ?? ("height" in entry ? entry.height : undefined);
 const GROUPING_RETRY_COOLDOWN_MS = 1000;
+const windowStart = (length: number, limit = Number.POSITIVE_INFINITY): number =>
+  Number.isFinite(limit) ? Math.max(0, length - Math.max(1, Math.floor(limit))) : 0;
+
+function initialActiveStart(children: readonly Component[], start: number): number {
+  let lastAssistant = -1;
+  for (let index = children.length - 1; index >= 0; index--) {
+    const child = children[index];
+    if (child instanceof UserMessageComponent) return Math.min(start, index);
+    if (lastAssistant === -1 && child instanceof AssistantMessageComponent) lastAssistant = index;
+  }
+  return lastAssistant === -1 ? start : Math.min(start, lastAssistant);
+}
 
 /** One owner for the display pipeline: project first, then paint grouped or native rows. */
 export class ChatSurface {
@@ -70,7 +83,8 @@ export class ChatSurface {
   private readonly installedRender: Container["render"];
   private readonly installedMouse: Container["handleMouse"];
   private readonly display = new Container();
-  private projectedStart = 0;
+  private projectedStart: number;
+  private projectionHead?: Component;
   private paintedGroups: ToolGroups | undefined;
   private paintedWidth?: number;
   /** null means the press did not hit a child row; undefined means no press was seen. */
@@ -142,23 +156,27 @@ export class ChatSurface {
     }
     this.originalRender = container.render;
     this.originalMouse = container.handleMouse;
+    // Seed the anchor at mount; tools can append before the first paint.
+    const start = windowStart(container.children.length, options.limit);
+    this.projectedStart = start > 0 && options.active?.() ? initialActiveStart(container.children, start) : start;
+    this.projectionHead = container.children[this.projectedStart];
     this.installedRender = width => {
       if (this.disposed) return this.originalRender.call(container, width);
-      const limit = this.options.limit ?? Number.POSITIVE_INFINITY;
       const children = container.children;
-      let start = Number.isFinite(limit) ? Math.max(0, children.length - Math.max(1, Math.floor(limit))) : 0;
+      let start = windowStart(children.length, this.options.limit);
       const projected = this.display.children;
-      const head = projected[0];
-      if (start > 0 && head && this.options.active?.()) {
+      const head = this.projectionHead;
+      if (start > 0 && this.options.active?.()) {
         // Keep the existing window and append live rows. Sliding it would drop
         // the live assistant after enough tool calls and shift a scrolled viewport.
-        const previous = children[this.projectedStart] === head ? this.projectedStart : children.indexOf(head);
-        if (previous !== -1) start = Math.min(start, previous);
+        const previous = !head ? -1 : children[this.projectedStart] === head ? this.projectedStart : children.indexOf(head);
+        start = previous === -1 ? initialActiveStart(children, start) : Math.min(start, previous);
       }
       if (projected.length !== children.length - start || !projected.every((child, i) => child === children[start + i])) {
         this.display.children = children.slice(start);
       }
       this.projectedStart = start;
+      this.projectionHead = children[start];
       this.paintedGroups = undefined;
       this.paintedWidth = width;
       const groups = this.options.groups;
@@ -225,6 +243,7 @@ export class ChatSurface {
     if (this.container.render === this.installedRender) this.container.render = this.originalRender;
     if (this.container.handleMouse === this.installedMouse) this.container.handleMouse = this.originalMouse;
     this.display.children = [];
+    this.projectionHead = undefined;
     this.paintedGroups = undefined;
     this.pressedRow = undefined;
     this.options = {};

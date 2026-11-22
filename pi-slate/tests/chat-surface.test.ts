@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Container, ScrollView, Text, VStack, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { MESSAGE_LENGTH_DEFAULT } from "../extensions/pi-slate/layout.ts";
 import { ChatSurface, findChatContainer } from "../extensions/pi-slate/chat-surface.ts";
@@ -34,6 +35,35 @@ test("finder uses the last nested container inside the primary scroll view", () 
   const root = new VStack([{ component: new ScrollView(document, { primary: true }), grow: 1 }, new Text("editor", 0, 0)]);
   assert.equal(findChatContainer(root), chat);
   assert.equal(findChatContainer(new VStack([new Container(), new Text("footer", 0, 0)])), undefined);
+});
+
+test("active work does not hide a live assistant when multiple tools are appended", () => {
+  const chat = new Container(); let active = true;
+  const assistant = new Text("assistant", 0, 0), a = new Text("tool a", 0, 0), b = new Text("tool b", 0, 0);
+  chat.addChild(assistant);
+  const window = new ChatSurface(chat, { limit: 1, active: () => active });
+  chat.addChild(a); chat.addChild(b);
+  assert.deepEqual(rows(chat), ["assistant", "tool a", "tool b"]);
+  active = false;
+  assert.deepEqual(rows(chat), ["tool b"]);
+  assert.deepEqual(chat.children, [assistant, a, b]);
+  window.dispose();
+  assert.deepEqual(rows(chat), ["assistant", "tool a", "tool b"]);
+});
+
+test("mounting mid-turn keeps the current prompt and reply, even when tools already filled the window", (t) => {
+  initTheme("dark", false);
+  const chat = new Container();
+  chat.addChild(new Text("older history", 0, 0));
+  chat.addChild(new UserMessageComponent("current prompt"));
+  chat.addChild(new Text("live reply", 0, 0));
+  chat.addChild(new Text("first tool", 0, 0));
+  const window = new ChatSurface(chat, { limit: 1, active: () => true });
+  t.after(() => window.dispose());
+  chat.addChild(new Text("second tool", 0, 0));
+  const painted = rows(chat).join("\n");
+  assert.match(painted, /current prompt[\s\S]*live reply\nfirst tool\nsecond tool/);
+  assert.doesNotMatch(painted, /older history/);
 });
 
 test("the transcript keeps its visible history and the entire live turn as tools append", () => {
