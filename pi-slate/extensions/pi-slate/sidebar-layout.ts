@@ -1,4 +1,4 @@
-export type SidebarSlots = { frame: number; header: number; middle: number; tasks: number; image: number; footer: number };
+export type SidebarSlots = { frame: number; header: number; middle: number; image: number };
 export type SidebarTier = "full" | "compact";
 
 // Columns hold one stat per row, so 13 cells fit "saved ~$12.34" and "99.99% hit".
@@ -13,23 +13,19 @@ export function sidebarPerfColumns(inner: number): { speed: number; cache: numbe
 }
 
 /** Budget borders, content and hit regions together. Shed header gaps before squeezing a preview. */
-export function sessionSidebarSlots(height: number, headerRows: number, taskCount: number, hasImage: boolean, gaps = 0): SidebarSlots {
+export function sessionSidebarSlots(height: number, headerRows: number, hasImage: boolean, gaps = 0): SidebarSlots {
   const rows = Math.max(0, Math.floor(height));
   const frame = rows >= 12 ? 2 : 0;
-  const footer = frame ? 1 : 0;
-  const available = rows - frame - footer;
-  const taskWant = taskCount && available >= 2 ? 2 + Math.min(3, taskCount) * 2 : 0;
+  const available = rows - frame;
   const previewMin = hasImage ? 4 : 0;
-  const taskMin = taskWant ? 2 : 0; // heading and one item
-  const middleMin = Math.min(6, available - taskMin);
-  const headerWant = hasImage ? Math.max(headerRows - gaps, Math.min(headerRows, available - middleMin - taskWant - previewMin)) : headerRows;
-  const header = Math.min(headerWant, taskMin ? available - middleMin - taskMin : available);
+  const middleMin = Math.min(6, available);
+  const headerWant = hasImage ? Math.max(headerRows - gaps, Math.min(headerRows, available - middleMin - previewMin)) : headerRows;
+  const header = Math.min(headerWant, available);
   const body = available - header;
   const spare = Math.max(0, body - middleMin);
-  const tasks = Math.min(taskWant, Math.max(taskMin, spare - previewMin));
   const imageWant = hasImage ? Math.min(10, Math.max(previewMin, Math.floor(rows / 5))) : 0;
-  const image = Math.min(imageWant, spare - tasks);
-  return { frame, header, middle: body - tasks - image, tasks, image, footer };
+  const image = Math.min(imageWant, spare);
+  return { frame, header, middle: body - image, image };
 }
 
 export function sidebarListOffset(offset: number, count: number, visible: number): number {

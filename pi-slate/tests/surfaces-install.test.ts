@@ -46,7 +46,6 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
   const tools: ToolDefinition[] = [];
   const handlers = new Map<string, Handler[]>();
-  const bus = new Map<string, Set<(data: unknown) => void>>();
   const choices: string[] = [];
   const inspected: string[] = [];
   const extraCommands: Array<{ name: string; source: string; sourceInfo: { path: string; scope: string } }> = [];
@@ -68,14 +67,11 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
     ],
     exec: async () => { calls.push("branch-git"); return { code: 0, stdout: "test-branch\n", stderr: "", killed: false }; },
     events: {
-      on(name: string, handler?: (value: unknown) => void) {
+      on(name: string) {
         const prefix = name === "subagent:ui-host-request" ? "navigation" : "async";
         calls.push(`${prefix}-subscribe`);
-        if (!handler) return () => calls.push(`${prefix}-dispose`);
-        const listeners = bus.get(name) ?? new Set(); listeners.add(handler); bus.set(name, listeners);
-        return () => { calls.push(`${prefix}-dispose`); listeners.delete(handler); };
+        return () => calls.push(`${prefix}-dispose`);
       },
-      emit(name: string, value: unknown) { for (const listener of bus.get(name) ?? []) listener(value); },
     },
   } as unknown as ExtensionAPI;
   const tui = compatible ? new TuiAltScreen(new NullTerminal()) : {
@@ -151,7 +147,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, bus, manager, draft: () => draft, eventBus: pi.events, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {
@@ -160,7 +156,6 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
     for (const slot of ["header", "footer", "editor"] as const) assert.equal(f.calls.includes(slot), has(surfaces, slot), slot);
     assert.equal(f.calls.includes("widget"), has(surfaces, "sidebar") || has(surfaces, "transcript") || has(surfaces, "tool-cards"));
     assert.equal(f.calls.includes("files-start"), false, "retired file dashboard has no git-status watcher");
-    assert.equal(f.calls.includes("async-subscribe"), has(surfaces, "sidebar"));
     assert.equal(f.calls.includes("navigation-subscribe"), has(surfaces, "editor"));
     assert.equal(f.calls.includes("branch-git"), has(surfaces, "editor"));
     assert.deepEqual(f.tools.map((tool) => tool.name).sort(), has(surfaces, "tool-cards") ? ["edit", "write"] : []);
@@ -581,22 +576,15 @@ test("prompt shortcut stays unset unless shortcuts.prompts is a valid chord", as
   assert.equal(saved.showPid, true);
 });
 
-test("rail omits the command catalog; /slate session still inserts without disturbing a pinned preview", async t => {
+test("rail omits the command catalog", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
   f.extraCommands.push({ name: "hello", source: "extension", sourceInfo: { path: "hello.ts", scope: "user" } });
   await f.emit("agent_settled");
-  const sidebar = railOf(f);
-  sidebar.setView({ id: "image:pinned", title: "pinned.png", invalidate() {}, render: () => ["preview"] });
-  sidebar.pinImage();
-  assert(!sidebar.render(40).map(unstyled).some(row => row.includes("Commands")));
-  f.choices.push("/hello · extension");
-  await f.commands.get("slate")!.handler("session commands", f.ctx);
-  assert.equal(f.draft(), "existing draft/hello ");
-  assert.equal(sidebar.currentViewId(), "image:pinned"); assert.equal(sidebar.isImagePinned(), true);
+  assert(!railOf(f).render(40).map(unstyled).some(row => row.includes("Commands")));
   assert(!f.calls.includes("branch-git"), "catalog must not execute commands");
 });
 
-test("dashboard uses live branch facts and session-scoped tasks; commands preserve existing drafts", async t => {
+test("dashboard uses live branch facts", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false, sidebarPercent: 30 }));
   const tui = f.tui; assert(tui instanceof TuiAltScreen);
   const rail = () => unstyled((Reflect.get(tui, "layoutRoot") as Component).render(140).join("\n"));
@@ -613,21 +601,6 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });
   assert.match(rail(), /Skills · 1 Loaded/, "nested successful reads update the live rail, not only restoration");
-  const payload = { version: 1, source: "fixture", sessionId: f.manager.getSessionId(), tasks: [{ id: "native-1", label: "review", kind: "subagent", state: "waiting", startedAt: Date.now() }] };
-  f.eventBus.emit("pi:background-tasks", payload); assert.match(rail(), /Tasks\s+1 live/);
-  await f.emit("tool_execution_start", { toolCallId: "shell", toolName: "bash", args: { command: "npm run dev" } });
-  assert.match(rail(), /Tasks\s+2 live/);
-  await f.emit("tool_execution_end", { toolCallId: "shell", toolName: "bash", args: {}, content: [], isError: false });
-  assert.match(rail(), /Tasks\s+1 live/);
-  f.choices.push("1. review · waiting"); await f.commands.get("slate")!.handler("session tasks", f.ctx);
-  assert.match(f.inspected.join("\n"), /native-1/);
-  f.extraCommands.push({ name: "hello", source: "extension", sourceInfo: { path: "hello.ts", scope: "user" } });
-  f.choices.push("/hello · extension"); await f.commands.get("slate")!.handler("session commands", f.ctx);
-  assert.equal(f.draft(), "existing draft/hello "); assert.equal(f.calls.filter(x => x === "paste-command").length, 1);
-  const next = { ...f.ctx, sessionManager: SessionManager.inMemory(f.ctx.cwd) };
-  await f.emit("session_start", {}, next); assert.doesNotMatch(rail(), /Tasks\s+\d/);
-  f.eventBus.emit("pi:background-tasks", payload); assert.doesNotMatch(rail(), /Tasks\s+\d/, "late old-owner snapshot stays invisible");
-  await f.emit("session_shutdown", {}, next); assert.equal(f.bus.get("pi:background-tasks")!.size, 0);
 });
 
 test("session titles restore, repaint on rename/clear events, and clear when switching sessions", async t => {
@@ -664,54 +637,33 @@ test("session titles restore, repaint on rename/clear events, and clear when swi
 test("fold saves merge current preferences and preserve externally corrupted settings", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   await writeFile(f.path, JSON.stringify({ version: 1, surfaces: ["sidebar", "editor"], focused: false, showPid: true, customPreference: "keep" }));
-  f.choices.push("Expand sidebar section"); await f.commands.get("slate")!.handler("session mcp", f.ctx);
+  railOf(f).toggleSection("mcp");
   const saved = JSON.parse(await readFile(f.path, "utf8"));
   assert.deepEqual(saved.surfaces, ["sidebar", "editor"]); assert.equal(saved.focused, false); assert.equal(saved.showPid, true); assert.equal(saved.customPreference, "keep");
   assert.deepEqual(saved.sidebarSections, { mcp: true });
   await writeFile(f.path, "{broken external edit");
-  for (let i = 0; i < 2; i++) { f.choices.push("Collapse sidebar section"); await f.commands.get("slate")!.handler("session mcp", f.ctx); }
+  for (let i = 0; i < 2; i++) railOf(f).toggleSection("mcp");
   assert.equal(await readFile(f.path, "utf8"), "{broken external edit"); assert.match(f.notices.join("\n"), /Settings file preserved/);
 });
 
-test("an MCP menu inspects the displayed snapshot, not a later refreshed resource at the same index", async t => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 1000 }); t.after(() => t.mock.timers.reset());
-  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
-  const path = join(dirname(f.path), "mcp.json"); await writeFile(path, '{"mcpServers":{"a":{"command":"a"}}}');
-  let answer!: (choice: string) => void; const pending = new Promise<string>(resolve => { answer = resolve; });
-  f.ctx.ui.select = async (_title, options) => { const choice = await pending; return options.find(value => value === choice); };
-  const menu = f.commands.get("slate")!.handler("session mcp", f.ctx);
-  await writeFile(path, '{"mcpServers":{"b":{"command":"new-b"}}}'); t.mock.timers.tick(5000);
-  answer("1. a"); await menu;
-  assert.equal(unstyled(f.inspected.at(-1)!).split("\n")[0]!.trim(), "a");
-});
-
-test("a stale command menu cannot insert into a new session; disposed clock cannot repaint", async t => {
+test("a disposed dashboard clock cannot repaint after session replacement", async t => {
   t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 1000 }); t.after(() => t.mock.timers.reset());
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
   t.mock.method(f.tui, "requestRender", () => f.calls.push("render-request"));
-  f.extraCommands.push({ name: "hello", source: "extension", sourceInfo: { path: "hello.ts", scope: "user" } });
-  let answer!: (choice: string) => void; const pending = new Promise<string>(resolve => { answer = resolve; });
-  f.ctx.ui.select = async (_title, options) => { const choice = await pending; return options.find(value => value === choice); };
-  const menu = f.commands.get("slate")!.handler("session commands", f.ctx);
   const next = { ...f.ctx, sessionManager: SessionManager.inMemory(f.ctx.cwd) };
-  await f.emit("session_start", {}, next); answer("/hello · extension"); await menu;
-  assert.equal(f.draft(), "existing draft");
+  await f.emit("session_start", {}, next);
   await f.emit("session_shutdown", {}, next);
   const before = f.calls.length; t.mock.timers.tick(10000); assert.equal(f.calls.length, before);
 });
 
-test("session menu folds prompts and prompt commands still insert after extraction", async t => {
+test("the prompts fold persists", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
   f.extraCommands.push({ name: "retro", source: "prompt", sourceInfo: { path: "retro.md", scope: "user" } });
   await f.emit("agent_settled");
-  f.choices.push("Expand sidebar section");
-  await f.commands.get("slate")!.handler("session prompts", f.ctx);
+  railOf(f).toggleSection("prompts");
   assert.equal(railOf(f).getFolds().prompts, true);
   const saved = JSON.parse(await readFile(f.path, "utf8"));
-  assert.equal(saved.sidebarSections.prompts, true, "prompts fold persists through the menu path");
-  f.choices.push("/retro · prompt");
-  await f.commands.get("slate")!.handler("session commands", f.ctx);
-  assert.equal(f.draft(), "existing draft/retro ", "prompt commands survive the commands/prompts split");
+  assert.equal(saved.sidebarSections.prompts, true);
 });
 
 function railOf(f: Awaited<ReturnType<typeof fixture>>): Sidebar {
@@ -767,19 +719,17 @@ test("SPEED follows persistence, not token deltas or an unrelated model selectio
   assert.match(capture(), /│ 120 tok\/s/);
 });
 
-test("mounted rail preserves the pinned preview and open target under task pressure", async t => {
+test("mounted rail keeps the preview and open target", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
   f.manager.appendMessage(sidebarReply()); await f.emit("agent_settled");
   const sidebar = railOf(f), opened: string[] = [];
   const root = Reflect.get(f.tui, "layoutRoot") as Component;
   sidebar.setActions({ copy() {}, openFile: path => opened.push(path) });
-  sidebar.setView({ id: "image:fixture", filePath: f.imagePath, title: "Fixture", invalidate() {}, render: () => ["pinned-image-body"] });
-  sidebar.pinImage();
-  sidebar.setTasks([0, 1, 2].map(i => ({ id: `task-${i}`, source: "fixture", label: `task-${i}`, kind: "subagent", state: "running", startedAt: 1 })));
+  sidebar.setView({ id: "image:fixture", filePath: f.imagePath, title: "Fixture", invalidate() {}, render: () => ["preview-image-body"] });
   for (const rows of [29, 30, 32, 44]) {
     (f.tui.terminal as NullTerminal).rows = rows;
     const frame = root.render(140).join("\n");
-    assert.equal(frame.includes("pinned-image-body"), rows >= 30, `${rows} rows`);
+    assert.equal(frame.includes("preview-image-body"), rows >= 30, `${rows} rows`);
     if (rows < 30) continue;
     const y = sidebar.render(28).findIndex(line => line.includes("[open]"));
     assert(y >= 0);
@@ -790,29 +740,11 @@ test("mounted rail preserves the pinned preview and open target under task press
 test("fold save preserves external sibling state, unknown section keys and unknown nested settings", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
   await writeFile(f.path, JSON.stringify({ surfaces: ["sidebar"], sidebarSections: { skills: true, future: "keep" }, modelDisplay: { providerSuffix: true, future: "keep" }, unrelated: { nested: true } }));
-  f.choices.push("Expand sidebar section"); await f.commands.get("slate")!.handler("session mcp", f.ctx);
+  railOf(f).toggleSection("mcp");
   const saved = JSON.parse(await readFile(f.path, "utf8"));
   assert.deepEqual(saved.sidebarSections, { skills: true, future: "keep", mcp: true });
   assert.deepEqual(saved.modelDisplay, { providerSuffix: true, future: "keep" }); assert.deepEqual(saved.unrelated, { nested: true });
   assert.deepEqual(railOf(f).getFolds(), { skills: true, mcp: true, prompts: false });
-});
-
-test("pending Expand and Pin menu choices remain idempotent after mouse actions", async t => {
-  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false })); const sidebar = railOf(f);
-  const click = (label: string) => {
-    const rows = sidebar.render(40).map(unstyled), y = rows.findIndex(row => row.includes(label)); assert(y >= 0);
-    const x = label.startsWith("[") ? rows[y]!.indexOf(label) + 1 : 5;
-    sidebar.handleMouse({ type: "click", button: "left", x, y, width: 40, height: 24, screenX: x, screenY: y, shift: false, alt: false, ctrl: false });
-  };
-  let answer!: (value: string) => void;
-  f.ctx.ui.select = async () => new Promise(resolve => { answer = resolve; });
-  const foldMenu = f.commands.get("slate")!.handler("session mcp", f.ctx);
-  click("MCP"); assert.equal(sidebar.getFolds().mcp, true);
-  answer("Expand sidebar section"); await foldMenu; assert.equal(sidebar.getFolds().mcp, true);
-  sidebar.setView({ id: "image:fixture", filePath: f.imagePath, title: "Image", invalidate() {}, render: () => ["image"] });
-  const imageMenu = f.commands.get("slate")!.handler("session image", f.ctx);
-  sidebar.pinImage(); assert.equal(sidebar.isImagePinned(), true);
-  answer("Pin"); await imageMenu; assert.equal(sidebar.isImagePinned(), true);
 });
 
 test("root yield stops dashboard clock/subscriptions and retained panes cannot repaint", async t => {
@@ -820,10 +752,10 @@ test("root yield stops dashboard clock/subscriptions and retained panes cannot r
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false })); const sidebar = railOf(f);
   t.mock.method(f.tui, "requestRender", () => f.calls.push("render-request"));
   const successor = new Text("successor", 0, 0); (f.tui as TuiAltScreen).setLayoutRoot(successor);
-  assert.equal(sidebar.splitActive, false); assert.equal(f.bus.get("pi:background-tasks")!.size, 0);
+  assert.equal(sidebar.splitActive, false);
   const before = f.calls.length;
-  t.mock.timers.tick(10000); f.eventBus.emit("pi:background-tasks", { version: 1, source: "fixture", sessionId: f.manager.getSessionId(), tasks: [] });
-  sidebar.tick(); sidebar.setTasks([]); sidebar.setHidden(true);
+  t.mock.timers.tick(10000);
+  sidebar.tick(); sidebar.setHidden(true);
   await f.emit("agent_settled"); assert.equal(f.calls.length, before);
   await f.emit("session_shutdown"); assert.equal(Reflect.get(f.tui, "layoutRoot"), successor);
 });
@@ -837,16 +769,6 @@ test("retained header and composer remain render-safe while later shutdown handl
   assert.doesNotThrow(() => retained.render(100)); assert.deepEqual(header.render(100), []);
   const next = { ...f.ctx, sessionManager: SessionManager.inMemory(f.ctx.cwd) }; await f.emit("session_start", {}, next);
   assert.doesNotThrow(() => retained.render(100));
-});
-
-test("receiver and 24-row renderer show current work before historical failures", async t => {
-  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
-  f.eventBus.emit("pi:background-tasks", { version: 1, source: "subagents", sessionId: f.manager.getSessionId(), tasks: [
-    { id: "failed-1", label: "historical failure 1", state: "failed", kind: "subagent", startedAt: Date.now() - 1000 },
-    { id: "failed-2", label: "historical failure 2", state: "failed", kind: "subagent", startedAt: Date.now() - 500 },
-    { id: "live", label: "currently running", state: "running", kind: "subagent", startedAt: Date.now() },
-  ] });
-  assert.match(unstyled(railOf(f).render(40).join("\n")), /currently running/);
 });
 
 test("completed turn appends one UI receipt without adding session messages", async (t) => {
@@ -886,7 +808,6 @@ test("retained surfaces and timer callbacks tolerate invalidation before shutdow
     f.chat.render(100);
     railOf(f).render(40);
     actions.inspect!("Session", "details");
-    actions.commands!();
     actions.copy("text");
     actions.openFile("file.ts");
     actions.persistFold!("mcp", true);
@@ -943,17 +864,17 @@ test("receipt keeps its theme when its first paint occurs after shutdown", async
 
 for (const state of ["live", "invalidated", "replaced"] as const) {
   for (const code of [0, 1]) {
-    test(`pending bug-page feedback only reaches its live owner: ${state}, code=${code}`, async t => {
+    test(`a failed issue-page open only notifies its live owner: ${state}, code=${code}`, async t => {
       const f = await fixture(t, JSON.stringify({ surfaces: [] }));
       let finish!: (result: { code: number; stdout: string; stderr: string; killed: boolean }) => void;
       t.mock.method(f.pi, "exec", () => new Promise(resolve => { finish = resolve; }));
-      const pending = f.commands.get("slate")!.handler("bug open", f.ctx);
+      const pending = f.commands.get("slate")!.handler("bug", f.ctx);
       if (state === "invalidated") f.invalidate();
       if (state === "replaced") { await f.emit("session_shutdown", { reason: "reload" }); await f.emit("session_start"); }
       const before = f.notices.length;
       finish({ code, stdout: "", stderr: "", killed: false });
       await pending;
-      assert.equal(f.notices.length - before, state === "live" ? 1 : 0);
+      assert.equal(f.notices.length - before, state === "live" && code !== 0 ? 1 : 0);
     });
   }
 }
@@ -987,29 +908,6 @@ for (const closeHiddenFirst of [false, true]) {
     assert.equal(composer.getText(), "draft before dialogs");
     assert.equal(Reflect.get(f.tui, "layoutRoot"), root); assert.equal(railOf(f).splitActive, true);
     assert.doesNotThrow(() => composer.render(100));
-  });
-}
-
-for (const step of ["select", "input", "editor"] as const) {
-  test(`bug-report ${step} completion is ignored after shutdown`, async t => {
-    const f = await fixture(t, JSON.stringify({ surfaces: [] }));
-    let finish!: (value: string | undefined) => void;
-    const wait = () => new Promise<string | undefined>(resolve => { finish = resolve; });
-    let started!: () => void;
-    const ready = new Promise<void>(resolve => { started = resolve; });
-    f.ctx.ui.input = async () => "title";
-    f.ctx.ui.editor = async () => { assert.fail("stale bug workflow must not open or finish an editor"); };
-    const delayed = () => { const pending = wait(); started(); return pending; };
-    if (step === "select") f.ctx.ui.select = delayed;
-    else if (step === "input") f.ctx.ui.input = delayed;
-    else f.ctx.ui.editor = delayed;
-    const pending = f.commands.get("slate")!.handler(step === "select" ? "bug" : "bug file", f.ctx);
-    await ready;
-    await f.emit("session_shutdown", { reason: "new" });
-    f.invalidate();
-    finish(step === "select" ? "Copy a bug report" : "details");
-    await pending;
-    assert.deepEqual(f.notices, []);
   });
 }
 

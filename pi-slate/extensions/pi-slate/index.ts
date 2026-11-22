@@ -2,7 +2,6 @@ import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  copyToClipboard,
   getAgentDir,
   VERSION,
   type ExtensionAPI,
@@ -30,11 +29,8 @@ import { ToolGroups } from "./tool-groups.ts";
 import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
 import { Sidebar } from "./sidebar.ts";
-import { BackgroundTasks, BACKGROUND_TASKS_EVENT, BACKGROUND_TASKS_REQUEST } from "./background-tasks.ts";
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
 import { inspectSidebarText } from "./sidebar-inspector.ts";
-import { pickSidebarItem } from "./sidebar-picker.ts";
-import { mcpDetails } from "./sidebar-mcp.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
 import { ContextUsageCache } from "./context-usage.ts";
@@ -78,14 +74,10 @@ import {
   withCurrent,
   withoutCurrent,
   type ModelDisplay,
+  SLATE_ISSUES_URL,
 } from "./layout.ts";
 import { SlateHeader } from "./header.ts";
-import {
-  formatBugReport,
-  issueTemplate,
-  openExternalArgs,
-  SLATE_ISSUES_URL,
-} from "./bug.ts";
+import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
@@ -239,13 +231,11 @@ export default function piSlate(pi: ExtensionAPI): void {
   const selection = new ComposerSelectionController();
   const skills = new SidebarSkills();
   const mcpFiles = new SidebarMcpFiles();
-  const background = new BackgroundTasks();
   let resources: SidebarResources = { skills: [], commands: [], prompts: [], mcp: [] };
   let sessionStartedAt = 0;
   let turnStartedAt: number | undefined;
   let lastTurnMs: number | null = null;
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
-  const dashboardSubscriptions: Array<() => void> = [];
   let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage>; perf: ReturnType<typeof branchPerf> } | undefined;
   let inspectingSidebar = false;
   let sidebarYielded = false;
@@ -422,7 +412,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   const stopDashboard = (): void => {
     clearInterval(dashboardClock); dashboardClock = undefined;
-    for (const dispose of dashboardSubscriptions.splice(0)) dispose();
   };
   const inspect = (ctx: ExtensionContext, title: string, text: string): void => {
     if (inspectingSidebar || ctx.mode !== "tui") return;
@@ -505,17 +494,12 @@ export default function piSlate(pi: ExtensionAPI): void {
 
     if (owns("sidebar")) {
       stopDashboard();
-      background.reset(ctx.sessionManager.getSessionId?.() ?? "");
       sidebar.reset();
       sidebar.setThemeProvider(liveTheme);
       sidebar.setFolds(config.sidebarSections);
       sidebar.setResources(resources);
       sidebar.setPreferredWidth(config.sidebarPercent);
       sidebar.setHidden(config.focused === true);
-      dashboardSubscriptions.push(pi.events.on(BACKGROUND_TASKS_EVENT, (value) => {
-        if (background.accept(value)) sidebar.setTasks(background.snapshot());
-      }));
-      pi.events.emit?.(BACKGROUND_TASKS_REQUEST, { version: 1, sessionId: ctx.sessionManager.getSessionId?.() ?? "" });
       sidebar.setActions({
         persistFold: (section, expanded) => {
           if (!mountedContext()) return undefined;
@@ -536,11 +520,6 @@ export default function piSlate(pi: ExtensionAPI): void {
           const target = mountedContext();
           if (target) inspect(target, title, text);
         },
-        commands: () => {
-          const target = mountedContext();
-          if (!target) return;
-          void sessionMenu(target, "commands").catch(() => notify("Command catalog unavailable", "warning"));
-        },
         persistWidth: (percent) => {
           if (!mountedContext()) return;
           try {
@@ -559,14 +538,9 @@ export default function piSlate(pi: ExtensionAPI): void {
         openFile: (filePath) => {
           const context = mountedContext();
           if (!context) return;
-          const target = resolve(context.cwd, filePath);
-          const { command, args } = openExternalArgs(target);
-          void Promise.resolve(pi.exec(command, args, { timeout: 5000 })).then(
-            (result) => {
-              if (result.code !== 0) notify("Could not open file", "error");
-            },
-            () => notify("Could not open file", "error"),
-          );
+          void openExternal(resolve(context.cwd, filePath)).then(opened => {
+            if (!opened) notify("Could not open file", "error");
+          });
         },
       });
       syncSidebar(ctx);
@@ -735,7 +709,6 @@ export default function piSlate(pi: ExtensionAPI): void {
         requestRender();
       }
     }
-    if (owns("sidebar")) { background.clearShells(); sidebar.setTasks(background.snapshot()); }
     syncSidebar(ctx);
   });
   pi.on("model_select", (_event, ctx) => {
@@ -790,14 +763,11 @@ export default function piSlate(pi: ExtensionAPI): void {
     pi.on("tool_execution_start", (event, ctx) => {
       if (ctx.mode !== "tui") return;
       skills.readStart(event.toolCallId, event.toolName, event.args, ctx.cwd);
-      background.shellStart(event.toolCallId, event.toolName, event.args, Date.now());
-      sidebar.setTasks(background.snapshot());
       syncSidebar(ctx); // message_end precedes persistence; the tool starts after it.
     });
     pi.on("tool_execution_end", (event, ctx) => {
       if (ctx.mode !== "tui") return;
       skills.readEnd(event.toolCallId, event.isError);
-      background.shellEnd(event.toolCallId); sidebar.setTasks(background.snapshot());
       refreshResources(ctx);
     });
   }
@@ -821,8 +791,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     thinkingFold.stop();
     if (owns("sidebar") && ctx.mode === "tui") {
       branchFacts = undefined; skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
-      background.reset(ctx.sessionManager.getSessionId?.() ?? ""); sidebar.setTasks([]);
-      pi.events.emit?.(BACKGROUND_TASKS_REQUEST, { version: 1, sessionId: ctx.sessionManager.getSessionId?.() ?? "" });
       refreshResources(ctx);
     }
     syncSidebar(ctx);
@@ -840,7 +808,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       images?.dispose();
       stopDashboard();
       mcpFiles.clear();
-      background.reset("");
       branch.dispose();
       chatSurface?.dispose();
       chatSurface = undefined;
@@ -1004,132 +971,24 @@ export default function piSlate(pi: ExtensionAPI): void {
     return { picked: true, value: parsed.value };
   };
 
-  const openUrl = async (url: string): Promise<boolean> => {
-    const { command, args } = openExternalArgs(url);
-    const result = await pi.exec(command, args, { timeout: 5000 });
-    return result.code === 0;
+  /** Open a file or URL with the platform opener; false on a non-zero exit or a failed launch. */
+  const openExternal = async (target: string): Promise<boolean> => {
+    const { command, args } = openExternalArgs(target);
+    try { return (await pi.exec(command, args, { timeout: 5000 })).code === 0; } catch { return false; }
   };
 
-  const fileBug = async (ctx: ExtensionContext, active: () => boolean): Promise<void> => {
-    const title = (await ctx.ui.input("Issue title", "Short summary"))?.trim();
-    if (!active() || !title) return;
-    const body = await ctx.ui.editor(
-      "Issue details",
-      issueTemplate({
-        slateVersion: SLATE_VERSION,
-        piVersion: VERSION,
-        platform: `${process.platform} ${process.arch}`,
-      }),
-    );
-    if (!active() || body === undefined) return;
-    try {
-      await copyToClipboard(formatBugReport(title, body));
-      if (active()) ctx.ui.notify("Bug report copied to clipboard", "info");
-    } catch {
-      if (active()) ctx.ui.notify("Could not copy bug report", "error");
-    }
-  };
-
-  const handleBug = async (ctx: ExtensionContext, action?: "file" | "open"): Promise<void> => {
+  /** Open the issue tracker; only a failure needs feedback, and only to the session that asked. */
+  const openIssues = async (ctx: ExtensionContext): Promise<void> => {
     const owner = sessionEpoch;
-    const active = (): boolean => {
-      if (owner !== sessionEpoch) return false;
-      try { void ctx.mode; return true; } catch { return false; }
-    };
-    let next = action;
-    if (!next) {
-      const choice = await ctx.ui.select("Slate bug", ["Copy a bug report", "Open package page"]);
-      if (!active()) return;
-      if (choice === "Copy a bug report") next = "file";
-      else if (choice === "Open package page") next = "open";
-      else return;
-    }
-    if (next === "open") {
-      const opened = await openUrl(SLATE_ISSUES_URL);
-      if (active()) ctx.ui.notify(opened ? "Opened pi-slate on npm" : `Open ${SLATE_ISSUES_URL}`, opened ? "info" : "error");
-      return;
-    }
-    await fileBug(ctx, active);
+    const opened = await openExternal(SLATE_ISSUES_URL);
+    if (opened || owner !== sessionEpoch) return;
+    try { void ctx.mode; } catch { return; } // An invalidated context belongs to a finished session.
+    ctx.ui.notify(`Open ${SLATE_ISSUES_URL}`, "error");
   };
 
   const applyFocused = (ctx: ExtensionContext, value?: boolean): void => {
     const on = value ?? !config.focused;
     apply({ ...config, focused: on }, on ? "Focused mode on" : "Focused mode off", ctx);
-  };
-
-  const sessionMenu = async (ctx: ExtensionContext, section?: "mcp" | "skills" | "prompts" | "commands" | "tasks" | "image"): Promise<void> => {
-    if (ctx.mode !== "tui" || !owns("sidebar")) {
-      ctx.ui.notify("Select the Slate sidebar surface and /reload to use the session dashboard", "info"); return;
-    }
-    const owner = ctx.sessionManager.getSessionId(), epoch = sessionEpoch;
-    const active = (): boolean => {
-      const ctx = liveContext();
-      return epoch === sessionEpoch && ctx !== undefined && ctx.mode === "tui" && ctx.sessionManager.getSessionId() === owner;
-    };
-    refreshResources(ctx); syncSidebar(ctx);
-    if (!section) {
-      const choice = await pickSidebarItem(ctx, "Session dashboard", ["Session details", "MCP servers", "Skills", "Prompts", "Commands", "Background tasks", "Image"]);
-      if (!choice || !active()) return;
-      if (choice === "Session details") { inspect(ctx, "Session", sidebar.sessionDetails()); return; }
-      section = ({ "MCP servers": "mcp", Skills: "skills", Prompts: "prompts", Commands: "commands", "Background tasks": "tasks", Image: "image" } as const)[choice as "MCP servers" | "Skills" | "Prompts" | "Commands" | "Background tasks" | "Image"];
-    }
-    if (section === "mcp" || section === "skills" || section === "prompts") {
-      const mcp = [...resources.mcp]; const skills = [...resources.skills]; const prompts = [...resources.prompts];
-      const items = section === "mcp" ? mcp : section === "skills" ? skills : prompts;
-      const expanded = !sidebar.getFolds()[section];
-      const toggle = `${expanded ? "Expand" : "Collapse"} sidebar section`;
-      const labels = items.map((item, i) => `${i + 1}. ${item.name}`);
-      const choice = await pickSidebarItem(ctx, section === "mcp" ? "MCP servers (configured state)" : section === "skills" ? "Skills (available vs observed loaded)" : "Prompts (templates)", [toggle, ...labels]);
-      if (!choice || !active()) return;
-      if (choice === toggle) { sidebar.setSection(section, expanded); return; }
-      const index = labels.indexOf(choice);
-      if (section === "mcp") {
-        const item = mcp[index];
-        if (item) inspect(ctx, item.name, mcpDetails(item));
-      } else if (section === "skills") {
-        const item = skills[index];
-        if (item) inspect(ctx, item.name, `${item.loaded ? "Instructions observed loaded on this branch" : "Available; not observed loaded"}\n${item.path}`);
-      } else {
-        const item = prompts[index];
-        if (item) inspect(ctx, item.name, `${item.description ? `${item.description}\n` : ""}Source: ${item.source}\nInsert with /slate session commands.`);
-      }
-    } else if (section === "commands") {
-      const items = [...resources.commands, ...resources.prompts];
-      const labels = items.map(item => `/${item.name} · ${item.source}`);
-      if (!labels.length) { ctx.ui.notify("No extension or prompt commands available", "info"); return; }
-      const choice = await pickSidebarItem(ctx, "Insert command (does not execute)", labels);
-      if (!active()) return;
-      const item = choice ? items[labels.indexOf(choice)] : undefined;
-      if (item) ctx.ui.pasteToEditor(`/${item.name} `);
-    } else if (section === "tasks") {
-      const tasks = background.snapshot();
-      const labels = tasks.map((task, i) => `${i + 1}. ${task.label} · ${task.state}`);
-      if (!tasks.length) { inspect(ctx, "Background tasks", "No agent-started tasks observed. Detached jobs appear when their owner reports them."); return; }
-      const choice = await pickSidebarItem(ctx, "Background tasks (read-only)", labels);
-      if (!active()) return;
-      const task = choice ? tasks[labels.indexOf(choice)] : undefined;
-      if (task) inspect(ctx, task.label, `${task.kind} · ${task.state}\nSource: ${task.source}\nID: ${task.id}\n${task.pid ? `PID: ${task.pid}\n` : ""}${task.detail ?? ""}`);
-    } else if (section === "image") {
-      const path = sidebar.imagePath();
-      if (!path) { ctx.ui.notify("No image selected", "info"); return; }
-      const pinned = !sidebar.isImagePinned();
-      const choice = await pickSidebarItem(ctx, "Image", [pinned ? "Pin" : "Unpin", "Copy path", "Open", "Clear selection"]);
-      if (!active() || sidebar.imagePath() !== path) return;
-      if (choice === "Pin" || choice === "Unpin") sidebar.setImagePinned(pinned);
-      else if (choice === "Clear selection") sidebar.clearImage();
-      else if (choice === "Copy path") void copyWithFeedback(activeTui, (message, kind) => {
-        if (active()) ctx.ui.notify(message, kind);
-      }, path);
-      else if (choice === "Open") {
-        const { command, args } = openExternalArgs(path);
-        try {
-          const result = await pi.exec(command, args, { timeout: 5000 });
-          if (result.code !== 0 && active()) ctx.ui.notify("Could not open image", "error");
-        } catch {
-          if (active()) ctx.ui.notify("Could not open image", "error");
-        }
-      }
-    }
   };
 
   // Pi 1.4 has no built-in /theme command; core theme selection lives in /settings.
@@ -1156,7 +1015,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("slate", {
-    description: "Session dashboard, diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or file a bug",
+    description: "Diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or report a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1167,8 +1026,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Diagnostics", "File a bug"]);
-        if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
+        const setting = await ctx.ui.select("Slate", ["Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Diagnostics", "Report a bug"]);
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
           if (!names) return;
@@ -1187,11 +1045,10 @@ export default function piSlate(pi: ExtensionAPI): void {
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
         else if (setting === "Diagnostics") kind = "diagnostics";
-        else if (setting === "File a bug") kind = "bug-menu";
+        else if (setting === "Report a bug") kind = "bug";
         else return;
       }
 
-      if (parsed.kind === "session") { await sessionMenu(ctx, parsed.section); return; }
       if (kind === "diagnostics") {
         const report = diagnostics.report(SLATE_VERSION, VERSION, selected);
         if (ctx.mode === "tui") inspect(ctx, "Slate diagnostics", report);
@@ -1267,8 +1124,8 @@ export default function piSlate(pi: ExtensionAPI): void {
         return;
       }
 
-      if (kind === "bug" || kind === "bug-menu") {
-        await handleBug(ctx, parsed.kind === "bug" ? parsed.action : undefined);
+      if (kind === "bug") {
+        await openIssues(ctx);
         return;
       }
 

@@ -261,6 +261,7 @@ test("/slate args route density, footer, and width", () => {
   assert.equal(slateArgumentCompletions("style"), null);
   assert.equal(slateArgumentCompletions("theme p"), null);
   assert.deepEqual(parseSlateArgs("bug nope"), { ok: false });
+  assert.deepEqual(parseSlateArgs("bug"), { ok: true, kind: "bug" });
   assert.deepEqual(parseSlateArgs("width nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("density compact extra"), { ok: false });

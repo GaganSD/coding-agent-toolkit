@@ -6,14 +6,13 @@ import { mcpDetails } from "./sidebar-mcp.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, sidebarUsage, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
-import type { BackgroundTask } from "./background-tasks.ts";
 import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, type SidebarTier } from "./sidebar-layout.ts";
 import { contextRows, formatCacheHit, formatCountdown, formatRate, perfRows, type PerfInput } from "./perf-graphics.ts";
 import { EMPTY_PERF } from "./perf-stats.ts";
 import { sameLines } from "./render-lines.ts";
 
 export const DOUBLE_CLICK_MS = 400;
-type ListName = "mcp" | "skills" | "prompts" | "tasks";
+type ListName = "mcp" | "skills" | "prompts";
 type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
 type PaneFrame = {
@@ -28,7 +27,6 @@ const HEADER_GAP: Row = { text: "" };
 export type SidebarActions = {
   copy(text: string): void;
   openFile(filePath: string): void;
-  commands?(): void;
   inspect?(title: string, text: string): void;
   persistWidth?(percent: number | undefined): void;
   persistFold?(section: keyof SidebarFolds, expanded: boolean): SidebarFolds | undefined;
@@ -58,15 +56,11 @@ export class Sidebar implements Component {
   get splitActive(): boolean { return this.splitDispose?.active() === true; }
   private session: SidebarSession = EMPTY_SESSION;
   private resources: SidebarResources = EMPTY_RESOURCES;
-  private tasks: BackgroundTask[] = [];
   private folds: SidebarFolds = { ...DEFAULT_SIDEBAR_FOLDS };
-  private offsets: Record<ListName, number> = { mcp: 0, skills: 0, prompts: 0, tasks: 0 };
+  private offsets: Record<ListName, number> = { mcp: 0, skills: 0, prompts: 0 };
   private middleOffset = 0;
   private painted?: PaneFrame;
-  private selectedImage?: WorkspaceView;
-  private peekImage?: WorkspaceView;
-  private pinned = false;
-  private clearedImageId?: string;
+  private image?: WorkspaceView;
   private lastClick?: { target: string; at: number };
   private cached?: PaneFrame;
   private revision = 0;
@@ -119,45 +113,27 @@ export class Sidebar implements Component {
     this.resources = { ...resources, mcp: resources.mcp.map(x => ({ ...x })), skills: resources.skills.map(x => ({ ...x })), commands: resources.commands.map(x => ({ ...x })), prompts: resources.prompts.map(x => ({ ...x })) };
     this.changed();
   }
-  setTasks(tasks: readonly BackgroundTask[]): void { this.tasks = tasks.map(task => ({ ...task })); this.changed(); }
   setFolds(folds: SidebarFolds): void { this.folds = { ...folds }; this.changed(); }
   getFolds(): SidebarFolds { return { ...this.folds }; }
-  toggleSection(section: keyof SidebarFolds): void { this.setSection(section, !this.folds[section]); }
-  setSection(section: keyof SidebarFolds, expanded: boolean): void {
+  toggleSection(section: keyof SidebarFolds): void {
+    const expanded = !this.folds[section];
     const next = this.actions?.persistFold
       ? this.actions.persistFold(section, expanded) : { ...this.folds, [section]: expanded };
     if (next) this.setFolds(next);
   }
   /** A new session cannot inherit scroll positions, selected images, or old hit targets. */
   reset(): void {
-    this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES; this.tasks = [];
-    this.offsets = { mcp: 0, skills: 0, prompts: 0, tasks: 0 }; this.middleOffset = 0;
-    this.selectedImage = undefined; this.peekImage = undefined; this.pinned = false; this.clearedImageId = undefined;
+    this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES;
+    this.offsets = { mcp: 0, skills: 0, prompts: 0 }; this.middleOffset = 0;
+    this.image = undefined;
     this.painted = undefined; this.lastClick = undefined; this.changed();
   }
-  /** Caret peeks update the image shelf, but cannot replace an explicitly pinned selection. */
+  /** The image shelf follows the caret: an image token shows it, leaving the token clears it. */
   setView(view: WorkspaceView | undefined): void {
-    if (!view) { this.peekImage = undefined; this.clearedImageId = undefined; if (!this.pinned) this.selectedImage = undefined; this.changed(); return; }
-    if (!view.id.startsWith("image:") || view.id === this.clearedImageId) return;
-    this.peekImage = view;
-    if (!this.pinned) this.selectedImage = view;
-    this.changed();
+    if (view && !view.id.startsWith("image:")) return;
+    this.image = view; this.changed();
   }
-  currentViewId(): string | undefined { return this.imageView()?.id; }
-  private imageView(): WorkspaceView | undefined { return this.pinned ? this.selectedImage : this.peekImage ?? this.selectedImage; }
-  pinImage(): void { this.setImagePinned(!this.pinned); }
-  setImagePinned(pinned: boolean): void {
-    const image = this.imageView();
-    if (!image || pinned === this.pinned) return;
-    if (pinned) this.selectedImage = image;
-    this.pinned = pinned; this.changed();
-  }
-  clearImage(): void {
-    this.clearedImageId = this.imageView()?.id;
-    this.selectedImage = undefined; this.peekImage = undefined; this.pinned = false; this.changed();
-  }
-  imagePath(): string | undefined { return this.imageView()?.filePath; }
-  isImagePinned(): boolean { return this.pinned; }
+  currentViewId(): string | undefined { return this.image?.id; }
   sessionDetails(): string {
     const s = this.session;
     const hit = formatCacheHit(sidebarCacheHit(s.usage));
@@ -185,7 +161,7 @@ export class Sidebar implements Component {
   tick(): void { this.refresh(); }
   invalidate(): void {
     if (this.cached) this.cached.key = undefined;
-    this.selectedImage?.invalidate(); this.peekImage?.invalidate();
+    this.image?.invalidate();
   }
   private changed(): void { this.revision++; this.refresh(); }
   private refresh(): void {
@@ -220,7 +196,7 @@ export class Sidebar implements Component {
     if (event.type === "wheel") {
       const delta = -(event.wheelDelta ?? 0);
       const list = frame.listRows.find(row => row.y === event.y)?.list;
-      if (list && this.scrollList(list, delta, frame)) return { handled: true, render: false };
+      if (list && this.scrollList(list, delta)) return { handled: true, render: false };
       const { start, height, rows } = frame.middle;
       if (event.y >= start && event.y < start + height) {
         const next = sidebarListOffset(this.middleOffset + delta, rows, height);
@@ -254,7 +230,7 @@ export class Sidebar implements Component {
   private buildFrame(width: number, height = Math.max(0, this.tui?.terminal.rows ?? 1)): PaneFrame {
     const theme = this.themeProvider?.() ?? this.theme;
     if (theme !== this.theme) { this.theme = theme; this.invalidate(); }
-    if (theme) { this.selectedImage?.setTheme?.(theme); this.peekImage?.setTheme?.(theme); }
+    if (theme) this.image?.setTheme?.(theme);
     const key = `${width}:${height}:${this.revision}:${Math.floor(this.now() / 1000)}`;
     if (this.cached?.key === key) return this.cached;
     const hits: Hit[] = [], listRows: PaneFrame["listRows"] = [];
@@ -262,7 +238,7 @@ export class Sidebar implements Component {
     const header = this.headerRows(inner, height >= 44 ? "full" : "compact");
     const gap = (row: Row): boolean => row === HEADER_GAP || row.divider === true;
     const gaps = header.filter(gap).length;
-    const slots = sessionSidebarSlots(height, header.length, this.tasks.length, Boolean(this.imageView()), gaps);
+    const slots = sessionSidebarSlots(height, header.length, Boolean(this.image), gaps);
     let dropGaps = header.length - slots.header;
     const lines: string[] = [];
     const add = (row: Row): void => {
@@ -278,11 +254,9 @@ export class Sidebar implements Component {
     const middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
     for (let i = 0; i < slots.middle; i++) add(middle[this.middleOffset + i] ?? { text: "" });
-    for (const row of this.taskRows(inner, slots.tasks)) add(row);
     const imageStart = lines.length;
-    const image = this.imageView();
+    const image = this.image;
     lines.push(...this.imageLines(width, slots.image, imageStart, hits, image));
-    if (slots.footer) add({ text: this.paint("dim", "/slate session · details"), action: () => this.actions?.inspect?.("Session", this.sessionDetails()) });
     if (slots.frame) lines.push(this.dividerLine(width, "└"));
     return this.cached = {
       key, lines: lines.slice(0, height), hits, listRows,
@@ -353,7 +327,7 @@ export class Sidebar implements Component {
     if (this.folds.prompts) rows.push(...this.resourceRows("prompts"));
     return rows;
   }
-  private resourceRows(list: Exclude<ListName, "tasks">): Row[] {
+  private resourceRows(list: ListName): Row[] {
     const items = this.resources[list];
     const visible = list === "mcp" ? 5 : 3;
     this.offsets[list] = sidebarListOffset(this.offsets[list], items.length, visible);
@@ -378,28 +352,6 @@ export class Sidebar implements Component {
     }
     return rows;
   }
-  private taskRows(width: number, height: number): Row[] {
-    if (height < 2 || !this.tasks.length) return [];
-    const live = this.tasks.filter(t => t.state !== "failed" && t.state !== "cleanup_unknown").length;
-    const rows: Row[] = height >= 4 ? [{ text: "" }] : [];
-    rows.push({ text: this.pair(this.heading("Tasks"), this.paint("muted", live ? `${live} live` : `${this.tasks.length} recorded`), width),
-      action: () => this.actions?.inspect?.("Background tasks", this.tasks.map(t => this.taskDetails(t)).join("\n\n")) });
-    const visible = Math.max(1, Math.ceil((height - rows.length) / 2));
-    this.offsets.tasks = sidebarListOffset(this.offsets.tasks, this.tasks.length, visible);
-    for (const task of this.tasks.slice(this.offsets.tasks, this.offsets.tasks + visible)) {
-      const error = task.state === "failed" || task.state === "cleanup_unknown";
-      const icon = error ? "!" : task.state === "waiting" ? "?" : "●";
-      const action = () => this.actions?.inspect?.(task.label, this.taskDetails(task));
-      if (rows.length < height) rows.push({ text: this.paint(error ? "error" : task.state === "waiting" ? "warning" : "muted",
-        this.pair(`${icon} ${sidebarText(task.label)}`, task.state, width)), list: "tasks", action });
-      if (rows.length < height) rows.push({ text: this.paint("dim", `${task.kind} · ${sidebarDuration(this.now() - task.startedAt)}${task.pid ? ` · PID ${task.pid}` : ""}`), list: "tasks", action });
-    }
-    while (rows.length < height) rows.push({ text: "" });
-    return rows;
-  }
-  private taskDetails(task: BackgroundTask): string {
-    return `${task.kind} · ${task.state}\nSource: ${task.source}\nID: ${task.id}\n${task.pid ? `PID: ${task.pid}\n` : ""}Elapsed: ${sidebarDuration(this.now() - task.startedAt)}\n${task.detail ?? ""}`;
-  }
   private imageLines(width: number, height: number, start: number, hits: Hit[], view?: WorkspaceView): string[] {
     if (height <= 0 || !view) return [];
     const inner = Math.max(0, width - 4);
@@ -422,10 +374,9 @@ export class Sidebar implements Component {
     lines.push(this.decorateLine(this.paint("muted", actions), width));
     return lines.slice(0, height);
   }
-  private scrollList(list: ListName, delta: number, frame: PaneFrame): boolean {
-    const count = list === "tasks" ? this.tasks.length : this.resources[list].length;
-    const visible = list === "tasks" ? Math.max(1, Math.ceil(frame.listRows.filter(x => x.list === "tasks").length / 2)) : list === "mcp" ? 5 : 3;
-    const next = sidebarListOffset(this.offsets[list] + delta, count, visible);
+  private scrollList(list: ListName, delta: number): boolean {
+    const visible = list === "mcp" ? 5 : 3;
+    const next = sidebarListOffset(this.offsets[list] + delta, this.resources[list].length, visible);
     if (next === this.offsets[list]) return false;
     this.offsets[list] = next; this.changed(); return true;
   }

@@ -205,13 +205,13 @@ export function messageLengthMessage(value: number | "all" | undefined): string 
   return `Message length set to ${value}`;
 }
 
-export const SLATE_ISSUES_URL = "https://www.npmjs.com/package/pi-slate";
+export const SLATE_ISSUES_URL = "https://github.com/GaganSD/coding-agent-toolkit/issues";
 export const SLATE_VERSION = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | diagnostics | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug [file|open]";
+  "Usage: /slate diagnostics | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme | bug";
 
 export const LOGO_USAGE = "Usage: /logo [original|minimal]";
 
@@ -224,7 +224,6 @@ export function withoutCurrent(label: string): string {
 }
 
 const SLATE_COMPLETIONS = [
-  "session", "session mcp", "session skills", "session prompts", "session commands", "session tasks", "session image",
   "diagnostics",
   "surfaces",
   "surfaces set",
@@ -261,14 +260,11 @@ const SLATE_COMPLETIONS = [
   "message-length all",
   "theme",
   "bug",
-  "bug file",
-  "bug open",
 ];
 
 export type SlateArgs =
   | { ok: true; kind: "menu" }
   | { ok: true; kind: "diagnostics" }
-  | { ok: true; kind: "session"; section?: "mcp" | "skills" | "prompts" | "commands" | "tasks" | "image" }
   | { ok: true; kind: "surfaces"; value?: Surface[] }
   | { ok: true; kind: "density"; value?: "comfortable" | "compact" }
   | { ok: true; kind: "footer"; value?: "standard" | "minimal" }
@@ -281,8 +277,7 @@ export type SlateArgs =
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
-  | { ok: true; kind: "bug-menu" }
-  | { ok: true; kind: "bug"; action: "file" | "open" }
+  | { ok: true; kind: "bug" }
   | { ok: false };
 
 export function parseSlateArgs(raw: string): SlateArgs {
@@ -290,11 +285,6 @@ export function parseSlateArgs(raw: string): SlateArgs {
   if (words.length === 0) return { ok: true, kind: "menu" };
   const [head, tail] = words;
   if (head === "diagnostics") return words.length === 1 ? { ok: true, kind: "diagnostics" } : { ok: false };
-  if (head === "session") {
-    if (words.length === 1) return { ok: true, kind: "session" };
-    if (words.length === 2 && (tail === "mcp" || tail === "skills" || tail === "prompts" || tail === "commands" || tail === "tasks" || tail === "image")) return { ok: true, kind: "session", section: tail };
-    return { ok: false };
-  }
   if (head === "surfaces") {
     if (!tail) return { ok: true, kind: "surfaces" };
     if (words.length === 2 && tail === "full") return { ok: true, kind: "surfaces", value: [...SURFACES] };
@@ -356,11 +346,7 @@ export function parseSlateArgs(raw: string): SlateArgs {
       ? { ok: true, kind: "message-length" }
       : { ok: true, kind: "message-length", value: parsed.value };
   }
-  if (head === "bug") {
-    if (!tail) return { ok: true, kind: "bug-menu" };
-    if (tail === "file" || tail === "open") return { ok: true, kind: "bug", action: tail };
-    return { ok: false };
-  }
+  if (head === "bug") return words.length === 1 ? { ok: true, kind: "bug" } : { ok: false };
   return { ok: false };
 }
 

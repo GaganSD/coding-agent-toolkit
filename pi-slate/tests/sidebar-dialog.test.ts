@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { TuiAltScreen, type Component, type OverlayOptions, type Terminal, visibleWidth } from "@earendil-works/pi-tui";
+import { TuiAltScreen, type Component, type OverlayOptions, type Terminal } from "@earendil-works/pi-tui";
 import { inspectSidebarText } from "../extensions/pi-slate/sidebar-inspector.ts";
-import { pickSidebarItem } from "../extensions/pi-slate/sidebar-picker.ts";
 
 class NullTerminal implements Terminal {
   columns = 100; rows: number; kittyProtocolActive = false;
@@ -31,14 +30,3 @@ for (const rows of [2, 3, 5, 24, 27, 28, 29, 30, 40]) {
     f.input("\x1b"); await pending;
   });
 }
-test("oversized picker keeps final selection visible through real fullscreen compositor and returns the original snapshot value", async () => {
-  const f = overlay(24);
-  const items = Array.from({ length: 64 }, (_, i) => `/command-${i}`); items[63] += "\x1b[2J";
-  const expected = items[63];
-  const pending = pickSidebarItem(f.ctx, "Commands", items);
-  items[63] = "changed";
-  f.frame(); f.input("\x1b[F");
-  assert.match(f.frame(), /› \/command-63/); assert.match(f.frame(), /64\/64/);
-  assert(f.render().every(row => visibleWidth(row) <= 80));
-  f.input("\r"); assert.equal(await pending, expected);
-});

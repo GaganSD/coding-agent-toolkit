@@ -11,7 +11,6 @@ import { perfFixture } from "./perf-fixture.ts";
 import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
 import { sidebarUsage, SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
-import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts";
 import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
 
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
@@ -42,9 +41,6 @@ function row(sidebar: Sidebar, text: string, width = 40): number {
 }
 function image(id = "a"): WorkspaceView {
   return { id: `image:${id}`, title: `${id}.png`, filePath: `/tmp/${id}.png`, render: (w, h) => Array.from({ length: h }, () => "IMAGE".slice(0, w)), invalidate() {} };
-}
-function task(i: number): BackgroundTask {
-  return { id: `task-${i}`, source: "sample", label: `job-${i}`, kind: "subagent", state: i === 1 ? "waiting" : "running", startedAt: 1000, detail: "No control action is performed" };
 }
 
 for (const method of ["view", "legacy", "throwing"] as const) {
@@ -189,7 +185,7 @@ test("quiet session rail merges usage into context and hides empty shelves", () 
   const lines = plain(sidebar.render(80));
   for (const label of ["Working", "session-", "sonnet-4.6", "16%", "31.6k/200k", "SPEED", "CACHE", "78.18% hit", "MCP · 6 Enabled", "Skills · 1 Loaded", "Prompts · 6"])
     assert(lines.some(line => line.includes(label)), label);
-  for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0", "prompt-0"])
+  for (const label of ["Stats", "Tokens · branch", "Commands ·", "Preview", "no selection", "/run-0", "prompt-0"])
     assert(!lines.some(line => line.includes(label)), label);
   assert.match(sidebar.sessionDetails(), /Cache read: 48k/);
 });
@@ -274,7 +270,7 @@ test("top title uses bold theme accent and follows theme changes independently o
 test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny terminals", () => {
   const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, id: "长会话 👩‍💻 café\n\x1b[2J", name: "标题 👩‍💻 café\n\x1b[2J".repeat(8), model: "非常长的模型名字".repeat(8) });
-  sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2), task(3)]);
+  sidebar.setView(image());
   for (let height = 0; height <= 60; height++) {
     terminal.rows = height;
     for (const width of [0, 1, 2, 3, 8, 20, 28, 40, 80]) {
@@ -455,24 +451,11 @@ test("skill lists scroll and clamp; the rail does not list commands", () => {
   assert(!plain(sidebar.render(40)).some(line => line.includes("Commands")));
 });
 
-test("read-only task actions preserve the pinned image", () => {
-  const { sidebar } = fixture(); const inspected: string[] = [], opened: string[] = [];
-  sidebar.setActions({ copy() {}, openFile: x => opened.push(x), inspect: title => inspected.push(title) });
-  sidebar.setView(image()); sidebar.pinImage(); sidebar.setTasks([task(0)]);
-  sidebar.handleMouse(mouse(row(sidebar, "job-0")));
-  assert.deepEqual(inspected, ["job-0"]);
-  assert.equal(sidebar.currentViewId(), "image:a");
-  assert.equal(sidebar.isImagePinned(), true); assert.deepEqual(opened, []);
-});
-
-test("image pin prevents caret replacement; clear only removes selection until caret leaves", () => {
-  const { sidebar } = fixture(); sidebar.setView(image("a")); sidebar.pinImage();
-  sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:a");
-  sidebar.setView(undefined); assert.equal(sidebar.currentViewId(), "image:a");
-  sidebar.pinImage(); sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:b");
-  sidebar.clearImage(); sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), undefined);
-  sidebar.setView(undefined); sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:b");
+test("the image shelf follows the caret and ignores non-image views", () => {
+  const { sidebar } = fixture(); sidebar.setView(image("a"));
+  sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:b");
   sidebar.setView({ ...image(), id: "diff:file.ts" }); assert.equal(sidebar.currentViewId(), "image:b");
+  sidebar.setView(undefined); assert.equal(sidebar.currentViewId(), undefined);
 });
 
 test("unpinned image preview hides when the caret leaves and recovers on the next peek", () => {
@@ -506,26 +489,18 @@ test("image double-click uses native clickCount or the fallback timer", () => {
   assert.deepEqual(opened, ["/tmp/a.png"]);
 });
 
-test("the compact rail keeps the image and tasks while the middle scrolls", () => {
-  const { sidebar } = fixture(30); sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2)]);
+test("the compact rail keeps the image while the middle scrolls", () => {
+  const { sidebar } = fixture(30); sidebar.setView(image());
   sidebar.setFolds({ mcp: true, skills: true, prompts: false });
   const lines = plain(sidebar.render(40));
-  assert.equal(sidebar.imagePath(), "/tmp/a.png");
+  assert.equal(sidebar.currentViewId(), "image:a");
   assert(lines.some(line => line.includes("IMAGE")));
-  assert(lines.some(line => line.includes("Tasks")));
   sidebar.handleMouse(mouse(row(sidebar, "MCP"), { type: "wheel", wheelDelta: -40 }));
   const scrolled = plain(sidebar.render(40));
   assert(scrolled.some(line => /Skills|Prompts|skill-\d|prompt-\d/.test(line)));
   assert.notDeepEqual(scrolled, lines);
   assert.equal(scrolled[0], lines[0]);
-  assert.equal(sidebar.imagePath(), "/tmp/a.png");
-});
-
-test("task shelf scrolls and is not changed by composer height", () => {
-  const { sidebar } = fixture(); sidebar.setTasks(Array.from({ length: 7 }, (_, i) => task(i)));
-  const initial = plain(sidebar.render(40)); assert.equal(initial.filter(line => /job-\d/.test(line)).length, 3);
-  sidebar.handleMouse(mouse(row(sidebar, "job-0"), { type: "wheel", wheelDelta: -2 }));
-  assert(plain(sidebar.render(40)).some(line => line.includes("job-4")));
+  assert.equal(sidebar.currentViewId(), "image:a");
 });
 
 test("clock and theme changes invalidate cached output; pure repeated render is reused", () => {
@@ -590,18 +565,18 @@ test("readable MCP declarations render without a host adapter; actual file failu
   assert(plain(sidebar.render(80)).some(line => line.includes("MCP · 1 Enabled · 1 Error")));
 });
 
-test("reset discards old titles, images, task rows and hit targets without changing fold preference", () => {
+test("reset discards old titles, images and hit targets without changing fold preference", () => {
   const { sidebar } = fixture();
   const copied: string[] = [];
   sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
   sidebar.setSession({ ...session, name: "Old title" });
-  sidebar.setFolds({ mcp: true, skills: false, prompts: true }); sidebar.setView(image()); sidebar.setTasks([task(0)]);
+  sidebar.setFolds({ mcp: true, skills: false, prompts: true }); sidebar.setView(image());
   const titleRow = row(sidebar, "Old title");
   sidebar.reset();
   assert.equal(sidebar.handleMouse(mouse(titleRow)), undefined, "reset clears the old title hit before another paint");
   assert.deepEqual(copied, []);
   assert.equal(sidebar.currentViewId(), undefined); assert.deepEqual(sidebar.getFolds(), { mcp: true, skills: false, prompts: true });
-  assert(!plain(sidebar.render(40)).some(line => line.includes("Old title") || line.includes("job-0") || line.includes("server-0")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("Old title") || line.includes("server-0")));
   sidebar.dispose(); sidebar.dispose();
 });
 
@@ -672,35 +647,16 @@ test("sub-cent spend that rounds to zero does not displace the last turn", () =>
   }
 });
 
-test("the minimum viewport keeps the live task item and its action", () => {
-  const { sidebar, terminal } = fixture(30);
-  terminal.columns = 100;
-  const width = dashboardColumnWidth(terminal.columns, terminal.rows);
-  assert.equal(width, 28);
-  sidebar.setTasks([task(0)]);
-  let inspected = "";
-  sidebar.setActions({ copy() {}, openFile() {}, inspect(title) { inspected = title; } });
-  const lines = plain(sidebar.render(width));
-  const heading = lines.findIndex(line => /Tasks\s+1 live/.test(line));
-  assert(heading > lines.findIndex(line => line.includes("MCP")));
-  assert.match(lines[heading + 1]!, /job-0\s+running/);
-  assert.equal(sidebar.handleMouse(mouse(heading + 1, { width, height: 30 }))?.handled, true);
-  assert.equal(inspected, "job-0");
-});
-
-test("the first reply does not shift MCP or tasks at 100×30 with a preview", () => {
+test("the first reply does not shift MCP at 100×30 with a preview", () => {
   const { sidebar, terminal } = fixture(30);
   terminal.columns = 100;
   const width = dashboardColumnWidth(terminal.columns, terminal.rows);
   sidebar.setView(image());
-  sidebar.setTasks([task(0), task(1), task(2)]);
   sidebar.setSession({ ...session, usage: sidebarUsage([]), perf: EMPTY_PERF });
   const mcp = row(sidebar, "MCP", width);
-  const firstTask = row(sidebar, "job-0", width);
   sidebar.setSession(session);
   assert(row(sidebar, "read 48k", width) > 0);
   assert.equal(row(sidebar, "MCP", width), mcp);
-  assert.equal(row(sidebar, "job-0", width), firstTask);
 });
 
 test("the first reply fills the performance charts without shifting the resource list", () => {

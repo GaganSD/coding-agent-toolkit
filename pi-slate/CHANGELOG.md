@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Remove the sidebar Tasks section and the `pi:background-tasks` listener. Task lists from extensions such as pi-tasks no longer have a competing shelf in the sidebar.
+- Remove the `/slate session · details` row from the bottom of the sidebar. Session details are one click away on the usage rows.
+- Remove `/slate session` and its subcommands. Pi already covers them: `/mcp` for MCP servers, `/skill:` for skills, and `/` for commands and prompts. Sidebar sections still fold by clicking their headings.
+- `/slate bug` opens the GitHub issue tracker directly, replacing the copy-a-report menu and the npm page link.
+- Remove image pinning. The sidebar image preview follows the caret, and `[open]`, `[copy]` and double-click still work.
 - Show SPEED and CACHE as compact side-by-side cards from a 32-column sidebar, cap the default sidebar at 40 columns, and put known spend in the status row. SPEED shows average and peak; CACHE shows hit share, reads and new input, without the output count, write count or cache timer.
 - Wrap performance stats in narrow sidebars and show empty SPEED and CACHE charts at session start.
 - Fix scrolling hitches when thinking ends or a reply hands off to tools.
