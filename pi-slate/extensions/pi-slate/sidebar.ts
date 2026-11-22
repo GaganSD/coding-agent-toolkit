@@ -115,8 +115,8 @@ export class Sidebar implements Component {
   }
   setFolds(folds: SidebarFolds): void { this.folds = { ...folds }; this.changed(); }
   getFolds(): SidebarFolds { return { ...this.folds }; }
-  toggleSection(section: keyof SidebarFolds): void { this.setSection(section, !this.folds[section]); }
-  setSection(section: keyof SidebarFolds, expanded: boolean): void {
+  toggleSection(section: keyof SidebarFolds): void {
+    const expanded = !this.folds[section];
     const next = this.actions?.persistFold
       ? this.actions.persistFold(section, expanded) : { ...this.folds, [section]: expanded };
     if (next) this.setFolds(next);

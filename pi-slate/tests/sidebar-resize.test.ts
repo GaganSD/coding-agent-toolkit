@@ -158,7 +158,7 @@ test("a stationary press on the inner handle column does not persist", () => {
   assert.deepEqual(persisted, []);
 });
 
-test("clicking the gutter never opens a session or task detail", () => {
+test("clicking the gutter opens no detail", () => {
   const { sidebar } = attachSidebar();
   const inspected: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: title => inspected.push(title) });

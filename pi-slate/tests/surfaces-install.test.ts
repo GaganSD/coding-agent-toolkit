@@ -46,7 +46,6 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
   const tools: ToolDefinition[] = [];
   const handlers = new Map<string, Handler[]>();
-  const bus = new Map<string, Set<(data: unknown) => void>>();
   const choices: string[] = [];
   const inspected: string[] = [];
   const extraCommands: Array<{ name: string; source: string; sourceInfo: { path: string; scope: string } }> = [];
@@ -68,14 +67,11 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
     ],
     exec: async () => { calls.push("branch-git"); return { code: 0, stdout: "test-branch\n", stderr: "", killed: false }; },
     events: {
-      on(name: string, handler?: (value: unknown) => void) {
+      on(name: string) {
         const prefix = name === "subagent:ui-host-request" ? "navigation" : "async";
         calls.push(`${prefix}-subscribe`);
-        if (!handler) return () => calls.push(`${prefix}-dispose`);
-        const listeners = bus.get(name) ?? new Set(); listeners.add(handler); bus.set(name, listeners);
-        return () => { calls.push(`${prefix}-dispose`); listeners.delete(handler); };
+        return () => calls.push(`${prefix}-dispose`);
       },
-      emit(name: string, value: unknown) { for (const listener of bus.get(name) ?? []) listener(value); },
     },
   } as unknown as ExtensionAPI;
   const tui = compatible ? new TuiAltScreen(new NullTerminal()) : {
@@ -151,7 +147,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, bus, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {

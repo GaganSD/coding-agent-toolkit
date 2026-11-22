@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { openExternalArgs, SLATE_ISSUES_URL } from "../extensions/pi-slate/bug.ts";
+import { openExternalArgs } from "../extensions/pi-slate/bug.ts";
+import { SLATE_ISSUES_URL } from "../extensions/pi-slate/layout.ts";
 
 test("bug link opens the GitHub issue tracker", () => {
   assert.equal(SLATE_ISSUES_URL, "https://github.com/GaganSD/coding-agent-toolkit/issues");

@@ -1,7 +1,3 @@
-import { SLATE_ISSUES_URL } from "./layout.ts";
-
-export { SLATE_ISSUES_URL };
-
 export function openExternalArgs(target: string, platform = process.platform): { command: string; args: string[] } {
   if (platform === "darwin") return { command: "open", args: [target] };
   if (platform === "win32") return { command: "cmd", args: ["/c", "start", "", `"${target}"`] };

@@ -72,7 +72,7 @@ Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 
 ### Session Dashboard
 
-The sidebar keeps session facts visible without sending them to a model: a live session title at the top in bold theme accent color (click to copy its full text), session id and PID on the next row (click to copy the full id), model, context meter with cost and rate, foldable MCP/Skills/Prompts lists, plus an image preview while the caret is on an image token. Long titles use a width-aware ellipsis; unnamed sessions leave that row blank. Set a name with Pi's `/name <title>` or a naming extension; Slate displays it and follows renames without generating titles. Click the usage rows for the full title and accounting; focused and compact modes move the facts onto the prompt frame.
+The sidebar keeps session facts visible without sending them to a model: a live session title at the top in bold theme accent color (click to copy its full text), with the short session id beside it (click to copy the full id; the PID is in the details and, with `/slate pid on`, on the composer), model, context meter with cost and rate, foldable MCP/Skills/Prompts lists, plus an image preview while the caret is on an image token. Long titles use a width-aware ellipsis; unnamed sessions leave that row blank. Set a name with Pi's `/name <title>` or a naming extension; Slate displays it and follows renames without generating titles. Click the usage rows for the full title and accounting; focused and compact modes move the facts onto the prompt frame.
 
 ![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
 

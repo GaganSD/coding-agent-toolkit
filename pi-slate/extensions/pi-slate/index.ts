@@ -74,9 +74,10 @@ import {
   withCurrent,
   withoutCurrent,
   type ModelDisplay,
+  SLATE_ISSUES_URL,
 } from "./layout.ts";
 import { SlateHeader } from "./header.ts";
-import { openExternalArgs, SLATE_ISSUES_URL } from "./bug.ts";
+import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
@@ -537,14 +538,9 @@ export default function piSlate(pi: ExtensionAPI): void {
         openFile: (filePath) => {
           const context = mountedContext();
           if (!context) return;
-          const target = resolve(context.cwd, filePath);
-          const { command, args } = openExternalArgs(target);
-          void Promise.resolve(pi.exec(command, args, { timeout: 5000 })).then(
-            (result) => {
-              if (result.code !== 0) notify("Could not open file", "error");
-            },
-            () => notify("Could not open file", "error"),
-          );
+          void openExternal(resolve(context.cwd, filePath)).then(opened => {
+            if (!opened) notify("Could not open file", "error");
+          });
         },
       });
       syncSidebar(ctx);
@@ -975,16 +971,16 @@ export default function piSlate(pi: ExtensionAPI): void {
     return { picked: true, value: parsed.value };
   };
 
-  const openUrl = async (url: string): Promise<boolean> => {
-    const { command, args } = openExternalArgs(url);
-    const result = await pi.exec(command, args, { timeout: 5000 });
-    return result.code === 0;
+  /** Open a file or URL with the platform opener; false on a non-zero exit or a failed launch. */
+  const openExternal = async (target: string): Promise<boolean> => {
+    const { command, args } = openExternalArgs(target);
+    try { return (await pi.exec(command, args, { timeout: 5000 })).code === 0; } catch { return false; }
   };
 
   /** Open the issue tracker; only a failure needs feedback, and only to the session that asked. */
   const openIssues = async (ctx: ExtensionContext): Promise<void> => {
     const owner = sessionEpoch;
-    const opened = await openUrl(SLATE_ISSUES_URL).catch(() => false);
+    const opened = await openExternal(SLATE_ISSUES_URL);
     if (opened || owner !== sessionEpoch) return;
     try { void ctx.mode; } catch { return; } // An invalidated context belongs to a finished session.
     ctx.ui.notify(`Open ${SLATE_ISSUES_URL}`, "error");
