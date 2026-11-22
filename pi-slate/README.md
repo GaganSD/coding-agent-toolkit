@@ -6,11 +6,15 @@
 
 ![Slate workspace](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png)
 
-![Slate mid-session: grouped tool calls, a timed thinking row, GitHub callouts, and the live sidebar](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/8cad9693affd8646916a7b9142704defcdc66040/pi-slate/assets/slate-workbench-working.png)
+<p align="center"><sub><b>Start of a session</b></sub></p>
 
-![Slate sidebar while the agent works: context, speed, and cache](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/8cad9693affd8646916a7b9142704defcdc66040/pi-slate/assets/slate-sidebar-working.png) ![Slate sidebar once the agent is idle](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/8cad9693affd8646916a7b9142704defcdc66040/pi-slate/assets/slate-sidebar-idle.png)
+![Slate mid-session: grouped tool calls, a timed thinking row, GitHub callouts, and the live sidebar](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/a78549b17b006af114ae878376f6b325c532d6aa/pi-slate/assets/slate-workbench-working.png)
 
-*The sidebar while the agent works (left) and once it's idle (right): context use, token speed, and cache hits.*
+<p align="center"><sub><b>Working</b>: grouped tool calls, a timed thinking row, GitHub callouts, and the live sidebar</sub></p>
+
+![Slate sidebar while working and once idle: context, speed, and cache](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/a78549b17b006af114ae878376f6b325c532d6aa/pi-slate/assets/slate-sidebar-states.png)
+
+<p align="center"><sub><b>Sidebar</b>: context use, token speed, and cache hits, while working and once idle</sub></p>
 
 ## Setup
 
