@@ -634,7 +634,7 @@ def suite(args):
             "runs": args.runs, "cases": [],
         }
         if args.scenario == "busy":
-            report["workload"]["busy_stream_revision"] = 3
+            report["workload"]["busy_stream_revision"] = 4
         heading = (f"Pi {pi_version} · Slate {report['slate_version']} ({report['slate_git_sha']}) · "
                    f"{entries} entries · {args.runs} runs" + (" · busy" if args.scenario == "busy" else ""))
         print(heading, flush=True)

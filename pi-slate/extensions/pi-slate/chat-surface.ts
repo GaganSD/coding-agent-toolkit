@@ -1,4 +1,4 @@
-import { AssistantMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, SkillInvocationMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Container, ScrollView, isViewportTUI, type Component, type TUI } from "@earendil-works/pi-tui";
 import type { PaintedRow, RowDecorator, ToolGroups } from "./tool-groups.ts";
 
@@ -68,7 +68,7 @@ function initialActiveStart(children: readonly Component[], start: number): numb
   let lastAssistant = -1;
   for (let index = children.length - 1; index >= 0; index--) {
     const child = children[index];
-    if (child instanceof UserMessageComponent) return Math.min(start, index);
+    if (child instanceof UserMessageComponent || child instanceof SkillInvocationMessageComponent) return Math.min(start, index);
     if (lastAssistant === -1 && child instanceof AssistantMessageComponent) lastAssistant = index;
   }
   return lastAssistant === -1 ? start : Math.min(start, lastAssistant);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { initTheme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { initTheme, SkillInvocationMessageComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Container, ScrollView, Text, VStack, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { MESSAGE_LENGTH_DEFAULT } from "../extensions/pi-slate/layout.ts";
 import { ChatSurface, findChatContainer } from "../extensions/pi-slate/chat-surface.ts";
@@ -64,6 +64,27 @@ test("mounting mid-turn keeps the current prompt and reply, even when tools alre
   const painted = rows(chat).join("\n");
   assert.match(painted, /current prompt[\s\S]*live reply\nfirst tool\nsecond tool/);
   assert.doesNotMatch(painted, /older history/);
+});
+
+test("a skill-only prompt anchors the live turn on mount and after history replacement", (t) => {
+  initTheme("dark", false);
+  const chat = new Container();
+  const skill = () => new SkillInvocationMessageComponent({
+    name: "review", location: "/skills/review", content: "Review the change", userMessage: undefined,
+  });
+  chat.addChild(skill());
+  chat.addChild(new Text("live tool", 0, 0));
+  const surface = new ChatSurface(chat, { limit: 1, active: () => true });
+  t.after(() => surface.dispose());
+  assert.match(rows(chat).join("\n"), /review[\s\S]*live tool/);
+
+  chat.clear();
+  chat.addChild(new UserMessageComponent("previous prompt"));
+  chat.addChild(skill());
+  chat.addChild(new Text("new reply", 0, 0));
+  const painted = rows(chat).join("\n");
+  assert.match(painted, /review[\s\S]*new reply/);
+  assert.doesNotMatch(painted, /previous prompt/);
 });
 
 test("the transcript keeps its visible history and the entire live turn as tools append", () => {

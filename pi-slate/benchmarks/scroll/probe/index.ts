@@ -9,6 +9,7 @@ interface ComponentNode {
 }
 interface PrimaryScrollView {
   primary: boolean;
+  isFollowingEnd: boolean;
   scrollTop: number;
   contentHeight: number;
   viewportHeight: number;
@@ -57,6 +58,20 @@ function primaryBox(box: LayoutBox | undefined, view: PrimaryScrollView): Layout
 function maxScrollTop(view: PrimaryScrollView | undefined): number | null {
   return view?.primary && Number.isFinite(view.contentHeight) && Number.isFinite(view.viewportHeight)
     ? Math.max(0, view.contentHeight - view.viewportHeight) : null;
+}
+
+// Check each routed call while its bounds are stable. Streaming may move the
+// viewport again before the driver snapshots the end of the burst.
+export function checkedWheelScroll(view: PrimaryScrollView, scrollBy: PrimaryScrollView["scrollBy"],
+  lines: number, onMismatch: (message: string) => void): number {
+  const bottom = Math.max(0, view.contentHeight - view.viewportHeight);
+  const start = view.isFollowingEnd ? bottom : view.scrollTop;
+  const expected = Math.max(0, Math.min(bottom, start + lines));
+  const overflow = scrollBy.call(view, lines);
+  if (view.scrollTop !== expected) {
+    onMismatch(`Wheel scroll of ${lines} lines from ${start} expected scrollTop ${expected}, got ${view.scrollTop}`);
+  }
+  return overflow;
 }
 
 function inspect(tui: FullscreenTui, diffViews: number) {
@@ -160,6 +175,8 @@ export default async function (pi: ExtensionAPI) {
       const { doRender, invalidate, requestRender, requestImmediateRender, routeWheel } = tui;
       const wheelLines = { wheel_up: 0, wheel_down: 0 };
       let routingWheel = false;
+      let wheelError: string | undefined;
+      const recordWheelError = (message: string) => { wheelError ??= message; };
       let primary: PrimaryScrollView | undefined;
       let restoreScroll: (() => void) | undefined;
       let scrollRange: number | null = null, scrollRangeRevision = 0;
@@ -175,10 +192,9 @@ export default async function (pi: ExtensionAPI) {
       function observeWheelInput(view: PrimaryScrollView) {
         const { scrollBy } = view;
         view.scrollBy = function (lines) {
-          const overflow = scrollBy.call(this, lines);
-          // Count signed wheel lines delivered to the transcript, including any clipped at its edges.
-          if (routingWheel) wheelLines[lines < 0 ? "wheel_up" : "wheel_down"] += Math.abs(lines);
-          return overflow;
+          if (!routingWheel) return scrollBy.call(this, lines);
+          wheelLines[lines < 0 ? "wheel_up" : "wheel_down"] += Math.abs(lines);
+          return busy ? checkedWheelScroll(this, scrollBy, lines, recordWheelError) : scrollBy.call(this, lines);
         };
         restoreScroll = () => { view.scrollBy = scrollBy; };
       }
@@ -226,6 +242,7 @@ export default async function (pi: ExtensionAPI) {
         }
       };
       snapshot = () => {
+        if (wheelError) { publish({ error: wheelError }); return; }
         if (ready) {
           const view = tui.currentLayout?.primaryScrollView;
           if (!view?.primary || typeof view.scrollBy !== "function" || (primary && primary !== view)) {
