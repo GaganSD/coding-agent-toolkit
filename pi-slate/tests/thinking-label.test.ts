@@ -130,7 +130,7 @@ test("the chat surface paints a live run, then its observed duration, and the ro
   assert.ok(!rows().some((row) => row.includes("Thought for 4s")), "expanded thinking leaves the collapsed label");
 });
 
-test("a grouped live run updates its cached row to the observed duration and still toggles", () => {
+test("a grouped run goes live again after a pause, keeps its duration, and still toggles", () => {
   initTheme("dark", false);
   const f = durationsFixture();
   const message = { role: "assistant", stopReason: "toolUse", content: [thinking("live run"), call("a"), call("b")] };
@@ -152,8 +152,16 @@ test("a grouped live run updates its cached row to the observed duration and sti
 
   f.tracker.observe({ type: "thinking_start", contentIndex: 0 }, message);
   assert.match(rows().join("\n"), /Done \(2 tool calls\)[\s\S]*Thinking…/);
-  f.advance(3_000);
-  f.tracker.observe({ type: "thinking_end", contentIndex: 0 }, message);
+  f.advance(2_000);
+  f.tracker.observe({ type: "toolcall_start", contentIndex: 1 }, message);
+  assert.match(rows().join("\n"), /Thought/);
+  f.advance(5_000);
+  const resumed = { ...message };
+  f.tracker.observe({ type: "thinking_delta", contentIndex: 0 }, resumed);
+  assistant.updateContent(resumed as never);
+  assert.match(rows().join("\n"), /Thinking…/);
+  f.advance(1_000);
+  f.tracker.observe({ type: "thinking_end", contentIndex: 0 }, resumed);
   const completed = rows();
   assert.match(completed.join("\n"), /Done \(2 tool calls\)[\s\S]*Thought for 3s/);
 

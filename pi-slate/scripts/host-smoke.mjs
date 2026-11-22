@@ -35,11 +35,52 @@ const initialMcp = '\uFEFF{"mcpServers":{"fixture":{"type":"future-transport","e
 await writeFile(mcpPath, initialMcp);
 const modeName = process.env.SLATE_COMPAT_MODE;
 const fault = process.env.SLATE_COMPAT_FAULT;
-const settingsManager = host.SettingsManager.inMemory({ quietStartup: true, tuiMode: modeName, theme: "dark" });
+const thinkingClick = process.env.SLATE_COMPAT_THINKING_CLICK === "1";
+const settingsManager = host.SettingsManager.inMemory({
+  quietStartup: true, tuiMode: modeName, theme: "dark", hideThinkingBlock: thinkingClick, fullscreenCopyOnSelect: false,
+});
 const model = { id: "compatibility-only", name: "Compatibility only", provider: "compatibility", api: "compatibility-quiet", baseUrl: "http://127.0.0.1:9", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 1000 };
 const quietTurn = !fault && selected.includes("editor") && selected.includes("header");
 const reply = Promise.withResolvers();
+const finishProjectionTurn = Promise.withResolvers();
 const chunks = [], errors = [];
+const fixturePath = join(root, "thinking-fixture.txt");
+if (thinkingClick) await writeFile(fixturePath, "Offline tool result\n");
+const insideThought = "Reasoning inside the tool group.";
+const outsideThought = "Reasoning outside the tool group.";
+function assistantMessage(content, stopReason) {
+  return { role: "assistant", api: model.api, provider: model.provider, model: model.id, content, stopReason,
+    timestamp: Date.now(), usage: { ...model.cost, totalTokens: 0, cost: { ...model.cost, total: 0 } } };
+}
+async function streamThoughtFixture(stream, step) {
+  const message = assistantMessage([], step < 2 ? "toolUse" : "stop");
+  const push = event => stream.push({ ...event, partial: { ...message, content: message.content.slice() } });
+  push({ type: "start" });
+  if (step === 3) await finishProjectionTurn.promise;
+  const thought = step === 1 ? insideThought : step === 2 ? outsideThought : undefined;
+  if (thought) {
+    message.content.push({ type: "thinking", thinking: "" });
+    push({ type: "thinking_start", contentIndex: 0 });
+    await delay(25);
+    message.content[0] = { type: "thinking", thinking: thought };
+    push({ type: "thinking_delta", contentIndex: 0, delta: thought });
+  }
+  if (step < 2) {
+    for (let i = 0; i < 2; i++) {
+      // Exercise actual host tool components and a collapsed group on either side of the thought.
+      message.content.push({ type: "toolCall", id: `click-fixture-${step}-${i}`, name: "read", arguments: { path: fixturePath } });
+      push({ type: "toolcall_start", contentIndex: message.content.length - 1 });
+    }
+  } else {
+    message.content.push({ type: "text", text: "Offline thinking fixture complete." });
+    const contentIndex = message.content.length - 1;
+    push({ type: "text_delta", contentIndex, delta: message.content[contentIndex].text });
+  }
+  // Mirror Chat Completions: the thinking end arrives after text/tool output starts.
+  if (thought) push({ type: "thinking_end", contentIndex: 0, content: thought });
+  stream.push({ type: "done", reason: message.stopReason, message });
+  stream.end();
+}
 const fixturePng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5AAAAABJRU5ErkJggg==", "base64");
 function withThemeGetter(hostUi, get, run) {
   const theme = Object.getOwnPropertyDescriptor(hostUi, "theme");
@@ -56,10 +97,11 @@ async function waitForWrite(from, pattern, description, timeout = 2000) {
   } while (performance.now() < until);
   assert.fail(description);
 }
-let mode, runtime, workingUi;
+let mode, runtime, workingUi, input;
 const terminal = {
   columns: 140, rows: 40, kittyProtocolActive: false,
-  start() {
+  start(onInput) {
+    input = onInput;
     if (fault === "transcript") {
       // A foreign render owner must cause a quiet fallback, but must not fool the positive canary.
       const chat = Reflect.get(mode, "chatContainer"), render = chat.render;
@@ -86,16 +128,16 @@ try {
     const loaded = services.resourceLoader.getExtensions();
     assert(loaded.extensions.some(extension => extension.path.endsWith("extensions/pi-slate/index.ts")), "the probe must actually load Slate, not boot an empty native host");
     assert.deepEqual(loaded.errors, []); assert.deepEqual(loaded.warnings ?? [], []);
-    if (quietTurn) {
+    if (quietTurn || thinkingClick) {
+      let step = 0;
       const { createAssistantMessageEventStream } = await import("@earendil-works/pi-ai");
       services.modelRuntime.registerProvider(model.provider, {
         api: model.api, baseUrl: model.baseUrl, apiKey: "offline-fixture", models: [model],
         streamSimple() {
           const stream = createAssistantMessageEventStream();
-          void reply.promise.then(() => {
-            const message = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
-              content: [{ type: "text", text: "Offline reply" }], stopReason: "stop", timestamp: Date.now(),
-              usage: { ...model.cost, totalTokens: 0, cost: { ...model.cost, total: 0 } } };
+          if (thinkingClick) void streamThoughtFixture(stream, step++);
+          else void reply.promise.then(() => {
+            const message = assistantMessage([{ type: "text", text: "Offline reply" }], "stop");
             stream.push({ type: "done", reason: "stop", message });
             stream.end();
           });
@@ -152,8 +194,145 @@ try {
     }
     assert.doesNotMatch(chunks.join("") + frame, /Slate (?:sidebar|transcript|Claude Code).*unavailable|MCP configuration validation unavailable|1 Warning|Extension error/i);
   };
-  await assertMounted("startup");
   const ui = Reflect.get(mode, "ui");
+  if (thinkingClick) {
+    await runtime.session.prompt("Exercise click-to-toggle thinking");
+    const chat = Reflect.get(mode, "chatContainer");
+    const lines = () => ui.currentLayout.lines.map(stripVTControlCharacters);
+    const pointFor = pattern => {
+      const rows = lines(), row = rows.findIndex(line => pattern.test(line));
+      assert(row >= 0, `${pattern} must be in the committed Pi frame:\n${rows.join("\n")}`);
+      const { index } = rows[row].match(pattern);
+      return { x: tui.visibleWidth(rows[row].slice(0, index)) + 1, y: row + 1 };
+    };
+    const mouse = ({ x, y }, suffix) => input(`\x1b[<0;${x};${y}${suffix}`);
+    const click = pattern => {
+      const point = pointFor(pattern);
+      mouse(point, "M");
+      mouse(point, "m");
+      ui.renderNow(true);
+    };
+    const frame = () => lines().join("\n");
+    const collapsed = /(?<=^│ +)Thought(?: for \d+s)?\b/;
+    const group = /Done \(4 tool calls\)/;
+    const assertSplit = () => {
+      assert.match(frame(), /Reasoning inside the tool group\./);
+      assert.equal(lines().filter(line => /Done \(2 tool calls\)/.test(line)).length, 2,
+        `expanding thinking should split, not disable, tool grouping:\n${frame()}`);
+    };
+    ui.renderNow(true);
+    assert.match(frame(), group);
+    click(group);
+    click(group);
+    assert.equal(ui.getActiveSelectionText(), "Done", "double-clicking the group summary must preserve Pi's selection for copy");
+    click(collapsed);
+    assertSplit();
+    click(/Reasoning inside the tool group\./);
+    assert.match(frame(), group);
+
+    // Induce a one-frame presentation fault only once the real click opens the run.
+    const assistant = chat.children.find(child => child.lastMessage?.content?.[0]?.thinking === insideThought);
+    const overrides = assistant.thinkingVisibilityOverrides;
+    let faults = 0;
+    overrides.values = function () {
+      if (this.get(0) === false && faults === 0) {
+        faults++;
+        throw new Error("Injected transient grouping metadata fault after a thinking click");
+      }
+      return Map.prototype.values.call(this);
+    };
+    try {
+      click(collapsed);
+      assert.equal(faults, 1);
+      assert.match(frame(), /Reasoning inside the tool group\./, "the faulting frame must fall back with the click applied");
+      assert.doesNotMatch(frame(), /Done \(\d+ tool calls\)/);
+      ui.renderNow(true);
+      assertSplit();
+    } finally { delete overrides.values; }
+    click(/Reasoning inside the tool group\./);
+    assert.match(frame(), group);
+    assert.equal(lines().filter(line => /Thought for \d+s/.test(line)).length, 2,
+      "both collapsed runs retain their live durations after interleaved updates and click round trips");
+    const standaloneLabel = /(?<=^ )Thought for \d+s/;
+    const tools = chat.children.filter(child => child.toolCallId);
+    assert.equal(tools.length, 4);
+    // Exercise a separate fault after the short failure window has expired.
+    await delay(1_050);
+    // Press on the fallback frame, but let grouping recover before release.
+    overrides.values = () => { throw new Error("Injected grouping fault before press"); };
+    try { ui.renderNow(true); }
+    finally { delete overrides.values; }
+    assert.doesNotMatch(frame(), group);
+    const fallbackPoint = pointFor(standaloneLabel);
+    fallbackPoint.x += 4; // Click the label itself, beyond the recovered group's tree gutter.
+    mouse(fallbackPoint, "M");
+    ui.renderNow(true);
+    assert.match(frame(), group);
+    assert.match(lines()[fallbackPoint.y - 1], /Read|└ 1 line/, "grouping moves a tool under the pressed cell");
+    mouse(fallbackPoint, "m");
+    ui.renderNow(true);
+    assert.deepEqual(tools.map(tool => tool.expanded), [false, false, false, false], "recovery must not expand a tool under a pressed Thought");
+    assert.equal(overrides.get(0), true, "the obsolete press must not toggle the thought either");
+    assert.match(frame(), group);
+
+    // The standalone (not tree-prefixed) thinking run uses Pi's native mouse region too.
+    click(standaloneLabel);
+    assert.match(frame(), /Reasoning outside the tool group\./);
+    assert.match(frame(), group);
+    click(/Reasoning outside the tool group\./);
+    assert.doesNotMatch(frame(), /Reasoning outside the tool group\./);
+    assert.match(frame(), group);
+
+    const standalone = chat.children.find(child => child.lastMessage?.content?.[0]?.thinking === outsideThought);
+    const state = () => [overrides.get(0), standalone.thinkingVisibilityOverrides.get(0), ...tools.map(tool => tool.expanded)];
+    assert.deepEqual(state(), [true, true, false, false, false, false]);
+    chat.addChild(new tui.Text(Array.from({ length: 54 }, (_, i) => `Transcript tail ${i}`).join("\n"), 0, 0));
+    const started = Promise.withResolvers();
+    const unsubscribe = runtime.session.subscribe(event => {
+      if (event.type === "message_start" && event.message.role === "assistant") started.resolve();
+    });
+    const turn = runtime.session.prompt("Finish a turn while scrolled up");
+    try {
+      await Promise.race([started.promise, turn.then(() => assert.fail("the projection fixture did not stream"))]);
+      // While busy Slate paints every child. On idle, the completion receipt pushes this
+      // two-row first child off the 100-child window, moving a tool under the pressed cell.
+      const oldHistory = [new tui.Text("Trimmed history row 1\nTrimmed history row 2", 0, 0)];
+      while (chat.children.length + oldHistory.length < 100) oldHistory.push(new tui.Text("Older history", 0, 0));
+      chat.children.unshift(...oldHistory);
+      ui.renderNow(true);
+      const wheelUp = () => { input("\x1b[<64;20;15M"); ui.renderNow(true); };
+      for (let i = 0; i < 70 && lines().findIndex(line => group.test(line)) < 4; i++) wheelUp();
+      const scroll = ui.currentLayout.primaryScrollView;
+      assert(scroll.scrollTop > 0 && !scroll.isFollowingEnd, "the click must occur in a scrolled viewport");
+      assert.match(ui.previousScreen.map(stripVTControlCharacters).join("\n"), /Jump to latest message/);
+      const point = pointFor(collapsed), scrollTop = scroll.scrollTop;
+      mouse(point, "M");
+      finishProjectionTurn.resolve();
+      await turn;
+      ui.renderNow(true);
+      assert.equal(scroll.scrollTop, scrollTop, "the projection must move the rows, not scroll the viewport");
+      assert.match(lines()[point.y - 1], /└ 1 line/, "the old screen cell now belongs to a tool result");
+      mouse(point, "m");
+      ui.renderNow(true);
+      assert.deepEqual(state(), [true, true, false, false, false, false], "a release across the window change must not toggle another row");
+      assert.match(frame(), group);
+
+      click(collapsed);
+      assert.deepEqual(state(), [false, true, false, false, false, false]);
+      assertSplit();
+      click(/Reasoning inside the tool group\./);
+      click(standaloneLabel);
+      assert.deepEqual(state(), [true, false, false, false, false, false]);
+      assert.match(frame(), group);
+      click(/Reasoning outside the tool group\./);
+      assert.deepEqual(state(), [true, true, false, false, false, false]);
+    } finally {
+      unsubscribe();
+      finishProjectionTurn.resolve();
+      await turn;
+    }
+  }
+  await assertMounted("startup");
   if (!fault && modeName === "fullscreen" && selected.includes("header") && selected.includes("sidebar")) {
     const runner = runtime.session.extensionRunner;
     const hostUi = runner.getUIContext();
@@ -366,7 +545,7 @@ try {
   const { readFile } = await import("node:fs/promises");
   if (config === undefined) await assert.rejects(readFile(configPath), { code: "ENOENT" });
   else assert.equal(await readFile(configPath, "utf8"), config, "fallbacks and startup must not rewrite preferences");
-  console.log(JSON.stringify({ host: host.VERSION, mode: modeName, surfaces, mounted: true, rendered: true, replaced: true, shutdown: true, quietTurn, networkRequests }));
+  console.log(JSON.stringify({ host: host.VERSION, mode: modeName, surfaces, mounted: true, rendered: true, replaced: true, shutdown: true, quietTurn, thinkingClick, networkRequests }));
 } finally {
   mode?.stop();
   await runtime?.dispose();
