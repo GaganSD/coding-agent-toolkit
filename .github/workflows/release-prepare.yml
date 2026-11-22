@@ -64,9 +64,22 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
+      # Commit as the app's bot user only. The action otherwise uses the dispatcher as author and
+      # github-actions[bot] as committer, so the squash merge credits three identities.
+      - name: Resolve app bot identity
+        id: bot
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id="$(gh api "users/${SLUG}%5Bbot%5D" --jq .id)"
+          [[ "$id" =~ ^[0-9]+$ ]]
+          echo "identity=${SLUG}[bot] <${id}+${SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
           token: ${{ steps.app.outputs.token }}
+          author: ${{ steps.bot.outputs.identity }}
+          committer: ${{ steps.bot.outputs.identity }}
           branch: release/next
           base: main
           title: 'chore: prepare npm releases'
