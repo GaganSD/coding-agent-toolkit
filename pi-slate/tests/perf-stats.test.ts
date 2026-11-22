@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { branchPerf, cacheWarmth, EMPTY_PERF, PERF_MAX_RATES } from "../extensions/pi-slate/perf-stats.ts";
+import { branchPerf, EMPTY_PERF, PERF_MAX_RATES } from "../extensions/pi-slate/perf-stats.ts";
 
 let seq = 0;
 function entry(fields: Record<string, unknown>): SessionEntry {
@@ -56,37 +56,10 @@ test("latest completed reply owns hit rate; tool/summary usage and failed replie
   assert.equal(branchPerf([reply, asst({}, { cacheRead: Infinity })]).cache.lastHit, null);
 });
 
-test("expiry follows the recorded cache producer and timestamp, not an unrelated timed failure or reply", () => {
-  const lookup = (provider: string, model: string) => provider === "fixture" && model === "physical-a"
-    ? { short: 300, long: 3600 } : { short: 99, long: 99 };
-  const reply = asst({ model: "routed", responseModel: "physical-a" }, { cacheWrite: 40, cacheWrite1h: 40 });
-  const failed = asst({ model: "b", timestamp: 3000, stopReason: "error" }, { cacheRead: 900 });
-  assert.deepEqual(branchPerf([reply, failed], lookup).cache, { lastHit: 0, lastActivityAt: 2000, ttlMs: 3_600_000 });
-  const untimed = asst({ model: "b", durationMs: undefined }, { cacheRead: 30 });
-  assert.equal(cacheWarmth(branchPerf([reply, untimed], lookup).cache, 4000).state, "unknown");
-  assert.equal(cacheWarmth(branchPerf([reply, asst({ model: "b" })], lookup).cache, 4000).state, "unknown");
-});
-
-test("a persisted cache refresh advances activity but not the last reply's hit or speed", () => {
+test("a persisted cache refresh does not change the last reply's hit or speed", () => {
   const reply = asst({}, { input: 30, cacheRead: 70, cacheWrite: 0 });
   const warm = entry({ type: "usage", kind: "cache_warm", provider: "fixture", model: "a", usage: { cacheRead: 100 } });
-  const perf = branchPerf([reply, warm], () => ({ short: 300, long: 300 }));
-  assert.deepEqual(perf.cache, { lastHit: 0.7, lastActivityAt: 10_000, ttlMs: 300_000 });
+  const perf = branchPerf([reply, warm]);
+  assert.deepEqual(perf.cache, { lastHit: 0.7 });
   assert.deepEqual(perf.rates, [100]);
-  assert.equal(cacheWarmth(perf.cache, 11_000).remainingMs, 299_000);
-});
-
-test("a cache timer requires evidence of the recorded request's retention tier", () => {
-  const lookup = () => ({ short: 300, long: 3600 });
-  assert.equal(branchPerf([asst({}, { cacheWrite: 10, cacheWrite1h: 10 })], lookup).cache.ttlMs, 3_600_000);
-  for (const usage of [{ cacheRead: 99 }, { cacheWrite: 10 }, { cacheWrite: 10, cacheWrite1h: 0 }, { cacheWrite: 10, cacheWrite1h: 3 }]) {
-    assert.equal(branchPerf([asst({}, usage)], lookup).cache.ttlMs, null);
-  }
-});
-
-test("cache warmth clamps clock skew and expires at TTL", () => {
-  const cache = { ...EMPTY_PERF.cache, lastActivityAt: 10_000, ttlMs: 300_000 };
-  assert.deepEqual(cacheWarmth(cache, 5000), { state: "warm", remainingMs: 300_000, idleMs: 0 });
-  assert.equal(cacheWarmth(cache, 310_000).state, "cold");
-  assert.equal(cacheWarmth({ ...cache, ttlMs: null }, 70_000).idleMs, 60_000);
 });

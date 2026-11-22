@@ -134,6 +134,11 @@ test("workspace column is 20% once the terminal is wide enough", () => {
   assert.equal(workspaceColumnWidth(100), 28);
   assert.equal(workspaceColumnWidth(200), 40);
   assert.equal(workspaceColumnWidth(203), 40);
+  assert.equal(workspaceColumnWidth(300), 40, "the default rail is capped on wide terminals");
+  assert.equal(sidebarPercentFromColumns(300, 60), 20, "a wide 20% drag stays explicit");
+  assert.equal(workspaceColumnWidth(300, sidebarPercentFromColumns(300, 60)), 60);
+  assert.equal(sidebarPercentFromColumns(200, 40), undefined, "an uncapped 20% drag stays default");
+  assert.equal(sidebarPercentFromColumns(220, 40), undefined, "a drag onto the capped default stays default");
   assert.equal(mainColumnWidth(200), 160);
 });
 

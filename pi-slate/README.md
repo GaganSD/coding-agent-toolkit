@@ -139,7 +139,7 @@ These work when `editor` is selected. No terminal configuration.
 | PID display | `/slate pid [on\|off]` | Show the agent process ID on the composer's top edge. Off by default; omitted when the frame is too narrow. |
 | Effort border color | `/slate effort-border [on\|off]` | Let Pi's native thinking-level and bash-mode colors paint the composer frame. Off by default: Slate keeps its neutral chrome. Applies immediately with `editor` selected. |
 | Working indicator | `/slate progress [waves\|dna-helix\|snake\|cylon-scanner]` | Animate the composer's working-status slot. `waves` is the default. |
-| Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
+| Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%, up to 40 columns. |
 | Session dashboard | `/slate session [mcp\|skills\|commands\|tasks\|image]` | Inspect facts, expand/collapse resources, insert commands, or manage the image shelf. |
 | Diagnostics | `/slate diagnostics` | Inspect optional feature availability, native fallbacks, and next steps without changing preferences or adding model context. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |

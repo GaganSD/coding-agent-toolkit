@@ -608,7 +608,7 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   assert.doesNotMatch(rail(), /Unnamed session|Untitled session/);
   assert.ok(rail().includes(f.manager.getSessionId().slice(0, 8)));
   assert.match(railOf(f).sessionDetails(), /Title: Dashboard test/);
-  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /new 100/); assert.match(rail(), /read 300 · write 50 · new 100/);
+  assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /read +300/); assert.match(rail(), /new +100/);
   assert(!/Summary|Activity Preview|Context\s*\n/.test(rail()));
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });
@@ -725,6 +725,26 @@ function sidebarReply(): Extract<Parameters<SessionManager["appendMessage"]>[0],
       cost: { input: .01, output: 0, cacheRead: 0, cacheWrite: 0, total: .01 } } };
 }
 
+test("the status hides branch spend when the selected model uses OAuth", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const model = { id: "fixture", provider: "fixture" };
+  const registry = { find: () => undefined, isUsingOAuth: (selected: typeof model) => selected === model };
+  f.manager.appendMessage(sidebarReply());
+  Object.assign(f.ctx, { model, modelRegistry: registry });
+  await f.emit("model_select");
+  const sidebar = railOf(f);
+  const status = () => unstyled(sidebar.render(44)[1]!);
+  assert.doesNotMatch(status(), /\$/);
+  assert.match(sidebar.sessionDetails(), /Cost: \$0\.01/);
+
+  Object.assign(f.ctx, { model: { ...model, id: "api-key" } });
+  await f.emit("model_select");
+  assert.match(status(), /\$0\.01/);
+  Object.assign(f.ctx, { model, modelRegistry: { find: registry.find } });
+  await f.emit("model_select");
+  assert.match(status(), /\$0\.01/, "hosts without the auth type keep reported spend");
+});
+
 test("SPEED follows persistence, not token deltas or an unrelated model selection", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] })), reply = sidebarReply();
   const capture = () => unstyled(railOf(f).render(44).join("\n"));
@@ -736,16 +756,15 @@ test("SPEED follows persistence, not token deltas or an unrelated model selectio
   Object.assign(f.ctx, { model: { id: "virtual", provider: "fixture", promptCache: { short: 30 } } });
   const scans = t.mock.method(f.manager, "getBranch");
   await f.emit("model_select");
-  assert.match(capture(), /◉ (?:1:00:00|59:59)/);
   const next = { ...reply, usage: { ...reply.usage, output: 120 } };
   await f.emit("message_start", { message: next });
   const contextReads = t.mock.method(f.ctx, "getContextUsage"); await f.emit("message_update", { message: next });
   assert.equal(scans.mock.callCount() + contextReads.mock.callCount(), 0, "token updates do not rescan context or persisted facts");
   await f.emit("message_end", { message: next });
-  assert.match(capture(), /SPEED\s+70\.0 tok\/s/);
+  assert.match(capture(), /70\.0 tok\/s/);
   f.manager.appendMessage(next);
   await f.emit("tool_execution_start", { toolCallId: "call", toolName: "read", args: {} });
-  assert.match(capture(), /SPEED\s+120 tok\/s/);
+  assert.match(capture(), /│ 120 tok\/s/);
 });
 
 test("mounted rail preserves the pinned preview and open target under task pressure", async t => {

@@ -69,7 +69,6 @@ import {
   slateArgumentCompletions,
   SLATE_USAGE,
   SLATE_VERSION,
-  SIDEBAR_PERCENT_DEFAULT,
   SIDEBAR_PERCENT_MEDIUM,
   SIDEBAR_PERCENT_NARROW,
   SIDEBAR_PERCENT_WIDE,
@@ -385,13 +384,14 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (!branchFacts || leaf === undefined || leaf !== branchFacts.leaf) {
         const entries = ctx.sessionManager.getBranch();
         branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries),
-          perf: branchPerf(entries, (provider, model) => ctx.modelRegistry.find(provider, model)?.promptCache) };
+          perf: branchPerf(entries) };
       }
-      const rate = tokenRate.rate();
+      const rate = tokenRate.rate(), model = ctx.model;
       sidebar.setSession({
         id: ctx.sessionManager.getSessionId?.() ?? "",
         name: ctx.sessionManager.getSessionName?.(),
-        pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(ctx.model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
+        pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
+        usingOAuth: model ? ctx.modelRegistry.isUsingOAuth?.(model) : undefined,
         tokens, percent, contextWindow, estimated,
         rate: rate > 0 ? rate : null, startedAt: sessionStartedAt, lastTurnMs, turnStartedAt: turnStartedAt ?? null,
         working: typeof ctx.isIdle === "function" && !ctx.isIdle(), ...branchFacts.counts, usage: branchFacts.usage,
@@ -928,19 +928,18 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const pickWidth = async (ctx: ExtensionContext): Promise<{ picked: true; width?: number } | undefined> => {
     const percent = sidebar.preferredWidth ?? config.sidebarPercent;
-    const defaultLabel = "Default (20%)";
+    const defaultLabel = "Default (20%, up to 40 columns)";
     const narrowLabel = "Narrow (minimum)";
     const mediumLabel = "Medium (30%)";
     const wideLabel = "Wide (40%)";
     const customLabel = percent !== undefined
       && percent !== SIDEBAR_PERCENT_NARROW
-      && percent !== SIDEBAR_PERCENT_DEFAULT
       && percent !== SIDEBAR_PERCENT_MEDIUM
       && percent !== SIDEBAR_PERCENT_WIDE
       ? `Custom (${percent}%)`
       : "Custom…";
     const choice = await ctx.ui.select("Sidebar width", [
-      withCurrent(defaultLabel, percent === undefined || percent === SIDEBAR_PERCENT_DEFAULT),
+      withCurrent(defaultLabel, percent === undefined),
       withCurrent(narrowLabel, percent === SIDEBAR_PERCENT_NARROW),
       withCurrent(mediumLabel, percent === SIDEBAR_PERCENT_MEDIUM),
       withCurrent(wideLabel, percent === SIDEBAR_PERCENT_WIDE),

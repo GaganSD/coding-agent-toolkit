@@ -26,6 +26,7 @@ export type SidebarSession = {
   /** Wall-clock start of the running turn; absent or null when idle. */
   turnStartedAt?: number | null;
   working: boolean; turns: number; messages: number; usage: SidebarUsage;
+  usingOAuth?: boolean;
   perf: SidebarPerf;
 };
 export type SidebarFolds = { mcp: boolean; skills: boolean; prompts: boolean };

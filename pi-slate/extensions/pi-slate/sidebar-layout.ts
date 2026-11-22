@@ -1,6 +1,17 @@
 export type SidebarSlots = { frame: number; header: number; middle: number; tasks: number; image: number; footer: number };
 export type SidebarTier = "full" | "compact";
 
+// Columns hold one stat per row, so 13 cells fit "saved ~$12.34" and "99.99% hit".
+const PERF_MIN_COLUMN = 13;
+const PERF_COLUMN_GAP = "  ";
+
+export function sidebarPerfColumns(inner: number): { speed: number; cache: number; gap: string } | undefined {
+  const space = inner - PERF_COLUMN_GAP.length;
+  if (space < 2 * PERF_MIN_COLUMN) return undefined;
+  const speed = Math.floor(space / 2);
+  return { speed, cache: space - speed, gap: PERF_COLUMN_GAP };
+}
+
 /** Budget borders, content and hit regions together. Shed header gaps before squeezing a preview. */
 export function sessionSidebarSlots(height: number, headerRows: number, taskCount: number, hasImage: boolean, gaps = 0): SidebarSlots {
   const rows = Math.max(0, Math.floor(height));
