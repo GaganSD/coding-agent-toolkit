@@ -275,12 +275,18 @@ test("a zero-row window shift preserves a click on the same painted thinking row
   const chat = new Container();
   const first = mockTool(), second = mockTool();
   const thought = assistant([thinking("same painted owner"), bashCall(second.toolCallId)]);
-  chat.children = [new Container(), first, thought, second];
-  let active = true;
-  const surface = new ChatSurface(chat, { limit: 3, active: () => active,
-    groups: new ToolGroups(() => theme, () => "expand") });
+  const zero = new Container();
+  chat.children = [zero, first, thought];
+  let active = false;
+  const groups = new ToolGroups(() => theme, () => "expand");
+  const render = t.mock.method(groups, "render");
+  const surface = new ChatSurface(chat, { limit: 3, active: () => active, groups });
   t.after(() => surface.dispose());
+  chat.render(80); // Seed the idle window before the turn appends a tool.
+  active = true;
+  chat.addChild(second);
   const rows = chat.render(80);
+  assert.deepEqual(render.mock.calls.at(-1)?.arguments[0], [zero, first, thought, second]);
   const y = rows.findIndex(row => row.includes("Thinking..."));
   assert(y >= 0);
   const event = { type: "press", button: "left", x: 6, y, screenX: 6, screenY: y,
@@ -288,6 +294,7 @@ test("a zero-row window shift preserves a click on the same painted thinking row
   chat.handleMouse(event);
   active = false;
   assert.deepEqual(chat.render(80), rows);
+  assert.deepEqual(render.mock.calls.at(-1)?.arguments[0], [first, thought, second]);
   assert.equal(chat.handleMouse({ ...event, type: "click" })?.handled, true);
   assert.match(chat.render(80).join("\n"), /same painted owner/);
   assert.equal(first.expanded || second.expanded, false);

@@ -87,6 +87,35 @@ The fix belongs upstream. Pi could add a fast path for a box at column 0 paintin
 
 Slate also writes about 1.7× more bytes per frame than native Pi at 200×50 (~22 KB vs ~13 KB), mostly the sidebar's colored rows. That doesn't affect Pi's CPU, but terminals that are slow at taking in output, such as Windows Terminal through ConPTY, pay for it.
 
+## Busy fullscreen scrolling
+
+Slate 0.4.0 bypassed the 100-child transcript window as soon as Pi started working, to avoid dropping the live assistant when tools appended rows. That made Pi's streaming and working-indicator content frames repaint the entire history. Slate's grouping cache still called each child renderer before checking its cached rows, and compact tool headings and summaries repeatedly truncated unchanged text. The fix holds the current window in place while appending the live turn, and caches those tool rows without freezing running spinners.
+
+```sh
+npm run bench:scroll -- --scenario busy --variants native slate slate-no-sidebar
+```
+
+Pi 1.6.0, Node 24.22.1, macOS PTY on Apple M2, 3,000 entries. Medians of three interleaved rounds, Slate 0.4.0 (`8d56b31`) vs fixed (`2a982cd`). The up burst runs during hidden thinking; the down burst includes a local tool call and streamed text. Frame counts and CPU cover both bursts; max is the median of each run's slowest frame. All runs delivered all 800 wheel lines.
+
+| Terminal | Build | Frames | View / content | p95 ms ↑ / ↓ | Max ms | CPU s |
+|---|---|---:|---:|---:|---:|---:|
+| 200×50 | Native Pi | 388 | 121 / 266 | 9.1 / 10.2 | 13.9 | 3.10 |
+| 200×50 | Slate 0.4.0 | 98 | 1 / 97 | 64.3 / 141.9 | 257.9 | 7.27 |
+| 200×50 | Slate fixed | 387 | 122 / 264 | 8.2 / 8.4 | 39.3 | 3.21 |
+| 200×50 | 0.4.0, no sidebar | 227 | 34 / 193 | 32.2 / 33.0 | 203.8 | 6.79 |
+| 200×50 | Fixed, no sidebar | 385 | 121 / 268 | 6.8 / 6.4 | 37.4 | 2.24 |
+| 120×40 | Native Pi | 385 | 121 / 267 | 8.4 / 9.4 | 53.8 | 2.98 |
+| 120×40 | Slate 0.4.0 | 106 | 1 / 105 | 59.2 / 78.1 | 202.1 | 7.28 |
+| 120×40 | Slate fixed | 385 | 120 / 265 | 7.3 / 7.0 | 25.6 | 2.84 |
+| 120×40 | 0.4.0, no sidebar | 259 | 43 / 217 | 25.4 / 28.9 | 165.2 | 6.82 |
+| 120×40 | Fixed, no sidebar | 386 | 116 / 270 | 5.7 / 6.6 | 19.6 | 2.23 |
+
+Counts are medianed independently. Native always displays the whole history; fixed Slate uses its configured window. Fixed Slate paints **more** content frames because streaming and scrolling aren't blocked behind long frames.
+
+- At 200×50, Slate's scroll range at the start of wheel-up was 18,277 lines in 0.4.0 vs 439 with the fix. In separate whole-process CPU profiles, Slate's chat render accounted for 6.83 s of inclusive samples before vs 0.25 s after; the compact tool line renderer went from 4.16 s to 0.04 s.
+- `--stacks` in that 0.4.0 run showed 92 content requests from Pi's live message updates and 47 from its working loader, out of 153 total. Slate's hidden-thinking label setter requested two at message boundaries, none on thinking deltas. Neither the composer animation nor the sidebar clock requested content frames in the bursts.
+- Fixed Slate still pays the split-layout cost above and writes ~17 KB/frame vs native's ~10 KB/frame at 200×50. This benchmark does not measure Windows Terminal or ConPTY.
+
 ## Run it yourself
 
 You need macOS or Linux, Python 3.8+, and Pi installed globally (`npm i -g @earendil-works/pi-coding-agent`). Alternatively, point `PI_CLI` at Pi's `dist/bundle/cli.js`. Run these from `pi-slate/`.
@@ -120,6 +149,7 @@ npm run bench:scroll -- --size medium --runs 1 --variants slate --terminals 200x
 | `--size small\|medium\|large` / `--entries N` | Session size: 200, 1,000 or 3,000 entries, or exactly N |
 | `--seed N` | Fixture seed (default 42). Same seed gives the same session, byte for byte |
 | `--runs N` | Repeats per case (default 3). Each metric is the median across repeats |
+| `--scenario idle\|busy` | Scroll at idle (default), or stream an offline reply with hidden thinking, text and a local tool call during the wheel bursts |
 | `--variants …` | Any of `native slate slate-matched-history slate-no-sidebar slate-no-toolcards` |
 | `--terminals …` | `200x50` (full sidebar tier) and/or `120x40` (compact tier) |
 | `--capture` | Save the raw startup terminal stream for each case's first run |
@@ -142,8 +172,8 @@ Each run writes `benchmarks/results/scroll-<timestamp>/`, which is git-ignored:
    - 400 SGR wheel-up events.
    - 400 wheel-down events.
 
-   Wheel scrolling is pinned to one line per event. Each case must have at least 400 scrollable lines; if a custom fixture is too short, increase `--size` or `--entries`.
-4. **Probe.** `scroll/probe/index.ts` is a zero-height Pi widget that times every frame. It classifies frames as view or content by reading Pi's `contentChanged` flag. It verifies that the expected Slate surfaces are mounted and counts the wheel lines Pi delivers to the primary transcript scroll view, even when capped at the end. The driver rejects a scroll range change during either burst, even with `--allow-dropped-input`.
+   Wheel scrolling is pinned to one line per event. Each case must have at least 400 scrollable lines; if a custom fixture is too short, increase `--size` or `--entries`. Busy runs retain the idle sample, then start the offline model before the wheel bursts.
+4. **Probe.** `scroll/probe/index.ts` is a zero-height Pi widget that times every frame. It classifies frames as view or content by reading Pi's `contentChanged` flag. It verifies that the expected Slate surfaces are mounted and counts the wheel lines Pi delivers to the primary transcript scroll view, even when capped at the end. The idle scenario rejects scroll range changes even with `--allow-dropped-input`; the busy scenario allows them because replies add rows.
 5. **Metrics.** For every phase it records:
    - frame count, and how many were view frames vs content frames;
    - mean, p50, p95 and max frame time;

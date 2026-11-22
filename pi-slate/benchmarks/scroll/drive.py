@@ -305,9 +305,10 @@ def attest(status, variant):
         raise RuntimeError("The primary transcript ScrollView's scroll range was not found")
 
 
-def validate_burst(scenario, before, after, allow_dropped_input):
+def validate_burst(scenario, before, after, allow_dropped_input, *, busy=False):
     bottom = before["maxScrollTop"]
-    if after["maxScrollTop"] != bottom or after["scrollRangeRevision"] != before["scrollRangeRevision"]:
+    range_changed = after["maxScrollTop"] != bottom or after["scrollRangeRevision"] != before["scrollRangeRevision"]
+    if range_changed and not busy:
         raise RuntimeError(f"Primary ScrollView {scenario}: scroll range changed during the burst "
                            f"(maxScrollTop {bottom} → {after['maxScrollTop']}).")
     distance = WHEEL_EVENTS * WHEEL_LINES
@@ -320,7 +321,7 @@ def validate_burst(scenario, before, after, allow_dropped_input):
                            f"{dropped} wheel lines lost. Pass --allow-dropped-input to record this instead of failing.")
     start, end = before["scrollTop"], after["scrollTop"]
     expected = max(0, start - received) if scenario == "wheel_up" else min(bottom, start + received)
-    if end != expected:
+    if end != expected and not range_changed:
         raise RuntimeError(f"Primary ScrollView {scenario}: expected scrollTop {expected} after {received} wheel lines, got {end}")
     return {"before": start, "after": end, "received_lines": received, "dropped_lines": dropped,
             "viewport_displacement_lines": abs(end - start)}
@@ -332,7 +333,8 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
         directory.mkdir(parents=True)
     # Work in a blank temp cwd; bypass folder trust only for this exact directory.
     write_json(agent / "trust.json", {str(cwd): True})
-    write_json(agent / "settings.json", {"packages": [], "theme": "dark", "hideThinkingBlock": False,
+    busy = args.scenario == "busy"
+    write_json(agent / "settings.json", {"packages": [], "theme": "dark", "hideThinkingBlock": busy,
                                           "quietStartup": True, "fullscreenExitOutput": "resume-hint",
                                           "fullscreenWheelScrollLines": WHEEL_LINES})
     slate_settings = {"version": 1, "surfaces": VARIANTS[variant], "focused": False}
@@ -355,6 +357,12 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
              "-e", str(HERE / "probe/index.ts"), "--session-dir", str(sessions), "--session", str(session)]
     if variant != "native":
         argv += ["-e", str(SLATE)]
+    if busy:
+        stage_path = root / "stage"
+        stage_path.write_text("0", encoding="utf-8")
+        (cwd / "fixture.txt").write_text("Synthetic read result.\n", encoding="utf-8")
+        env["PI_SCROLL_BUSY_STAGE"] = str(stage_path)
+        argv += ["--model", "scroll-bench/offline"]
     windows, wheel = {}, {}
     launch = time.monotonic()
     with spawn(argv, cwd, env, TERMINALS[terminal]) as (pid, term):
@@ -411,12 +419,35 @@ def run_one(node, cli, env, root, cwd, fixture, variant, terminal, args, profile
             raise RuntimeError(f"Fixture has only {bottom} scrollable lines; need at least {distance} for a full wheel burst. "
                                "Use a larger --size or --entries.")
         windows["idle"] = measured(pid, term, lambda: term.pump(IDLE_SECONDS))
+        def busy_stage(stage, predicate):
+            stage_path.write_text(str(stage), encoding="utf-8")
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                frame = viewport()
+                if predicate(frame["busy"]):
+                    return frame
+            raise RuntimeError(f"Synthetic stream did not reach stage {stage}: {current.get('busy')}")
+
         for scenario, button in (("wheel_up", 64), ("wheel_down", 65)):
-            before = viewport()
+            if busy and scenario == "wheel_down":
+                stage_path.write_text("2", encoding="utf-8")
+            before = viewport()  # Acknowledge any stage transition before starting the timer.
             if scenario == "wheel_up" and before["scrollTop"] != start:
                 raise RuntimeError(f"Primary ScrollView moved during idle: scrollTop {start} → {before['scrollTop']}")
+            counter = "thinkingDeltas" if scenario == "wheel_up" else "textDeltas"
+            if busy and scenario == "wheel_up":
+                before = busy_stage(1, lambda s: s["thinkingDeltas"] >= 2)
             windows[scenario] = measured(pid, term, lambda: burst(scenario, button))
-            wheel[scenario] = validate_burst(scenario, before, viewport(), args.allow_dropped_input)
+            after = viewport()
+            wheel[scenario] = validate_burst(scenario, before, after, args.allow_dropped_input, busy=busy)
+            if busy:
+                deltas = after["busy"][counter] - before["busy"][counter]
+                if deltas < (2 if scenario == "wheel_up" else 6) or after["busy"]["settled"] or (
+                        scenario == "wheel_down" and after["busy"]["toolsFinished"] != 1):
+                    raise RuntimeError(f"Synthetic stream was not active during {scenario}: {after['busy']}")
+                wheel[scenario].update(stream_deltas=deltas, max_scroll_top=before["maxScrollTop"])
+        if busy:
+            validation["busy"] = busy_stage(3, lambda s: s["settled"])["busy"]
     samples = [json.loads(line) for line in probe.read_text(encoding="utf-8").splitlines()]
     result = {scenario: metrics(window, samples) for scenario, window in windows.items()}
     for scenario, row in result.items():
@@ -602,8 +633,10 @@ def suite(args):
                          "stacks": args.stacks, "cpu_prof": args.cpu_prof, "allow_dropped_input": args.allow_dropped_input},
             "runs": args.runs, "cases": [],
         }
+        if args.scenario == "busy":
+            report["workload"]["busy_stream_revision"] = 4
         heading = (f"Pi {pi_version} · Slate {report['slate_version']} ({report['slate_git_sha']}) · "
-                   f"{entries} entries · {args.runs} runs")
+                   f"{entries} entries · {args.runs} runs" + (" · busy" if args.scenario == "busy" else ""))
         print(heading, flush=True)
         print(f"Results: {results}", flush=True)
         for terminal in args.terminals:
@@ -653,6 +686,8 @@ def main():
     size.add_argument("--entries", type=int, help="exact number of entries (excluding session header)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--scenario", choices=("idle", "busy"), default="idle",
+                        help="stream a local synthetic reply during the wheel bursts (busy), or scroll at idle (default)")
     parser.add_argument("--variants", choices=VARIANTS, nargs="+", default=list(VARIANTS))
     parser.add_argument("--terminals", choices=TERMINALS, nargs="+", default=list(TERMINALS))
     parser.add_argument("--startup-timeout", type=float, default=30.0)

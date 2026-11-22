@@ -77,6 +77,18 @@ test("timeout appears in result only, including zero", () => {
   assert.equal(plain(output(tool, result(""), ctx)), "└ 0 lines · timeout=0s · 0ms");
 });
 
+test("completed tool rows reuse styled text across redraws and repaint on invalidation", () => {
+  let style = "[";
+  const paint = { ...theme, fg: (_: string, value: string) => style + value } as Theme;
+  const component = setup()("read").renderResult!(result("a\nb"), { expanded: false, isPartial: false }, paint, context());
+  assert.equal(plain(component, 40), "[└ 2 lines");
+  assert.ok(visibleWidth(plain(component, 6)) <= 6);
+  assert.equal(plain(component, 40), "[└ 2 lines");
+  style = "{";
+  component.invalidate();
+  assert.equal(plain(component, 40), "{└ 2 lines");
+});
+
 test("tool padding reuses equal child rows and invalidates on width or content change", () => {
   let rows = ["long heading", "汉字 text"], paints = 0, invalidates = 0;
   const child = { render() { paints++; return [...rows]; }, invalidate() { invalidates++; } };
