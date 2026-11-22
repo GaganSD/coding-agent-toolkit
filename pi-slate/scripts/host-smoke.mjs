@@ -220,6 +220,9 @@ try {
     };
     ui.renderNow(true);
     assert.match(frame(), group);
+    click(group);
+    click(group);
+    assert.equal(ui.getActiveSelectionText(), "Done", "double-clicking the group summary must preserve Pi's selection for copy");
     click(collapsed);
     assertSplit();
     click(/Reasoning inside the tool group\./);
@@ -251,6 +254,8 @@ try {
     const standaloneLabel = /(?<=^ )Thought for \d+s/;
     const tools = chat.children.filter(child => child.toolCallId);
     assert.equal(tools.length, 4);
+    // Exercise a separate fault after the short failure window has expired.
+    await delay(1_050);
     // Press on the fallback frame, but let grouping recover before release.
     overrides.values = () => { throw new Error("Injected grouping fault before press"); };
     try { ui.renderNow(true); }

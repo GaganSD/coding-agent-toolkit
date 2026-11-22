@@ -75,6 +75,7 @@ export class ChatSurface {
   /** null means the press did not hit a child row; undefined means no press was seen. */
   private pressedRow?: PaintedRow | null;
   private groupingFailed = false;
+  private groupingLastFaultAt = Number.NEGATIVE_INFINITY;
   private groupingRetryAt?: number;
   private disposed = false;
 
@@ -153,15 +154,22 @@ export class ChatSurface {
       this.paintedWidth = width;
       const groups = this.options.groups;
       if (!groups) {
+        this.groupingLastFaultAt = Number.NEGATIVE_INFINITY;
         this.groupingRetryAt = undefined;
         this.setGroupingFault(false);
       } else if (this.groupingRetryAt === undefined || performance.now() >= this.groupingRetryAt) {
         let rows: string[] | undefined;
         try { rows = groups.render(this.display.children, width); }
         catch { /* Paint and route this frame natively. */ }
-        // Retry a one-off fault on the next content frame. Repeated late faults may
-        // have already painted much of the transcript, so rate-limit further attempts.
-        this.groupingRetryAt = rows === undefined && this.groupingFailed ? performance.now() + GROUPING_RETRY_COOLDOWN_MS : undefined;
+        if (rows === undefined) {
+          const now = performance.now();
+          // Retry an isolated fault immediately, but remember recent faults even
+          // across a successful paint so alternating failures cannot flicker freely.
+          if (this.groupingRetryAt !== undefined || now - this.groupingLastFaultAt < GROUPING_RETRY_COOLDOWN_MS) {
+            this.groupingRetryAt = now + GROUPING_RETRY_COOLDOWN_MS;
+          }
+          this.groupingLastFaultAt = now;
+        } else this.groupingRetryAt = undefined;
         this.setGroupingFault(rows === undefined);
         if (rows) {
           this.paintedGroups = groups;
@@ -183,6 +191,7 @@ export class ChatSurface {
           // rows without scrolling; compare the painted owners without re-rendering.
           if (pressedRow !== undefined) {
             const row = this.paintedRow(event.x, event.y, event.width);
+            if (!row && !pressedRow) return undefined; // Leave unowned summaries selectable by Pi.
             if (!row || !pressedRow || row.component !== pressedRow.component || row.y !== pressedRow.y) {
               return { handled: true, render: false, target: {
                 component: container, originX: event.screenX - event.x, originY: event.screenY - event.y,

@@ -348,6 +348,34 @@ test("a persistent late grouping fault backs off, then recovers on a content ren
   assert.deepEqual(states, [true, false]);
 });
 
+test("one successful frame does not reset the grouping fault window", (t) => {
+  let now = 0, attempts = 0;
+  t.mock.method(performance, "now", () => now);
+  const chat = new Container();
+  chat.children = [mockTool(), mockTool()];
+  const groups = new ToolGroups(() => theme, () => {
+    if (++attempts % 2 === 1) throw new Error("Intermittent group hint failure");
+    return "expand";
+  });
+  const surface = new ChatSurface(chat, { groups });
+  t.after(() => surface.dispose());
+  const grouped = () => chat.render(80).some(row => row.includes("Done (2 tool calls)"));
+  assert.equal(grouped(), false);
+  now += 2;
+  assert.equal(grouped(), true, "the first fault is retried immediately");
+  now += 2;
+  assert.equal(grouped(), false);
+  for (let i = 0; i < 5; i++) {
+    now += 2;
+    assert.equal(grouped(), false, "a second recent fault holds the native frame during cooldown");
+  }
+  assert.equal(attempts, 3);
+  now += 1_001;
+  assert.equal(grouped(), true, "a natural content render retries after cooldown");
+  assert.equal(grouped(), false);
+  assert.equal(grouped(), true, "a fault outside the old window again gets an immediate retry");
+});
+
 test("grouping metadata faults retain the window and paint selected native children only once", (t) => {
   let now = 0;
   t.mock.method(performance, "now", () => now);
