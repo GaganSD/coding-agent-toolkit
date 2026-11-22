@@ -46,41 +46,6 @@ export function bigDigits(text: string): string[] {
   const glyphs = [...text].map(ch => FONT[ch] ?? FONT[" "]!);
   return [0, 1, 2].map(r => glyphs.map(g => g[r]!).join(" "));
 }
-const DOT = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]] as const;
-
-/**
- * Zero-based braille bar graph, `rows` cells tall and `width` cells wide (2 columns per cell).
- * Left-aligned: history fills in from the left; once there are more values than columns the
- * newest `2 × width` are shown. Unused columns are blank. A positive value draws at least one dot.
- */
-export function brailleBars(values: readonly number[], width: number, rows: number): string[] {
-  const w = Math.max(0, Math.floor(width));
-  const r = Math.max(0, Math.floor(rows));
-  if (r === 0) return [];
-  if (w === 0) return Array.from({ length: r }, () => "");
-  const columns = w * 2;
-  const shown = values.slice(-columns).map(v => nonneg(v) ? v : 0);
-  const max = shown.reduce((a, b) => Math.max(a, b), 0);
-  const total = r * 4;
-  const heights = Array.from({ length: columns }, (_, c) => {
-    const v = c < shown.length ? shown[c]! : 0;
-    return v > 0 && max > 0 ? Math.max(1, Math.min(total, Math.round(v / max * total))) : 0;
-  });
-  const lines: string[] = [];
-  for (let row = 0; row < r; row++) {
-    let s = "";
-    for (let cell = 0; cell < w; cell++) {
-      let code = 0;
-      for (let k = 0; k < 2; k++) for (let d = 0; d < 4; d++) {
-        if ((r - row) * 4 - d <= heights[cell * 2 + k]!) code |= DOT[d]![k]!;
-      }
-      s += code === 0 ? " " : String.fromCharCode(0x2800 + code);
-    }
-    lines.push(s);
-  }
-  return lines;
-}
-
 /** Round proportional boundaries; keep positive segments visible when they fit. */
 export function stackedBar(parts: readonly number[], width: number): number[] {
   const w = Math.max(0, Math.floor(width));
@@ -171,11 +136,16 @@ export function contextRows(i: PerfInput, c: { percent: number | null; tokens: n
   ];
 }
 
-function speedSparkline(rates: readonly number[], width: number): string {
-  if (width <= 0) return "";
+/** Zero-based block bars, `rows` cells tall (top row first); each row adds eight levels. */
+function speedSparkline(rates: readonly number[], width: number, rows = 1): string[] {
+  if (width <= 0) return Array.from({ length: rows }, () => "");
   const shown = rates.slice(-width);
   const peak = Math.max(...shown);
-  return shown.map(rate => "▁▂▃▄▅▆▇█"[Math.round(rate / peak * 7)]).join("").padEnd(width);
+  const levels = shown.map(rate => peak > 0 ? Math.round(rate / peak * (rows * 8 - 1)) + 1 : 1);
+  return Array.from({ length: rows }, (_, r) => {
+    const base = (rows - 1 - r) * 8;
+    return levels.map(n => n > base ? "▁▂▃▄▅▆▇█"[Math.min(8, n - base) - 1] : " ").join("").padEnd(width);
+  });
 }
 
 /** Headline is always the exact last eligible response. */
@@ -190,7 +160,7 @@ export function speedRows(i: PerfInput): string[] {
   const unit: Seg = ["dim", " tok/s"];
   const detail = detailRow(i, [["avg", formatRate(perf.turn.rate)], ["peak", formatRate(perf.peak)], ["out", formatCompactTokenCount(perf.turn.output)]]);
   if (i.tier !== "full") {
-    const visual = paint("accent", speedSparkline(perf.rates, inner));
+    const visual = paint("accent", speedSparkline(perf.rates, inner)[0]!);
     return [headingRow(i, "SPEED", [[value, unit], [value]]), visual, detail];
   }
   const rows = [headingRow(i, "SPEED", [[["dim", "last timed reply"]]])];
@@ -200,7 +170,7 @@ export function speedRows(i: PerfInput): string[] {
     const withUnit = digitWidth + 1 + "tok/s".length <= inner;
     rows.push(paint("text", a), paint("text", b) + (withUnit ? " " + paint("dim", "tok/s") : ""), paint("text", c));
   } else rows.push(paintSegs(i, [value, unit]));
-  if (inner >= 22) rows.push(...brailleBars(perf.rates, inner, 2).map(g => paint("accent", g)));
+  if (inner >= 22) rows.push(...speedSparkline(perf.rates, inner, 2).map(g => paint("accent", g)));
   rows.push(detail);
   return fit(rows, inner);
 }

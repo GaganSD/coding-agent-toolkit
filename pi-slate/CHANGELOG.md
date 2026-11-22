@@ -4,10 +4,12 @@
 
 ### Added
 
+- GitHub callouts (`> [!NOTE]` …) in assistant replies draw a colored rail and bold title instead of a dim blockquote. Display-only; Pi 1.5+.
 - Collapsed thinking rows in the `transcript` and `tool-cards` surfaces show `Thinking…` while a run streams, its observed duration (`Thought for 12s`) once complete, and `Thought` in restored sessions.
 
 ### Fixed
 
+- The full-layout SPEED graph draws solid block bars instead of dotted braille (#143).
 - Grouped tool calls keep each hidden thought's clickable `Thinking...` row in place, drawn inside the group's tree (#136).
 - Fullscreen scrolling no longer rebuilds the transcript for unchanged sidebar polls or Git branch checks. On compatible Pi hosts, sidebar updates reuse the transcript. The composer’s working animation uses Pi’s existing frames without a separate timer.
 - Delayed image-path rewrites and focused composer metadata repaint when they change. Metadata repaints retry after a temporary scheduler failure.

@@ -26,6 +26,10 @@ The header keeps the stock Pi data and builds on it. Fresh settings start focuse
 
 ![Slate focused mode with the sidebar hidden](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-focused.png)
 
+### GitHub Callouts
+
+GitHub alert blockquotes in assistant replies (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`) draw a thin theme-colored rail and a short bold title instead of a dim blockquote. Display-only: stored messages, copy, and export are unchanged. Needs Pi 1.5+.
+
 ### Working Indicator
 
 While the model runs, the composer edge shows a progress animation — `/slate progress` picks `waves` (default), `dna-helix`, `snake`, or `cylon-scanner`.

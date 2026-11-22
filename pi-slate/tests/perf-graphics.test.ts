@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
-import { bigDigits, contextBar, brailleBars, cacheRows, contextRows, formatCountdown, formatRate, speedRows, stackedBar, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
+import { bigDigits, contextBar, cacheRows, contextRows, formatCountdown, formatRate, speedRows, stackedBar, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
 import { EMPTY_PERF, type SidebarPerf } from "../extensions/pi-slate/perf-stats.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
 import type { SidebarSession, SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
@@ -49,22 +49,24 @@ test("stackedBar sums exactly to width and keeps non-zero parts visible", () => 
   assert.deepEqual(stackedBar([], 5), []);
 });
 
-test("brailleBars is zero-based, left-aligned with blank padding, and always draws a positive value", () => {
-  assert.deepEqual(brailleBars([], 0, 2), ["", ""]);
-  assert.deepEqual(brailleBars([1, 2], 3, 0), []);
-  const one = brailleBars([5], 4, 2);
-  assert.equal(one.length, 2);
-  assert(one.every(r => r.length === 4));
-  assert.deepEqual(one, ["⡇   ", "⡇   "].map(x => x), "one value is the left column of the first cell; no baseline dots");
-  assert.deepEqual(brailleBars([], 3, 2), ["   ", "   "]);
-  const tiny = brailleBars([1000, 0.001], 1, 1);
-  assert.notEqual(tiny[0], " ", "tiny but positive value is still drawn");
-  assert.deepEqual(brailleBars([7, 7, 7, 7], 2, 1), ["⣿⣿"], "flat series is full height");
-  assert.equal(brailleBars([50, 100], 1, 1)[0], "⣼", "zero-based: 50 vs 100 is half height, not min-max");
-  const many = brailleBars(Array.from({ length: 500 }, (_, i) => i), 5, 2);
-  assert(many.every(r => r.length === 5), "only the newest 2×width values are used");
-  assert.equal(many[1]![4], "⣿", "newest value is the right edge once full");
-  for (const bad of [[Number.NaN, -3, Infinity], [0, 0]]) assert(brailleBars(bad, 3, 2).every(r => r.length === 3));
+test("full-layout speed graph is two rows of block bars scaled to the peak; compact keeps one row", () => {
+  const perf = { ...EMPTY_PERF, rates: [100, 10, 55, 1], peak: 100 } as SidebarPerf;
+  const full = speedRows(input(perf, 30, "full")).map(strip);
+  const graph = full.slice(4, 6);
+  assert.equal(graph.length, 2);
+  for (const row of graph) assert.match(row, /^[ ▁▂▃▄▅▆▇█]+$/);
+  const [top, bottom] = graph as [string, string];
+  assert.equal(top[0], "█", "peak fills the top row");
+  assert.equal(bottom[0], "█", "peak fills the bottom row");
+  assert.equal(top[1], " ", "low rate leaves the top row blank");
+  assert.notEqual(bottom[1], "█", "low rate is a short bar");
+  assert.notEqual(bottom[1], bottom[3], "different low rates differ in height");
+  assert(top[2] !== " " && top[2] !== "█", "mid rate partly fills the top row");
+  assert.equal(bottom[2], "█", "top row starts only once the bottom row is full");
+  const compact = speedRows(input(perf, 30, "compact")).map(strip);
+  assert.equal(compact.length, 3);
+  assert.match(compact[1]!, /^[▁▂▃▄▅▆▇█ ]+$/);
+  assert.equal(compact[1]![0], "█");
 });
 
 const SECTIONS = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "compact", totals = usage) => {
@@ -102,12 +104,12 @@ test("a single rate renders one block at the left", () => {
   assert.match(SECTIONS(perf).speed[1]!, /^█ +$/);
 });
 
-test("full SPEED: big digits, two braille rows, then the same detail row", () => {
+test("full SPEED: big digits, two block-bar rows, then the same detail row", () => {
   const rows = SECTIONS(perfFixture(1000), 40, "full").speed;
   assert.equal(rows.length, 7);
   assert.match(rows[0]!, /^SPEED\s+last timed reply$/);
   assert.equal(rows[2], " █  ▀▀█   █▀█ tok/s");
-  assert.match(rows[4]!, /[⠁-⣿]/); assert.match(rows[5]!, /[⠁-⣿]/);
+  assert.match(rows[4]!, /[▁-█]/); assert.match(rows[5]!, /[▁-█]/);
   assert.equal(rows[6], "avg 26.7 · peak 45.0 · out 12k");
   assert(!rows.join("").includes("Turn avg"), "the 3-column table is gone");
 });
@@ -135,10 +137,11 @@ test("huge numbers and tiny widths stay inside the width", () => {
 test("width tiers: digits fall back to text; narrow rails drop the graph", () => {
   const perf = perfFixture(1000);
   assert.equal(SECTIONS(perf, 12, "full").speed[1]!.trim(), "14.6 tok/s", "big digits need more than 12 columns");
-  const tiny = SECTIONS(perf, 20, "full").speed.join("\n");
-  assert.doesNotMatch(tiny, /[⠁-⣿]/);
+  const tinyRows = SECTIONS(perf, 20, "full").speed;
+  assert.equal(tinyRows.length, 5, "heading, three digit rows, detail: no graph rows");
+  const tiny = tinyRows.join("\n");
   assert.match(tiny, /avg 26\.7 · peak 45\.0/);
-  assert.match(SECTIONS(perf, 40, "full").speed.join("\n"), /[⠁-⣿]/);
+  assert.match(SECTIONS(perf, 40, "full").speed.join("\n"), /[▁-█]/);
 });
 
 test("CACHE heading: hit, warmth countdown, cold, unknown lifetime and idle hint", () => {
