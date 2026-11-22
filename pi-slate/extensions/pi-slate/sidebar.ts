@@ -327,7 +327,7 @@ export class Sidebar implements Component {
     };
     const model: Row = { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) };
     const divider: Row = { text: "", divider: true };
-    const input: PerfInput = { perf: s.perf, usage: s.usage, now: this.now(), inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) };
+    const input: PerfInput = { perf: s.perf, usage: s.usage, inner: width, tier, paint: (t, x) => this.paint(t, x), heading: x => this.heading(x) };
     const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
       .map(text => ({ text, action: branchUsage }));
     const performance = perfRows(input).flat().map(text => text === null ? HEADER_GAP : { text });

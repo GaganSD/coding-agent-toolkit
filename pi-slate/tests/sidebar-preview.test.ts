@@ -779,8 +779,5 @@ test("full-tier performance previews retain cache savings", () => {
     const perf = lines.slice(speed, divider).join("\n");
     assert.match(perf, /saved ~\$12\.34/);
     assert(painted.every(line => visibleWidth(line) === inner + 4));
-    if (process.env.SLATE_PERF_PREVIEW) {
-      console.log([`${inner} inner columns · full tier`, stripAnsi(painted[1]!), "…", ...painted.slice(speed, divider + 1).map(stripAnsi)].join("\n"));
-    }
   }
 });

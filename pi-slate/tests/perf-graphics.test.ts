@@ -12,7 +12,7 @@ const strip = (t: string) => t.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plainPaint = { paint: (_t: string, x: string) => x, heading: (x: string) => x };
 const usage: SidebarUsage = { input: 1_559_000, output: 12_000, total: 1_571_000, cacheRead: 1_310_000, cacheWrite: 108_000, uncached: 141_000, cacheSeen: true, cost: 0.84, saved: 1.92 };
 const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null, saved: null };
-const input = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "full", now = 1000, totals = usage): PerfInput => ({ perf, usage: totals, now, inner, tier, ...plainPaint });
+const input = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "full", _now = 1000, totals = usage): PerfInput => ({ perf, usage: totals, inner, tier, ...plainPaint });
 
 test("formatRate uses one decimal below 100, integers below 1000, then compact units", () => {
   const cases: Array<[number | null, string]> = [[14.64, "14.6"], [0, "0.0"], [99.96, "100"], [100, "100"], [999.4, "999"], [999.6, "1k"], [1234, "1.2k"],

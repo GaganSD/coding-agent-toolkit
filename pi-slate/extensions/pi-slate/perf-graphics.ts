@@ -1,6 +1,6 @@
 /**
  * Pure drawing + row composition for the SPEED and CACHE sections of the session rail.
- * No state, no timers: every function maps (data, width, now) to bounded strings, so cost is
+ * No state, no timers: every function maps (data, width) to bounded strings, so cost is
  * O(width) plus the already-bounded `rates` window.
  */
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -71,7 +71,7 @@ export function stackedBar(parts: readonly number[], width: number): number[] {
 // One grammar for CONTEXT, SPEED and CACHE: heading row (label left, key figure right), one
 // full-width visual row, then `label value · label value` detail rows. Padding is always spaces.
 
-export type PerfInput = { perf: SidebarPerf; usage: SidebarUsage; now: number; inner: number; tier: SidebarTier } & PerfPaint;
+export type PerfInput = { perf: SidebarPerf; usage: SidebarUsage; inner: number; tier: SidebarTier } & PerfPaint;
 type Seg = readonly [Tone, string];
 
 const paintSegs = (i: PerfPaint, segs: readonly Seg[]): string => segs.map(([t, x]) => i.paint(t, x)).join("");
