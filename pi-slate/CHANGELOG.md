@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.0
+
+* **Performance fix:** scrolling large sessions no longer stutters. The slowest frame dropped by 98% (753 → 14 ms), frames painted per scroll rose 4× (76 → 305, matching native Pi), and idle CPU fell 99% (4.36 → 0.03 s per 5 s), because Slate no longer re-renders the whole transcript for sidebar, poller and animation updates.
+* **Fixed:** the full-sidebar SPEED graph draws solid bars instead of dots, and clicking a thinking row while scrolled up no longer expands the tool beside it.
+* **New:** GitHub callouts (`> [!NOTE]`, `> [!WARNING]`, …) draw with a colored rail and title, and collapsed thinking rows show how long the model thought (`Thought for 12s`).
+
 ### Added
 
 - GitHub callouts (`> [!NOTE]` …) in assistant replies draw a colored rail and bold title instead of a dim blockquote. Display-only; Pi 1.5+.

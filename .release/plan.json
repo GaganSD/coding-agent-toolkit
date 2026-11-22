@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "75787c1838a358c343775506f3e4019ce3632ca2",
-  "notes": "Background questions, answer later, and timeouts with safe fallbacks. Questions survive reloads, and every answer reaches the agent once.",
+  "sourceSha": "574627654cc45b5a15c27ed0360da74ed988838b",
+  "notes": "* **Performance fix:** scrolling large sessions no longer stutters. The slowest frame dropped by 98% (753 → 14 ms), frames painted per scroll rose 4× (76 → 305, matching native Pi), and idle CPU fell 99% (4.36 → 0.03 s per 5 s), because Slate no longer re-renders the whole transcript for sidebar, poller and animation updates.\n* **Fixed:** the full-sidebar SPEED graph draws solid bars instead of dots, and clicking a thinking row while scrolled up no longer expands the tool beside it.\n* **New:** GitHub callouts (`> [!NOTE]`, `> [!WARNING]`, …) draw with a colored rail and title, and collapsed thinking rows show how long the model thought (`Thought for 12s`).",
   "packages": [
     {
-      "path": "pi-ask",
-      "name": "@gagansd/pi-ask",
-      "from": "0.1.5",
-      "to": "0.2.0",
+      "path": "pi-slate",
+      "name": "pi-slate",
+      "from": "0.3.0",
+      "to": "0.4.0",
       "bump": "minor"
     }
   ]
