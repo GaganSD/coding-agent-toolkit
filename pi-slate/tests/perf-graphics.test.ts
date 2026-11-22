@@ -63,7 +63,7 @@ test("full-layout speed graph is two rows of block bars scaled to the peak; comp
   assert.notEqual(bottom[1], bottom[3], "different low rates differ in height");
   assert(top[2] !== " " && top[2] !== "█", "mid rate partly fills the top row");
   assert.equal(bottom[2], "█", "top row starts only once the bottom row is full");
-  const compact = speedRows(input(perf, 30, "compact")).map(strip);
+  const compact = speedRows(input(perf, 40, "compact")).map(strip);
   assert.equal(compact.length, 3);
   assert.match(compact[1]!, /^[▁▂▃▄▅▆▇█ ]+$/);
   assert.equal(compact[1]![0], "█");
@@ -74,19 +74,45 @@ const SECTIONS = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "comp
   return { speed: speedRows(i).map(strip), cache: cacheRows(i).map(strip) };
 };
 
-test("empty perf: sections keep the grammar, collapse to two rows, and never print NaN or 0%", () => {
-  for (const tier of ["full", "compact"] as const) {
-    const { speed, cache } = SECTIONS(EMPTY_PERF, 40, tier, noUsage);
-    assert.equal(speed.length, 2); assert.equal(cache.length, 2);
-    assert.match(speed[0]!, /^SPEED\s+—$/); assert.equal(speed[1], "no timed replies");
-    assert.match(cache[0]!, /^CACHE\s+—$/); assert.equal(cache[1], "no cache activity reported");
-    assert.doesNotMatch([...speed, ...cache].join("\n"), /NaN|Infinity|-\d|0%|[█▀]/);
+test("empty perf keeps the chart and footer shape, with muted placeholders", () => {
+  const inner = 52;
+  const compact = SECTIONS(EMPTY_PERF, inner, "compact", noUsage);
+  assert.match(compact.speed[0]!, /^SPEED\s+— tok\/s$/);
+  assert.deepEqual(compact.speed.slice(1), ["─".repeat(inner), "avg — · peak — · out 0"]);
+  assert.match(compact.cache[0]!, /^CACHE\s+—% hit$/);
+  assert.deepEqual(compact.cache.slice(1), ["─".repeat(inner), "read 0 · write 0 · new 0 · spent $0.00"]);
+
+  const full = SECTIONS(EMPTY_PERF, inner, "full", noUsage);
+  assert.deepEqual(full.speed.slice(1), ["", "— tok/s", "", "", "─".repeat(inner), "avg — · peak — · out 0"]);
+  assert.deepEqual(full.cache.slice(1), ["─".repeat(inner), "read 0 · write 0 · new 0", "spent $0.00"]);
+
+  const paint = (t: string, x: string) => t === "muted" ? `\x1b[90m${x}\x1b[0m` : x;
+  const i = { ...input(EMPTY_PERF, inner, "compact", 1000, noUsage), paint };
+  const text = [...speedRows(i), ...cacheRows(i)].join("\n");
+  for (const value of ["—", "—% hit", "0", "$0.00"]) assert(text.includes(paint("muted", value)), value);
+});
+
+test("empty and populated sections use the same height at wide, narrow and tiny widths", () => {
+  for (const tier of ["full", "compact"] as const) for (const width of [1, 6, 12, 15, 20, 26, 30, 36, 40, 52]) {
+    const empty = SECTIONS(EMPTY_PERF, width, tier, noUsage);
+    const full = SECTIONS(perfFixture(1000), width, tier);
+    assert.equal(empty.speed.length, full.speed.length, `SPEED at ${width} (${tier})`);
+    assert.equal(empty.cache.length, full.cache.length, `CACHE at ${width} (${tier})`);
   }
 });
 
-test("known spend is shown even without cache activity", () => {
-  const { cache } = SECTIONS(perfFixture(1000), 40, "compact", { ...noUsage, input: 100, cost: 0.84 });
-  assert.deepEqual(cache.slice(1), ["no cache activity reported", "spent $0.84"]);
+test("known spend is shown without fabricating missing cache counts", () => {
+  const { cache } = SECTIONS(perfFixture(1000), 52, "compact", { ...noUsage, input: 100, cost: 0.84 });
+  assert.match(cache[0]!, /^CACHE\s+—% hit$/);
+  assert.deepEqual(cache.slice(1), ["─".repeat(52), "read — · write — · new — · spent $0.84"]);
+});
+
+test("an uncached reply shows its actual usage, without a cache timer", () => {
+  const { cache } = SECTIONS(perfFixture(1000), 52, "compact", {
+    ...noUsage, input: 100, cacheRead: 0, cacheWrite: 0, uncached: 100, cost: 0.01,
+  });
+  assert.match(cache[0]!, /^CACHE\s+0% hit$/);
+  assert.deepEqual(cache.slice(1), ["━".repeat(52), "read 0 · write 0 · new 100 · spent $0.01"]);
 });
 
 test("compact SPEED: heading, left-aligned sparkline, labelled detail row; padding is spaces", () => {
@@ -95,7 +121,7 @@ test("compact SPEED: heading, left-aligned sparkline, labelled detail row; paddi
   assert.equal(speed.length, 3);
   assert.match(speed[0]!, /^SPEED\s+23\.5 tok\/s$/);
   assert.equal(speed[1], "▄▇▅▆█".padEnd(40));
-  assert.equal(SECTIONS(perf, 3).speed[1], "▅▆█", "show the newest sample per column");
+  assert.equal(SECTIONS(perf, 3).speed[2], "▅▆█", "show the newest sample per column");
   assert.equal(speed[2], "avg 13.9 · peak 23.5 · out 214");
 });
 
@@ -116,7 +142,8 @@ test("full SPEED: big digits, two block-bar rows, then the same detail row", () 
 
 test("untimed replies don't masquerade as missing responses, and incomplete output stays unknown", () => {
   const legacy: SidebarPerf = { ...EMPTY_PERF, turn: { output: 10, rate: null } };
-  assert.equal(SECTIONS(legacy).speed[1], "no timed replies");
+  assert.match(SECTIONS(legacy).speed[0]!, /— tok\/s$/);
+  assert.equal(SECTIONS(legacy).speed[2], "avg — · peak — · out 10");
   const base = perfFixture(1000);
   const incomplete: SidebarPerf = { ...base, turn: { ...base.turn, output: null } };
   assert.match(SECTIONS(incomplete).speed[2]!, /out —$/);
@@ -125,7 +152,7 @@ test("untimed replies don't masquerade as missing responses, and incomplete outp
 test("huge numbers and tiny widths stay inside the width", () => {
   const base = perfFixture(1000);
   const perf: SidebarPerf = { ...base, peak: 1e9, rates: [12_345, 1e9], turn: { output: 9e12, rate: 1e15 } };
-  assert.equal(SECTIONS(perf, 40, "full").speed[1], "1B tok/s", "unsupported big glyphs fall back to text");
+  assert.equal(SECTIONS(perf, 40, "full").speed[2], "1B tok/s", "unsupported big glyphs fall back to text");
   for (const inner of [1, 4, 10, 16, 21, 22, 24, 30, 44, 60]) for (const tier of ["full", "compact"] as const) for (const cost of [1.2e6, 1e308, null]) {
     const i = input(perf, inner, tier, 1000, { ...usage, cacheWrite: 1e12, uncached: 1e15, cost, saved: 1.2e6 });
     for (const r of [...speedRows(i), ...cacheRows(i), ...contextRows(i, { percent: 91, tokens: 1e12, window: 1e15, estimated: true })]) {
@@ -138,9 +165,8 @@ test("width tiers: digits fall back to text; narrow rails drop the graph", () =>
   const perf = perfFixture(1000);
   assert.equal(SECTIONS(perf, 12, "full").speed[1]!.trim(), "14.6 tok/s", "big digits need more than 12 columns");
   const tinyRows = SECTIONS(perf, 20, "full").speed;
-  assert.equal(tinyRows.length, 5, "heading, three digit rows, detail: no graph rows");
-  const tiny = tinyRows.join("\n");
-  assert.match(tiny, /avg 26\.7 · peak 45\.0/);
+  assert.equal(tinyRows.length, 6, "heading, three digit rows, and wrapped details: no graph rows");
+  assert.deepEqual(tinyRows.slice(4), ["avg 26.7 · peak 45.0", "out 12k"]);
   assert.match(SECTIONS(perf, 40, "full").speed.join("\n"), /[▁-█]/);
 });
 
@@ -166,7 +192,7 @@ test("CACHE headline and bar use branch totals and distinguish near-perfect from
     assert.equal(bar, "█".repeat(cells) + "━".repeat(40 - cells));
   }
   const unknown = SECTIONS(perf, 40, "full", { ...usage, input: null, uncached: null }).cache;
-  assert.match(unknown[0]!, /^CACHE\s+◉ 4:41$/, "unknown totals omit the hit rate");
+  assert.match(unknown[0]!, /^CACHE\s+—% hit · ◉ 4:41$/, "unknown totals do not hide the timer");
   assert.equal(unknown[1], "─".repeat(40), "missing input is not treated as all cached");
 });
 
@@ -182,11 +208,35 @@ test("CACHE bars use the context glyph in three tones; money rows handle unknown
   assert.equal(full[3], "spent $0.84 · saved ~$1.92");
   const none = SECTIONS(perfFixture(1000), 40, "full", { ...usage, cost: null, saved: null }).cache;
   assert.equal(none[3], "spent —");
-  const compact = SECTIONS(perfFixture(1000), 48).cache;
+  const compact = SECTIONS(perfFixture(1000), 52).cache;
   assert.equal(compact.length, 3); assert.equal(compact[2], "read 1.3M · write 108k · new 141k · spent $0.84");
-  assert.equal(SECTIONS(perfFixture(1000), 40).cache[2], "read 1.3M · write 108k · new 141k", "spent is dropped when it does not fit");
+  assert.deepEqual(SECTIONS(perfFixture(1000), 40).cache.slice(2), ["read 1.3M · write 108k · new 141k", "spent $0.84"]);
   const zero = SECTIONS(perfFixture(1000), 40, "compact", { ...usage, input: 0, cacheRead: 0, cacheWrite: 0, uncached: 0 }).cache;
   assert.equal(zero[1], "─".repeat(40));
+});
+
+test("narrow stats wrap at segment boundaries, including right-aligned heading stats", () => {
+  const now = 3_000_000;
+  const base = perfFixture(now);
+  const perf = { ...base, cache: { ...base.cache, lastActivityAt: now - 34 * 60_000, ttlMs: null } };
+  const totals = { ...usage, input: 117_800, cacheRead: 87_600, cacheWrite: 0, uncached: 30_200, cost: 0.09 };
+  const i = input(perf, 20, "compact", now, totals);
+  const cache = cacheRows(i).filter(Boolean);
+  assert.deepEqual(cache, ["CACHE     74.36% hit", "            idle 34m", "━".repeat(20),
+    "read 87.6k · write 0", "new 30.2k", "spent $0.09"]);
+  assert.deepEqual(speedRows(i).slice(2), ["avg 26.7 · peak 45.0", "out 12k"]);
+  assert.deepEqual(cacheRows({ ...i, tier: "full" }).slice(3).filter(Boolean), ["read 87.6k · write 0", "new 30.2k", "spent $0.09", "saved ~$1.92"]);
+  const context = contextRows(i, { percent: 11, tokens: 30_200, window: 272_000, estimated: false });
+  assert.deepEqual(context.slice(0, 2), ["CONTEXT          11%", "          30.2k/272k"]);
+});
+
+test("a segment is ellipsized only when it cannot fit even on its own line", () => {
+  const perf = perfFixture(1000);
+  assert.deepEqual(SECTIONS(perf, 10).cache.slice(0, 3), ["CACHE", "84.03% hit", "    ◉ 4:41"]);
+  const paint = (_t: string, x: string) => `\x1b[90m${x}\x1b[0m`;
+  const rows = cacheRows({ ...input(perf, 6, "compact"), paint });
+  assert.deepEqual(rows.map(strip), ["CACHE", "84.03…", "◉ 4:41", "━━━━━━", "read …", "write…", "new 1…", "spent…"]);
+  assert(rows.every(row => visibleWidth(row) <= 6));
 });
 
 test("CONTEXT uses the same grammar", () => {

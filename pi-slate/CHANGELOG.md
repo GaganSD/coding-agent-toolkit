@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Wrap performance stats in narrow sidebars and show empty SPEED and CACHE charts at session start.
+
 - Fix scrolling hitches when thinking ends or a reply hands off to tools.
 - Keep fullscreen scrolling responsive during replies and tool runs by retaining the configured transcript window and appending the live turn, rather than repainting the entire history.
 
