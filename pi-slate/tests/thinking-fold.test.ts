@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatLiveThinking, ThinkingFoldTracker } from "../extensions/pi-slate/thinking-fold.ts";
+import { ThinkingDurations } from "../extensions/pi-slate/thinking-label.ts";
 
 const message = { content: [{ type: "thinking", thinking: "Native content stays untouched" }] };
+const thinking = (value: string) => ({ type: "thinking" as const, thinking: value });
 const start = { type: "thinking_start", contentIndex: 0 };
 const delta = { type: "thinking_delta", contentIndex: 0 };
 const end = { type: "thinking_end", contentIndex: 0 };
@@ -127,4 +129,24 @@ test("a new thinking block resets elapsed time and clock rollback never shows ne
   assert.equal(f.tracker.elapsedMs(), 0);
   f.tracker.observe({ type: "thinking_end", contentIndex: 1 }, blocks);
   assert.deepEqual(f.counts(), { changes: 6, schedules: 2, cancellations: 2 });
+});
+
+test("adjacent thinking blocks accumulate one run duration across starts and ends", () => {
+  let now = 0;
+  const durations = new ThinkingDurations();
+  const tracker = new ThinkingFoldTracker({
+    now: () => now,
+    schedule: () => () => {},
+    onComplete: ({ thinking, elapsedMs }) => durations.record(thinking, elapsedMs),
+  });
+  const content = { content: [thinking("first"), thinking("second")] };
+  tracker.observe(start, content);
+  now = 3_000;
+  tracker.observe(end, content);
+  tracker.observe({ type: "thinking_start", contentIndex: 1 }, content);
+  now = 5_000;
+  tracker.observe({ type: "thinking_end", contentIndex: 1 }, content);
+  assert.equal(durations.lookup("first\n\nsecond"), 5_000);
+  assert.equal(tracker.elapsedMs(), null);
+  tracker.dispose();
 });

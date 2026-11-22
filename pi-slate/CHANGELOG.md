@@ -5,6 +5,7 @@
 ### Added
 
 - GitHub callouts (`> [!NOTE]` …) in assistant replies draw a colored rail and bold title instead of a dim blockquote. Display-only; Pi 1.5+.
+- Collapsed thinking rows in the `transcript` and `tool-cards` surfaces show `Thinking…` while a run streams, its observed duration (`Thought for 12s`) once complete, and `Thought` in restored sessions.
 
 ### Fixed
 
