@@ -328,9 +328,9 @@ test("the chat painter sets the hidden thinking label once per UI and restores i
   const ui = { ...f.ctx.ui, setHiddenThinkingLabel: (label?: string) => { replacementLabels.push(label); } };
   for (let i = 0; i < 3; i++) await f.emit("message_end", { message }, { ...f.ctx, ui });
   assert.deepEqual(replacementLabels, ["Thought"], "a replacement UI gets its own label");
-  await f.emit("session_shutdown", {}, { ...f.ctx, ui });
+  assert.deepEqual(labels, ["Thought", undefined], "replacement clears the old label");
+  await f.emit("session_shutdown", {}, f.ctx);
   assert.deepEqual(replacementLabels, ["Thought", undefined]);
-  assert.deepEqual(labels, ["Thought"], "the replaced UI is not used for cleanup");
 
   await f.emit("session_start", {}, { ...f.ctx, ui });
   await f.emit("message_end", { message }, { ...f.ctx, ui });

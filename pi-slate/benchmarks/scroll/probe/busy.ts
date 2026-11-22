@@ -8,7 +8,15 @@ const DELTA_MS = 30;
 export function installBusyProvider(pi: ExtensionAPI) {
   const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   let stage = 0, requests = 0;
-  const state = { thinkingDeltas: 0, textDeltas: 0, toolsFinished: 0, settled: false, error: undefined as string | undefined };
+  const state = { thinkingDeltas: 0, textDeltas: 0, toolsFinished: 0, settled: false,
+    thinkingEndedAt: null as number | null, toolStartedAt: null as number | null, error: undefined as string | undefined };
+  pi.on("message_update", (event) => {
+    if (event.message.role === "assistant" && event.message.provider === "scroll-bench" &&
+        event.assistantMessageEvent.type === "thinking_end") state.thinkingEndedAt = Date.now();
+  });
+  pi.on("tool_execution_start", (event) => {
+    if (event.toolCallId === "scroll-bench-read") state.toolStartedAt = Date.now();
+  });
   pi.on("tool_execution_end", (event) => {
     if (event.toolCallId === "scroll-bench-read" && !event.isError) state.toolsFinished++;
   });

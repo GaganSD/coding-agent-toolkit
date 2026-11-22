@@ -249,6 +249,36 @@ test("an answer line named Thought is not treated as the hidden row", () => {
     .map((row) => stripVTControlCharacters(row).trimEnd()), expected);
 });
 
+test("historical thinking cache hits do not rescan runs or look up durations", (t) => {
+  let reads = 0;
+  const reasoning = { type: "thinking" as const, get thinking() { reads++; return "x".repeat(100_000); } };
+  const durations = new ThinkingDurations(1);
+  const duration = t.mock.method(durations, "lookupRun");
+  const view = { lastMessage: { content: [reasoning] }, hideThinkingBlock: true, thinkingVisibilityOverrides: new Map<number, boolean>() };
+  const options = { active: null, durations };
+  const key = () => thinkingRowsKey(view, options);
+  assert.equal(key(), "");
+  for (let i = 0; i < 100; i++) assert.equal(key(), "");
+  assert.deepEqual([reads, duration.mock.callCount()], [1, 1]);
+
+  durations.record("x".repeat(100_000), 4000);
+  assert.equal(key(), "Thought for 4s");
+  assert.deepEqual([reads, duration.mock.callCount()], [1, 2], "timing changes reuse the parsed runs");
+  view.thinkingVisibilityOverrides.set(0, false);
+  assert.equal(key(), "");
+  view.thinkingVisibilityOverrides.set(0, true); // In-place update without a change in map size.
+  assert.equal(key(), "Thought for 4s");
+  durations.record("other", 1000);
+  assert.equal(key(), "", "eviction invalidates the old duration");
+
+  assert.equal(thinkingRowsKey(view, { ...options, active: { message: view.lastMessage, contentIndex: 0 } }), STREAMING_THINKING_LABEL);
+  assert.equal(key(), "", "stopping live thinking updates the cached key");
+  view.lastMessage = { content: [thinking("other")] };
+  assert.equal(key(), "Thought for 1s");
+  view.lastMessage.content.push(thinking("plus another block"));
+  assert.equal(key(), "", "content length changes invalidate run boundaries");
+});
+
 test("only the streaming message shows Thinking…", () => {
   initTheme("dark", false);
   const f = durationsFixture();

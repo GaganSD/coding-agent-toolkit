@@ -26,7 +26,7 @@ function canGroupAssistant(component: Component): boolean {
   for (const part of message.content) {
     if (part.type === "text" && part.text?.trim()) return false;
     if (part.type === "toolCall") { if (!names.has(part.name ?? "")) return false; hasCalls = true; }
-    if (part.type === "thinking" && part.thinking?.trim()) hasThinking = true;
+    if (part.type === "thinking" && !hasThinking && /\S/u.test(part.thinking ?? "")) hasThinking = true;
   }
   return hasCalls && (!hasThinking || (view.hideThinkingBlock === true
     && ![...view.thinkingVisibilityOverrides?.values() ?? []].includes(false)));
@@ -35,7 +35,7 @@ function canGroupAssistant(component: Component): boolean {
 export type PaintedRow = { component: Component; y: number };
 type RowOwner = PaintedRow & { height: number; inset: number };
 type Part = { lines: string[]; owners: Array<RowOwner | undefined> };
-export type RowDecorator = (component: Component, rows: readonly string[], width: number) => readonly string[];
+export type RowDecorator = (component: Component, rows: readonly string[], width: number) => readonly string[] | undefined;
 type Segment =
   | { kind: "native"; component: Component }
   | { kind: "group"; start: number; end: number; toolIndices: number[]; failed: number; running: boolean };
@@ -93,7 +93,8 @@ export class ToolGroups {
       && sameLines(cached.rows, rows));
     if (sameFrame && cached && cached.key === key) return cached.part;
     const snapshot = sameFrame && cached ? cached.rows : rows.slice();
-    const decorated = this.decorate?.(component, rows, width) ?? rows;
+    const decoration = this.decorate ? this.decorate(component, rows, width) : rows;
+    const decorated = decoration ?? rows;
     const part: Part = { lines: first === undefined ? (decorated === rows ? snapshot : decorated.slice()) : [], owners: [] };
     for (let y = 0; y < decorated.length; y++) {
       if (first !== undefined) {
@@ -103,7 +104,8 @@ export class ToolGroups {
       }
       part.owners.push({ component, y, height: decorated.length, inset });
     }
-    this.bodies.set(component, { width, rows: snapshot, first, rest, key, part });
+    if (decoration !== undefined) this.bodies.set(component, { width, rows: snapshot, first, rest, key, part });
+    else this.bodies.delete(component);
     return part;
   }
 

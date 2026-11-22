@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { bigDigits, contextBar, cacheRows, contextRows, formatCountdown, formatRate, speedRows, stackedBar, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
-import { EMPTY_PERF, type SidebarPerf } from "../extensions/pi-slate/perf-stats.ts";
+import { branchPerf, EMPTY_PERF, type SidebarPerf } from "../extensions/pi-slate/perf-stats.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
-import type { SidebarSession, SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
+import { sidebarUsage, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { perfFixture } from "./perf-fixture.ts";
 
 const strip = (t: string) => t.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
@@ -76,18 +77,19 @@ const SECTIONS = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "comp
 
 test("empty perf keeps the chart and footer shape, with muted placeholders", () => {
   const inner = 52;
-  const compact = SECTIONS(EMPTY_PERF, inner, "compact", noUsage);
+  const emptyUsage = sidebarUsage([]);
+  const compact = SECTIONS(EMPTY_PERF, inner, "compact", emptyUsage);
   assert.match(compact.speed[0]!, /^SPEED\s+— tok\/s$/);
   assert.deepEqual(compact.speed.slice(1), ["─".repeat(inner), "avg — · peak — · out 0"]);
   assert.match(compact.cache[0]!, /^CACHE\s+—% hit$/);
-  assert.deepEqual(compact.cache.slice(1), ["─".repeat(inner), "read 0 · write 0 · new 0 · spent $0.00"]);
+  assert.deepEqual(compact.cache.slice(1), ["─".repeat(inner), "read 0 · write 0 · new 0 · spent $0.00", ""]);
 
-  const full = SECTIONS(EMPTY_PERF, inner, "full", noUsage);
+  const full = SECTIONS(EMPTY_PERF, inner, "full", emptyUsage);
   assert.deepEqual(full.speed.slice(1), ["", "— tok/s", "", "", "─".repeat(inner), "avg — · peak — · out 0"]);
   assert.deepEqual(full.cache.slice(1), ["─".repeat(inner), "read 0 · write 0 · new 0", "spent $0.00"]);
 
   const paint = (t: string, x: string) => t === "muted" ? `\x1b[90m${x}\x1b[0m` : x;
-  const i = { ...input(EMPTY_PERF, inner, "compact", 1000, noUsage), paint };
+  const i = { ...input(EMPTY_PERF, inner, "compact", 1000, emptyUsage), paint };
   const text = [...speedRows(i), ...cacheRows(i)].join("\n");
   for (const value of ["—", "—% hit", "0", "$0.00"]) assert(text.includes(paint("muted", value)), value);
 });
@@ -101,10 +103,47 @@ test("empty and populated sections use the same height at wide, narrow and tiny 
   }
 });
 
+test("CACHE distinguishes a failed first reply with missing usage from an empty branch", () => {
+  const failed = { type: "message", id: "failed", parentId: null, timestamp: "2026-01-01T00:00:00Z",
+    message: { role: "assistant", stopReason: "error" } } as SessionEntry;
+  for (const [entries, details] of [
+    [[], "read 0 · write 0 · new 0 · spent $0.00"],
+    [[failed], "read — · write — · new — · spent —"],
+  ] as const) {
+    const cache = SECTIONS(branchPerf(entries), 66, "compact", sidebarUsage(entries)).cache;
+    assert.match(cache[0]!, /^CACHE\s+—% hit$/);
+    assert.equal(cache[2], details);
+  }
+});
+
+test("CACHE reserves the heading continuation before the track at 24 columns", () => {
+  const width = 24;
+  const empty = SECTIONS(EMPTY_PERF, width, "compact", sidebarUsage([])).cache;
+  const warm = SECTIONS(perfFixture(1000), width).cache;
+  assert.equal(empty[1], "");
+  assert.match(warm[1]!, /◉ 4:41$/);
+  assert.equal(empty[2], "─".repeat(width));
+  assert.equal(warm[2], "━".repeat(width));
+});
+
+test("CACHE height stays fixed when spent crosses wrap thresholds", () => {
+  const perf = perfFixture(1000);
+  const totals = { ...usage, cacheRead: 12_300, cacheWrite: 12_300, uncached: 12_300, input: 36_900 };
+  const costs = [[99.99, "$99.99"], [100, "$100.00"], [999_999.999, "$1000000.00"], [1e6, "$1.0M"], [1e308, "$1.0e+308"]] as const;
+  for (const tier of ["compact", "full"] as const) for (const width of [24, 32, 36, 52]) {
+    const baseline = SECTIONS(perf, width, tier, { ...totals, cost: null }).cache;
+    for (const [cost, label] of costs) {
+      const rows = SECTIONS(perf, width, tier, { ...totals, cost }).cache;
+      assert.equal(rows.length, baseline.length, `${width}: ${label}`);
+      assert(rows.some(row => row.includes(`spent ${label}`)), `${width}: ${label}`);
+    }
+  }
+});
+
 test("known spend is shown without fabricating missing cache counts", () => {
   const { cache } = SECTIONS(perfFixture(1000), 52, "compact", { ...noUsage, input: 100, cost: 0.84 });
   assert.match(cache[0]!, /^CACHE\s+—% hit$/);
-  assert.deepEqual(cache.slice(1), ["─".repeat(52), "read — · write — · new — · spent $0.84"]);
+  assert.deepEqual(cache.slice(1), ["─".repeat(52), "read — · write — · new — · spent $0.84", ""]);
 });
 
 test("an uncached reply shows its actual usage, without a cache timer", () => {
@@ -112,7 +151,7 @@ test("an uncached reply shows its actual usage, without a cache timer", () => {
     ...noUsage, input: 100, cacheRead: 0, cacheWrite: 0, uncached: 100, cost: 0.01,
   });
   assert.match(cache[0]!, /^CACHE\s+0% hit$/);
-  assert.deepEqual(cache.slice(1), ["━".repeat(52), "read 0 · write 0 · new 100 · spent $0.01"]);
+  assert.deepEqual(cache.slice(1), ["━".repeat(52), "read 0 · write 0 · new 100 · spent $0.01", ""]);
 });
 
 test("compact SPEED: heading, left-aligned sparkline, labelled detail row; padding is spaces", () => {
@@ -161,12 +200,15 @@ test("huge numbers and tiny widths stay inside the width", () => {
   }
 });
 
-test("width tiers: digits fall back to text; narrow rails drop the graph", () => {
+test("narrow full-tier SPEED wraps its caption, drops the graph, and keeps the rate", () => {
   const perf = perfFixture(1000);
-  assert.equal(SECTIONS(perf, 12, "full").speed[1]!.trim(), "14.6 tok/s", "big digits need more than 12 columns");
+  const narrow = SECTIONS(perf, 12, "full").speed;
+  assert.deepEqual(narrow.slice(0, 2).map(row => row.trim()), ["SPEED   last", "timed reply"]);
+  assert.equal(narrow[2]!.trim(), "14.6 tok/s", "big digits need more than 12 columns");
   const tinyRows = SECTIONS(perf, 20, "full").speed;
-  assert.equal(tinyRows.length, 6, "heading, three digit rows, and wrapped details: no graph rows");
-  assert.deepEqual(tinyRows.slice(4), ["avg 26.7 · peak 45.0", "out 12k"]);
+  assert.deepEqual(tinyRows.slice(0, 2).map(row => row.trim()), ["SPEED", "last timed reply"]);
+  assert.equal(tinyRows.length, 7, "two heading, three digit, and two detail rows: no graph rows");
+  assert.deepEqual(tinyRows.slice(5), ["avg 26.7 · peak 45.0", "out 12k"]);
   assert.match(SECTIONS(perf, 40, "full").speed.join("\n"), /[▁-█]/);
 });
 
@@ -200,7 +242,7 @@ test("CACHE bars use the context glyph in three tones; money rows handle unknown
   const themed: string[] = [];
   const paint = { paint: (t: string, x: string) => { themed.push(`${t}:${x}`); return x; }, heading: (x: string) => x };
   const full = cacheRows({ ...input(perfFixture(1000), 40, "full"), ...paint }).map(strip);
-  assert.equal(full.length, 4);
+  assert.equal(full.length, 5);
   assert.equal(full[1], "━".repeat(40)); assert(!/[█▓░]/.test(full.join("")));
   const bar = themed.filter(t => /^(accent|warning|muted):━/.test(t)).map(t => t.split(":")[0]);
   assert.deepEqual(bar, ["accent", "warning", "muted"]);
@@ -209,7 +251,7 @@ test("CACHE bars use the context glyph in three tones; money rows handle unknown
   const none = SECTIONS(perfFixture(1000), 40, "full", { ...usage, cost: null, saved: null }).cache;
   assert.equal(none[3], "spent —");
   const compact = SECTIONS(perfFixture(1000), 52).cache;
-  assert.equal(compact.length, 3); assert.equal(compact[2], "read 1.3M · write 108k · new 141k · spent $0.84");
+  assert.equal(compact.length, 4); assert.equal(compact[2], "read 1.3M · write 108k · new 141k · spent $0.84");
   assert.deepEqual(SECTIONS(perfFixture(1000), 40).cache.slice(2), ["read 1.3M · write 108k · new 141k", "spent $0.84"]);
   const zero = SECTIONS(perfFixture(1000), 40, "compact", { ...usage, input: 0, cacheRead: 0, cacheWrite: 0, uncached: 0 }).cache;
   assert.equal(zero[1], "─".repeat(40));

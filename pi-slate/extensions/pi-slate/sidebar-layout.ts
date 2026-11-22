@@ -7,13 +7,15 @@ export function sessionSidebarSlots(height: number, headerRows: number, taskCoun
   const frame = rows >= 12 ? 2 : 0;
   const footer = frame ? 1 : 0;
   const available = rows - frame - footer;
-  const taskWant = taskCount ? 2 + Math.min(3, taskCount) * 2 : 0;
+  const taskWant = taskCount && available >= 2 ? 2 + Math.min(3, taskCount) * 2 : 0;
   const previewMin = hasImage ? 4 : 0;
-  const headerWant = hasImage ? Math.max(headerRows - gaps, Math.min(headerRows, available - 6 - taskWant - previewMin)) : headerRows;
-  const header = Math.min(available, headerWant);
+  const taskMin = taskWant ? 2 : 0; // heading and one item
+  const middleMin = Math.min(6, available - taskMin);
+  const headerWant = hasImage ? Math.max(headerRows - gaps, Math.min(headerRows, available - middleMin - taskWant - previewMin)) : headerRows;
+  const header = Math.min(headerWant, taskMin ? available - middleMin - taskMin : available);
   const body = available - header;
-  const spare = Math.max(0, body - 6);
-  const tasks = Math.min(taskWant, spare - Math.min(previewMin, spare));
+  const spare = Math.max(0, body - middleMin);
+  const tasks = Math.min(taskWant, Math.max(taskMin, spare - previewMin));
   const imageWant = hasImage ? Math.min(10, Math.max(previewMin, Math.floor(rows / 5))) : 0;
   const image = Math.min(imageWant, spare - tasks);
   return { frame, header, middle: body - tasks - image, tasks, image, footer };

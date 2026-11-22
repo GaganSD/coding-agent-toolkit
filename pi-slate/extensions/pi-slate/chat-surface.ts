@@ -47,7 +47,7 @@ export type ChatSurfaceOptions = {
   groups?: ToolGroups;
   active?: () => boolean;
   onGroupingFaultChange?: (faulted: boolean) => void;
-  /** Presentation-only row decoration; returns the same array when nothing changes. */
+  /** Presentation-only row decoration; undefined means retry, not a cacheable result. */
   decorate?: RowDecorator;
 };
 
@@ -141,7 +141,7 @@ export class ChatSurface {
       if (height === undefined) return rendered;
       const rows = rendered.slice(offset, offset + height);
       offset += height;
-      const decorated = decorate(component, rows, width);
+      const decorated = decorate(component, rows, width) ?? rows;
       if (decorated !== rows) changed = true;
       for (const row of decorated) lines.push(row);
     }

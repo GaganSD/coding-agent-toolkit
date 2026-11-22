@@ -122,8 +122,8 @@ function detailRows(i: PerfInput, pairs: ReadonlyArray<readonly [string, string,
   return statRows(i, pairs.map(([l, v, tone]) => [["dim", l + " "], [tone ?? (v === "—" ? "muted" : "text"), v]]));
 }
 
-// Budget room for ordinary first-reply values (compact counts, sub-10k rates and sub-$100
-// costs), not just the shorter placeholders. Larger values can still wrap without being lost.
+// Budget with the widest fields for sections that must keep a fixed height, rather than
+// with the shorter placeholders. Other sections can reserve only their ordinary values.
 const rowBudget = (i: PerfInput, widths: readonly number[], sep = DOT, label?: string): number =>
   wrapStats(widths, i.inner, visibleWidth(sep[1]), n => n, label ? headingRoom(i.inner, label) : i.inner).length;
 const padRows = (rows: string[], height: number): string[] => {
@@ -187,7 +187,9 @@ export function speedRows(i: PerfInput): string[] {
     return padRows([...rows, ...graph(1), ...detail], rowBudget(i, [10], DOT, "SPEED") + 1 + detailBudget);
   }
   const caption = "last timed reply";
-  const rows = statRows(i, visibleWidth(caption) <= headingRoom(inner, "SPEED") ? [[["dim", caption]]] : [], DOT, "SPEED");
+  const parts = visibleWidth(caption) <= inner ? [caption] : caption.split(" ");
+  const rows = statRows(i, parts.map(text => [["dim", text]]), ["dim", " "], "SPEED");
+  const headerHeight = rows.length;
   const [a, b, c] = bigDigits(digits) as [string, string, string];
   const digitWidth = visibleWidth(a);
   const big = inner >= 19; // Room for a typical block rate (14.6) and its unit.
@@ -199,7 +201,7 @@ export function speedRows(i: PerfInput): string[] {
   }
   const graphHeight = inner >= 22 ? 2 : 0;
   if (graphHeight) rows.push(...graph(graphHeight));
-  return padRows([...rows, ...detail], 1 + (big ? 3 : 1) + graphHeight + detailBudget);
+  return padRows([...rows, ...detail], headerHeight + (big ? 3 : 1) + graphHeight + detailBudget);
 }
 
 export function formatCacheHit(rate: number | null): string {
@@ -207,6 +209,15 @@ export function formatCacheHit(rate: number | null): string {
   if (rate === 1) return "all cached";
   return `${Math.min(99.99, Math.round(rate * 10_000) / 100)}%`;
 }
+
+// Bounds from the formatters: exponential counts and dollars just below the compact-money cutoff.
+const CACHE_COUNT_WIDTH = visibleWidth(formatCompactTokenCount(Number.MAX_VALUE));
+const CACHE_COST_WIDTH = visibleWidth(sidebarCost(999_999.999));
+const CACHE_TOKEN_WIDTHS = ["read ", "write ", "new "].map(label => visibleWidth(label) + CACHE_COUNT_WIDTH);
+const CACHE_SPENT_WIDTH = visibleWidth("spent ") + CACHE_COST_WIDTH;
+const CACHE_SAVED_WIDTH = visibleWidth("saved ~") + CACHE_COST_WIDTH;
+const CACHE_HIT_WIDTH = visibleWidth(formatCacheHit(1));
+const CACHE_CLOCK_WIDTH = visibleWidth("◉ 9999:59:59");
 
 /** Headline uses the same branch totals as the bar; warmth is based on the latest request. */
 function cacheSegs(i: PerfInput): Seg[][] {
@@ -218,26 +229,26 @@ function cacheSegs(i: PerfInput): Seg[][] {
   const warm: Seg | null = w.state === "warm" ? ["success", `◉ ${formatCountdown(w.remainingMs ?? 0)}`]
     : w.state === "cold" ? ["warning", "cold"]
     : w.idleMs !== null && w.idleMs >= 60_000 ? ["dim", `idle ${formatIdle(w.idleMs)}`] : null;
-  return warm ? [hit, [warm]] : [hit];
+  return warm ? [hit, [[warm[0], truncateToWidth(warm[1], CACHE_CLOCK_WIDTH, "…")]]] : [hit];
 }
 
 export function cacheRows(i: PerfInput): string[] {
   const { usage, inner, paint } = i;
-  const empty = !i.perf.timedReplies && i.perf.turn.output === 0 && !usage.cacheSeen
-    && !usage.input && !usage.output && !usage.uncached && !usage.cost;
+  const empty = usage.total === 0 && usage.cost === 0;
   const tone = empty ? "muted" : undefined;
-  const spent = ["spent", sidebarCost(usage.cost ?? (empty ? 0 : null)), tone] as const;
+  const spent = ["spent", sidebarCost(usage.cost), tone] as const;
   const [r = 0, w = 0, u = 0] = usage.input === null ? [] : stackedBar([usage.cacheRead ?? 0, usage.cacheWrite ?? 0, usage.uncached ?? 0], inner);
   const bar = r || w || u ? paint("accent", "━".repeat(r)) + paint("warning", "━".repeat(w)) + paint("muted", "━".repeat(u)) : baseline(i);
-  const f = (value: number | null): string => formatCompactTokenCount(value ?? (empty ? 0 : null));
-  const tokens = [["read", f(usage.cacheRead), tone], ["write", f(usage.cacheWrite), tone], ["new", f(usage.uncached), tone]] as const;
-  const rows = [...statRows(i, cacheSegs(i), DOT, "CACHE"), bar];
-  const headerBudget = rowBudget(i, [10, 9], DOT, "CACHE") + 1;
+  const tokens = [["read", formatCompactTokenCount(usage.cacheRead), tone], ["write", formatCompactTokenCount(usage.cacheWrite), tone],
+    ["new", formatCompactTokenCount(usage.uncached), tone]] as const;
+  const heading = padRows(statRows(i, cacheSegs(i), DOT, "CACHE"), rowBudget(i, [CACHE_HIT_WIDTH, CACHE_CLOCK_WIDTH], DOT, "CACHE"));
+  const rows = [...heading, bar];
+  const headerHeight = rows.length;
   if (i.tier === "full") {
     const saved = usage.saved;
     rows.push(...detailRows(i, tokens), ...detailRows(i, nonneg(saved) ? [spent, ["saved", `~${sidebarCost(saved)}`]] : [spent]));
-    return padRows(rows, headerBudget + rowBudget(i, [10, 11, 9]) + rowBudget(i, [12, 13]));
+    return padRows(rows, headerHeight + rowBudget(i, CACHE_TOKEN_WIDTHS) + rowBudget(i, [CACHE_SPENT_WIDTH, CACHE_SAVED_WIDTH]));
   }
   rows.push(...detailRows(i, [...tokens, spent]));
-  return padRows(rows, headerBudget + rowBudget(i, [10, 11, 9, 12]));
+  return padRows(rows, headerHeight + rowBudget(i, [...CACHE_TOKEN_WIDTHS, CACHE_SPENT_WIDTH]));
 }

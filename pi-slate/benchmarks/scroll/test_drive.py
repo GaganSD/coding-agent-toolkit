@@ -59,6 +59,19 @@ class WheelAccountingTest(unittest.TestCase):
             validate_burst("wheel_down", before, after, False, busy=True)
 
 
+class BusyTimingTest(unittest.TestCase):
+    def test_wheel_down_requires_thinking_end_and_tool_start_inside_the_window(self):
+        before = {"thinkingEndedAt": None, "toolStartedAt": None, "textDeltas": 0}
+        after = {"thinkingEndedAt": 100, "toolStartedAt": 199, "textDeltas": 10, "toolsFinished": 1, "settled": False}
+        self.assertEqual(drive.validate_busy_burst("wheel_down", (100, 200), before, after), 10)
+        for event in ("thinkingEndedAt", "toolStartedAt"):
+            for at in (None, 99, 200):
+                with self.subTest(event=event, at=at), self.assertRaisesRegex(RuntimeError, f"{event} did not happen inside"):
+                    drive.validate_busy_burst("wheel_down", (100, 200), before, {**after, event: at})
+            with self.subTest(already_seen=event), self.assertRaisesRegex(RuntimeError, f"{event} did not happen inside"):
+                drive.validate_busy_burst("wheel_down", (100, 200), {**before, event: 99}, after)
+
+
 class VariantConfigTest(unittest.TestCase):
     def test_slate_controls_select_surfaces_and_history_window(self):
         self.assertCountEqual(drive.VARIANTS["slate"], drive.SURFACES)
@@ -88,35 +101,84 @@ class VariantConfigTest(unittest.TestCase):
         self.assertNotIn("slate-0.4.0", drive.DEFAULT_VARIANTS)
 
     def test_starline_requires_its_editor_and_native_scroll_view_without_slate(self):
-        status = {**snapshot(1000), "surfaces": {}, "starlineEditor": True, "chat_adapter": False}
-        drive.attest(status, "starline", [], False)
+        status = {**snapshot(1000), "surfaces": {}, "starlineEditor": True, "chat_adapter": False,
+                  "chat_projection": {"children": 150, "rendered": 150}}
+        args = ("starline", [], False, {"limit": "all"})
+        drive.attest(status, *args)
         with self.assertRaisesRegex(RuntimeError, "PolishedEditor was not mounted"):
-            drive.attest({**status, "starlineEditor": False}, "starline", [], False)
+            drive.attest({**status, "starlineEditor": False}, *args)
         with self.assertRaisesRegex(RuntimeError, "primary transcript ScrollView was not found"):
-            drive.attest({**status, "scrollTop": None}, "starline", [], False)
+            drive.attest({**status, "scrollTop": None}, *args)
         with self.assertRaisesRegex(RuntimeError, "unexpected.*editor"):
-            drive.attest({**status, "surfaces": {"editor": True}}, "starline", [], False)
+            drive.attest({**status, "surfaces": {"editor": True}}, *args)
+
+    def test_chat_projection_must_match_each_variants_history_limit(self):
+        for variant, fresh, limit in (("slate", False, 100), ("slate", True, 300),
+                                       ("slate-no-toolcards", False, 300), ("slate-matched-history", False, 300)):
+            with self.subTest(variant=variant, fresh=fresh):
+                args = SimpleNamespace(slate_fresh=fresh)
+                transcript = drive.transcript_config(variant, args)
+                surfaces = drive.visible_surfaces(variant, args)
+                adapter = transcript["owned"] or "tool-cards" in surfaces
+                status = {**snapshot(1000), "surfaces": dict.fromkeys(surfaces, True), "chat_adapter": adapter,
+                          "chat_projection": {"children": 300, "rendered": limit}}
+                drive.attest(status, variant, surfaces, adapter, transcript)
+                for wrong in (limit - 1, 401 - limit):
+                    with self.assertRaisesRegex(RuntimeError, f"expected {limit}/300 children"):
+                        drive.attest({**status, "chat_projection": {"children": 300, "rendered": wrong}},
+                                     variant, surfaces, adapter, transcript)
 
     def test_chat_adapter_does_not_imply_a_transcript_window(self):
         fresh = SimpleNamespace(slate_fresh=True)
         shipped = SimpleNamespace(slate_fresh=False)
         status = {**snapshot(1000), "surfaces": {"editor": True, "tool-cards": True},
-                  "starlineEditor": False, "chat_adapter": True}
+                  "starlineEditor": False, "chat_adapter": True, "chat_projection": {"children": 150, "rendered": 150}}
         for variant in ("slate", "slate-0.4.0", "slate-main-before"):
             with self.subTest(variant=variant):
                 self.assertTrue(drive.uses_fresh_slate(variant, fresh))
                 surfaces = drive.visible_surfaces(variant, fresh)
                 self.assertCountEqual(surfaces, ["editor", "tool-cards"])
-                drive.attest(status, variant, surfaces, True)
+                transcript = drive.transcript_config(variant, fresh)
+                drive.attest(status, variant, surfaces, True, transcript)
                 with self.assertRaisesRegex(RuntimeError, "Expected chat_adapter=True"):
-                    drive.attest({**status, "chat_adapter": False}, variant, surfaces, True)
-                self.assertEqual(drive.transcript_config(variant, fresh), {"owned": False, "limit": "all"})
+                    drive.attest({**status, "chat_adapter": False}, variant, surfaces, True, transcript)
+                self.assertEqual(transcript, {"owned": False, "limit": "all"})
                 self.assertEqual(drive.transcript_config(variant, shipped), {"owned": True, "limit": "shipped-default"})
         self.assertEqual(drive.transcript_config("slate-matched-history", fresh), {"owned": True, "limit": "all"})
         self.assertFalse(drive.uses_fresh_slate("starline", fresh))
 
 
 class CompareTest(unittest.TestCase):
+    def test_compare_attests_loaded_extension_identity_and_fresh_mode(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(drive, "table", return_value="table"):
+            package = Path(tmp) / "unpacked"
+            package.mkdir()
+            drive.write_json(package / "package.json", {"name": "pi-slate-release", "version": "0.4.0"})
+            source = package / "extensions" / "index.ts"
+            source.parent.mkdir()
+            source.write_text("export default () => 1", encoding="utf-8")
+            build = drive.extension_metadata(package)
+            report = {"format": drive.FORMAT, "workload": {"readiness_revision": drive.READINESS_REVISION,
+                      "extensions": {"slate": build}, "slate_fresh": False}, "platform": {}, "pi_version": "1.6.0",
+                      "cases": [{"variant": "slate", "terminal": "200x50", "history": "shipped-default", "median": {}}]}
+            old, new = (Path(tmp) / name for name in ("old.json", "new.json"))
+            drive.write_json(old, report)
+            drive.write_json(new, report)
+            with redirect_stdout(StringIO()) as output:
+                drive.compare(old, new)
+            self.assertIn(f"slate: pi-slate-release 0.4.0 · {package} · sha256:{build['sha256']}", output.getvalue())
+
+            source.write_text("export default () => 2", encoding="utf-8")
+            changed = drive.extension_metadata(package)
+            self.assertNotEqual(changed["sha256"], build["sha256"])
+            for override in ({"slate_fresh": True}, *(
+                    {"extensions": {"slate": {**build, field: value}}}
+                    for field, value in (("path", "/another/build"), ("version", "0.4.1"), ("sha256", changed["sha256"])))):
+                with self.subTest(override=override):
+                    drive.write_json(new, {**report, "workload": {**report["workload"], **override}})
+                    with self.assertRaisesRegex(RuntimeError, "Workloads differ"):
+                        drive.compare(old, new)
+
     def test_rejects_matching_older_reports_before_rendering_new_columns(self):
         steady = {**drive.metrics((0, 1, 1.0, 0.0, 0), []), "dropped_wheel_lines": 0}
         case = {"terminal": "120x40", "variant": "native", "history": "native-unlimited",

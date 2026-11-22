@@ -13,6 +13,7 @@ export type ThinkingView = {
     content?: readonly (AssistantContentBlock & { name?: string })[];
   };
   hideThinkingBlock?: boolean;
+  isStreaming?: boolean;
   thinkingVisibilityOverrides?: Map<number, boolean>;
 };
 
@@ -75,6 +76,7 @@ export function thinkingLabel(options: { streaming: boolean; durationMs?: number
 export class ThinkingDurations {
   private readonly values = new Map<string, number>();
   private readonly limit: number;
+  revision = 0;
 
   constructor(limit = 512) {
     this.limit = Math.max(1, Math.floor(limit));
@@ -83,6 +85,7 @@ export class ThinkingDurations {
   record(thinking: string, elapsedMs: number): void {
     const key = thinking.trim();
     if (!key || !Number.isFinite(elapsedMs) || elapsedMs < 0) return;
+    if (this.values.get(key) !== elapsedMs) this.revision++;
     this.values.delete(key);
     this.values.set(key, elapsedMs);
     while (this.values.size > this.limit) {
@@ -93,10 +96,16 @@ export class ThinkingDurations {
   }
 
   lookup(thinking: string): number | undefined {
-    return this.values.get(thinking.trim());
+    return this.lookupRun(thinking.trim());
+  }
+
+  /** Run text is already trimmed when the component metadata is built. */
+  lookupRun(thinking: string): number | undefined {
+    return this.values.get(thinking);
   }
 
   clear(): void {
+    if (this.values.size) this.revision++;
     this.values.clear();
   }
 }
@@ -137,21 +146,53 @@ type ThinkingRowState = {
   durations: ThinkingDurations;
 };
 
-function thinkingRowLabels(view: ThinkingView | undefined, options: ThinkingRowState): string[] {
-  const active = options.active;
-  return hiddenThinkingRuns(view).map((run) => {
-    const streaming = active !== null && view?.lastMessage === active.message
-      && active.contentIndex >= run.start && active.contentIndex <= run.end;
-    return thinkingLabel({
-      streaming,
-      durationMs: streaming ? null : options.durations.lookup(run.thinking),
+type ThinkingRows = { labels: string[]; key: string };
+const EMPTY_ROWS: ThinkingRows = { labels: [], key: "" };
+const thinkingRows = new WeakMap<ThinkingView, {
+  message: NonNullable<ThinkingView["lastMessage"]>;
+  length: number | undefined;
+  hidden: boolean | undefined;
+  overrides: string;
+  active: number | undefined;
+  streaming: boolean | undefined;
+  runs: ThinkingRun[];
+  durations?: ThinkingDurations;
+  revision?: number;
+  rows?: ThinkingRows;
+}>();
+
+function thinkingRowLabels(view: ThinkingView | undefined, options: ThinkingRowState): ThinkingRows {
+  const message = view?.lastMessage;
+  if (!view || !message) return EMPTY_ROWS;
+  const active = options.active?.message === message ? options.active.contentIndex : undefined;
+  const length = message.content?.length;
+  const hidden = view.hideThinkingBlock;
+  const streaming = view.isStreaming;
+  const visibility = view.thinkingVisibilityOverrides;
+  const overrides = visibility?.size ? [...visibility].join(";") : "";
+  let cached = thinkingRows.get(view);
+  // Pi mutates the in-flight message in place, including same-length deltas.
+  if (!cached || streaming || active !== undefined || cached.message !== message || cached.length !== length
+    || cached.hidden !== hidden || cached.overrides !== overrides || cached.active !== active || cached.streaming !== streaming) {
+    cached = { message, length, hidden, overrides, active, streaming, runs: hiddenThinkingRuns(view) };
+    thinkingRows.set(view, cached);
+  }
+  const { durations } = options;
+  if (!cached.rows || cached.durations !== durations || cached.revision !== durations.revision) {
+    const labels = cached.runs.map((run) => {
+      const live = active !== undefined && active >= run.start && active <= run.end;
+      return thinkingLabel({ streaming: live, durationMs: live ? null : durations.lookupRun(run.thinking) });
     });
-  });
+    cached.rows = { labels, key: labels.some(label => label !== HIDDEN_THINKING_LABEL) ? labels.join("\n") : "" };
+    cached.durations = durations;
+    cached.revision = durations.revision;
+  }
+  return cached.rows;
 }
 
-/** Cache the labels this component paints, not the session-wide thinking revision. */
+/** Unchanged historical components don't scan reasoning or look up durations on a content frame. */
 export function thinkingRowsKey(view: ThinkingView, options: ThinkingRowState): string {
-  return view.lastMessage ? thinkingRowLabels(view, options).join("\n") : "";
+  return thinkingRowLabels(view, options).key;
 }
 
 /** Paint collapsed thinking rows for the run that is streaming and runs timed in this session. */
@@ -160,5 +201,5 @@ export function decorateThinkingRows(
   rows: readonly string[],
   options: ThinkingRowState & { styledLabel: string },
 ): readonly string[] {
-  return replaceHiddenThinkingRows(rows, thinkingRowLabels(view, options), options.styledLabel);
+  return replaceHiddenThinkingRows(rows, thinkingRowLabels(view, options).labels, options.styledLabel);
 }
