@@ -248,8 +248,28 @@ try {
     assert.match(frame(), group);
     assert.equal(lines().filter(line => /Thought for \d+s/.test(line)).length, 2,
       "both collapsed runs retain their live durations after interleaved updates and click round trips");
+    const standaloneLabel = /(?<=^ )Thought for \d+s/;
+    const tools = chat.children.filter(child => child.toolCallId);
+    assert.equal(tools.length, 4);
+    // Press on the fallback frame, but let grouping recover before release.
+    overrides.values = () => { throw new Error("Injected grouping fault before press"); };
+    try { ui.renderNow(true); }
+    finally { delete overrides.values; }
+    assert.doesNotMatch(frame(), group);
+    const fallbackPoint = pointFor(standaloneLabel);
+    fallbackPoint.x += 4; // Click the label itself, beyond the recovered group's tree gutter.
+    mouse(fallbackPoint, "M");
+    ui.renderNow(true);
+    assert.match(frame(), group);
+    assert.match(lines()[fallbackPoint.y - 1], /Read|└ 1 line/, "grouping moves a tool under the pressed cell");
+    mouse(fallbackPoint, "m");
+    ui.renderNow(true);
+    assert.deepEqual(tools.map(tool => tool.expanded), [false, false, false, false], "recovery must not expand a tool under a pressed Thought");
+    assert.equal(overrides.get(0), true, "the obsolete press must not toggle the thought either");
+    assert.match(frame(), group);
+
     // The standalone (not tree-prefixed) thinking run uses Pi's native mouse region too.
-    click(/(?<=^ )Thought for \d+s/);
+    click(standaloneLabel);
     assert.match(frame(), /Reasoning outside the tool group\./);
     assert.match(frame(), group);
     click(/Reasoning outside the tool group\./);
@@ -257,9 +277,6 @@ try {
     assert.match(frame(), group);
 
     const standalone = chat.children.find(child => child.lastMessage?.content?.[0]?.thinking === outsideThought);
-    const standaloneLabel = /(?<=^ )Thought for \d+s/;
-    const tools = chat.children.filter(child => child.toolCallId);
-    assert.equal(tools.length, 4);
     const state = () => [overrides.get(0), standalone.thinkingVisibilityOverrides.get(0), ...tools.map(tool => tool.expanded)];
     assert.deepEqual(state(), [true, true, false, false, false, false]);
     chat.addChild(new tui.Text(Array.from({ length: 54 }, (_, i) => `Transcript tail ${i}`).join("\n"), 0, 0));

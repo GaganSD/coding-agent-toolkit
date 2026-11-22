@@ -32,7 +32,8 @@ function canGroupAssistant(component: Component): boolean {
     && ![...view.thinkingVisibilityOverrides?.values() ?? []].includes(false)));
 }
 
-type RowOwner = { component: Component; y: number; height: number; inset: number };
+export type PaintedRow = { component: Component; y: number };
+type RowOwner = PaintedRow & { height: number; inset: number };
 type Part = { lines: string[]; owners: Array<RowOwner | undefined> };
 export type RowDecorator = (component: Component, rows: readonly string[], width: number) => readonly string[];
 type Segment =
@@ -155,8 +156,10 @@ export class ToolGroups {
     return lines;
   }
 
+  rowOwner(y: number): Readonly<RowOwner> | undefined { return this.frame?.owners[y]; }
+
   handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]> {
-    const owner = this.frame?.owners[event.y];
+    const owner = this.rowOwner(event.y);
     if (!owner) return undefined;
     const local = { ...event, x: event.x - owner.inset, y: owner.y, width: Math.max(1, event.width - owner.inset), height: owner.height };
     if (local.x < 0) return undefined;

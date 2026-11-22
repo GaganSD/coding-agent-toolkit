@@ -94,9 +94,7 @@ export class ThinkingFoldTracker {
         this.contentIndex = contentIndex;
         this.message = message;
         this.startedAt = this.now();
-        this.cancelTick = this.schedule(() => this.onChange?.());
-        this.revisionCount += 1;
-        this.onChange?.();
+        this.startTicks();
       } else if (type === "thinking_end") {
         if (this.startedAt !== null && contentIndex === this.contentIndex) {
           const elapsedMs = Math.max(0, (this.pausedAt ?? this.now()) - (this.runStartedAt ?? this.startedAt));
@@ -112,8 +110,16 @@ export class ThinkingFoldTracker {
         this.stopActive();
       } else if (contentIndex !== this.contentIndex) {
         this.stop();
-      } else if (this.pausedAt !== null) {
-        this.pausedAt = this.now(); // Reasoning can continue after the first text/tool update.
+      } else {
+        this.message = message; // Pi can deliver a fresh partial object on each update.
+        if (this.pausedAt !== null && this.startedAt !== null) {
+          // Resume both clocks without charging the intervening text or tool output.
+          const pausedMs = Math.max(0, this.now() - this.pausedAt);
+          this.startedAt += pausedMs;
+          if (this.runStartedAt !== null) this.runStartedAt += pausedMs;
+          this.pausedAt = null;
+          this.startTicks();
+        }
       }
     } else if (this.startedAt !== null && /^(?:text|toolcall)_(?:start|delta|end)$/.test(type)) {
       // Some adapters (notably OpenAI Chat Completions) emit thinking_end only
@@ -128,6 +134,12 @@ export class ThinkingFoldTracker {
     } else {
       this.stop();
     }
+  }
+
+  private startTicks(): void {
+    this.cancelTick = this.schedule(() => this.onChange?.());
+    this.revisionCount += 1;
+    this.onChange?.();
   }
 
   private stopActive(): void {

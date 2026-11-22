@@ -271,7 +271,86 @@ test("wheel reaches a grouped tool at its local coordinates", () => {
   surface.dispose();
 });
 
-test("grouping metadata faults retain the window and paint selected native children only once", () => {
+test("a zero-row window shift preserves a click on the same painted thinking row", (t) => {
+  const chat = new Container();
+  const first = mockTool(), second = mockTool();
+  const thought = assistant([thinking("same painted owner"), bashCall(second.toolCallId)]);
+  chat.children = [new Container(), first, thought, second];
+  let active = true;
+  const surface = new ChatSurface(chat, { limit: 3, active: () => active,
+    groups: new ToolGroups(() => theme, () => "expand") });
+  t.after(() => surface.dispose());
+  const rows = chat.render(80);
+  const y = rows.findIndex(row => row.includes("Thinking..."));
+  assert(y >= 0);
+  const event = { type: "press", button: "left", x: 6, y, screenX: 6, screenY: y,
+    width: 80, height: rows.length, shift: false, alt: false, ctrl: false } as const;
+  chat.handleMouse(event);
+  active = false;
+  assert.deepEqual(chat.render(80), rows);
+  assert.equal(chat.handleMouse({ ...event, type: "click" })?.handled, true);
+  assert.match(chat.render(80).join("\n"), /same painted owner/);
+  assert.equal(first.expanded || second.expanded, false);
+});
+
+test("a click cannot move to another local row of the same native component", (t) => {
+  const chat = new Container();
+  let prefixVisible = true, renders = 0;
+  const clicks: number[] = [];
+  chat.addChild({ render: () => prefixVisible ? ["prefix"] : [], invalidate() {} });
+  chat.addChild({
+    render() { renders++; return ["first target", "second target"]; }, invalidate() {},
+    handleMouse(event) { if (event.type === "click") clicks.push(event.y); },
+  });
+  const surface = new ChatSurface(chat, {});
+  t.after(() => surface.dispose());
+  assert.deepEqual(chat.render(80), ["prefix", "first target", "second target"]);
+  const event = { type: "press", button: "left", x: 6, y: 1, screenX: 6, screenY: 1,
+    width: 80, height: 3, shift: false, alt: false, ctrl: false } as const;
+  chat.handleMouse(event);
+  prefixVisible = false;
+  assert.deepEqual(chat.render(80), ["first target", "second target"]);
+  chat.handleMouse({ ...event, type: "click", height: 2 });
+  assert.deepEqual(clicks, [], "a different source row of the same child must not be activated");
+  assert.equal(renders, 2, "hit testing reuses the painted layout");
+});
+
+test("a persistent late grouping fault backs off, then recovers on a content render", (t) => {
+  let now = 0, attempts = 0, ordinaryRenders = 0;
+  t.mock.method(performance, "now", () => now);
+  const chat = new Container(), states: boolean[] = [];
+  chat.children = Array.from({ length: 999 }, () => ({
+    render() { ordinaryRenders++; return ["ordinary row"]; }, invalidate() {},
+  }));
+  chat.children.push(mockTool(), mockTool());
+  let broken = true;
+  const groups = new ToolGroups(() => theme, () => {
+    attempts++;
+    if (broken) throw new Error("Late group hint failure");
+    return "expand";
+  });
+  const surface = new ChatSurface(chat, { groups, onGroupingFaultChange: faulted => states.push(faulted) });
+  t.after(() => surface.dispose());
+  assert.doesNotMatch(chat.render(80).join("\n"), /Done \(/);
+  assert.doesNotMatch(chat.render(80).join("\n"), /Done \(/);
+  assert.equal(attempts, 2, "a transient fault still gets an immediate retry");
+  ordinaryRenders = 0;
+  assert.doesNotMatch(chat.render(80).join("\n"), /Done \(/);
+  assert.equal(ordinaryRenders, 999, "during cooldown only the native frame paints");
+  assert.equal(attempts, 2);
+  assert.deepEqual(states, [true]);
+  now += 1_000;
+  assert.doesNotMatch(chat.render(80).join("\n"), /Done \(/);
+  assert.equal(attempts, 3);
+  broken = false;
+  now += 1_000;
+  assert.match(chat.render(80).join("\n"), /Done \(2 tool calls\)/);
+  assert.deepEqual(states, [true, false]);
+});
+
+test("grouping metadata faults retain the window and paint selected native children only once", (t) => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
   const chat = new Container(), broken = mockTool(), normal = new Text("visible normal message", 0, 0);
   let paints = 0, normalPaints = 0;
   const states: boolean[] = [];
@@ -292,8 +371,9 @@ test("grouping metadata faults retain the window and paint selected native child
   assert.equal(paints, 2);
   assert.deepEqual(states, [true], "persistent failures do not repeat the diagnostic");
   Reflect.set(broken.result, "content", []);
+  now += 1_000;
   assert.doesNotMatch(chat.render(80).join("\n"), /hidden older message/);
-  assert.deepEqual(states, [true, false], "valid metadata restores grouping on the next render");
+  assert.deepEqual(states, [true, false], "valid metadata restores grouping on the next eligible render");
   assert.equal(chat.children.length, 3);
   surface.dispose();
 });

@@ -1074,6 +1074,8 @@ test("production editor teardown unwinds selection before image adapters", async
 });
 
 test("a production grouping fault keeps windowing mounted and diagnostics recover", async t => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
   const f = await fixture(t, JSON.stringify({ surfaces: ["transcript", "tool-cards"] }));
   let paints = 0;
   const broken = {
@@ -1095,6 +1097,7 @@ test("a production grouping fault keeps windowing mounted and diagnostics recove
   assert.match(f.inspected.join("\n"), /tool-groups: fallback/);
   assert.match(f.inspected.join("\n"), /transcript: active/);
   Reflect.set(broken.result, "content", []);
+  now += 1_000;
   assert.equal(f.chat.render(80).length, 100);
   await new Promise<void>(resolve => setImmediate(resolve)); // Let the first inspector close.
   f.inspected.length = 0;

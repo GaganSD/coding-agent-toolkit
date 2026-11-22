@@ -1,5 +1,5 @@
 import { Container, ScrollView, isViewportTUI, type Component, type TUI } from "@earendil-works/pi-tui";
-import type { RowDecorator, ToolGroups } from "./tool-groups.ts";
+import type { PaintedRow, RowDecorator, ToolGroups } from "./tool-groups.ts";
 
 export function childComponents(component: Component): Component[] {
   const stack = component as { entries?: Array<{ component?: Component }> };
@@ -57,6 +57,9 @@ type ChildLayout = {
   children: readonly LayoutChild[];
   parts?: readonly (readonly string[])[];
 };
+const childHeight = (layout: ChildLayout, index: number, entry: LayoutChild): number | undefined =>
+  layout.parts?.[index]?.length ?? ("height" in entry ? entry.height : undefined);
+const GROUPING_RETRY_COOLDOWN_MS = 1000;
 
 /** One owner for the display pipeline: project first, then paint grouped or native rows. */
 export class ChatSurface {
@@ -69,9 +72,10 @@ export class ChatSurface {
   private readonly display = new Container();
   private paintedGroups: ToolGroups | undefined;
   private paintedWidth?: number;
-  private paintedStart?: number;
-  private press?: { x: number; y: number; start: number | undefined };
+  /** null means the press did not hit a child row; undefined means no press was seen. */
+  private pressedRow?: PaintedRow | null;
   private groupingFailed = false;
+  private groupingRetryAt?: number;
   private disposed = false;
 
   get groupingFaulted(): boolean { return this.groupingFailed; }
@@ -82,19 +86,42 @@ export class ChatSurface {
     this.options.onGroupingFaultChange?.(faulted);
   }
 
+  private nativeLayout(width: number): ChildLayout | undefined {
+    const owner = this.display as unknown as { childLines?: ChildLayout; mouseLayout?: ChildLayout };
+    const layout = owner.childLines ?? owner.mouseLayout;
+    return layout?.width === width && layout.children.length === this.display.children.length ? layout : undefined;
+  }
+
+  private paintedRow(x: number, y: number, width: number): PaintedRow | undefined {
+    if (width !== this.paintedWidth || y < 0) return undefined;
+    if (this.paintedGroups) {
+      const row = this.paintedGroups.rowOwner(y);
+      return row && x >= row.inset ? row : undefined;
+    }
+    const layout = this.nativeLayout(width);
+    if (!layout) return undefined;
+    for (let index = 0; index < layout.children.length; index++) {
+      const entry = layout.children[index]!;
+      const height = childHeight(layout, index, entry);
+      if (height === undefined) return undefined;
+      if (y < height) return { component: "component" in entry ? entry.component : entry, y };
+      y -= height;
+    }
+    return undefined;
+  }
+
   /** Decorate native rows by child while keeping Container's mouse layout intact. */
   private decorateNative(rendered: string[], width: number): string[] {
     const decorate = this.options.decorate;
     if (!decorate) return rendered;
-    const owner = this.display as unknown as { childLines?: ChildLayout; mouseLayout?: ChildLayout };
-    const layout = owner.childLines ?? owner.mouseLayout;
-    if (!layout || layout.width !== width || layout.children.length !== this.display.children.length) return rendered;
+    const layout = this.nativeLayout(width);
+    if (!layout) return rendered;
     let changed = false, offset = 0;
     const lines: string[] = [];
     for (let index = 0; index < layout.children.length; index++) {
       const entry = layout.children[index]!;
       const component = "component" in entry ? entry.component : entry;
-      const height = layout.parts?.[index]?.length ?? ("height" in entry ? entry.height : undefined);
+      const height = childHeight(layout, index, entry);
       if (height === undefined) return rendered;
       const rows = rendered.slice(offset, offset + height);
       offset += height;
@@ -124,35 +151,44 @@ export class ChatSurface {
       }
       this.paintedGroups = undefined;
       this.paintedWidth = width;
-      this.paintedStart = start;
       const groups = this.options.groups;
-      if (groups) {
+      if (!groups) {
+        this.groupingRetryAt = undefined;
+        this.setGroupingFault(false);
+      } else if (this.groupingRetryAt === undefined || performance.now() >= this.groupingRetryAt) {
         let rows: string[] | undefined;
         try { rows = groups.render(this.display.children, width); }
-        catch { /* Paint and route this frame natively; retry on the next content render. */ }
+        catch { /* Paint and route this frame natively. */ }
+        // Retry a one-off fault on the next content frame. Repeated late faults may
+        // have already painted much of the transcript, so rate-limit further attempts.
+        this.groupingRetryAt = rows === undefined && this.groupingFailed ? performance.now() + GROUPING_RETRY_COOLDOWN_MS : undefined;
         this.setGroupingFault(rows === undefined);
         if (rows) {
           this.paintedGroups = groups;
           return rows;
         }
-      } else this.setGroupingFault(false);
+      }
       return this.decorateNative(this.display.render(width), width);
     };
     this.installedMouse = event => {
       if (this.disposed) return this.originalMouse.call(container, event);
       if (event.type === "wheel" && event.width !== this.paintedWidth) return undefined;
       if (event.button === "left") {
-        if (event.type === "press") this.press = { x: event.screenX, y: event.screenY, start: this.paintedStart };
-        else if (event.type === "click") {
-          const press = this.press;
-          this.press = undefined;
-          // Pi resolves the click on release. If the idle window trimmed the prefix
-          // since the press, the same screen cell may now belong to another child.
-          if (press && press.x === event.screenX && press.y === event.screenY && press.start !== this.paintedStart) {
-            return { handled: true, render: false, target: {
-              component: container, originX: event.screenX - event.x, originY: event.screenY - event.y,
-              width: event.width, height: event.height,
-            } };
+        if (event.type === "press") {
+          this.pressedRow = this.paintedRow(event.x, event.y, event.width) ?? null;
+        } else if (event.type === "click") {
+          const pressedRow = this.pressedRow;
+          this.pressedRow = undefined;
+          // Pi resolves the click on release. Windowing and grouping can both move
+          // rows without scrolling; compare the painted owners without re-rendering.
+          if (pressedRow !== undefined) {
+            const row = this.paintedRow(event.x, event.y, event.width);
+            if (!row || !pressedRow || row.component !== pressedRow.component || row.y !== pressedRow.y) {
+              return { handled: true, render: false, target: {
+                component: container, originX: event.screenX - event.x, originY: event.screenY - event.y,
+                width: event.width, height: event.height,
+              } };
+            }
           }
         }
       }
@@ -172,7 +208,7 @@ export class ChatSurface {
     if (this.container.handleMouse === this.installedMouse) this.container.handleMouse = this.originalMouse;
     this.display.children = [];
     this.paintedGroups = undefined;
-    this.press = undefined;
+    this.pressedRow = undefined;
     this.options = {};
   }
 }

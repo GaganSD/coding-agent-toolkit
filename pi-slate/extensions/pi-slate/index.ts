@@ -361,7 +361,7 @@ export default function piSlate(pi: ExtensionAPI): void {
           return Boolean(ctx && typeof ctx.isIdle === "function" && !ctx.isIdle());
         },
         onGroupingFaultChange: (faulted: boolean) => {
-          if (faulted) diagnostics.fallback("tool-groups", "Native cards shown for this frame; grouping will retry on the next content render.");
+          if (faulted) diagnostics.fallback("tool-groups", "Native cards shown while grouping recovers; repeated faults briefly delay retries.");
           else groupingActive();
         },
       };

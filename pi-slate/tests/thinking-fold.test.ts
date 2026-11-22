@@ -131,12 +131,12 @@ test("a new thinking block resets elapsed time and clock rollback never shows ne
   assert.deepEqual(f.counts(), { changes: 6, schedules: 2, cancellations: 2 });
 });
 
-test("a late thinking_end records the run without timing the trailing answer", () => {
-  let now = 0;
+test("reasoning resumes live, and a late thinking_end excludes both pauses", () => {
+  let now = 0, schedules = 0, cancellations = 0;
   const durations = new ThinkingDurations();
   const tracker = new ThinkingFoldTracker({
     now: () => now,
-    schedule: () => () => {},
+    schedule: () => { schedules++; return () => { cancellations++; }; },
     onComplete: ({ thinking, elapsedMs }) => durations.record(thinking, elapsedMs),
   });
   tracker.observe(start, message);
@@ -147,10 +147,19 @@ test("a late thinking_end records the run without timing the trailing answer", (
   assert.equal(tracker.elapsedMs(), null);
   assert.equal(tracker.active(), null);
   now = 3_000;
-  tracker.observe(delta, message); // A provider can interleave more reasoning.
+  const resumed = { ...message };
+  tracker.observe(delta, resumed); // Pi delivers a fresh partial message.
+  assert.equal(tracker.active()?.message, resumed);
+  assert.equal(tracker.active()?.contentIndex, 0);
+  assert.equal(tracker.elapsedMs(), 2_000);
+  assert.equal(schedules, 2);
+  now = 4_000;
+  assert.equal(tracker.elapsedMs(), 3_000);
+  tracker.observe({ type: "text_delta", contentIndex: 1 }, resumed);
+  assert.equal(tracker.active(), null);
+  assert.equal(cancellations, 2);
   now = 9_000;
-  tracker.observe({ type: "text_delta", contentIndex: 1 }, message);
-  tracker.observe(end, message);
+  tracker.observe(end, resumed);
   assert.equal(durations.lookup(message.content[0]!.thinking), 3_000);
 });
 
