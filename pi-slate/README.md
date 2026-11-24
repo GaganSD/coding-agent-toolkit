@@ -80,13 +80,6 @@ MCP indicators show **requested configuration**, not schema validity or connecti
 
 ### Subagents
 
-With pi-subagents installed, the session rail shows a compact **Sub-agents $X**
-line, separately from parent active-branch cost (including when the parent uses
-OAuth). Click usage for measured-run coverage. Spend includes settled runs in
-the current manager runtime; partial/unknown accounting is explicit and clears
-on reload. This display-only v1 event integration adds no task rows, model
-context, filesystem reads in render, or streaming-token accounting work.
-
 With `editor` and a fullscreen `sidebar` selected, Slate can lend the sidebar's chat slot to a pi-subagents worker conversation — a UI-only handshake with no new model tools — and restores the same surfaces on return. Without a compatible slot, pi-subagents uses its own fallback.
 
 ### Themes

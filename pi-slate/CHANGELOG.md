@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-- Show current-runtime sub-agent spend separately in the session rail via display-only v1 snapshots, including settled runs and explicit partial/unknown coverage; retain the existing layout.
-
 ## 0.4.1
 
 * Smoother scrolling while Pi is working.
