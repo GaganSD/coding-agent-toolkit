@@ -1,3 +1,4 @@
+import { unlink } from "node:fs/promises";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Editor, type EditorTheme } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
@@ -46,7 +47,7 @@ import { isEditingView } from "../state/view.ts";
 import type { AskParams, AskResult, AskState } from "../types.ts";
 import { maybeAutoSubmitState } from "./auto-submit.ts";
 import { createAskAutocompleteProvider } from "./autocomplete.ts";
-import { readClipboardPasteText } from "./clipboard-paste.ts";
+import { readClipboardPaste } from "./clipboard-paste.ts";
 import {
 	DIRTY_DISMISS_NOTICE,
 	shouldConfirmDirtyDismiss,
@@ -74,7 +75,7 @@ type AskFlowParams = AskParams &
 		config: AskConfig;
 		configNotice?: string;
 		ctx: ExtensionContext;
-		readPaste?: typeof readClipboardPasteText;
+		readPaste?: typeof readClipboardPaste;
 	};
 
 export interface AskFlowOptions {
@@ -152,7 +153,7 @@ interface AskFlowController {
 	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
-	readPaste: typeof readClipboardPasteText;
+	readPaste: typeof readClipboardPaste;
 	settingsOpen: boolean;
 	state: AskState;
 	statusNotice?: string;
@@ -223,7 +224,7 @@ export function createAskFlowController(
 		focused: false,
 		onStateChange: params.onStateChange,
 		panel: params.panel,
-		readPaste: params.readPaste ?? readClipboardPasteText,
+		readPaste: params.readPaste ?? readClipboardPaste,
 		settingsOpen: false,
 		state: applyDraftSnapshot(createInitialState(params), params.draft),
 		suppressAutoInputForSelection: false,
@@ -282,9 +283,6 @@ export function createAskFlowController(
 			controller.editor.invalidate();
 		},
 		handleInput(data: string) {
-			if (controller.finished || controller.disposed) {
-				return;
-			}
 			let unexpected: unknown;
 			try {
 				// One key means the user is here: the countdown ends for good.
@@ -308,9 +306,6 @@ export function createAskFlowController(
 			this.dispose();
 		},
 		dispose() {
-			if (controller.disposed) {
-				return;
-			}
 			controller.disposed = true;
 			flushDraft(controller);
 			unregisterFlush();
@@ -323,7 +318,7 @@ export function createAskFlowController(
 /** The state with the open editor's text folded in; the live state stays. */
 function snapshotState(controller: AskFlowController): AskState {
 	return isEditingView(controller.state)
-		? saveEditorDraft(controller.state, controller.editor.getText())
+		? saveEditorDraft(controller.state, controller.editor.getExpandedText())
 		: controller.state;
 }
 
@@ -473,7 +468,7 @@ function handleEditingCommand(
 		return;
 	}
 	if (command.kind === "editSubmit") {
-		submitEditor(controller, controller.editor.getText());
+		submitEditor(controller, controller.editor.getExpandedText());
 		return;
 	}
 	if (command.kind === "editPaste") {
@@ -494,14 +489,26 @@ async function pasteIntoEditor(controller: AskFlowController) {
 		!controller.disposed &&
 		controller.state.view === state.view;
 	try {
-		const text = await controller.readPaste(() => {
+		const paste = await controller.readPaste(() => {
 			const { line, col } = editor.getCursor();
 			return { text: editor.getLines()[line] ?? "", col };
-		});
-		if (text && isCurrent()) {
-			editor.insertTextAtCursor(text);
-			refresh(controller, { typing: true });
+		}, isCurrent);
+		if (!paste) {
+			return;
 		}
+		if (!isCurrent()) {
+			// The editor could close while writeFile was in flight.
+			if (paste.kind === "image") {
+				await unlink(paste.text);
+			}
+			return;
+		}
+		if (paste.kind === "text") {
+			editor.handleInput(`\x1b[200~${paste.text}\x1b[201~`);
+		} else {
+			editor.insertTextAtCursor(paste.text);
+		}
+		refresh(controller, { typing: true });
 	} catch (error) {
 		if (isCurrent()) {
 			controller.statusNotice = askStrings().clipboardPasteFailed(
@@ -882,7 +889,7 @@ function syncSelection(controller: AskFlowController) {
 }
 
 function saveEditorState(controller: AskFlowController): AskState {
-	const text = controller.editor.getText();
+	const text = controller.editor.getExpandedText();
 	controller.editor.setText("");
 	return saveEditorDraft(controller.state, text);
 }

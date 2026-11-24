@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
+import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname } from "node:path";
+import { basename, dirname, extname } from "node:path";
 import test from "node:test";
 import type { NativeClipboard } from "@earendil-works/pi-tui";
 import { askStrings } from "../src/i18n.ts";
-import { readClipboardPasteText } from "../src/ui/clipboard-paste.ts";
+import { readClipboardPaste } from "../src/ui/clipboard-paste.ts";
 
+const current = () => true;
 const unavailableCursor = () => assert.fail("cursor is needed only for file paths");
+const PNG_HEADER = "\x89PNG\r\n\x1a\n";
 
-function clipboard(overrides: Partial<NativeClipboard> = {}): NativeClipboard {
+function clipboard(overrides: Partial<NativeClipboard>): NativeClipboard {
 	return {
 		getImage: async () => assert.fail("unexpected image read"),
 		getText: async () => assert.fail("unexpected text read"),
@@ -16,10 +19,15 @@ function clipboard(overrides: Partial<NativeClipboard> = {}): NativeClipboard {
 	};
 }
 
+function pasteImage(bytes: Uint8Array, isCurrent = current) {
+	return readClipboardPaste(unavailableCursor, isCurrent, clipboard({
+		getFilePaths: async () => [],
+		getImage: async () => bytes,
+	}));
+}
+
 test("clipboard files take priority and get padding only beside non-whitespace", async () => {
-	const getClipboard = () => clipboard({
-		getFilePaths: async () => ["/tmp/first.png", "/tmp/second file.png"],
-	});
+	const files = clipboard({ getFilePaths: async () => ["/tmp/first.png", "/tmp/second file.png"] });
 	const paths = "/tmp/first.png\n/tmp/second file.png";
 	for (const [text, col, expected] of [
 		["ab", 1, ` ${paths} `],
@@ -28,62 +36,61 @@ test("clipboard files take priority and get padding only beside non-whitespace",
 		["  ", 1, paths],
 		["", 0, paths],
 	] as const) {
-		assert.equal(await readClipboardPasteText(() => ({ text, col }), { getClipboard }), expected);
+		assert.deepEqual(await readClipboardPaste(() => ({ text, col }), current, files), {
+			kind: "path", text: expected,
+		});
 	}
 });
 
 test("clipboard rejects a file list containing any control character without falling back", async () => {
 	for (const control of ["\n", "\x1b", "\u0085"]) {
-		const getClipboard = () => clipboard({
-			getFilePaths: async () => ["/tmp/valid.png", `/tmp/bad${control}.png`],
+		const files = clipboard({ getFilePaths: async () => ["/tmp/valid.png", `/tmp/bad${control}.png`] });
+		await assert.rejects(readClipboardPaste(unavailableCursor, current, files), {
+			message: askStrings().clipboardPathHasControls,
 		});
-		await assert.rejects(
-			readClipboardPasteText(unavailableCursor, { getClipboard }),
-			{ message: askStrings().clipboardPathHasControls }
-		);
 	}
 });
 
-test("clipboard images take priority over text and are written to a typed temp path", async () => {
+test("supported clipboard images take priority over text and are written as-is", async (t) => {
 	for (const [header, ext] of [
-		["\x89PNG\r\n\x1a\n", "png"],
+		[PNG_HEADER, "png"],
 		["\xff\xd8\xff", "jpg"],
 		["RIFF\x04\0\0\0WEBP", "webp"],
 		["GIF87a", "gif"],
 		["GIF89a", "gif"],
-		["unknown", "png"],
 	]) {
 		const bytes = Buffer.from(header, "latin1");
-		const getClipboard = () => clipboard({
-			getFilePaths: async () => [],
-			getImage: async () => bytes,
-		});
-		let written: string | undefined;
-		const path = await readClipboardPasteText(unavailableCursor, {
-			getClipboard,
-			writeImage: async (file, data) => {
-				assert.equal(data, bytes);
-				written = file;
-			},
-		});
-		assert.ok(path);
-		assert.equal(path, written);
-		assert.equal(dirname(path), tmpdir());
-		assert.match(basename(path), /^pi-clipboard-[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\.[a-z]+$/u);
-		assert.ok(path.endsWith(`.${ext}`));
+		const paste = await pasteImage(bytes);
+		assert.ok(paste?.kind === "image");
+		t.after(() => unlink(paste.text));
+		assert.equal(dirname(paste.text), tmpdir());
+		assert.match(basename(paste.text), /^pi-clipboard-[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\.[a-z]+$/u);
+		assert.equal(extname(paste.text), `.${ext}`);
+		assert.deepEqual(await readFile(paste.text), bytes);
 	}
 });
 
+test("other clipboard image formats are converted to PNG or rejected", async (t) => {
+	// A 1x1 24-bit BMP.
+	const bmp = Buffer.from("424d3a0000000000000036000000280000000100000001000000010018000000000004000000000000000000000000000000000000000000ff00", "hex");
+	const paste = await pasteImage(bmp);
+	assert.ok(paste?.kind === "image");
+	t.after(() => unlink(paste.text));
+	assert.equal(extname(paste.text), ".png");
+	assert.ok((await readFile(paste.text)).toString("latin1").startsWith(PNG_HEADER));
+	await assert.rejects(pasteImage(Buffer.from("unknown")), { message: askStrings().clipboardImageUnsupported });
+});
+
+test("a screenshot is not written if the editor is no longer current", async () => {
+	assert.equal(await pasteImage(Buffer.from(PNG_HEADER, "latin1"), () => false), undefined);
+});
+
 test("clipboard text is the fallback and unavailable clipboard data is a no-op", async () => {
-	const paste = (getClipboard: () => NativeClipboard | undefined) =>
-		readClipboardPasteText(unavailableCursor, { getClipboard });
-	assert.equal(await paste(() => clipboard({
+	const paste = (value: NativeClipboard | null) => readClipboardPaste(unavailableCursor, current, value);
+	assert.deepEqual(await paste(clipboard({
 		getImage: async () => null,
 		getText: async () => " plain text\n",
-	})), " plain text\n");
-	assert.equal(await paste(() => clipboard({
-		getImage: async () => undefined,
-		getText: async () => "",
-	})), undefined);
-	assert.equal(await paste(() => undefined), undefined);
+	})), { kind: "text", text: " plain text\n" });
+	assert.equal(await paste(clipboard({ getImage: async () => undefined, getText: async () => "" })), undefined);
+	assert.equal(await paste(null), undefined);
 });

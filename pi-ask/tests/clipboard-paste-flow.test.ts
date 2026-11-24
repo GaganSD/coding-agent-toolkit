@@ -1,32 +1,26 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after } from "node:test";
 import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
 import { askStrings } from "../src/i18n.ts";
 import type { AskResult, AskState } from "../src/types.ts";
+import type { readClipboardPaste } from "../src/ui/clipboard-paste.ts";
 import {
 	createAskFlowController,
 	DRAFT_TYPING_DEBOUNCE_MS,
 } from "../src/ui/controller.ts";
-import { fakePi, KEY } from "./support/fake-pi.ts";
+import { bindClipboardPaste, fakePi, KEY } from "./support/fake-pi.ts";
 
 const PASTE = "\x16";
 const PATH = "/tmp/pi-clipboard-screenshot.png";
 
-function openForm(readPaste: () => Promise<string>, note = false) {
+after(bindClipboardPaste());
+
+function openForm(readPaste: typeof readClipboardPaste, note = false) {
 	const host = fakePi();
 	const drafts: AskState[] = [];
 	const results: AskResult[] = [];
 	const form = createAskFlowController(
-		[
-			{ requestRender() {}, terminal: { rows: 40, columns: 80 } } as never,
-			{
-				bg: (_color: string, text: string) => text,
-				bold: (text: string) => text,
-				fg: (_color: string, text: string) => text,
-			} as never,
-			undefined,
-			(result) => results.push(result),
-		],
+		[host.tui as never, host.theme as never, undefined, (result) => results.push(result)],
 		{
 			config: DEFAULT_ASK_CONFIG,
 			ctx: host.ctx,
@@ -48,7 +42,7 @@ function openForm(readPaste: () => Promise<string>, note = false) {
 
 test("pasting an image path is debounced like typing and submits as customText", async (t) => {
 	t.mock.timers.enable({ apis: ["setTimeout"] });
-	const pasted = Promise.resolve(PATH);
+	const pasted = Promise.resolve({ kind: "image", text: PATH } as const);
 	const { form, drafts, results } = openForm(() => pasted);
 	t.after(() => form.dispose());
 	for (const key of ["a", "b", "\x1b[D"]) {
@@ -70,7 +64,7 @@ test("pasting an image path is debounced like typing and submits as customText",
 });
 
 test("pasting an image path into a question note saves it as note text", async (t) => {
-	const pasted = Promise.resolve(PATH);
+	const pasted = Promise.resolve({ kind: "image", text: PATH } as const);
 	const { form, results } = openForm(() => pasted, true);
 	t.after(() => form.dispose());
 	form.handleInput(PASTE);
@@ -83,7 +77,7 @@ test("pasting an image path into a question note saves it as note text", async (
 });
 
 test("an in-flight paste is dropped after closing and reopening the same editor", async (t) => {
-	const pasted = Promise.resolve(PATH);
+	const pasted = Promise.resolve({ kind: "path", text: PATH } as const);
 	const { form, drafts } = openForm(() => pasted, true);
 	t.after(() => form.dispose());
 	form.handleInput(PASTE);
@@ -95,12 +89,23 @@ test("an in-flight paste is dropped after closing and reopening the same editor"
 });
 
 test("an in-flight paste is dropped after disposing the form", async () => {
-	const pasted = Promise.resolve(PATH);
+	const pasted = Promise.resolve({ kind: "path", text: PATH } as const);
 	const { form } = openForm(() => pasted);
 	form.handleInput(PASTE);
 	form.dispose();
 	await pasted;
 	assert.equal(form.getState().answers.q1?.customText, undefined);
+});
+
+test("text pastes use editor sanitizing and drafts expand large-paste markers", async (t) => {
+	const text = "abc".repeat(400);
+	const pasted = Promise.resolve({ kind: "text", text: `\x00${text}` } as const);
+	const { form } = openForm(() => pasted);
+	t.after(() => form.dispose());
+	form.handleInput(PASTE);
+	await pasted;
+	assert.match(form.render(80).join("\n"), /\[paste #1 1200 chars\]/);
+	assert.equal(form.getState().answers.q1?.customText, text);
 });
 
 test("clipboard errors appear in the editor's status notice", async (t) => {

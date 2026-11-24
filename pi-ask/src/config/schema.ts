@@ -46,7 +46,6 @@ const AskConfigKeymapsSchema = Type.Object({
 		close: Type.Optional(AskKeyBindingSchema),
 		nextOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
 		nextTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		paste: Type.Optional(AskKeyBindingSchema),
 		previousOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
 		previousTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
 		submit: Type.Optional(AskKeyBindingSchema),
@@ -55,7 +54,6 @@ const AskConfigKeymapsSchema = Type.Object({
 		close: Type.Optional(AskKeyBindingSchema),
 		nextOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
 		nextTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
-		paste: Type.Optional(AskKeyBindingSchema),
 		previousOptionWhenEmpty: Type.Optional(AskKeyBindingSchema),
 		previousTabWhenEmpty: Type.Optional(AskKeyBindingSchema),
 		save: Type.Optional(AskKeyBindingSchema),
@@ -114,7 +112,6 @@ export interface AskConfigKeymaps {
 		close: string[];
 		nextOptionWhenEmpty: string[];
 		nextTabWhenEmpty: string[];
-		paste: string[];
 		previousOptionWhenEmpty: string[];
 		previousTabWhenEmpty: string[];
 		submit: string[];
@@ -147,7 +144,6 @@ export interface AskConfigKeymaps {
 		close: string[];
 		nextOptionWhenEmpty: string[];
 		nextTabWhenEmpty: string[];
-		paste: string[];
 		previousOptionWhenEmpty: string[];
 		previousTabWhenEmpty: string[];
 		save: string[];

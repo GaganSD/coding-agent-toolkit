@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Paste screenshots or files into answer and note editors with `Ctrl+V`; Pi receives their paths as text.
+- Use Pi's paste key in answer, note, and comment editors to insert screenshot paths or, on macOS, copied file paths.
 
 ## 0.2.0
 

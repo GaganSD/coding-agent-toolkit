@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_ASK_CONFIG, normalizeAskConfig } from "../src/config/defaults.ts";
-import { validateAskConfigFile } from "../src/config/schema.ts";
 import {
 	DEFAULT_ASK_KEYMAPS,
 	normalizeConfiguredKeymaps,
@@ -60,41 +59,6 @@ test("the panel keys are configurable and still checked for conflicts", () => {
 	keymaps.global.later = ["enter"];
 	const conflict = normalizeConfiguredKeymaps(keymaps);
 	assert.equal(conflict.ok, false);
-});
-
-test("paste defaults in both editors match Pi's platform shortcuts", () => {
-	const expected = process.platform === "win32" ? ["alt+v", "ctrl+v"] : ["ctrl+v"];
-	assert.deepEqual(DEFAULT_ASK_KEYMAPS.editor.paste, expected);
-	assert.deepEqual(DEFAULT_ASK_KEYMAPS.noteEditor.paste, expected);
-});
-
-function keymapsBeforePaste() {
-	const { paste: _editorPaste, ...editor } = structuredClone(DEFAULT_ASK_KEYMAPS.editor);
-	const { paste: _notePaste, ...noteEditor } = structuredClone(DEFAULT_ASK_KEYMAPS.noteEditor);
-	return { ...structuredClone(DEFAULT_ASK_KEYMAPS), editor, noteEditor };
-}
-
-test("config migration adds paste only on unclaimed keys", () => {
-	const keymaps = keymapsBeforePaste();
-	assert.ok(validateAskConfigFile.Check({ keymaps }));
-	const defaults = normalizeAskConfig({ keymaps });
-	assert.deepEqual(defaults.keymaps.editor.paste, DEFAULT_ASK_KEYMAPS.editor.paste);
-	assert.deepEqual(defaults.keymaps.noteEditor.paste, DEFAULT_ASK_KEYMAPS.noteEditor.paste);
-
-	keymaps.editor.close = ["ctrl+v"];
-	const migrated = normalizeAskConfig({ keymaps });
-	const expected = DEFAULT_ASK_KEYMAPS.editor.paste.filter((key) => key !== "ctrl+v");
-	assert.deepEqual(migrated.keymaps.editor.close, ["ctrl+v"]);
-	assert.deepEqual(migrated.keymaps.editor.paste, expected);
-	assert.deepEqual(migrated.keymaps.noteEditor.paste, expected);
-});
-
-test("paste migration also preserves a key set in the legacy flat keymap", () => {
-	const normalized = normalizeConfiguredKeymaps({ dismiss: "ctrl+v" });
-	assert.ok(normalized.ok);
-	assert.deepEqual(normalized.keymaps.global.dismiss, ["ctrl+v"]);
-	assert.ok(!normalized.keymaps.editor.paste.includes("ctrl+v"));
-	assert.ok(!normalized.keymaps.noteEditor.paste.includes("ctrl+v"));
 });
 
 test("footer hints follow the surface the form is drawn on", () => {

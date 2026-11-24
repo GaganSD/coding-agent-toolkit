@@ -1,4 +1,4 @@
-import { matchesKey } from "@earendil-works/pi-tui";
+import { getKeybindings, matchesKey } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
 import {
 	type AskKeyBinding,
@@ -71,7 +71,10 @@ function getAnswerEditorInputCommand(
 			? { kind: "delegateToEditor" }
 			: { kind: "editSubmit" };
 	}
-	return getSharedEditorInputCommand(bindings, data, editingText);
+	if (matchesBinding(data, bindings.close)) {
+		return { kind: "editClose" };
+	}
+	return getEmptyEditorNavigationCommand(bindings, data, editingText);
 }
 
 function getNoteEditorInputCommand(
@@ -85,27 +88,22 @@ function getNoteEditorInputCommand(
 			? { kind: "delegateToEditor" }
 			: { kind: "editSubmit" };
 	}
-	return getSharedEditorInputCommand(bindings, data, editingText);
+	if (matchesBinding(data, bindings.close)) {
+		return { kind: "editClose" };
+	}
+	return getEmptyEditorNavigationCommand(bindings, data, editingText);
 }
 
-function getSharedEditorInputCommand(
+function getEmptyEditorNavigationCommand(
 	bindings: {
-		close: AskKeyBinding;
-		nextOptionWhenEmpty: AskKeyBinding;
 		nextTabWhenEmpty: AskKeyBinding;
-		paste: AskKeyBinding;
-		previousOptionWhenEmpty: AskKeyBinding;
 		previousTabWhenEmpty: AskKeyBinding;
+		previousOptionWhenEmpty: AskKeyBinding;
+		nextOptionWhenEmpty: AskKeyBinding;
 	},
 	data: string,
 	editingText: string
 ): AskInputCommand {
-	if (matchesBinding(data, bindings.close)) {
-		return { kind: "editClose" };
-	}
-	if (matchesBinding(data, bindings.paste)) {
-		return { kind: "editPaste" };
-	}
 	if (editingText.length === 0) {
 		if (matchesBinding(data, bindings.nextTabWhenEmpty)) {
 			return { kind: "editMoveTab", delta: 1 };
@@ -120,7 +118,9 @@ function getSharedEditorInputCommand(
 			return { kind: "editMoveOption", delta: 1 };
 		}
 	}
-	return { kind: "delegateToEditor" };
+	return getKeybindings().matches(data, "app.clipboard.pasteImage")
+		? { kind: "editPaste" }
+		: { kind: "delegateToEditor" };
 }
 
 function isNativeEditorSubmit(data: string): boolean {

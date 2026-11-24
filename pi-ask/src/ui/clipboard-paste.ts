@@ -2,22 +2,17 @@ import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getNativeClipboard } from "@earendil-works/pi-tui";
+import { convertToPng } from "@earendil-works/pi-coding-agent";
+import { getNativeClipboard, type NativeClipboard } from "@earendil-works/pi-tui";
 import { askStrings } from "../i18n.ts";
 
-interface ClipboardPasteDeps {
-	getClipboard?: typeof getNativeClipboard;
-	writeImage?: (path: string, bytes: Uint8Array) => Promise<void>;
-}
+type ClipboardPaste = { kind: "path" | "image" | "text"; text: string };
 
-export async function readClipboardPasteText(
+export async function readClipboardPaste(
 	getCursorLine: () => { text: string; col: number },
-	{
-		getClipboard = getNativeClipboard,
-		writeImage = (path, bytes) => writeFile(path, bytes, { flag: "wx", mode: 0o600 }),
-	}: ClipboardPasteDeps = {}
-): Promise<string | undefined> {
-	const clipboard = getClipboard();
+	isCurrent: () => boolean,
+	clipboard: NativeClipboard | null | undefined = getNativeClipboard()
+): Promise<ClipboardPaste | undefined> {
 	if (!clipboard) {
 		return;
 	}
@@ -31,30 +26,39 @@ export async function readClipboardPasteText(
 		const after = text[col];
 		const leadingSpace = before && /\S/u.test(before) ? " " : "";
 		const trailingSpace = after && /\S/u.test(after) ? " " : "";
-		return `${leadingSpace}${paths.join("\n")}${trailingSpace}`;
+		return { kind: "path", text: `${leadingSpace}${paths.join("\n")}${trailingSpace}` };
 	}
 	const bytes = await clipboard.getImage();
 	if (bytes?.length) {
-		const path = join(tmpdir(), `pi-clipboard-${randomUUID()}.${imageExtension(bytes)}`);
-		await writeImage(path, bytes);
-		return path;
+		let image = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		const ext = imageExtension(image);
+		if (!ext) {
+			const png = await convertToPng(image.toString("base64"), "application/octet-stream");
+			if (!png) {
+				throw new Error(askStrings().clipboardImageUnsupported);
+			}
+			image = Buffer.from(png.data, "base64");
+		}
+		if (!isCurrent()) {
+			return;
+		}
+		const path = join(tmpdir(), `pi-clipboard-${randomUUID()}.${ext ?? "png"}`);
+		await writeFile(path, image, { flag: "wx", mode: 0o600 });
+		return { kind: "image", text: path };
 	}
-	return (await clipboard.getText()) || undefined;
+	const text = await clipboard.getText();
+	return text ? { kind: "text", text } : undefined;
 }
 
-function imageExtension(bytes: Uint8Array): string {
-	const header = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-		.subarray(0, 12)
-		.toString("latin1");
-	if (header.startsWith("\xff\xd8\xff")) {
-		return "jpg";
-	}
-	if (header.startsWith("RIFF") && header.slice(8) === "WEBP") {
-		return "webp";
-	}
-	if (header.startsWith("GIF87a") || header.startsWith("GIF89a")) {
-		return "gif";
-	}
-	// PNG (\x89PNG\r\n\x1a\n) and anything unrecognized use .png.
-	return "png";
+function imageExtension(bytes: Buffer): string | undefined {
+	const header = bytes.toString("latin1", 0, 12);
+	const signatures = [
+		["\x89PNG\r\n\x1a\n", "png"],
+		["\xff\xd8\xff", "jpg"],
+		["GIF87a", "gif"],
+		["GIF89a", "gif"],
+	];
+	return header.startsWith("RIFF") && header.slice(8) === "WEBP"
+		? "webp"
+		: signatures.find(([signature]) => header.startsWith(signature))?.[1];
 }
