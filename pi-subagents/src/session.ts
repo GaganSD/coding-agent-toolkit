@@ -104,7 +104,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
     ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode, validate: async signal => { await validate(signal); },
     async start(context, resumeFrom?: ResumeFrom) {
       context.signal.throwIfAborted();
-      publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, resolve().contextWindow) });
+      if (!resumeFrom) publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, resolve().contextWindow) });
       if (resumeFrom) {
         if (!resumeFrom.sessionId) throw new Error("Resume requires the saved native session identity");
         let info;
@@ -134,7 +134,8 @@ export function prepareNative(options: NativeOptions): PreparedTask {
           ? SessionManager.open(resumeFrom.sessionPath, path.dirname(resumeFrom.sessionPath), options.cwd)
           : SessionManager.create(options.cwd, path.join(context.directory, "transcript")),
       });
-      const subAgent = wrapSession(session, task.task, context);
+      let verified = !resumeFrom;
+      const subAgent = wrapSession(session, task.task, context, () => verified);
       context.own(subAgent);
       if (resumeFrom) {
         const file = session.sessionManager.getSessionFile();
@@ -142,6 +143,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
           throw new Error("Resumed session did not reopen the saved transcript");
         }
         if (session.sessionId !== resumeFrom.sessionId) throw new Error("Resumed session identity changed");
+        verified = true;
       }
       context.signal.throwIfAborted();
       // onError may fire outside the bindExtensions stack; record, then throw here.
@@ -161,30 +163,48 @@ export function prepareNative(options: NativeOptions): PreparedTask {
 }
 
 /** The prompt promise includes retries. A final SDK settlement is required too. */
-export function wrapSession(session: AgentSession, task: string, context: RunContext): SubAgent {
+export function wrapSession(session: AgentSession, task: string, context: RunContext, verified = () => true): SubAgent {
   let settled = false;
   let toolErrors = 0;
   let failure: FailureKind | undefined;
   let disposed = false;
   let refreshQueued = false;
-  if (!context.signal.aborted) publishTelemetry(context, {
+  let accountingQueued = false;
+  const statsUsage = (stats: ReturnType<AgentSession["getSessionStats"]>) => {
+    const { tokens, cost } = stats;
+    const usage = measuredUsage({ input: tokens.input, output: tokens.output, cacheRead: tokens.cacheRead, cacheWrite: tokens.cacheWrite, cost });
+    // Empty SDK accumulators are not observations. A finalized assistant can legitimately report zero.
+    return usage && (Object.values(usage).some(n => n > 0) || stats.assistantMessages > 0) ? usage : undefined;
+  };
+  if (verified() && !context.signal.aborted) publishTelemetry(context, {
     pid: process.pid, sessionId: session.sessionId,
     contextUsage: contextEstimate(undefined, session.model?.contextWindow),
   });
   // message_end is emitted BEFORE SDK persistence. Defer once so the estimate
   // sees finalized native context. Streaming deltas never schedule a scan.
-  const refresh = () => {
-    if (!context.telemetry || refreshQueued || disposed || context.signal.aborted) return;
+  const refresh = (accounting: boolean) => {
+    if (!verified() || !context.telemetry || disposed || context.signal.aborted) return;
+    accountingQueued ||= accounting;
+    if (refreshQueued) return;
     refreshQueued = true;
     queueMicrotask(() => {
       refreshQueued = false;
-      if (disposed || context.signal.aborted) return;
-      let estimate: ContextEstimate;
-      try { estimate = contextEstimate(session.getContextUsage(), session.model?.contextWindow); }
-      catch { estimate = contextEstimate(undefined, session.model?.contextWindow); }
-      // A failed estimate invalidates confident cached usage, but later events can recover.
+      const accounting = accountingQueued;
+      accountingQueued = false;
+      if (!verified() || disposed || context.signal.aborted) return;
+      let estimate: ContextEstimate | undefined;
       let usage;
-      try { usage = evidence().usage; } catch { /* Unknown accounting stays unknown; later boundaries can recover. */ }
+      if (accounting) {
+        try {
+          const stats = session.getSessionStats();
+          estimate = contextEstimate(stats.contextUsage, session.model?.contextWindow);
+          usage = statsUsage(stats);
+        } catch { /* Retain last-known accounting in the manager; context can still recover independently. */ }
+      }
+      if (!estimate) {
+        try { estimate = contextEstimate(session.getContextUsage(), session.model?.contextWindow); }
+        catch { estimate = contextEstimate(undefined, session.model?.contextWindow); }
+      }
       publishTelemetry(context, { pid: process.pid, sessionId: session.sessionId, contextUsage: estimate, usage });
     });
   };
@@ -192,7 +212,9 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
   const unsubscribe = session.subscribe(event => {
     if (event.type === "message_end" || event.type === "turn_start" || event.type === "turn_end"
       || event.type === "compaction_end" || event.type === "agent_settled"
-      || (event.type === "entry_appended" && event.entry.type === "context_edit")) refresh();
+      || (event.type === "entry_appended" && event.entry.type === "context_edit")) {
+      refresh(event.type === "turn_end" || event.type === "agent_settled" || event.type === "compaction_end");
+    }
     if (event.type === "message_end") {
       const line = formatMessage(event.message);
       if (line) context.preview(line);
@@ -208,8 +230,8 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
   if (context.signal.aborted) abort(); // An already-aborted signal never fires a listener.
   else context.signal.addEventListener("abort", abort, { once: true });
   const evidence = () => {
-    const { tokens, cost } = session.getSessionStats();
-    return { toolErrors, usage: measuredUsage({ input: tokens.input, output: tokens.output, cacheRead: tokens.cacheRead, cacheWrite: tokens.cacheWrite, cost }) };
+    if (!verified()) return undefined;
+    return { toolErrors, usage: statsUsage(session.getSessionStats()) };
   };
   return {
     evidence,

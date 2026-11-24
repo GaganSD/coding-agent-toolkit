@@ -28,6 +28,7 @@ test("compact accounting distinguishes unknown, invalid and host-measured zero u
   assert.equal(formatUsage(usage), "12.3k in · 1.1k out · $0.04");
   for (const cost of [NaN, Infinity, -1]) assert.equal(measuredUsage({ ...usage, cost }), undefined);
   assert.equal(formatUsage({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }), "0 in · 0 out · $0.00");
+  assert.equal(formatUsage({ ...usage, input: 999950, cost: 0.004 }), "1.0M in · 1.1k out · <$0.01");
 });
 
 test("context estimates preserve zero, unknown, invalid inputs, and overflow independently of billed usage", () => {
@@ -94,7 +95,7 @@ test("native wrapper caches finalized estimates, ignores deltas, clears compacti
   await subAgent.dispose();
   await Promise.resolve();
   assert.equal(scans, 3, "queued callbacks do not retain disposed session activity");
-  assert.equal(stats, 3, "one accounting read per finalized/coalesced boundary; failures remain unknown");
+  assert.equal(stats, 2, "message_end updates context only; accounting is restricted to final turn boundaries");
   assert.equal(snapshots.at(-1)!.usage, undefined);
   assert.equal(unsubscribed, 1);
 });
@@ -112,7 +113,8 @@ test("deferred estimator and initial/scheduled observer failures stay display-on
       messages: [{ role: "assistant", stopReason: "stop" }],
       subscribe: (fn: AgentSessionEventListener) => { listener = fn; return () => { unsubscribed++; }; },
       getContextUsage: () => { scans++; if (estimatorThrows) throw new Error("estimate failed"); return usage; },
-      getSessionStats: () => { stats++; return { tokens: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0 }, cost: 0 }; },
+      getSessionStats: () => { stats++; if (estimatorThrows) throw new Error("stats failed");
+        return { tokens: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0 }, cost: 0, contextUsage: usage }; },
       async prompt() { await finish.promise; listener(settledEvent); },
       getLastAssistantText: () => "Evidence report", abort: async () => {}, dispose() {},
     } as unknown as AgentSession;
@@ -130,18 +132,18 @@ test("deferred estimator and initial/scheduled observer failures stay display-on
     const before = writes;
     assert.equal(publications, 1, "initial observer failure does not abort startup");
     assert.deepEqual(manager.status(id!).contextUsage, { tokens: null, percent: null, contextWindow: 64000 });
-    listener({ type: "turn_start" });
+    listener({ type: "turn_end" } as Parameters<AgentSessionEventListener>[0]);
     await Promise.resolve();
     assert.deepEqual(manager.status(id!).contextUsage, usage);
     estimatorThrows = true;
-    listener({ type: "turn_start" });
+    listener({ type: "turn_end" } as Parameters<AgentSessionEventListener>[0]);
     await Promise.resolve();
     assert.deepEqual(manager.status(id!).contextUsage, { tokens: null, percent: null, contextWindow: 64000 }, "failure clears stale confident usage");
     estimatorThrows = false;
-    listener({ type: "turn_start" });
+    listener({ type: "turn_end" } as Parameters<AgentSessionEventListener>[0]);
     await Promise.resolve();
     assert.deepEqual(manager.status(id!).contextUsage, usage, "later finalized events recover");
-    assert.equal(scans, 3);
+    assert.equal(scans, 1, "successful stats reads reuse the SDK context projection; only failure falls back");
     assert.equal(publications, 4, "scheduled observer errors do not disable future publications");
     assert.equal(stats, 3, "accounting reads occur only at coalesced finalized boundaries");
     assert.deepEqual(manager.status(id!).usage, { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, cost: 0 });
@@ -161,7 +163,7 @@ test("deferred estimator and initial/scheduled observer failures stay display-on
   }
 });
 
-test("accounting failures clear stale snapshots and recover at the next finalized boundary", async () => {
+test("unavailable accounting omits a new sample and recovers at the next finalized boundary", async () => {
   let listener!: AgentSessionEventListener, fails = false, queries = 0;
   const snapshots: Telemetry[] = [];
   const session = {

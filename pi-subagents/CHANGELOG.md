@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve cumulative accounting across transient telemetry errors and failed resume startup; validate reopened identity before exposing accounting. Mark retained final-read failures partial, publish late evidence updates, and avoid duplicate stats scans and clock-only dashboard publication. Generic v1 snapshot fields are available to any dashboard consumer; no particular dashboard is assumed.
 - Report host-measured run tokens, cost and elapsed time in finish notices/status and conversation headers; refresh live accounting at finalized SDK boundaries. Add display-only v1 snapshot totals including settled spend and measured-run coverage.
 
 ### Added
@@ -54,7 +55,7 @@ Resume transiently failed sub-agents from their saved transcript instead of star
 
 ### Fixed
 
-- Failed runs stay out of `pi:background-tasks` sidebar snapshots, and settled runs publish `endedAt`, so dashboards such as Slate stop counting wall time for failed work.
+- Failed runs stay out of `pi:background-tasks` sidebar snapshots, and settled runs publish `endedAt`, so dashboard consumers stop counting wall time for failed work.
 
 ## 0.0.5
 
@@ -62,7 +63,7 @@ Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate,
 
 ### Added
 
-- Optional `pi:background-tasks` display snapshots for session dashboards such as Slate. Live and uncertain-cleanup runs take priority; completed and cancelled runs leave the shelf.
+- Optional `pi:background-tasks` display snapshots for compatible dashboard consumers. Live and uncertain-cleanup runs take priority; completed and cancelled runs leave the shelf.
 
 ### Fixed
 

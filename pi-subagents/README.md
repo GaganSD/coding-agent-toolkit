@@ -114,9 +114,9 @@ Run/session UUIDs and PID are not primary navigation labels.
   a transient provider failure with a saved transcript and also requires confirmation.
 
 The thread paints the whole conversation workspace, not a translucent diagnostic
-popup. With cooperative Slate and a compatible fullscreen Pi 1.1+ host, it borrows
-Slate's chat slot while retaining its sidebar. The sidebar still describes the
-parent workspace; worker-specific usage/workspace is in Details. Parent dialogs
+popup. With a cooperative UI host and a compatible fullscreen Pi 1.1+ host, it can
+borrow an offered chat slot. The host still describes the parent workspace;
+worker-specific usage/workspace is in Details. Parent dialogs
 reclaim the workspace without losing focus, and the worker draft is retained.
 
 Without an owned workspace bridge (plain Pi, regular mode or older hosts), an
@@ -136,19 +136,22 @@ verified work.
 
 ### Session dashboards
 
-When a session dashboard such as Slate is installed, sub-agents also publish
-optional `pi:background-tasks` display snapshots and answer matching-owner
+For any compatible dashboard consumer, sub-agents publish optional
+`pi:background-tasks` display snapshots and answer matching-owner
 `pi:background-tasks:request` events. Settled runs leave that shelf (64 live rows
 per source), but their spend remains in the optional v1 `totals` aggregate with
-measured/total run coverage. Snapshots include exact run IDs,
-state and shared host PID, not native session objects, private questions or run
+measured/total run coverage. No particular dashboard or display is required.
+Snapshots include exact run IDs, state and shared host PID, not native session objects, private questions or run
 control. Use `/subagents` for authoritative inspection and control. Listener
 failures cannot change run outcomes; reload/shutdown clears the source.
 
 Finish notices and `status` include host-measured `usage` (input/output/cache
 read/cache write tokens and USD cost) when known, plus `elapsedMs`. Live usage
-refreshes at finalized SDK boundaries, never streaming deltas or paint. The
-conversation header shows compact input/output/cost; Details retains cache
+refreshes only at turn end, settlement and compaction boundaries, never streaming
+deltas or paint. Missing live samples retain last-known cumulative usage. If final
+collection fails, retained usage is explicitly `usagePartial: true`; totals include
+that known spend in `usage`, count it in optional `partialRuns`, and exclude it
+from fully `measuredRuns`. The conversation header shows compact input/output/cost; Details retains cache
 accounting. Totals cover this manager runtime, including settled runs, not older
 artifacts after reload. Missing usage stays unknown, not zero. Resumed runs use
 the native transcript cumulative total rather than adding each attempt twice.

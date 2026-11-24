@@ -6,11 +6,19 @@ import { createAssistantMessageEventStream, type AssistantMessage } from "@earen
 import { ModelRegistry, ModelRuntime, SessionManager, type ExtensionAPI, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Check } from "typebox/value";
 import register from "../index.ts";
+import { RunManager } from "../src/runs.ts";
 import { OutputSchema } from "../src/tool.ts";
 import type { RunRecord } from "../src/types.ts";
 import { temp, until } from "./helpers.ts";
 
 test("public tool: native launch/question/reply/completion stay compact while exact details retain evidence", async t => {
+  let clock: (() => void) | undefined, lists = 0;
+  const setInterval = globalThis.setInterval, list = RunManager.prototype.list;
+  t.mock.method(globalThis, "setInterval", ((fn: () => void, ms: number) => {
+    if (ms === 1000) clock = fn;
+    return setInterval(fn, ms);
+  }) as typeof setInterval);
+  t.mock.method(RunManager.prototype, "list", function (this: RunManager) { lists++; return list.call(this); });
   const root = await temp(t), agentDir = path.join(root, "agent"), cwd = path.join(root, "repo");
   await mkdir(agentDir); await mkdir(cwd);
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false } }));
@@ -71,7 +79,12 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     await until(() => notices.some(message => message.startsWith("Sub-agent question")));
     const waiting = await execute({ action: "status", id: receipt!.id });
     assert(Check(OutputSchema, waiting.structuredContent));
-    assert(snapshots.some(snapshot => snapshot.sessionId === ctx.sessionManager.getSessionId() && snapshot.tasks.some(task => task.id === receipt!.id && task.state === "waiting")));
+    await until(() => snapshots.some(snapshot => snapshot.sessionId === ctx.sessionManager.getSessionId() && snapshot.tasks.some(task => task.id === receipt!.id && task.state === "waiting")));
+    await until(() => !!clock);
+    const beforeClock = lists, snapshotsBeforeClock = snapshots.length;
+    clock!();
+    assert.equal(lists, beforeClock + 1, "clock paints roster once without cloning history again for the dashboard");
+    assert.equal(snapshots.length, snapshotsBeforeClock);
     const countBeforeRequest = snapshots.length;
     bus.get("pi:background-tasks:request")?.({ version: 1, sessionId: "foreign" });
     assert.equal(snapshots.length, countBeforeRequest, "foreign request does not leak owner snapshots");
@@ -84,6 +97,7 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     const final = await execute({ action: "status", id: receipt!.id });
     const record = final.details as RunRecord;
     assert.equal(record.state, "completed");
+    await until(() => snapshots.at(-1)!.tasks.length === 0);
     assert.deepEqual(snapshots.at(-1)!.tasks, [], "completed runs leave the background shelf");
     assert.equal(record.task, "PRIVATE_TASK_BRIEF");
     assert.equal(record.usage!.input, 10);

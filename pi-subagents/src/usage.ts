@@ -9,20 +9,22 @@ export function measuredUsage(value: Usage | undefined): Usage | undefined {
 
 export function usageTotals(records: readonly RunRecord[]) {
   let usage: Usage | undefined;
-  let measuredRuns = 0;
+  let measuredRuns = 0, partialRuns = 0;
   for (const record of records) {
     const measured = measuredUsage(record.usage);
     if (!measured) continue;
-    measuredRuns++;
+    if (record.usagePartial) partialRuns++;
+    else measuredRuns++;
     if (!usage) usage = measured;
     else for (const key of ["input", "output", "cacheRead", "cacheWrite", "cost"] as const) usage[key] += measured[key];
   }
-  return { runs: records.length, measuredRuns, ...(usage ? { usage } : {}) };
+  return { runs: records.length, measuredRuns, ...(partialRuns ? { partialRuns } : {}), ...(usage ? { usage } : {}) };
 }
 
-export function formatUsage(usage: Usage | undefined): string {
+export function formatUsage(usage: Usage | undefined, partial = false): string {
   const measured = measuredUsage(usage);
   if (!measured) return "Usage unknown";
-  const compact = (n: number) => n >= 1_000_000 ? `${Number((n / 1_000_000).toFixed(1))}m` : n >= 1000 ? `${Number((n / 1000).toFixed(1))}k` : String(n);
-  return `${compact(measured.input)} in · ${compact(measured.output)} out · $${measured.cost.toFixed(2)}`;
+  const compact = (n: number) => n >= 999_950 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Number((n / 1000).toFixed(1))}k` : String(n);
+  const cost = measured.cost > 0 && measured.cost < 0.01 ? "<$0.01" : `$${measured.cost.toFixed(2)}`;
+  return `${compact(measured.input)} in · ${compact(measured.output)} out · ${cost}${partial ? " (partial)" : ""}`;
 }

@@ -79,7 +79,7 @@ const clip = (value: string, max: number) => value.length > max ? value.slice(0,
 
 function accounting(record: RunRecord) {
   const usage = measuredUsage(record.usage);
-  return { ...(usage ? { usage } : {}),
+  return { ...(usage ? { usage, ...(record.usagePartial ? { usagePartial: true as const } : {}) } : {}),
     ...(Number.isFinite(record.elapsedMs) && record.elapsedMs >= 0 ? { elapsedMs: record.elapsedMs } : {}) };
 }
 
@@ -182,6 +182,7 @@ const ResumeSchema = Type.Object({
   kind: Type.Optional(Type.String({ enum: ["transient_provider", "provider", "cancelled", "unknown"] })),
 }, closed);
 const AccountingSchema = {
+  usagePartial: Type.Optional(Type.Literal(true)),
   usage: Type.Optional(Type.Object({ input: Type.Number({ minimum: 0 }), output: Type.Number({ minimum: 0 }),
     cacheRead: Type.Number({ minimum: 0 }), cacheWrite: Type.Number({ minimum: 0 }), cost: Type.Number({ minimum: 0 }) }, closed)),
   elapsedMs: Type.Optional(Type.Number({ minimum: 0 })),

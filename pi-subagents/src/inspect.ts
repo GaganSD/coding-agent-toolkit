@@ -239,7 +239,7 @@ export class InspectView implements Component, Focusable {
     const activity = record?.currentTool ? ` · ${plain(record.currentTool)}` : "";
     const header = [this.theme.fg("accent", truncateToWidth(`Agent › ${record ? this.state.title(record) : "Unavailable worker"}`, inner)),
       this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatContext(record)} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner)),
-      ...(record?.usage ? [this.theme.fg("dim", truncateToWidth(formatUsage(record.usage), inner))] : [])];
+      ...(record?.usage ? [this.theme.fg("dim", truncateToWidth(formatUsage(record.usage, record.usagePartial), inner))] : [])];
     this.input.focused = this.focused && this.zone === "message" && !this.details;
     const editor = this.fitEditor(inner, Math.max(1, Math.min(5, height - 5)));
     const footer = [this.theme.fg("dim", truncateToWidth(this.note, inner)),
@@ -292,7 +292,7 @@ export class InspectView implements Component, Focusable {
     if (this.details && record) return wrapTextWithAnsi(conversationText([
       `Run ID: ${record.id}`, `Native session ID: ${record.sessionId ?? "starting"}`, `Shared process PID: ${record.pid ?? "unknown"}`,
       `Workspace: ${record.cwd}`, `Model: ${record.model} · ${record.thinking}`, `Context estimate: ${formatContext(record)}`,
-      `Usage: ${formatUsage(record.usage)}`, `Accounting (includes cache tokens): ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
+      `Usage: ${formatUsage(record.usage, record.usagePartial)}`, `Accounting (includes cache tokens): ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
       `Report: ${record.reportPath ?? "not saved"}`, `Delivery warning: ${record.notificationError ?? "none"}`,
       `Resume: ${record.resume ? `${record.resume.eligible ? "eligible" : "not eligible"} · ${record.resume.attempts} of ${record.resume.maxAttempts} resumes used` : "not resumable"}`,
     ].join("\n")), width);

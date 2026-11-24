@@ -90,20 +90,20 @@ export default function subagents(pi: ExtensionAPI): void {
     return new Text(`${theme.fg("accent", plain(title, 180))} · ${plain(status)}${expanded ? `\n${plain(typeof message.content === "string" ? message.content : JSON.stringify(message.content), 4096)}` : ""}`, 0, 0);
   });
 
-  function draw(): void {
+  function draw(publish = false): void {
     if (!host) return;
     bindKeys(host.ctx);
     const live = host.manager.live();
-    publishDashboard();
+    if (publish) publishDashboard();
     try { syncWidget(host.ctx, host.manager.list(), Boolean(health[HEALTH]), id => { void openThread(host!.ctx, id); }, host.widget); } catch { /* Terminal availability is not run evidence. */ }
     const ticking = live.some(run => !run.endedAt);
-    if (ticking && !clock) clock = setInterval(draw, 1000);
+    if (ticking && !clock) clock = setInterval(() => draw(false), 1000);
     else if (!ticking && clock) { clearInterval(clock); clock = undefined; }
   }
   function changed(): void {
     if (!host) return;
     for (const listener of inspectors) { try { listener(); } catch { /* Overlay never determines run success. */ } }
-    if (!refresh) refresh = setTimeout(() => { refresh = undefined; draw(); }, 100);
+    if (!refresh) refresh = setTimeout(() => { refresh = undefined; draw(true); }, 100);
   }
   async function current(ctx: ExtensionContext) {
     // Never mint a replacement manager while the previous one is still stopping sub-agents.

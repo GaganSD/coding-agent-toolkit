@@ -51,6 +51,8 @@ export interface RunRecord {
   error?: string;
   notificationError?: string;
   usage?: Usage;
+  /** Retained cumulative sample when final accounting could not be collected. */
+  usagePartial?: true;
   /** Shared owning-process PID; sub-agents are in-process sessions. */
   pid?: number;
   /** Full native Pi session ID, never the manager's run UUID. */
@@ -65,7 +67,7 @@ export interface SubAgent {
   followUp(message: string): Promise<string>;
   abort(): Promise<void>;
   failure?(): FailureKind | undefined;
-  evidence?(): Pick<SubAgentResult, "usage" | "toolErrors">;
+  evidence?(): Pick<SubAgentResult, "usage" | "toolErrors"> | undefined;
   dispose(): void | Promise<void>;
 }
 export const PREVIEW_LINES = 24;

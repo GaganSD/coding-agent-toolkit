@@ -29,6 +29,9 @@ test("usage totals include settled spend, exclude unknown accounting, and do not
   assert.deepEqual(backgroundTaskSnapshot("owner", [run("completed")]).totals, { runs: 1, measuredRuns: 0 });
   const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   assert.deepEqual(backgroundTaskSnapshot("owner", [{ ...run("failed"), usage: zero }]).totals, { runs: 1, measuredRuns: 1, usage: zero });
+  const partial = backgroundTaskSnapshot("owner", [{ ...run("cleanup_unknown"), usage, usagePartial: true }]);
+  assert.equal(partial.tasks[0]!.usagePartial, true);
+  assert.deepEqual(partial.totals, { runs: 1, measuredRuns: 0, partialRuns: 1, usage });
   assert.equal(usage.cost, 0.04, "aggregation never mutates a run");
   assert.deepEqual(backgroundTaskSnapshot("owner", records.map(record => ({ ...record, elapsedMs: record.elapsedMs + 1000 }))), snapshot,
     "clock-only updates do not change the snapshot or trigger downstream accounting work");

@@ -175,7 +175,6 @@ export class RunManager {
     record.reportPath = undefined;
     record.error = undefined;
     record.notificationError = undefined;
-    record.usage = undefined;
     record.toolErrors = undefined;
     record.contextUsage = undefined;
     run.controller = new AbortController();
@@ -355,11 +354,11 @@ export class RunManager {
           const prior = run.record.contextUsage;
           if (run.record.pid === snapshot.pid && (!snapshot.sessionId || run.record.sessionId === snapshot.sessionId)
             && prior?.tokens === usage.tokens && prior?.contextWindow === usage.contextWindow && prior?.percent === usage.percent
-            && JSON.stringify(run.record.usage) === JSON.stringify(snapshot.usage)) return;
+            && (!snapshot.usage || (!run.record.usagePartial && JSON.stringify(run.record.usage) === JSON.stringify(snapshot.usage)))) return;
           run.record.pid = snapshot.pid;
           if (snapshot.sessionId) run.record.sessionId = snapshot.sessionId;
           run.record.contextUsage = { ...usage };
-          run.record.usage = snapshot.usage ? { ...snapshot.usage } : undefined;
+          if (snapshot.usage) { run.record.usage = { ...snapshot.usage }; delete run.record.usagePartial; }
           this.changed(); // Cached UI update only; lifecycle writes persist the latest snapshot.
         },
         baseline: head => { run.record.launchHead ??= head; },
@@ -380,7 +379,6 @@ export class RunManager {
       this.changed();
       run.controller.signal.throwIfAborted();
       const result = await run.subAgent.prompt(resumeFrom ? RESUME_PROMPT : undefined);
-      run.record.usage = result.usage;
       run.record.toolErrors = result.toolErrors;
       run.controller.signal.throwIfAborted();
       run.record.reportPath = await this.io(signal => this.options.store.report(run.record.id, result.report, signal));
@@ -394,8 +392,13 @@ export class RunManager {
     try { await (run.aborting ??= run.subAgent?.abort() ?? Promise.resolve()); } catch (error) { unclean = errorText(error); }
     try {
       const evidence = run.subAgent?.evidence?.();
-      if (evidence) { run.record.usage = evidence.usage; run.record.toolErrors = evidence.toolErrors; }
+      if (evidence) {
+        if (evidence.usage) { run.record.usage = { ...evidence.usage }; delete run.record.usagePartial; }
+        else if (run.record.usage) run.record.usagePartial = true;
+        run.record.toolErrors = evidence.toolErrors;
+      }
     } catch (error) {
+      if (run.record.usage) run.record.usagePartial = true;
       failed ??= `Cannot collect sub-agent evidence: ${errorText(error)}`;
       run.record.error ??= failed;
     }
@@ -416,6 +419,7 @@ export class RunManager {
     if (run.record.state === "cleanup_unknown" || !isLive(run.record.state)) {
       clearTimeout(run.timer);
       if (run.finishing) await this.persist(run).catch(() => {}); // Late evidence, never late success.
+      this.changed(); // Publish late accounting without a new state or finish notice.
       await this.finish(run);
       return;
     }
