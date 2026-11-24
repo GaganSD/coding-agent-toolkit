@@ -3,8 +3,26 @@ import assert from "node:assert/strict";
 import { Check } from "typebox/value";
 import { normalizeContext, type Model } from "@earendil-works/pi-ai";
 import { stream } from "@earendil-works/pi-ai/api/openai-completions";
-import { DESCRIPTION, OutputSchema, Parameters, parseRequest } from "../src/tool.ts";
-import { THINKING_LEVELS } from "../src/types.ts";
+import { DESCRIPTION, OutputSchema, Parameters, parseRequest, presentNotice, presentRun, presentFinished, presentSummary } from "../src/tool.ts";
+import { THINKING_LEVELS, type RunRecord } from "../src/types.ts";
+
+test("accounting is additive, closed and host-only across all run presentations", () => {
+  const run = { id: "r", agent: "worker", task: "task", state: "completed", elapsedMs: 1234,
+    usage: { input: 12, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.04 },
+    error: "PRIVATE ERROR", question: { id: "q", message: "PRIVATE QUESTION" } } as RunRecord;
+  for (const present of [presentNotice, presentRun, presentFinished, presentSummary]) {
+    const view = present(run);
+    assert.equal(view.elapsedMs, 1234);
+    assert.deepEqual(view.usage, run.usage);
+    assert(Check(OutputSchema, present === presentSummary ? { runs: [view] } : view));
+    assert.equal(present({ ...run, usage: undefined }).usage, undefined);
+  }
+  const notice = presentNotice(run);
+  assert(!JSON.stringify(notice).includes("PRIVATE"));
+  assert(!Check(OutputSchema, { ...notice, usage: { ...run.usage, secret: 1 } }));
+  assert(!Check(OutputSchema, { ...notice, usage: { ...run.usage, cost: -1 } }));
+  assert(!Check(OutputSchema, { ...notice, elapsedMs: -1 }));
+});
 
 const task = { agent: "worker", task: "Implement the approved change" };
 const valid = [

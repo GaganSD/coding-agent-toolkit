@@ -25,7 +25,7 @@ export interface Usage { input: number; output: number; cacheRead: number; cache
 export interface Question { id: string; message: string }
 /** Cached native SDK estimate, separate from cumulative billed Usage. */
 export interface ContextEstimate { tokens: number | null; contextWindow: number | null; percent: number | null }
-export interface Telemetry { pid: number; sessionId?: string; contextUsage: ContextEstimate }
+export interface Telemetry { pid: number; sessionId?: string; contextUsage: ContextEstimate; usage?: Usage }
 export interface RunRecord {
   id: string;
   owner: string;

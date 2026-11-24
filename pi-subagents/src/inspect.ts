@@ -1,6 +1,7 @@
 import { getMarkdownTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Editor, Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
+import { formatUsage } from "./usage.ts";
 import { formatContext, formatElapsed, plain, type NavigationHost } from "./ui.ts";
 import { HumanState, stateLabel } from "./presentation.ts";
 import { conversationText, readConversation, type ConversationMessage } from "./conversation.ts";
@@ -237,7 +238,8 @@ export class InspectView implements Component, Focusable {
     if (!this.closed && this.focused && record && this.isPresented()) this.state.markRead(record);
     const activity = record?.currentTool ? ` · ${plain(record.currentTool)}` : "";
     const header = [this.theme.fg("accent", truncateToWidth(`Agent › ${record ? this.state.title(record) : "Unavailable worker"}`, inner)),
-      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatContext(record)} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
+      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatContext(record)} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner)),
+      ...(record?.usage ? [this.theme.fg("dim", truncateToWidth(formatUsage(record.usage), inner))] : [])];
     this.input.focused = this.focused && this.zone === "message" && !this.details;
     const editor = this.fitEditor(inner, Math.max(1, Math.min(5, height - 5)));
     const footer = [this.theme.fg("dim", truncateToWidth(this.note, inner)),
@@ -290,7 +292,7 @@ export class InspectView implements Component, Focusable {
     if (this.details && record) return wrapTextWithAnsi(conversationText([
       `Run ID: ${record.id}`, `Native session ID: ${record.sessionId ?? "starting"}`, `Shared process PID: ${record.pid ?? "unknown"}`,
       `Workspace: ${record.cwd}`, `Model: ${record.model} · ${record.thinking}`, `Context estimate: ${formatContext(record)}`,
-      `Usage: ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
+      `Usage: ${formatUsage(record.usage)}`, `Accounting (includes cache tokens): ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
       `Report: ${record.reportPath ?? "not saved"}`, `Delivery warning: ${record.notificationError ?? "none"}`,
       `Resume: ${record.resume ? `${record.resume.eligible ? "eligible" : "not eligible"} · ${record.resume.attempts} of ${record.resume.maxAttempts} resumes used` : "not resumable"}`,
     ].join("\n")), width);

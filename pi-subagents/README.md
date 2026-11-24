@@ -138,12 +138,20 @@ verified work.
 
 When a session dashboard such as Slate is installed, sub-agents also publish
 optional `pi:background-tasks` display snapshots and answer matching-owner
-`pi:background-tasks:request` events. Completed/cancelled runs leave that shelf;
-live/uncertain-cleanup runs take priority over bounded failed history (64 rows
-per source). Snapshots include exact run IDs,
+`pi:background-tasks:request` events. Settled runs leave that shelf (64 live rows
+per source), but their spend remains in the optional v1 `totals` aggregate with
+measured/total run coverage. Snapshots include exact run IDs,
 state and shared host PID, not native session objects, private questions or run
 control. Use `/subagents` for authoritative inspection and control. Listener
 failures cannot change run outcomes; reload/shutdown clears the source.
+
+Finish notices and `status` include host-measured `usage` (input/output/cache
+read/cache write tokens and USD cost) when known, plus `elapsedMs`. Live usage
+refreshes at finalized SDK boundaries, never streaming deltas or paint. The
+conversation header shows compact input/output/cost; Details retains cache
+accounting. Totals cover this manager runtime, including settled runs, not older
+artifacts after reload. Missing usage stays unknown, not zero. Resumed runs use
+the native transcript cumulative total rather than adding each attempt twice.
 
 ### Telemetry and evidence
 

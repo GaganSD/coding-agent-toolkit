@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Report host-measured run tokens, cost and elapsed time in finish notices/status and conversation headers; refresh live accounting at finalized SDK boundaries. Add display-only v1 snapshot totals including settled spend and measured-run coverage.
+
 ### Added
 
 - Allow explicit run deadlines up to six hours through `minimalSubagents.timeoutMs`; retain the thirty-minute default and session-bound cancellation.

@@ -1,4 +1,5 @@
 import type { RunRecord } from "./types.ts";
+import { measuredUsage, usageTotals } from "./usage.ts";
 
 /** Optional display-only snapshot. No native sessions, credentials, or control authority leave the manager. */
 export function backgroundTaskSnapshot(sessionId: string, records: readonly RunRecord[]) {
@@ -8,10 +9,13 @@ export function backgroundTaskSnapshot(sessionId: string, records: readonly RunR
   const visible = records.filter(record => !["completed", "cancelled", "failed"].includes(record.state));
   return {
     version: 1 as const, source: "pi-subagents", sessionId,
+    // Include settled history without restoring settled rows. Coverage discloses unknown runs.
+    totals: usageTotals(records),
     tasks: visible.slice(0, 64).map(record => ({
       id: record.id, label: `${record.agent}: ${record.task.replace(/\s+/g, " ").slice(0, 160)}`,
       kind: "subagent" as const, state: record.state === "waiting_for_agent" ? "waiting" : record.state,
       startedAt: Date.parse(record.startedAt),
+      ...(measuredUsage(record.usage) ? { usage: measuredUsage(record.usage) } : {}),
       ...(record.pid ? { pid: record.pid } : {}),
       detail: `${record.model} · ${record.thinking}\n${record.currentTool ? `Tool: ${record.currentTool}\n` : ""}Native session: ${record.sessionId ?? "—"}\nPID is shared with the owning Pi process.\nInspect/control using /subagents ${record.id}.`,
     })),

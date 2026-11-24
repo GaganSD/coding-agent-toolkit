@@ -93,7 +93,7 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     const finished = notices.find(message => message.startsWith("Sub-agent finished"))!;
     const payload = JSON.parse(finished.slice(finished.indexOf("{")));
     assert(Check(OutputSchema, payload));
-    assert.deepEqual(Object.keys(payload).sort(), ["agent", "id", "reportPath", "state", "taskPreview"]);
+    assert.deepEqual(Object.keys(payload).sort(), ["agent", "elapsedMs", "id", "reportPath", "state", "taskPreview", "usage"]);
     assert.equal((payload as { agent: string }).agent, "reviewer");
     assert.equal(calls, 2);
   } finally {

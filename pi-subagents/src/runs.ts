@@ -354,10 +354,12 @@ export class RunManager {
           const usage = snapshot.contextUsage;
           const prior = run.record.contextUsage;
           if (run.record.pid === snapshot.pid && (!snapshot.sessionId || run.record.sessionId === snapshot.sessionId)
-            && prior?.tokens === usage.tokens && prior?.contextWindow === usage.contextWindow && prior?.percent === usage.percent) return;
+            && prior?.tokens === usage.tokens && prior?.contextWindow === usage.contextWindow && prior?.percent === usage.percent
+            && JSON.stringify(run.record.usage) === JSON.stringify(snapshot.usage)) return;
           run.record.pid = snapshot.pid;
           if (snapshot.sessionId) run.record.sessionId = snapshot.sessionId;
           run.record.contextUsage = { ...usage };
+          run.record.usage = snapshot.usage ? { ...snapshot.usage } : undefined;
           this.changed(); // Cached UI update only; lifecycle writes persist the latest snapshot.
         },
         baseline: head => { run.record.launchHead ??= head; },

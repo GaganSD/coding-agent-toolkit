@@ -4,6 +4,7 @@ import type { AgentSession, AgentSessionEventListener, ContextUsage, ExtensionCo
 import { stripTerminalSequences, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { RunManager } from "../src/runs.ts";
+import { formatUsage, measuredUsage } from "../src/usage.ts";
 import { contextEstimate, wrapSession } from "../src/session.ts";
 import { formatContext, nextLive, rowText, SubagentWidget, syncWidget } from "../src/ui.ts";
 import type { RunContext, RunRecord, Telemetry } from "../src/types.ts";
@@ -20,6 +21,14 @@ const theme = { fg: (_color: string, text: string) => text } as unknown as Theme
 const tui = { requestRender() {}, setFocus() {} } as unknown as TUI;
 // Pi 1.1 adds aborted; a shared value also satisfies Pi 1.0's smaller event shape.
 const settledEvent = { type: "agent_settled" as const, aborted: false };
+
+test("compact accounting distinguishes unknown, invalid and host-measured zero usage", () => {
+  assert.equal(formatUsage(undefined), "Usage unknown");
+  const usage = { input: 12300, output: 1100, cacheRead: 2000, cacheWrite: 30, cost: 0.04 };
+  assert.equal(formatUsage(usage), "12.3k in · 1.1k out · $0.04");
+  for (const cost of [NaN, Infinity, -1]) assert.equal(measuredUsage({ ...usage, cost }), undefined);
+  assert.equal(formatUsage({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }), "0 in · 0 out · $0.00");
+});
 
 test("context estimates preserve zero, unknown, invalid inputs, and overflow independently of billed usage", () => {
   const usage = (tokens: number | null, percent: number | null, contextWindow = 272000): ContextUsage => ({ tokens, percent, contextWindow });
@@ -85,7 +94,8 @@ test("native wrapper caches finalized estimates, ignores deltas, clears compacti
   await subAgent.dispose();
   await Promise.resolve();
   assert.equal(scans, 3, "queued callbacks do not retain disposed session activity");
-  assert.equal(stats, 0);
+  assert.equal(stats, 3, "one accounting read per finalized/coalesced boundary; failures remain unknown");
+  assert.equal(snapshots.at(-1)!.usage, undefined);
   assert.equal(unsubscribed, 1);
 });
 
@@ -133,13 +143,14 @@ test("deferred estimator and initial/scheduled observer failures stay display-on
     assert.deepEqual(manager.status(id!).contextUsage, usage, "later finalized events recover");
     assert.equal(scans, 3);
     assert.equal(publications, 4, "scheduled observer errors do not disable future publications");
-    assert.equal(stats, 0, "display never queries billed evidence");
+    assert.equal(stats, 3, "accounting reads occur only at coalesced finalized boundaries");
+    assert.deepEqual(manager.status(id!).usage, { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, cost: 0 });
     assert.equal(writes, before, "display does not write metadata");
     finish.resolve();
     await manager.settled(id!);
     assert.equal(manager.status(id!).state, "completed", manager.status(id!).error ?? "Telemetry fixture run did not complete");
     assert.equal(store.reports.get(id!), "Evidence report");
-    assert.equal(stats, 1, "evidence is collected only by final cleanup");
+    assert(stats >= 4, "final cleanup re-collects authoritative evidence");
     assert.equal(writes, before + 1, "only final lifecycle metadata is added");
     assert.equal(unsubscribed, 1);
     const queries = scans;
@@ -148,6 +159,32 @@ test("deferred estimator and initial/scheduled observer failures stay display-on
     assert.equal(scans, queries, "disposed wrappers never query again");
     await manager.shutdown();
   }
+});
+
+test("accounting failures clear stale snapshots and recover at the next finalized boundary", async () => {
+  let listener!: AgentSessionEventListener, fails = false, queries = 0;
+  const snapshots: Telemetry[] = [];
+  const session = {
+    sessionId: "accounting-fixture", model: { contextWindow: 64000 },
+    subscribe: (fn: AgentSessionEventListener) => { listener = fn; return () => {}; },
+    getContextUsage: () => undefined,
+    getSessionStats: () => { queries++; if (fails) throw new Error("statistics unavailable");
+      return { tokens: { input: 12, output: 3, cacheRead: 4, cacheWrite: 5 }, cost: 0.04 }; },
+    abort: async () => {}, dispose() {},
+  } as unknown as AgentSession;
+  const subAgent = wrapSession(session, "task", {
+    signal: new AbortController().signal, directory: "/unused", own() {}, progress() {}, preview() {}, transcript() {}, ask: async () => "yes",
+    telemetry: snapshot => snapshots.push(snapshot),
+  });
+  assert.equal(snapshots[0]!.usage, undefined);
+  for (const fail of [false, true, false]) {
+    fails = fail;
+    listener({ type: "turn_end" } as Parameters<AgentSessionEventListener>[0]);
+    await Promise.resolve();
+    assert.equal(snapshots.at(-1)!.usage?.cost, fail ? undefined : 0.04);
+  }
+  assert.equal(queries, 3);
+  await subAgent.dispose();
 });
 
 test("disposing before a throwing queued estimate prevents the query entirely", async () => {
@@ -182,11 +219,13 @@ test("manager propagates latest copied snapshots without telemetry writes, retai
   const snapshot: Telemetry = { pid: process.pid, sessionId: "native-full-id", contextUsage: { tokens: 1, percent: 1, contextWindow: 100 } };
   context.telemetry!(snapshot);
   context.telemetry!(snapshot);
+  context.telemetry!({ ...snapshot, usage: { input: 12, output: 3, cacheRead: 4, cacheWrite: 5, cost: 0.04 } });
+  assert.equal(manager.status(id!).usage!.cost, 0.04, "usage-only changes propagate with an unchanged context estimate");
   snapshot.contextUsage.tokens = 2;
   assert.equal(manager.status(id!).contextUsage!.tokens, 1, "cached data is copied");
   context.telemetry!({ ...snapshot, contextUsage: { tokens: 0, percent: 0, contextWindow: 200 } });
   assert.equal(writes, before);
-  assert.equal(changes, changeBefore + 2, "identical snapshots do not refresh UI");
+  assert.equal(changes, changeBefore + 3, "identical snapshots do not refresh UI");
   finish.resolve();
   await manager.settled(id!);
   const final = manager.status(id!);

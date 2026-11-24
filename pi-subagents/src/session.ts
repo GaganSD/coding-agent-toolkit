@@ -8,6 +8,7 @@ import {
 import { Type } from "typebox";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
+import { measuredUsage } from "./usage.ts";
 import type { ContextEstimate, FailureKind, SubAgent, PreparedTask, Profile, ResumeFrom, RunContext, Task, Telemetry, Thinking } from "./types.ts";
 
 export function contextEstimate(usage: ContextUsage | undefined, window?: number): ContextEstimate {
@@ -182,7 +183,9 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
       try { estimate = contextEstimate(session.getContextUsage(), session.model?.contextWindow); }
       catch { estimate = contextEstimate(undefined, session.model?.contextWindow); }
       // A failed estimate invalidates confident cached usage, but later events can recover.
-      publishTelemetry(context, { pid: process.pid, sessionId: session.sessionId, contextUsage: estimate });
+      let usage;
+      try { usage = evidence().usage; } catch { /* Unknown accounting stays unknown; later boundaries can recover. */ }
+      publishTelemetry(context, { pid: process.pid, sessionId: session.sessionId, contextUsage: estimate, usage });
     });
   };
   const tools = new Map<string, string>();
@@ -206,7 +209,7 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
   else context.signal.addEventListener("abort", abort, { once: true });
   const evidence = () => {
     const { tokens, cost } = session.getSessionStats();
-    return { toolErrors, usage: { input: tokens.input, output: tokens.output, cacheRead: tokens.cacheRead, cacheWrite: tokens.cacheWrite, cost } };
+    return { toolErrors, usage: measuredUsage({ input: tokens.input, output: tokens.output, cacheRead: tokens.cacheRead, cacheWrite: tokens.cacheWrite, cost }) };
   };
   return {
     evidence,
@@ -225,7 +228,7 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
         if (!last || last.stopReason === "error" || last.stopReason === "aborted") throw new Error(last?.errorMessage || "Sub-agent failed without a final assistant response");
         const report = session.getLastAssistantText();
         if (!report?.trim()) throw new Error("Sub-agent settled without a nonempty report");
-        return { report, toolErrors }; // Usage is collected once, during final cleanup.
+        return { report, toolErrors }; // Final cleanup collects authoritative accounting after tools settle.
       } catch (error) {
         failure = classifySessionFailure(session, context.signal, before);
         throw error;
