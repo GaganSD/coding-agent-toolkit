@@ -14,14 +14,15 @@ export function stateLabel(run: RunRecord): string {
     cleanup_unknown: "Cleanup unknown", completed: "Finished · report saved", failed: "Failed", cancelled: "Cancelled" })[run.state];
 }
 /** Compact multi-result headings never attribute the whole batch to its last member. */
-export function batchSummary(finished: RunRecord[]): string | undefined {
-  if (finished.length < 2) return undefined;
+/** A question heading names the triggering run, so any carried result needs a count; a lone finish keeps its own heading. */
+export function batchSummary(finished: RunRecord[], question = false): string | undefined {
+  if (finished.length < (question ? 1 : 2)) return undefined;
   const counts = new Map<string, number>();
   for (const run of finished) {
     const label = run.state === "completed" ? "finished" : run.state === "cleanup_unknown" ? "cleanup unknown" : run.state;
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
-  return `${finished.length} results · ${[...counts].map(([label, count]) => `${count} ${label}`).join(" · ")}`;
+  return `${finished.length} result${finished.length === 1 ? "" : "s"} · ${[...counts].map(([label, count]) => `${count} ${label}`).join(" · ")}`;
 }
 
 export interface Draft { text: string; questionId?: string; scroll: number; expanded: boolean; pageEnd?: number }

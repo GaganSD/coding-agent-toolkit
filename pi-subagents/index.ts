@@ -134,7 +134,7 @@ export default function subagents(pi: ExtensionAPI): void {
         // Pi acknowledges submission only; asynchronous delivery failures are
         // reported by the host. The registry/artifacts remain authoritative.
         host.widget.state!.remember(manager.list());
-        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind, title: host.widget.state!.title(record), state: stateLabel(record), summary: batchSummary(finished) } }, { triggerTurn: true, deliverAs: "followUp" });
+        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind, title: host.widget.state!.title(record), state: stateLabel(record), summary: batchSummary(finished, kind === "question") } }, { triggerTurn: true, deliverAs: "followUp" });
       },
     });
     host = { owner, ctx, manager, widget: { state: new HumanState() } };
