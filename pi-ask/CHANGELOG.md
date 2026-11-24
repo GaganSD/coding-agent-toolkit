@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Paste screenshots or files into answer and note editors with `Ctrl+V`; Pi receives their paths as text.
+
 ## 0.2.0
 
 Background questions, answer later, and timeouts with safe fallbacks. Questions survive reloads, and every answer reaches the agent once.

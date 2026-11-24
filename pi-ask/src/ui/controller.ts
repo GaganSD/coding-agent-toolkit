@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Editor, type EditorTheme } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
 import { getAskConfigStore } from "../config/store.ts";
+import { askStrings } from "../i18n.ts";
 import {
 	createQuestionWaitingNotification,
 	type NotificationAttempt,
@@ -45,6 +46,7 @@ import { isEditingView } from "../state/view.ts";
 import type { AskParams, AskResult, AskState } from "../types.ts";
 import { maybeAutoSubmitState } from "./auto-submit.ts";
 import { createAskAutocompleteProvider } from "./autocomplete.ts";
+import { readClipboardPasteText } from "./clipboard-paste.ts";
 import {
 	DIRTY_DISMISS_NOTICE,
 	shouldConfirmDirtyDismiss,
@@ -72,6 +74,7 @@ type AskFlowParams = AskParams &
 		config: AskConfig;
 		configNotice?: string;
 		ctx: ExtensionContext;
+		readPaste?: typeof readClipboardPasteText;
 	};
 
 export interface AskFlowOptions {
@@ -135,6 +138,7 @@ interface AskFlowController {
 	config: AskConfig;
 	configNotice?: string;
 	ctx: ExtensionContext;
+	disposed: boolean;
 	done: Done;
 	editor: Editor;
 	expiry?: ExpiryTimer;
@@ -148,6 +152,7 @@ interface AskFlowController {
 	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
+	readPaste: typeof readClipboardPasteText;
 	settingsOpen: boolean;
 	state: AskState;
 	statusNotice?: string;
@@ -200,6 +205,7 @@ export function createAskFlowController(
 		config: params.config,
 		configNotice: params.configNotice,
 		ctx: params.ctx,
+		disposed: false,
 		done: (result) => {
 			controller.finished = true;
 			try {
@@ -217,6 +223,7 @@ export function createAskFlowController(
 		focused: false,
 		onStateChange: params.onStateChange,
 		panel: params.panel,
+		readPaste: params.readPaste ?? readClipboardPasteText,
 		settingsOpen: false,
 		state: applyDraftSnapshot(createInitialState(params), params.draft),
 		suppressAutoInputForSelection: false,
@@ -275,6 +282,9 @@ export function createAskFlowController(
 			controller.editor.invalidate();
 		},
 		handleInput(data: string) {
+			if (controller.finished || controller.disposed) {
+				return;
+			}
 			let unexpected: unknown;
 			try {
 				// One key means the user is here: the countdown ends for good.
@@ -298,6 +308,10 @@ export function createAskFlowController(
 			this.dispose();
 		},
 		dispose() {
+			if (controller.disposed) {
+				return;
+			}
+			controller.disposed = true;
 			flushDraft(controller);
 			unregisterFlush();
 			unsubscribeExpiry();
@@ -462,9 +476,39 @@ function handleEditingCommand(
 		submitEditor(controller, controller.editor.getText());
 		return;
 	}
+	if (command.kind === "editPaste") {
+		void pasteIntoEditor(controller);
+		return;
+	}
 	if (command.kind === "delegateToEditor") {
 		controller.editor.handleInput(data);
 		refresh(controller, { typing: true });
+	}
+}
+
+async function pasteIntoEditor(controller: AskFlowController) {
+	const { editor, state } = controller;
+	// Reopening the same question or note creates a new view object.
+	const isCurrent = () =>
+		!controller.finished &&
+		!controller.disposed &&
+		controller.state.view === state.view;
+	try {
+		const text = await controller.readPaste(() => {
+			const { line, col } = editor.getCursor();
+			return { text: editor.getLines()[line] ?? "", col };
+		});
+		if (text && isCurrent()) {
+			editor.insertTextAtCursor(text);
+			refresh(controller, { typing: true });
+		}
+	} catch (error) {
+		if (isCurrent()) {
+			controller.statusNotice = askStrings().clipboardPasteFailed(
+				error instanceof Error ? error.message : String(error)
+			);
+			controller.tui.requestRender();
+		}
 	}
 }
 
@@ -550,6 +594,7 @@ function handleNavigationCommand(
 		case "editMoveOption":
 		case "editClose":
 		case "editSubmit":
+		case "editPaste":
 		case "delegateToEditor":
 			return;
 		default:

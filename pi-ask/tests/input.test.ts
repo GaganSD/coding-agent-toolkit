@@ -6,6 +6,7 @@ import { getAskConfigStore } from "../src/config/store.ts";
 import { createInitialState } from "../src/state/create.ts";
 import {
 	applyNumberShortcut,
+	enterCancelComment,
 	enterQuestionNoteMode,
 } from "../src/state/transitions.ts";
 import { runAskFlow } from "../src/ui/controller.ts";
@@ -24,6 +25,27 @@ function inputState() {
 	state = applyNumberShortcut(state, 2);
 	return state;
 }
+
+test("paste routes to the open editor regardless of whether it is empty", () => {
+	const answer = inputState();
+	const note = enterQuestionNoteMode(answer, "q1");
+	const comment = enterCancelComment(answer);
+	for (const state of [answer, note, comment]) {
+		assert.deepEqual(getInputCommand(state, DEFAULT_ASK_CONFIG, "\x16"), {
+			kind: "editPaste",
+		});
+		assert.deepEqual(getInputCommand(state, DEFAULT_ASK_CONFIG, "\x16", "typed"), {
+			kind: "editPaste",
+		});
+	}
+
+	const config = structuredClone(DEFAULT_ASK_CONFIG);
+	config.keymaps.editor.paste = [];
+	config.keymaps.noteEditor.paste = ["ctrl+y"];
+	assert.deepEqual(getInputCommand(answer, config, "\x16"), { kind: "delegateToEditor" });
+	assert.deepEqual(getInputCommand(note, config, "\x16"), { kind: "delegateToEditor" });
+	assert.deepEqual(getInputCommand(note, config, "\x19"), { kind: "editPaste" });
+});
 
 test("empty typing mode uses arrows and tab for navigation", () => {
 	const input = inputState();

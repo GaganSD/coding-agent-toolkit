@@ -29,6 +29,7 @@ export type AskInputCommand =
 	| { kind: "editMoveOption"; delta: 1 | -1 }
 	| { kind: "editClose" }
 	| { kind: "editSubmit" }
+	| { kind: "editPaste" }
 	| { kind: "delegateToEditor" }
 	| { kind: "ignore" };
 
@@ -70,10 +71,7 @@ function getAnswerEditorInputCommand(
 			? { kind: "delegateToEditor" }
 			: { kind: "editSubmit" };
 	}
-	if (matchesBinding(data, bindings.close)) {
-		return { kind: "editClose" };
-	}
-	return getEmptyEditorNavigationCommand(bindings, data, editingText);
+	return getSharedEditorInputCommand(bindings, data, editingText);
 }
 
 function getNoteEditorInputCommand(
@@ -87,22 +85,27 @@ function getNoteEditorInputCommand(
 			? { kind: "delegateToEditor" }
 			: { kind: "editSubmit" };
 	}
-	if (matchesBinding(data, bindings.close)) {
-		return { kind: "editClose" };
-	}
-	return getEmptyEditorNavigationCommand(bindings, data, editingText);
+	return getSharedEditorInputCommand(bindings, data, editingText);
 }
 
-function getEmptyEditorNavigationCommand(
+function getSharedEditorInputCommand(
 	bindings: {
-		nextTabWhenEmpty: AskKeyBinding;
-		previousTabWhenEmpty: AskKeyBinding;
-		previousOptionWhenEmpty: AskKeyBinding;
+		close: AskKeyBinding;
 		nextOptionWhenEmpty: AskKeyBinding;
+		nextTabWhenEmpty: AskKeyBinding;
+		paste: AskKeyBinding;
+		previousOptionWhenEmpty: AskKeyBinding;
+		previousTabWhenEmpty: AskKeyBinding;
 	},
 	data: string,
 	editingText: string
 ): AskInputCommand {
+	if (matchesBinding(data, bindings.close)) {
+		return { kind: "editClose" };
+	}
+	if (matchesBinding(data, bindings.paste)) {
+		return { kind: "editPaste" };
+	}
 	if (editingText.length === 0) {
 		if (matchesBinding(data, bindings.nextTabWhenEmpty)) {
 			return { kind: "editMoveTab", delta: 1 };

@@ -87,6 +87,9 @@ export type FooterKeymapContext =
 	| "input"
 	| "note";
 
+const DEFAULT_PASTE_KEYS = process.platform === "win32" ? ["alt+v", "ctrl+v"] : ["ctrl+v"];
+const PASTE_DESCRIPTION = "Paste from the clipboard (files and images as paths)";
+
 export const DEFAULT_ASK_KEYMAPS: AskConfigKeymaps = {
 	global: {
 		dismiss: ["ctrl+c"],
@@ -111,6 +114,7 @@ export const DEFAULT_ASK_KEYMAPS: AskConfigKeymaps = {
 	editor: {
 		submit: ["enter"],
 		close: ["esc"],
+		paste: [...DEFAULT_PASTE_KEYS],
 		nextTabWhenEmpty: ["tab", "right"],
 		previousTabWhenEmpty: ["shift+tab", "left"],
 		nextOptionWhenEmpty: ["down"],
@@ -119,6 +123,7 @@ export const DEFAULT_ASK_KEYMAPS: AskConfigKeymaps = {
 	noteEditor: {
 		save: ["enter"],
 		close: ["esc"],
+		paste: [...DEFAULT_PASTE_KEYS],
 		nextTabWhenEmpty: ["tab", "right"],
 		previousTabWhenEmpty: ["shift+tab", "left"],
 		nextOptionWhenEmpty: ["down"],
@@ -156,6 +161,7 @@ const DESCRIPTIONS: Record<AskKeymapContext, Record<string, string>> = {
 	editor: {
 		submit: "Submit custom answer",
 		close: "Close editor and preserve draft",
+		paste: PASTE_DESCRIPTION,
 		nextTabWhenEmpty: "Switch to next tab when editor is empty",
 		previousTabWhenEmpty: "Switch to previous tab when editor is empty",
 		nextOptionWhenEmpty: "Move to next option when editor is empty",
@@ -164,6 +170,7 @@ const DESCRIPTIONS: Record<AskKeymapContext, Record<string, string>> = {
 	noteEditor: {
 		save: "Save note",
 		close: "Close note editor",
+		paste: PASTE_DESCRIPTION,
 		nextTabWhenEmpty: "Switch to next tab when editor is empty",
 		previousTabWhenEmpty: "Switch to previous tab when editor is empty",
 		nextOptionWhenEmpty: "Move to next option when editor is empty",
@@ -575,9 +582,7 @@ function flattenBindings(
 	);
 }
 
-export function normalizeLegacyFlatKeymaps(
-	keymaps: unknown
-): AskConfigKeymaps | undefined {
+export function normalizeLegacyFlatKeymaps(keymaps: unknown) {
 	if (!(keymaps && typeof keymaps === "object")) {
 		return;
 	}
@@ -586,6 +591,9 @@ export function normalizeLegacyFlatKeymaps(
 	}
 	const raw = keymaps as Record<string, unknown>;
 	const defaults = structuredClone(DEFAULT_ASK_KEYMAPS);
+	// Let migration add paste only after checking the legacy bindings.
+	const { paste: _editorPaste, ...editor } = defaults.editor;
+	const { paste: _notePaste, ...noteEditor } = defaults.noteEditor;
 	return {
 		...defaults,
 		global: {
@@ -604,13 +612,13 @@ export function normalizeLegacyFlatKeymaps(
 			),
 		},
 		editor: {
-			...defaults.editor,
-			submit: coerceLegacyBinding(raw.confirm, defaults.editor.submit),
+			...editor,
+			submit: coerceLegacyBinding(raw.confirm, editor.submit),
 			close: coerceLegacyBinding(raw.cancel, defaults.editor.close),
 		},
 		noteEditor: {
-			...defaults.noteEditor,
-			save: coerceLegacyBinding(raw.confirm, defaults.noteEditor.save),
+			...noteEditor,
+			save: coerceLegacyBinding(raw.confirm, noteEditor.save),
 			close: coerceLegacyBinding(raw.cancel, defaults.noteEditor.close),
 		},
 	};

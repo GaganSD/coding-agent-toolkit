@@ -30,11 +30,14 @@ The agent calls `ask_user`. `/answer` if it asked in prose instead.
 | --- | --- |
 | Choose one, or several | `single` / `multi` |
 | Type freely | `text`, or **Type your own** on a choice question |
+| Paste a screenshot or file | `Ctrl+V` in an answer or note editor inserts its path (requires X11 on Linux) |
 | Understand a choice first | Notes |
 | The question is the wrong shape | `t` switches `single` ↔ `multi` |
 | Answer later | `Ctrl+L` on a blocking form. The agent carries on; the form waits in the panel |
 | Decline one question | `s` on that question. Its answer and notes are dropped; the rest of the form carries on |
 | Say why you are cancelling | `c` on the review tab, type a short reason, `Enter`. `Esc` goes back without cancelling |
+
+Customize paste with `keymaps.editor.paste` and `keymaps.noteEditor.paste`. Windows also defaults to `Alt+V`.
 
 ### Questions that do not block
 
