@@ -15,6 +15,10 @@ export interface AskStrings {
 	typeYourOwn: string;
 	/** Title of the freeform answer prompt. */
 	customAnswerTitle: string;
+	/** Editor notice when a clipboard read or write fails. */
+	clipboardPasteFailed: (message: string) => string;
+	clipboardPathHasControls: string;
+	clipboardImageUnsupported: string;
 	/** Heading of the pre-submit review card. */
 	reviewHeading: string;
 	/** Row that submits the whole flow from the review card. */
@@ -126,6 +130,9 @@ const EN_STRINGS: AskStrings = {
 	skip: "→ Skip for now",
 	typeYourOwn: "✎ Type your own",
 	customAnswerTitle: "Type your answer:",
+	clipboardPasteFailed: (message) => `Failed to paste from clipboard: ${message}`,
+	clipboardPathHasControls: "Clipboard file path contains control characters",
+	clipboardImageUnsupported: "Clipboard image format is not supported",
 	reviewHeading: "Review your answers",
 	submitAnswers: "✔ Submit answers",
 	cancel: "✕ Cancel",
@@ -213,6 +220,9 @@ const ZH_STRINGS: AskStrings = {
 	skip: "→ 暂时跳过",
 	typeYourOwn: "✎ 自己输入",
 	customAnswerTitle: "请输入你的回答：",
+	clipboardPasteFailed: (message) => `无法从剪贴板粘贴：${message}`,
+	clipboardPathHasControls: "剪贴板中的文件路径包含控制字符",
+	clipboardImageUnsupported: "不支持此剪贴板图片格式",
 	reviewHeading: "检查你的回答",
 	submitAnswers: "✔ 提交答案",
 	cancel: "✕ 取消",

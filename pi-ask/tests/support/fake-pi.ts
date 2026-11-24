@@ -21,6 +21,7 @@ import {
 	type SessionBoundaryDraft,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { getKeybindings, type KeyId, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { DEFAULT_ASK_CONFIG } from "../../src/config/defaults.ts";
 import { getAskConfigStore } from "../../src/config/store.ts";
 import { ASK_JOURNAL_ENTRY_TYPE } from "../../src/journal/entries.ts";
@@ -36,6 +37,15 @@ export const KEY = {
 	focus: "\u001ba",
 	down: "\u001b[B",
 };
+
+export function bindClipboardPaste(defaultKeys: KeyId = "ctrl+v") {
+	const previous = getKeybindings();
+	setKeybindings(new KeybindingsManager({
+		...TUI_KEYBINDINGS,
+		"app.clipboard.pasteImage": { defaultKeys },
+	}));
+	return () => setKeybindings(previous);
+}
 
 export interface OpenForm {
 	done: (result: AskResult) => void;
@@ -320,6 +330,8 @@ export function fakePi(
 		renderers,
 		widgets,
 		editor,
+		theme,
+		tui,
 		get aborts() {
 			return aborts;
 		},

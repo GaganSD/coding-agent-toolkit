@@ -1,7 +1,9 @@
+import { unlink } from "node:fs/promises";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Editor, type EditorTheme } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
 import { getAskConfigStore } from "../config/store.ts";
+import { askStrings } from "../i18n.ts";
 import {
 	createQuestionWaitingNotification,
 	type NotificationAttempt,
@@ -45,6 +47,7 @@ import { isEditingView } from "../state/view.ts";
 import type { AskParams, AskResult, AskState } from "../types.ts";
 import { maybeAutoSubmitState } from "./auto-submit.ts";
 import { createAskAutocompleteProvider } from "./autocomplete.ts";
+import { readClipboardPaste } from "./clipboard-paste.ts";
 import {
 	DIRTY_DISMISS_NOTICE,
 	shouldConfirmDirtyDismiss,
@@ -72,6 +75,7 @@ type AskFlowParams = AskParams &
 		config: AskConfig;
 		configNotice?: string;
 		ctx: ExtensionContext;
+		readPaste?: typeof readClipboardPaste;
 	};
 
 export interface AskFlowOptions {
@@ -135,6 +139,7 @@ interface AskFlowController {
 	config: AskConfig;
 	configNotice?: string;
 	ctx: ExtensionContext;
+	disposed: boolean;
 	done: Done;
 	editor: Editor;
 	expiry?: ExpiryTimer;
@@ -148,6 +153,7 @@ interface AskFlowController {
 	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
+	readPaste: typeof readClipboardPaste;
 	settingsOpen: boolean;
 	state: AskState;
 	statusNotice?: string;
@@ -200,6 +206,7 @@ export function createAskFlowController(
 		config: params.config,
 		configNotice: params.configNotice,
 		ctx: params.ctx,
+		disposed: false,
 		done: (result) => {
 			controller.finished = true;
 			try {
@@ -217,6 +224,7 @@ export function createAskFlowController(
 		focused: false,
 		onStateChange: params.onStateChange,
 		panel: params.panel,
+		readPaste: params.readPaste ?? readClipboardPaste,
 		settingsOpen: false,
 		state: applyDraftSnapshot(createInitialState(params), params.draft),
 		suppressAutoInputForSelection: false,
@@ -298,6 +306,7 @@ export function createAskFlowController(
 			this.dispose();
 		},
 		dispose() {
+			controller.disposed = true;
 			flushDraft(controller);
 			unregisterFlush();
 			unsubscribeExpiry();
@@ -309,7 +318,7 @@ export function createAskFlowController(
 /** The state with the open editor's text folded in; the live state stays. */
 function snapshotState(controller: AskFlowController): AskState {
 	return isEditingView(controller.state)
-		? saveEditorDraft(controller.state, controller.editor.getText())
+		? saveEditorDraft(controller.state, controller.editor.getExpandedText())
 		: controller.state;
 }
 
@@ -459,12 +468,55 @@ function handleEditingCommand(
 		return;
 	}
 	if (command.kind === "editSubmit") {
-		submitEditor(controller, controller.editor.getText());
+		submitEditor(controller, controller.editor.getExpandedText());
+		return;
+	}
+	if (command.kind === "editPaste") {
+		void pasteIntoEditor(controller);
 		return;
 	}
 	if (command.kind === "delegateToEditor") {
 		controller.editor.handleInput(data);
 		refresh(controller, { typing: true });
+	}
+}
+
+async function pasteIntoEditor(controller: AskFlowController) {
+	const { editor, state } = controller;
+	// Reopening the same question or note creates a new view object.
+	const isCurrent = () =>
+		!controller.finished &&
+		!controller.disposed &&
+		controller.state.view === state.view;
+	try {
+		const paste = await controller.readPaste(isCurrent);
+		if (!paste) {
+			return;
+		}
+		if (!isCurrent()) {
+			// The editor could close while writeFile was in flight.
+			if (paste.kind === "image") {
+				await unlink(paste.text);
+			}
+			return;
+		}
+		if (paste.kind === "text") {
+			editor.handleInput(`\x1b[200~${paste.text}\x1b[201~`);
+		} else {
+			// Like Pi: a path never runs into the words beside it.
+			const { line, col } = editor.getCursor();
+			const row = editor.getLines()[line] ?? "";
+			const pad = (char?: string) => (char && /\S/u.test(char) ? " " : "");
+			editor.insertTextAtCursor(`${pad(row[col - 1])}${paste.text}${pad(row[col])}`);
+		}
+		refresh(controller, { typing: true });
+	} catch (error) {
+		if (isCurrent()) {
+			controller.statusNotice = askStrings().clipboardPasteFailed(
+				error instanceof Error ? error.message : String(error)
+			);
+			controller.tui.requestRender();
+		}
 	}
 }
 
@@ -550,6 +602,7 @@ function handleNavigationCommand(
 		case "editMoveOption":
 		case "editClose":
 		case "editSubmit":
+		case "editPaste":
 		case "delegateToEditor":
 			return;
 		default:
@@ -837,7 +890,7 @@ function syncSelection(controller: AskFlowController) {
 }
 
 function saveEditorState(controller: AskFlowController): AskState {
-	const text = controller.editor.getText();
+	const text = controller.editor.getExpandedText();
 	controller.editor.setText("");
 	return saveEditorDraft(controller.state, text);
 }

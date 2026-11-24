@@ -1,4 +1,4 @@
-import { matchesKey } from "@earendil-works/pi-tui";
+import { getKeybindings, matchesKey } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
 import {
 	type AskKeyBinding,
@@ -29,6 +29,7 @@ export type AskInputCommand =
 	| { kind: "editMoveOption"; delta: 1 | -1 }
 	| { kind: "editClose" }
 	| { kind: "editSubmit" }
+	| { kind: "editPaste" }
 	| { kind: "delegateToEditor" }
 	| { kind: "ignore" };
 
@@ -117,7 +118,9 @@ function getEmptyEditorNavigationCommand(
 			return { kind: "editMoveOption", delta: 1 };
 		}
 	}
-	return { kind: "delegateToEditor" };
+	return getKeybindings().matches(data, "app.clipboard.pasteImage")
+		? { kind: "editPaste" }
+		: { kind: "delegateToEditor" };
 }
 
 function isNativeEditorSubmit(data: string): boolean {

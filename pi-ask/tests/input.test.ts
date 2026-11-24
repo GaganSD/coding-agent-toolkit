@@ -4,12 +4,15 @@ import { Editor } from "@earendil-works/pi-tui";
 import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
 import { getAskConfigStore } from "../src/config/store.ts";
 import { createInitialState } from "../src/state/create.ts";
+import { moveTab } from "../src/state/navigation.ts";
 import {
 	applyNumberShortcut,
+	enterCancelComment,
 	enterQuestionNoteMode,
 } from "../src/state/transitions.ts";
 import { runAskFlow } from "../src/ui/controller.ts";
 import { getInputCommand } from "../src/ui/input.ts";
+import { bindClipboardPaste } from "./support/fake-pi.ts";
 
 function inputState() {
 	let state = createInitialState({
@@ -24,6 +27,28 @@ function inputState() {
 	state = applyNumberShortcut(state, 2);
 	return state;
 }
+
+test("editors honor Pi's paste binding after pi-ask's own bindings", (t) => {
+	const answer = inputState();
+	const note = enterQuestionNoteMode(answer, "q1");
+	const review = moveTab(answer, 1);
+	const comment = enterCancelComment(review);
+	const paste = "\x19"; // Pi's paste key was rebound to Ctrl+Y.
+	assert.equal(comment.view.kind, "comment");
+	assert.equal(getInputCommand(answer, DEFAULT_ASK_CONFIG, paste).kind, "delegateToEditor");
+	t.after(bindClipboardPaste("ctrl+y"));
+	for (const state of [answer, note, comment]) {
+		assert.equal(getInputCommand(state, DEFAULT_ASK_CONFIG, paste).kind, "editPaste");
+		assert.equal(getInputCommand(state, DEFAULT_ASK_CONFIG, paste, "typed").kind, "editPaste");
+	}
+	assert.equal(getInputCommand(review, DEFAULT_ASK_CONFIG, paste).kind, "ignore");
+
+	const config = structuredClone(DEFAULT_ASK_CONFIG);
+	config.keymaps.editor.nextTabWhenEmpty = ["ctrl+y"];
+	config.keymaps.noteEditor.close = ["ctrl+y"];
+	assert.equal(getInputCommand(answer, config, paste).kind, "editMoveTab");
+	assert.equal(getInputCommand(comment, config, paste).kind, "editClose");
+});
 
 test("empty typing mode uses arrows and tab for navigation", () => {
 	const input = inputState();

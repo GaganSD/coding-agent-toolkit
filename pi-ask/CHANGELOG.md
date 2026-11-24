@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use Pi's paste key in answer, note, and comment editors to insert screenshot paths or, on macOS, copied file paths.
+
 ## 0.2.0
 
 Background questions, answer later, and timeouts with safe fallbacks. Questions survive reloads, and every answer reaches the agent once.

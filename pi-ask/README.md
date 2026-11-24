@@ -30,6 +30,7 @@ The agent calls `ask_user`. `/answer` if it asked in prose instead.
 | --- | --- |
 | Choose one, or several | `single` / `multi` |
 | Type freely | `text`, or **Type your own** on a choice question |
+| Paste a screenshot or file | Pi's paste key (`Ctrl+V` by default; `app.clipboard.pasteImage`) inserts screenshot paths in answer, note, and comment editors. Copied files paste their paths on macOS. Linux requires X11; Wayland-only sessions and WSL aren't supported. |
 | Understand a choice first | Notes |
 | The question is the wrong shape | `t` switches `single` ↔ `multi` |
 | Answer later | `Ctrl+L` on a blocking form. The agent carries on; the form waits in the panel |
