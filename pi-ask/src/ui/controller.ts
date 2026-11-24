@@ -489,10 +489,7 @@ async function pasteIntoEditor(controller: AskFlowController) {
 		!controller.disposed &&
 		controller.state.view === state.view;
 	try {
-		const paste = await controller.readPaste(() => {
-			const { line, col } = editor.getCursor();
-			return { text: editor.getLines()[line] ?? "", col };
-		}, isCurrent);
+		const paste = await controller.readPaste(isCurrent);
 		if (!paste) {
 			return;
 		}
@@ -506,7 +503,11 @@ async function pasteIntoEditor(controller: AskFlowController) {
 		if (paste.kind === "text") {
 			editor.handleInput(`\x1b[200~${paste.text}\x1b[201~`);
 		} else {
-			editor.insertTextAtCursor(paste.text);
+			// Like Pi: a path never runs into the words beside it.
+			const { line, col } = editor.getCursor();
+			const row = editor.getLines()[line] ?? "";
+			const pad = (char?: string) => (char && /\S/u.test(char) ? " " : "");
+			editor.insertTextAtCursor(`${pad(row[col - 1])}${paste.text}${pad(row[col])}`);
 		}
 		refresh(controller, { typing: true });
 	} catch (error) {

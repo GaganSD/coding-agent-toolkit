@@ -8,7 +8,6 @@ import { askStrings } from "../src/i18n.ts";
 import { readClipboardPaste } from "../src/ui/clipboard-paste.ts";
 
 const current = () => true;
-const unavailableCursor = () => assert.fail("cursor is needed only for file paths");
 const PNG_HEADER = "\x89PNG\r\n\x1a\n";
 
 function clipboard(overrides: Partial<NativeClipboard>): NativeClipboard {
@@ -20,32 +19,23 @@ function clipboard(overrides: Partial<NativeClipboard>): NativeClipboard {
 }
 
 function pasteImage(bytes: Uint8Array, isCurrent = current) {
-	return readClipboardPaste(unavailableCursor, isCurrent, clipboard({
+	return readClipboardPaste(isCurrent, clipboard({
 		getFilePaths: async () => [],
 		getImage: async () => bytes,
 	}));
 }
 
-test("clipboard files take priority and get padding only beside non-whitespace", async () => {
+test("clipboard files take priority and are joined one per line", async () => {
 	const files = clipboard({ getFilePaths: async () => ["/tmp/first.png", "/tmp/second file.png"] });
-	const paths = "/tmp/first.png\n/tmp/second file.png";
-	for (const [text, col, expected] of [
-		["ab", 1, ` ${paths} `],
-		["a b", 1, ` ${paths}`],
-		["a b", 2, `${paths} `],
-		["  ", 1, paths],
-		["", 0, paths],
-	] as const) {
-		assert.deepEqual(await readClipboardPaste(() => ({ text, col }), current, files), {
-			kind: "path", text: expected,
-		});
-	}
+	assert.deepEqual(await readClipboardPaste(current, files), {
+		kind: "path", text: "/tmp/first.png\n/tmp/second file.png",
+	});
 });
 
 test("clipboard rejects a file list containing any control character without falling back", async () => {
 	for (const control of ["\n", "\x1b", "\u0085"]) {
 		const files = clipboard({ getFilePaths: async () => ["/tmp/valid.png", `/tmp/bad${control}.png`] });
-		await assert.rejects(readClipboardPaste(unavailableCursor, current, files), {
+		await assert.rejects(readClipboardPaste(current, files), {
 			message: askStrings().clipboardPathHasControls,
 		});
 	}
@@ -86,7 +76,7 @@ test("a screenshot is not written if the editor is no longer current", async () 
 });
 
 test("clipboard text is the fallback and unavailable clipboard data is a no-op", async () => {
-	const paste = (value: NativeClipboard | null) => readClipboardPaste(unavailableCursor, current, value);
+	const paste = (value: NativeClipboard | null) => readClipboardPaste(current, value);
 	assert.deepEqual(await paste(clipboard({
 		getImage: async () => null,
 		getText: async () => " plain text\n",

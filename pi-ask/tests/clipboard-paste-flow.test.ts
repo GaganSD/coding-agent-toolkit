@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { access, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test, { after } from "node:test";
 import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
 import { askStrings } from "../src/i18n.ts";
@@ -53,7 +56,7 @@ test("pasting an image path is debounced like typing and submits as customText",
 
 	form.handleInput(PASTE);
 	await pasted;
-	const expected = `a${PATH}b`;
+	const expected = `a ${PATH} b`;
 	assert.equal(form.getState().answers.q1?.customText, expected);
 	assert.equal(drafts.length, 1, "paste is not reported immediately");
 	t.mock.timers.tick(DRAFT_TYPING_DEBOUNCE_MS);
@@ -95,6 +98,50 @@ test("an in-flight paste is dropped after disposing the form", async () => {
 	form.dispose();
 	await pasted;
 	assert.equal(form.getState().answers.q1?.customText, undefined);
+});
+
+test("pasted paths get a space only beside non-whitespace", async (t) => {
+	for (const [typed, left, expected] of [
+		["ab", 1, `a ${PATH} b`],
+		["a b", 2, `a ${PATH} b`],
+		["a ", 0, `a ${PATH}`],
+		["", 0, PATH],
+	] as const) {
+		const pasted = Promise.resolve({ kind: "image", text: PATH } as const);
+		const { form } = openForm(() => pasted);
+		t.after(() => form.dispose());
+		for (const key of typed) {
+			form.handleInput(key);
+		}
+		for (let i = 0; i < left; i++) {
+			form.handleInput("\x1b[D");
+		}
+		form.handleInput(PASTE);
+		await pasted;
+		assert.equal(form.getState().answers.q1?.customText, expected);
+	}
+});
+
+test("a screenshot written for a dropped paste is deleted", async () => {
+	const path = join(tmpdir(), `pi-clipboard-test-${process.pid}-${Date.now()}.png`);
+	await writeFile(path, "png");
+	let release = () => {};
+	const pasted = new Promise<{ kind: "image"; text: string }>((resolve) => {
+		release = () => resolve({ kind: "image", text: path });
+	});
+	const { form } = openForm(() => pasted);
+	form.handleInput(PASTE);
+	form.dispose();
+	release();
+	for (let i = 0; i < 50; i++) {
+		try {
+			await access(path);
+		} catch {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	assert.fail("the dropped screenshot is still on disk");
 });
 
 test("text pastes use editor sanitizing and drafts expand large-paste markers", async (t) => {

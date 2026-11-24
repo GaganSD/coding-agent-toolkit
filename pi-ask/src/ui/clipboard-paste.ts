@@ -9,7 +9,6 @@ import { askStrings } from "../i18n.ts";
 type ClipboardPaste = { kind: "path" | "image" | "text"; text: string };
 
 export async function readClipboardPaste(
-	getCursorLine: () => { text: string; col: number },
 	isCurrent: () => boolean,
 	clipboard: NativeClipboard | null | undefined = getNativeClipboard()
 ): Promise<ClipboardPaste | undefined> {
@@ -21,12 +20,7 @@ export async function readClipboardPaste(
 		if (paths.some((path) => /\p{Cc}/u.test(path))) {
 			throw new Error(askStrings().clipboardPathHasControls);
 		}
-		const { text, col } = getCursorLine();
-		const before = text[col - 1];
-		const after = text[col];
-		const leadingSpace = before && /\S/u.test(before) ? " " : "";
-		const trailingSpace = after && /\S/u.test(after) ? " " : "";
-		return { kind: "path", text: `${leadingSpace}${paths.join("\n")}${trailingSpace}` };
+		return { kind: "path", text: paths.join("\n") };
 	}
 	const bytes = await clipboard.getImage();
 	if (bytes?.length) {
