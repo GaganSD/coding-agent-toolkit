@@ -67,6 +67,25 @@ test("remote rows are appended, tagged, and session ids are machine-scoped", () 
   assert.equal(dashboard.lifetime.sessions, 2, "same id on two machines is two sessions");
 });
 
+test("remote rows keep empty and missing session ids empty", () => {
+  const missing = row("2026-11-10", "unused", 1);
+  delete missing.session;
+  const merged = mergeSnapshots(localSnapshot([]), [
+    record("box", [row("2026-11-10", "", 1), missing]),
+  ]);
+  assert.deepEqual(merged.rows.map((r) => r.session), ["", ""]);
+});
+
+test("rows without session ids contribute usage without increasing the dashboard session count", () => {
+  const merged = mergeSnapshots(
+    localSnapshot([row("2026-11-10", "", 10), row("2026-11-10", "s1", 2)]),
+    [record("box", [row("2026-11-10", "", 5), row("2026-11-10", "s1", 3)])],
+  );
+  const dashboard = deriveDashboard(merged, { today: "2026-11-13" });
+  assert.equal(dashboard.lifetime.total, 20);
+  assert.equal(dashboard.lifetime.sessions, 2);
+});
+
 test("streaks are recomputed across machines", () => {
   const merged = mergeSnapshots(
     localSnapshot([row("2026-11-11", "a", 1), row("2026-11-13", "a", 1)]),
@@ -162,6 +181,18 @@ test("machine names containing / are rejected so scoped session ids cannot colli
   ]);
   assert.deepEqual(merged.machines.map((m) => m.name), [null, "a"]);
   assert.ok(merged.warnings.some((w) => w.includes("a/b")));
+});
+
+test("machine names with leading or trailing whitespace are rejected", () => {
+  const merged = mergeSnapshots(localSnapshot([]), [
+    record(" box", [row("2026-11-10", "leading", 1)]),
+    record("box ", [row("2026-11-10", "trailing", 1)]),
+    record("box", [row("2026-11-10", "valid", 1)]),
+  ]);
+  assert.deepEqual(merged.machines.map((m) => m.name), [null, "box"]);
+  assert.deepEqual(merged.rows.map((r) => r.session), ["box/valid"]);
+  assert.ok(merged.warnings.some((warning) => warning.includes('" box"')));
+  assert.ok(merged.warnings.some((warning) => warning.includes('"box "')));
 });
 
 test("impossible calendar days are dropped", () => {

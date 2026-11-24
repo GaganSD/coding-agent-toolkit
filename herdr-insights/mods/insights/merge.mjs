@@ -16,8 +16,10 @@ function text(value) {
 }
 
 // No "/": session ids are scoped as `<machine>/<session>` and must not collide.
+// The dashboard trims machine selections before matching names.
 function validMachineName(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
+  return typeof value === "string" && value.length > 0 && value.length <= 128
+    && value === value.trim() && !value.includes("/");
 }
 
 function validDay(value) {
@@ -31,9 +33,10 @@ function remoteRow(raw, machine) {
   const tokens = {};
   for (const field of TOKEN_FIELDS) tokens[field] = toNonNegInt(raw.tokens?.[field]);
   tokens.total = tokenTotal(tokens);
+  const session = text(raw.session);
   const row = {
     day: raw.day,
-    session: `${machine}/${text(raw.session)}`,
+    session: session ? `${machine}/${session}` : "",
     machine,
     tokens,
     messages: toNonNegInt(raw.messages),
