@@ -11,6 +11,8 @@ import { contextRows, formatCacheHit, formatCountdown, formatRate, perfRows, typ
 import { EMPTY_PERF } from "./perf-stats.ts";
 import { sameLines } from "./render-lines.ts";
 
+import type { SubagentSpend } from "./subagent-usage.ts";
+
 export const DOUBLE_CLICK_MS = 400;
 type ListName = "mcp" | "skills" | "prompts";
 type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
@@ -55,6 +57,13 @@ export class Sidebar implements Component {
   hidden = false;
   get splitActive(): boolean { return this.splitDispose?.active() === true; }
   private session: SidebarSession = EMPTY_SESSION;
+  private subagentSpend?: SubagentSpend;
+  setSubagentSpend(spend: SubagentSpend): void {
+    const prior = this.subagentSpend;
+    if (prior?.runs === spend.runs && prior.measuredRuns === spend.measuredRuns && prior.cost === spend.cost) return;
+    this.subagentSpend = { ...spend };
+    this.changed();
+  }
   private resources: SidebarResources = EMPTY_RESOURCES;
   private folds: SidebarFolds = { ...DEFAULT_SIDEBAR_FOLDS };
   private offsets: Record<ListName, number> = { mcp: 0, skills: 0, prompts: 0 };
@@ -123,7 +132,7 @@ export class Sidebar implements Component {
   }
   /** A new session cannot inherit scroll positions, selected images, or old hit targets. */
   reset(): void {
-    this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES;
+    this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES; this.subagentSpend = undefined;
     this.offsets = { mcp: 0, skills: 0, prompts: 0 }; this.middleOffset = 0;
     this.image = undefined;
     this.painted = undefined; this.lastClick = undefined; this.changed();
@@ -145,7 +154,13 @@ export class Sidebar implements Component {
       `Output: ${formatCompactTokenCount(s.usage.output)} · Total: ${formatCompactTokenCount(s.usage.total)}`,
       `Cache read: ${formatCompactTokenCount(s.usage.cacheRead)} · Cache write: ${formatCompactTokenCount(s.usage.cacheWrite)}`,
       `Uncached input: ${formatCompactTokenCount(s.usage.uncached)} · Cache-hit share: ${hit}`,
-      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd, ...this.speedCacheDetails()].join("\n");
+      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd, ...this.subagentDetails(), ...this.speedCacheDetails()].join("\n");
+  }
+  private subagentDetails(): string[] {
+    const spend = this.subagentSpend;
+    return spend?.runs ? ["", `Sub-agents (this runtime, all runs): ${sidebarCost(spend.cost)}`,
+      `Measured runs: ${spend.measuredRuns}/${spend.runs}; includes settled runs. Unknown usage is not zero.`,
+      "Separate from parent active-branch cost; not persisted across reloads."] : [];
   }
   private speedCacheDetails(): string[] {
     const perf = this.session.perf;
@@ -305,7 +320,12 @@ export class Sidebar implements Component {
     const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
       .map(text => ({ text, action: branchUsage }));
     const performance = perfRows(input).flat().map(text => text === null ? HEADER_GAP : { text });
-    return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP, ...performance, divider];
+    const delegated = this.subagentSpend;
+    const delegatedRow: Row = delegated?.runs ? {
+      text: this.paint("dim", `Sub-agents ${sidebarCost(delegated.cost)}${delegated.measuredRuns < delegated.runs ? " (partial)" : ""}`),
+      action: branchUsage,
+    } : HEADER_GAP;
+    return [status, identity, model, delegatedRow, ...context, HEADER_GAP, ...performance, divider];
   }
   private middle(): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;

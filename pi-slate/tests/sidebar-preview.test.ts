@@ -298,6 +298,28 @@ test("speed and cache replace the usage lane; full accounting stays in details",
   assert.match(sidebar.sessionDetails(), /Cache hit % = cache read ÷ \(uncached \+ cache read \+ cache write\)/);
 });
 
+test("sub-agent spend uses an existing spacer, stays separate from OAuth branch cost, and resets", () => {
+  const { sidebar } = fixture();
+  sidebar.setSession({ ...session, usingOAuth: true });
+  const before = plain(sidebar.render(40));
+  const divider = before.findIndex(line => /^├─+┤$/.test(line));
+  sidebar.setSubagentSpend({ runs: 3, measuredRuns: 2, cost: 0.08 });
+  const after = plain(sidebar.render(40));
+  assert(after.some(line => line.includes("Sub-agents $0.08 (partial)")));
+  assert.equal(after.findIndex(line => /^├─+┤$/.test(line)), divider);
+  assert.match(sidebar.sessionDetails(), /Measured runs: 2\/3; includes settled runs/);
+  assert.match(sidebar.sessionDetails(), /Separate from parent active-branch cost/);
+  sidebar.setSubagentSpend({ runs: 1, measuredRuns: 0, cost: null });
+  assert(plain(sidebar.render(40)).some(line => line.includes("Sub-agents — (partial)")));
+  sidebar.setSubagentSpend({ runs: 1, measuredRuns: 1, cost: 0 });
+  assert(plain(sidebar.render(40)).some(line => line.includes("Sub-agents $0.00")));
+  for (const width of [18, 24, 30, 40, 60]) assert(sidebar.render(width).every(line => visibleWidth(line) <= width));
+  sidebar.reset(); sidebar.setSession(session);
+  assert(!plain(sidebar.render(40)).some(line => line.includes("Sub-agents")));
+  assert(!sidebar.sessionDetails().includes("Sub-agents"));
+  sidebar.dispose();
+});
+
 test("header height follows the terminal tier and its divider closes the header", () => {
   const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });

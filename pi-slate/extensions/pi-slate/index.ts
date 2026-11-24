@@ -28,6 +28,7 @@ import { installToolStyle } from "./tool-style.ts";
 import { ToolGroups } from "./tool-groups.ts";
 import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
+import { installSubagentUsage } from "./subagent-usage.ts";
 import { Sidebar } from "./sidebar.ts";
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
 import { inspectSidebarText } from "./sidebar-inspector.ts";
@@ -227,6 +228,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   if (owns("editor")) installPromptPicker(pi, promptShortcutKey(config.shortcuts));
   installExitCommand(pi);
   const sidebar = new Sidebar();
+  let stopSubagentUsage: (() => void) | undefined;
   const images = owns("editor") ? installImagePlaceholders(pi, owns("sidebar") ? sidebar : undefined, () => editorActive()) : undefined;
   const selection = new ComposerSelectionController();
   const skills = new SidebarSkills();
@@ -678,7 +680,13 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
   };
 
-  pi.on("session_start", (_event, ctx) => { install(ctx); });
+  pi.on("session_start", (_event, ctx) => {
+    stopSubagentUsage?.();
+    install(ctx);
+    if (owns("sidebar") && ctx.mode === "tui") {
+      stopSubagentUsage = installSubagentUsage(pi, ctx.sessionManager.getSessionId(), spend => sidebar.setSubagentSpend(spend));
+    }
+  });
   pi.on("agent_start", (_event, ctx) => {
     currentContext = ctx;
     if (ctx.mode === "tui" && (owns("sidebar") || editorActive() || owns("transcript"))) {
@@ -797,6 +805,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     syncVisibleMessages();
   });
   pi.on("session_shutdown", (_event, ctx) => {
+    stopSubagentUsage?.(); stopSubagentUsage = undefined;
     sessionEpoch += 1;
     workingWord = undefined;
     try {
