@@ -113,7 +113,8 @@ test("resuming a failed member uses a singleton batch even while its original si
   sibling.resolve(result);
   await manager.settled(ids[1]!);
   assert.equal(notices.length, 2);
-  assert.deepEqual(notices[1]!.finished.map(run => run.state), ["failed", "completed"]);
+  assert.deepEqual(notices[1]!.finished.map(run => run.id), [ids[1]], "the original batch must not replay the superseded failure");
+  assert(!notices[1]!.finished.some(run => run.resume?.eligible));
 });
 
 test("teardown drops buffered results; a replacement owner receives only its own notices", async () => {
@@ -130,12 +131,140 @@ test("teardown drops buffered results; a replacement owner receives only its own
   assert.equal(replacement.notices[0]!.record.owner, "replacement");
 });
 
-test("a stalled batch notification submission remains bounded", async () => {
+test("a stalled batch notification submission marks every member and remains bounded", async () => {
   let submissions = 0;
   const { manager } = setup({ cleanupMs: 10, notify: async () => { submissions++; await new Promise(() => {}); } });
   const ids = await manager.launch([plan(), plan()]);
   await Promise.all(ids.map(id => manager.settled(id)));
   assert.equal(submissions, 1);
-  assert(manager.list().some(run => run.notificationError?.includes("Notification submission deadline")));
+  assert(manager.list().every(run => run.notificationError?.includes("Notification submission deadline")));
   await manager.shutdown();
+});
+
+test("a rejected final flush leaves a delivery warning on every affected run", async () => {
+  let submissions = 0;
+  const store = new MemoryStore();
+  const { manager } = setup({ store, notify: async () => { submissions++; throw new Error("submission rejected"); } });
+  const ids = await manager.launch([plan(), plan()]);
+  await Promise.all(ids.map(id => manager.settled(id)));
+  assert.equal(submissions, 1, "there is no automatic retry without a later flush");
+  for (const id of ids) {
+    assert.equal(manager.status(id).notificationError, "submission rejected");
+    await until(() => store.records.get(id)?.notificationError === "submission rejected");
+  }
+});
+
+test("a rejected question submission restores buffered siblings for the next same-owner flush", async () => {
+  const questionGate = deferred<void>();
+  const delivered: RunRecord[][] = [];
+  let submissions = 0;
+  const { manager } = setup({ notify: async (_record, kind, finished) => {
+    submissions++;
+    if (kind === "question") throw new Error("question rejected");
+    delivered.push(finished);
+  } });
+  const ids = await manager.launch([
+    plan(), plan(async context => { await questionGate.promise; await context.ask("Question"); return result; }),
+  ]);
+  await manager.settled(ids[0]!);
+  questionGate.resolve();
+  await manager.settled(ids[1]!);
+  assert.equal(submissions, 2);
+  assert.equal(delivered.length, 1);
+  assert.deepEqual(delivered[0]!.map(run => run.id), ids);
+  assert.equal(manager.status(ids[0]!).notificationError, "question rejected");
+});
+
+test("a timed-out question marks every affected run without replaying ambiguous notices", async () => {
+  const questionGate = deferred<void>();
+  const delivered: RunRecord[][] = [];
+  let submissions = 0;
+  const { manager } = setup({ cleanupMs: 20, notify: async (_record, kind, finished) => {
+    submissions++;
+    if (kind === "question") await new Promise(() => {});
+    else delivered.push(finished);
+  } });
+  const ids = await manager.launch([
+    plan(), plan(async context => { await questionGate.promise; await context.ask("Question"); return result; }),
+  ]);
+  await manager.settled(ids[0]!);
+  questionGate.resolve();
+  await manager.settled(ids[1]!);
+  assert.equal(submissions, 2);
+  assert.deepEqual(delivered[0]!.map(run => run.id), [ids[1]], "A may already have been delivered with the question");
+  for (const id of ids) assert.match(manager.status(id).notificationError!, /Notification submission deadline/);
+});
+
+test("an unpersisted question cannot park a sibling: first wake includes both result and question", async t => {
+  const store = new MemoryStore();
+  const writingQuestion = deferred<void>();
+  const allowQuestionWrite = deferred<void>();
+  store.save = async (record, signal) => {
+    if (record.state === "waiting_for_agent") {
+      writingQuestion.resolve();
+      await allowQuestionWrite.promise;
+    }
+    await MemoryStore.prototype.save.call(store, record, signal);
+  };
+  const first = deferred<SubAgentResult>();
+  const { manager, notices } = setup({ store });
+  t.after(async () => { allowQuestionWrite.resolve(); await manager.shutdown(); });
+  const ids = await manager.launch([
+    plan(() => first.promise), plan(async context => { await context.ask("Gated question"); return result; }),
+  ]);
+  await writingQuestion.promise;
+  first.resolve(result);
+  await manager.settled(ids[0]!);
+  assert.equal(notices.length, 0, "waiting_for_agent is not yet a submitted question");
+  allowQuestionWrite.resolve();
+  await until(() => notices.length === 1);
+  assert.equal(notices[0]!.kind, "question");
+  assert.equal(notices[0]!.record.id, ids[1]);
+  assert.deepEqual(notices[0]!.finished.map(run => run.id), [ids[0]]);
+  await manager.reply(ids[1]!, manager.status(ids[1]!).question!.id, "Answer");
+  await manager.settled(ids[1]!);
+  assert.equal(notices.length, 2);
+});
+
+test("results arriving during question submission flush only after that submission succeeds", async t => {
+  const submitting = deferred<void>(), accepted = deferred<void>();
+  const delivered: { kind: string; finished: RunRecord[] }[] = [];
+  const first = deferred<SubAgentResult>();
+  const { manager } = setup({ notify: async (_record, kind, finished) => {
+    if (kind === "question") { submitting.resolve(); await accepted.promise; }
+    delivered.push({ kind, finished });
+  } });
+  t.after(async () => { accepted.resolve(); await manager.shutdown(); });
+  const ids = await manager.launch([
+    plan(() => first.promise), plan(async context => { await context.ask("Question"); return result; }),
+  ]);
+  await submitting.promise;
+  first.resolve(result);
+  await manager.settled(ids[0]!);
+  assert.equal(delivered.length, 0);
+  accepted.resolve();
+  await until(() => delivered.length === 2);
+  assert.deepEqual(delivered.map(notice => notice.kind), ["question", "finished"]);
+  assert.deepEqual(delivered[1]!.finished.map(run => run.id), [ids[0]]);
+});
+
+test("two concurrent run calls retain separate notification batches", async () => {
+  const { manager, notices } = setup();
+  const gates = Array.from({ length: 4 }, () => deferred<SubAgentResult>());
+  const [first, second] = await Promise.all([
+    manager.launch(gates.slice(0, 2).map(gate => plan(() => gate.promise))),
+    manager.launch(gates.slice(2).map(gate => plan(() => gate.promise))),
+  ]);
+  gates[0]!.resolve(result);
+  await manager.settled(first[0]!);
+  assert.equal(notices.length, 0);
+  gates[2]!.resolve(result);
+  gates[3]!.resolve(result);
+  await Promise.all(second.map(id => manager.settled(id)));
+  assert.equal(notices.length, 1);
+  assert.deepEqual(new Set(notices[0]!.finished.map(run => run.id)), new Set(second));
+  gates[1]!.resolve(result);
+  await manager.settled(first[1]!);
+  assert.equal(notices.length, 2);
+  assert.deepEqual(notices[1]!.finished.map(run => run.id), first);
 });

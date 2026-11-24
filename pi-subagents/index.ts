@@ -16,7 +16,7 @@ import { DESCRIPTION, OutputSchema, Parameters, parseRequest, presentLaunch, pre
 import { errorText, isLive, type PreparedTask, type Profile } from "./src/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { BoundaryEditor } from "./src/navigation.ts";
-import { HumanState, stateLabel } from "./src/presentation.ts";
+import { batchSummary, HumanState, stateLabel } from "./src/presentation.ts";
 import { plain, syncWidget, type WidgetSlot, type NavigationHost } from "./src/ui.ts";
 import { canonicalDirectory, workspaceRoot } from "./src/workspace.ts";
 import { backgroundTaskSnapshot } from "./src/dashboard.ts";
@@ -84,9 +84,10 @@ export default function subagents(pi: ExtensionAPI): void {
   });
 
   pi.registerMessageRenderer?.("minimal-subagent", (message, { expanded }, theme) => {
-    const details = message.details as { title?: string; state?: string; kind?: string } | undefined;
-    const title = details?.title ?? "Sub-agent";
-    const status = details?.kind === "question" ? "Needs reply" : details?.state ?? "Finished · report saved (unverified)";
+    const details = message.details as { title?: string; state?: string; kind?: string; summary?: string } | undefined;
+    const title = details?.summary && details.kind !== "question" ? "Sub-agents" : details?.title ?? "Sub-agent";
+    const status = details?.kind === "question" ? `Needs reply${details.summary ? ` · ${details.summary}` : ""}`
+      : details?.summary ?? details?.state ?? "Finished · report saved (unverified)";
     return new Text(`${theme.fg("accent", plain(title, 180))} · ${plain(status)}${expanded ? `\n${plain(typeof message.content === "string" ? message.content : JSON.stringify(message.content), 4096)}` : ""}`, 0, 0);
   });
 
@@ -102,7 +103,6 @@ export default function subagents(pi: ExtensionAPI): void {
   }
   function changed(): void {
     if (!host) return;
-    host.widget.state!.remember(host.manager.list());
     for (const listener of inspectors) { try { listener(); } catch { /* Overlay never determines run success. */ } }
     if (!refresh) refresh = setTimeout(() => { refresh = undefined; draw(); }, 100);
   }
@@ -134,7 +134,7 @@ export default function subagents(pi: ExtensionAPI): void {
         // Pi acknowledges submission only; asynchronous delivery failures are
         // reported by the host. The registry/artifacts remain authoritative.
         host.widget.state!.remember(manager.list());
-        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind, title: host.widget.state!.title(record), state: stateLabel(record) } }, { triggerTurn: true, deliverAs: "followUp" });
+        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind, title: host.widget.state!.title(record), state: stateLabel(record), summary: batchSummary(finished) } }, { triggerTurn: true, deliverAs: "followUp" });
       },
     });
     host = { owner, ctx, manager, widget: { state: new HumanState() } };

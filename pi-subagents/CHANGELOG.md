@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- Preserve buffered results after definite notification rejection; mark every affected run on failed or ambiguous timed-out delivery without replaying timeouts.
+- Wait for question submission before flushing sibling results, discard superseded buffered failures on resume, and show multi-result counts (including failures) in collapsed notices without cloning the roster on every progress event.
 - Settled sub-agents reject `steer`/`followUp` instead of acknowledging input their disposing session would never process.
 - Threads re-render cached markdown with the active theme after invalidation instead of retaining stale colors.
 
