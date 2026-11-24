@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { collectSnapshot } from "./collector.mjs";
+import { timeZoneStoreKey } from "./remote.mjs";
 
 const MAX_ROWS_CHARS = 7_000_000;
 
@@ -28,7 +29,13 @@ function parseArgs(argv) {
 async function rows(argv) {
   const options = parseArgs(argv);
   const home = path.resolve(options.home ?? os.homedir());
-  const store = path.resolve(options.store ?? path.join(os.homedir(), ".cache", "herdr-insights", "store", "insights.json"));
+  const activeTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeZone = process.env.TZ ?? activeTimeZone;
+  const key = timeZoneStoreKey(timeZone);
+  if (Intl.DateTimeFormat(undefined, { timeZone }).resolvedOptions().timeZone !== activeTimeZone) {
+    throw new Error("The remote runtime could not use the dashboard timezone.");
+  }
+  const store = path.resolve(options.store ?? path.join(os.homedir(), ".cache", "herdr-insights", "store", key, "insights.json"));
   await mkdir(path.dirname(store), { recursive: true });
   const snapshot = await collectSnapshot("snapshot", { store, home });
   const encoded = gzipSync(JSON.stringify(snapshot.rows ?? [])).toString("base64");

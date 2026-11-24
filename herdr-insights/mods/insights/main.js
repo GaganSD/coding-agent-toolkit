@@ -48,7 +48,7 @@ import {
   toggleSwitch,
   tokens,
 } from "./ui.js";
-import { machineFileStem, rowsFileText, stateFileText, syncMachine } from "./remote.mjs";
+import { isTimeZoneId, machineFileStem, rowsFileText, stateFileText, syncMachine, timeZoneStoreKey } from "./remote.mjs";
 
 const MIN_CELL = 12;
 const MAX_CELL = 20;
@@ -209,8 +209,7 @@ const MAX_FACET_OPTIONS = 250;
 const REMOTE_CONTINUE_MS = { partial: 1000, running: 15000, starting: 15000 };
 const REMOTE_MAX_STALLS = 3;
 
-// One sync per machine across every dashboard copy: copies share module code,
-// and two writers of the same machine file would race.
+// Dashboard copies share one sync per machine and timezone.
 const remoteInflight = new Map();
 
 export function machineStatusText(machine, live = {}) {
@@ -840,8 +839,8 @@ export default class Insights extends View {
     });
   }
 
-  machinesDir() {
-    return `${appHome()}/data/insights/machines`;
+  machinesDir(timeZone) {
+    return `${appHome()}/data/insights/machines/${timeZoneStoreKey(timeZone)}`;
   }
 
   remoteSettingsPath() {
@@ -878,7 +877,7 @@ export default class Insights extends View {
 
   syncRemotes(cx) {
     // Wait for the first presenter payload: it carries the disabled list.
-    if (!this.remoteStarted || this.closed || this.toolbarMode || !this.nodeBinary || this.runtimeError) return;
+    if (!this.remoteTimeZone || this.closed || this.toolbarMode || !this.nodeBinary || this.runtimeError) return;
     const disabled = new Set(this.remoteDisabled ?? []);
     for (const machine of machines() ?? []) {
       if (!machine?.name || machine.layout === "loading" || disabled.has(machine.name)) continue;
@@ -887,6 +886,8 @@ export default class Insights extends View {
   }
 
   syncMachine(cx, name, offline) {
+    const timeZone = this.remoteTimeZone;
+    const key = JSON.stringify([name, timeZone]);
     let entry = this.remote.get(name);
     if (!entry) {
       entry = { task: null, timer: null, error: null, scan: null, progress: null, stalls: 0 };
@@ -900,10 +901,10 @@ export default class Insights extends View {
       let envelope = null;
       let failure = null;
       try {
-        let pending = remoteInflight.get(name);
+        let pending = remoteInflight.get(key);
         if (!pending) {
-          pending = this.fetchMachine(name, offline).finally(() => remoteInflight.delete(name));
-          remoteInflight.set(name, pending);
+          pending = this.fetchMachine(name, offline, timeZone).finally(() => remoteInflight.delete(key));
+          remoteInflight.set(key, pending);
         }
         envelope = await pending;
       } catch (error) {
@@ -911,7 +912,7 @@ export default class Insights extends View {
       } finally {
         if (entry.task === task) entry.task = null;
       }
-      if (this.closed) return;
+      if (this.closed || this.remote.get(name) !== entry) return;
       entry.error = failure ? sanitizeError(failure) : null;
       if (envelope) {
         entry.scan = envelope.scan;
@@ -925,7 +926,7 @@ export default class Insights extends View {
       if (delay && entry.stalls < REMOTE_MAX_STALLS && !(this.remoteDisabled ?? []).includes(name)) {
         entry.timer = syncCx.timer.after(delay, (timerCx) => {
           entry.timer = null;
-          if ((this.remoteDisabled ?? []).includes(name)) return;
+          if (this.remote.get(name) !== entry || (this.remoteDisabled ?? []).includes(name)) return;
           this.syncMachine(timerCx, name, false);
         });
       }
@@ -937,8 +938,8 @@ export default class Insights extends View {
 
   // Only aggregated rows are written, beside the store, for the presenter to
   // merge. A failed attempt keeps the last rows file and records the error.
-  async fetchMachine(name, offline) {
-    const dir = this.machinesDir();
+  async fetchMachine(name, offline, timeZone) {
+    const dir = this.machinesDir(timeZone);
     const stem = machineFileStem(name);
     const attemptedAt = new Date().toISOString();
     await mkdir(dir, { recursive: true });
@@ -947,6 +948,7 @@ export default class Insights extends View {
       const { envelope } = await syncMachine({
         exec: (command, args, options) => exec(command, args, { ...options, on: name }),
         bundle: () => this.loadBundle(),
+        timeZone,
       });
       await writeFile(`${dir}/${stem}.rows.json`, rowsFileText({ machine: name, envelope, fetchedAt: attemptedAt }));
       await writeFile(`${dir}/${stem}.state.json`, stateFileText({ machine: name, attemptedAt, error: null }));
@@ -1235,6 +1237,7 @@ export default class Insights extends View {
         if (payload.error && !payload.dashboard) throw new Error(payload.error);
         if (!payload.dashboard) throw new Error("The presentation helper returned no dashboard.");
         if (!this.snapshot || presentationKey(this.snapshot, this.dashboardOptions()) !== key) return;
+        this.applyRemoteContext(payload.snapshot, prepareCx);
         this.dashboard = payload.dashboard;
         this.dashboardKey = key;
         if (Array.isArray(payload.dashboard.years) && payload.dashboard.years.length) this.years = payload.dashboard.years;
@@ -1352,17 +1355,25 @@ export default class Insights extends View {
     });
   }
 
+  applyRemoteContext(snapshot, cx) {
+    const timeZone = isTimeZoneId(snapshot.remoteTimeZone) ? snapshot.remoteTimeZone : null;
+    if ((this.remoteTimeZone ?? null) === timeZone) return;
+    // Old work may finish writing to its own timezone's directory.
+    for (const entry of this.remote.values()) {
+      try { entry.timer?.cancel(); } catch { /* already gone */ }
+    }
+    this.remote.clear();
+    this.remoteTimeZone = timeZone;
+    this.syncRemotes(cx);
+  }
+
   applySnapshot(payload, cx) {
     if (!isPresentation(payload)) throw new Error("The presentation helper returned an unexpected dashboard payload.");
     const snapshot = payload.snapshot;
     this.cancelDashboardWork();
     this.snapshot = snapshot;
     if (Array.isArray(snapshot.remoteDisabled)) this.remoteDisabled = snapshot.remoteDisabled;
-    // The first sync waits for the presenter's disabled list.
-    if (!this.remoteStarted) {
-      this.remoteStarted = true;
-      this.syncRemotes(cx);
-    }
+    this.applyRemoteContext(snapshot, cx);
     const savedConfig = normalizeConfig(snapshot.config);
     const today = todayKey();
     const years = Array.isArray(payload.dashboard?.years) && payload.dashboard.years.length

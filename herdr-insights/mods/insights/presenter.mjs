@@ -17,6 +17,7 @@ import {
 import { collectSnapshot, readCommittedSnapshot } from "./collector.mjs";
 import { buildRemoteBundle, loadMachineRecords } from "./core/machines.mjs";
 import { mergeSnapshots } from "./merge.mjs";
+import { timeZoneStoreKey } from "./remote.mjs";
 
 function usage() {
   return [
@@ -84,6 +85,7 @@ function compactSnapshot(snapshot, rowCount = 0) {
     warnings = [],
     machines = [],
     remoteDisabled = [],
+    remoteTimeZone = null,
   } = snapshot ?? {};
   return {
     version,
@@ -103,10 +105,11 @@ function compactSnapshot(snapshot, rowCount = 0) {
     warnings: Array.isArray(warnings) ? warnings : [],
     machines: Array.isArray(machines) ? machines : [],
     remoteDisabled: Array.isArray(remoteDisabled) ? remoteDisabled : [],
+    remoteTimeZone,
   };
 }
 
-// Remote machine files live beside the store: machines/<stem>.{rows,state}.json
+// Remote files live beside the store: machines/<timezone>/<stem>.{rows,state}.json
 // written by main.js, and remote.json {disabled: [names]} from Settings.
 async function disabledMachines(dataDir, warnings) {
   let text;
@@ -130,9 +133,12 @@ async function withMachines(snapshot, storePath) {
   const warnings = [];
   let records = [];
   let disabled = [];
+  // This local process derives the dashboard and gives QuickJS the same zone
+  // for remote collection, even on builds without Intl in QuickJS.
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   try {
     disabled = await disabledMachines(dataDir, warnings);
-    const loaded = await loadMachineRecords(path.join(dataDir, "machines"), { disabled });
+    const loaded = await loadMachineRecords(path.join(dataDir, "machines", timeZoneStoreKey(timeZone)), { disabled });
     records = loaded.records;
     warnings.push(...loaded.warnings);
   } catch (error) {
@@ -141,6 +147,7 @@ async function withMachines(snapshot, storePath) {
   const merged = mergeSnapshots(snapshot, records);
   merged.warnings.push(...warnings);
   merged.remoteDisabled = disabled;
+  merged.remoteTimeZone = timeZone;
   return merged;
 }
 

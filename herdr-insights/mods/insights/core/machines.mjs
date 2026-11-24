@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { REMOTE_RECORD_VERSION } from "../merge.mjs";
 import { isPlainObject } from "./util.mjs";
 
-const BUNDLE_ROOT_FILES = ["collector.mjs", "indexer.mjs", "remote-entry.mjs"];
+const BUNDLE_ROOT_FILES = ["collector.mjs", "indexer.mjs", "remote-entry.mjs", "remote.mjs"];
 
 async function bundleFiles(modDir) {
   // This module stays behind: it is Mac-only and imports ../merge.mjs.

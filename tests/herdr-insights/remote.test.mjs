@@ -5,7 +5,7 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { deriveDashboard } from "../../herdr-insights/mods/insights/analytics.js";
 import { mergeSnapshots } from "../../herdr-insights/mods/insights/merge.mjs";
 import { buildRemoteBundle, loadMachineRecords } from "../../herdr-insights/mods/insights/core/machines.mjs";
@@ -93,6 +93,14 @@ test("install command keeps the payload in one bounded argument", () => {
   assert.throws(() => installCommand("0123456789abcdef", "A".repeat(120000)), /too large/);
 });
 
+test("rows command accepts named timezones and rejects shell syntax", () => {
+  const probe = { dir: "/remote/worker", node: "/usr/bin/node" };
+  assert.ok(rowsCommand(probe, "Etc/GMT+5").args.includes("TZ=Etc/GMT+5"));
+  for (const timeZone of [undefined, "", "../UTC", ":UTC", "UTC\n", "UTC other", "UTC;echo hi", "$(echo UTC)"]) {
+    assert.throws(() => rowsCommand(probe, timeZone), /Invalid Insights timezone/);
+  }
+});
+
 function fakeExec(responses) {
   const calls = [];
   const exec = async (command, args, options) => {
@@ -108,11 +116,12 @@ const bundle = async () => ({ hash: "0123456789abcdef", payload: "UEFZTE9BRA" })
 
 test("syncMachine runs probe then rows when the bundle is installed", async () => {
   const { exec, calls } = fakeExec([{ stdout: probeLine() }, { stdout: JSON.stringify(envelope()) }]);
-  const result = await syncMachine({ exec, bundle });
+  const result = await syncMachine({ exec, bundle, timeZone: "America/Los_Angeles" });
   assert.equal(result.envelope.kind, "insights-remote-rows");
   assert.equal(calls.length, 2);
   assert.ok(!calls[0].args.includes("UEFZTE9BRA"));
   assert.ok(calls[1].args.includes("/r/.cache/herdr-insights/0123456789abcdef/remote-entry.mjs"));
+  assert.ok(calls[1].args.includes("TZ=America/Los_Angeles"));
   assert.ok(calls.every((call) => Number.isInteger(call.options?.timeout)));
 });
 
@@ -122,27 +131,27 @@ test("syncMachine installs a missing bundle before fetching rows", async () => {
     { stdout: probeLine() },
     { stdout: JSON.stringify(envelope()) },
   ]);
-  await syncMachine({ exec, bundle });
+  await syncMachine({ exec, bundle, timeZone: "UTC" });
   assert.equal(calls.length, 3);
   assert.equal(calls[1].args.at(-1), "UEFZTE9BRA");
 });
 
 test("syncMachine reports unreachable machines, missing node, old node, and failed commands", async () => {
-  await assert.rejects(syncMachine({ exec: fakeExec([new Error("machine unreachable")]).exec, bundle }), /unreachable/);
+  await assert.rejects(syncMachine({ exec: fakeExec([new Error("machine unreachable")]).exec, bundle, timeZone: "UTC" }), /unreachable/);
   await assert.rejects(
-    syncMachine({ exec: fakeExec([{ stdout: '{"ok":false,"error":"node was not found on PATH"}' }]).exec, bundle }),
+    syncMachine({ exec: fakeExec([{ stdout: '{"ok":false,"error":"node was not found on PATH"}' }]).exec, bundle, timeZone: "UTC" }),
     /node was not found/,
   );
   await assert.rejects(
-    syncMachine({ exec: fakeExec([{ stdout: '{"ok":false,"error":"Node 22.15+ is required (found v20.1.0)"}' }]).exec, bundle }),
+    syncMachine({ exec: fakeExec([{ stdout: '{"ok":false,"error":"Node 22.15+ is required (found v20.1.0)"}' }]).exec, bundle, timeZone: "UTC" }),
     /22\.15/,
   );
   await assert.rejects(
-    syncMachine({ exec: fakeExec([{ stdout: probeLine() }, { code: 1, stdout: "", stderr: "trace\nError: disk full\n" }]).exec, bundle }),
+    syncMachine({ exec: fakeExec([{ stdout: probeLine() }, { code: 1, stdout: "", stderr: "trace\nError: disk full\n" }]).exec, bundle, timeZone: "UTC" }),
     /disk full/,
   );
   await assert.rejects(
-    syncMachine({ exec: fakeExec([{ stdout: probeLine({ installed: false }) }, { stdout: probeLine({ installed: false }) }]).exec, bundle }),
+    syncMachine({ exec: fakeExec([{ stdout: probeLine({ installed: false }) }, { stdout: probeLine({ installed: false }) }]).exec, bundle, timeZone: "UTC" }),
     /install/,
   );
 });
@@ -172,7 +181,7 @@ test("end to end: install, collect, and merge on this machine through the shell 
   const session = path.join(home, ".codex/sessions/2026/03/03/rollout-modern.jsonl");
   await mkdir(path.dirname(session), { recursive: true });
   await copyFile(path.join(fixtures, "codex-modern.jsonl"), session);
-  const env = { ...process.env, HOME: home };
+  const env = { ...process.env, HOME: home, TZ: "UTC" };
 
   const { hash, payload } = await buildRemoteBundle(modDir);
   assert.match(hash, /^[0-9a-f]{16}$/);
@@ -195,10 +204,15 @@ test("end to end: install, collect, and merge on this machine through the shell 
   assert.equal(again.installed, true);
   assert.deepEqual((await readdir(cacheBase)).filter((name) => name.includes(".tmp-")), []);
 
-  const rowsResult = await run(rowsCommand(installed), env);
+  const rowsResult = await run(rowsCommand(installed, "America/Los_Angeles"), env);
   assert.equal(rowsResult.code, 0, rowsResult.stderr);
   const remote = parseRows(rowsResult.stdout);
   assert.ok(remote.rowCount > 0);
+  const days = (envelope) => [...new Set(JSON.parse(gunzipSync(Buffer.from(envelope.rows, "base64"))).map((row) => row.day))];
+  assert.deepEqual(days(remote), ["2026-03-02"]);
+  const utcResult = await run(rowsCommand(installed, "UTC"), env);
+  assert.equal(utcResult.code, 0, utcResult.stderr);
+  assert.deepEqual(days(parseRows(utcResult.stdout)), ["2026-03-03"]);
   assert.deepEqual(JSON.parse(rowsResult.stdout.trim().split("\n").at(-1)).warnings, [], "the remote prints no warning text");
 
   const machinesDir = path.join(root, "machines");

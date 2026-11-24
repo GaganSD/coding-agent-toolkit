@@ -82,10 +82,23 @@ export function installCommand(hash, payload) {
   return nodeScript([hash, payload], INSTALL_TIMEOUT_MS);
 }
 
-export function rowsCommand(probe) {
+// Named tzdb identifiers fit this allowlist, including Etc/GMT+ offsets.
+// Reject shell syntax and path traversal before sending an argument to Herdr.
+export function isTimeZoneId(value) {
+  return typeof value === "string" && value.length <= 60
+    && /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/.test(value);
+}
+
+export function timeZoneStoreKey(timeZone) {
+  if (!isTimeZoneId(timeZone)) throw new Error("Invalid Insights timezone.");
+  return machineFileStem(timeZone);
+}
+
+export function rowsCommand(probe, timeZone) {
+  if (!isTimeZoneId(timeZone)) throw new Error("Invalid Insights timezone.");
   return {
     command: "sh",
-    args: ["-lc", LOW_PRIORITY, "sh", probe.node, `${probe.dir}/remote-entry.mjs`, "rows"],
+    args: ["-lc", LOW_PRIORITY, "sh", "env", `TZ=${timeZone}`, probe.node, `${probe.dir}/remote-entry.mjs`, "rows"],
     timeout: ROWS_TIMEOUT_MS,
   };
 }
@@ -182,7 +195,7 @@ async function runStep(exec, { command, args, timeout }, step) {
 }
 
 /** Probe, install when this bundle version is missing, then fetch usage rows. */
-export async function syncMachine({ exec, bundle }) {
+export async function syncMachine({ exec, bundle, timeZone }) {
   const { hash, payload } = await bundle();
   if (!HASH.test(String(hash))) throw new Error("The Insights worker bundle has an invalid hash.");
   let probe = parseProbe(await runStep(exec, probeCommand(hash), "check"));
@@ -192,7 +205,7 @@ export async function syncMachine({ exec, bundle }) {
     if (!probe.ok) throw new Error(probe.error);
     if (!probe.installed) throw new Error("Remote install did not complete.");
   }
-  const envelope = parseRows(await runStep(exec, rowsCommand(probe), "scan"));
+  const envelope = parseRows(await runStep(exec, rowsCommand(probe, timeZone), "scan"));
   return { probe, envelope };
 }
 

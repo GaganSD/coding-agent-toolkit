@@ -11,6 +11,9 @@ const analyticsUrl = dataUrl(analyticsSource);
 const analytics = await import(analyticsUrl);
 const analyticsNames = Object.keys(analytics).join(", ");
 const { buildHeatmap, compactDashboard, deriveDashboard } = analytics;
+const { timeZoneStoreKey } = await import(dataUrl(remoteSource));
+const remoteTimeZone = "America/Los_Angeles";
+const remoteFilesDir = `/app/data/insights/machines/${timeZoneStoreKey(remoteTimeZone)}`;
 
 function fakeNativeElement() {
   const node = { calls: [], childNodes: [], style: {} };
@@ -1657,6 +1660,7 @@ function remoteHerdr({ machines, rows = "fail", disabled = [], scan = null, firs
       const options = optionArgument(args);
       const payload = presentationFor({ ...savedSnapshot(), remoteDisabled: disabled }, options, args[1]);
       payload.snapshot.remoteDisabled = disabled;
+      payload.snapshot.remoteTimeZone = state.remoteTimeZone ?? remoteTimeZone;
       return { code: 0, stdout: JSON.stringify(payload), stderr: "" };
     },
   });
@@ -1687,14 +1691,15 @@ test("remote machines sync with exec on, save only aggregated files, and re-prep
 
   const remoteCalls = state.execCalls.filter((call) => call.command === "sh");
   assert.ok(remoteCalls.length >= 2);
+  assert.ok(remoteCalls.some((call) => call.args.includes(`TZ=${remoteTimeZone}`)));
   assert.ok(remoteCalls.every((call) => call.options?.on === "box"), "remote commands run only on the ready machine");
   assert.equal(state.execCalls.filter((call) => call.args?.[1] === "bundle").length, 1);
-  const rowsFile = JSON.parse(state.files["/app/data/insights/machines/box.rows.json"]);
+  const rowsFile = JSON.parse(state.files[`${remoteFilesDir}/box.rows.json`]);
   assert.equal(rowsFile.kind, "insights-remote-machine-rows");
   assert.equal(rowsFile.envelope.rowCount, 0);
-  assert.equal(JSON.parse(state.files["/app/data/insights/machines/box.state.json"]).error, null);
-  assert.match(JSON.parse(state.files["/app/data/insights/machines/gone.state.json"]).error, /offline/);
-  assert.equal(state.files["/app/data/insights/machines/gone.rows.json"], undefined);
+  assert.equal(JSON.parse(state.files[`${remoteFilesDir}/box.state.json`]).error, null);
+  assert.match(JSON.parse(state.files[`${remoteFilesDir}/gone.state.json`]).error, /offline/);
+  assert.equal(state.files[`${remoteFilesDir}/gone.rows.json`], undefined);
   assert.equal(Object.keys(state.files).some((file) => file.includes("wait")), false);
   const prepares = state.execCalls.filter((call) => call.args?.[1] === "prepare");
   assert.ok(prepares.some((call) => optionArgument(call.args).remoteRevision >= 1), "a finished sync re-prepares the dashboard");
@@ -1707,9 +1712,25 @@ test("a failed remote keeps its last rows and records the error for the machine"
   const instance = new Insights();
   instance.init({}, cx);
   await settle();
-  assert.equal(state.files["/app/data/insights/machines/box.rows.json"], undefined);
-  assert.match(JSON.parse(state.files["/app/data/insights/machines/box.state.json"]).error, /disk full/);
+  assert.equal(state.files[`${remoteFilesDir}/box.rows.json`], undefined);
+  assert.match(JSON.parse(state.files[`${remoteFilesDir}/box.state.json`]).error, /disk full/);
   assert.match(instance.remoteView("box").error, /disk full/);
+  instance.close();
+});
+
+test("a running dashboard syncs into a new directory after its timezone changes", async () => {
+  const state = remoteHerdr({ rows: "ok", machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  assert.ok(state.files[`${remoteFilesDir}/box.rows.json`]);
+
+  state.remoteTimeZone = "UTC";
+  instance.refresh(cx);
+  await settle();
+  assert.ok(state.execCalls.some((call) => call.args.includes("TZ=UTC")));
+  assert.ok(state.files[`/app/data/insights/machines/${timeZoneStoreKey("UTC")}/box.rows.json`]);
   instance.close();
 });
 

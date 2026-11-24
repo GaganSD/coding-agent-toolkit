@@ -6,7 +6,7 @@ import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { THIS_COMPUTER } from "../../herdr-insights/mods/insights/analytics.js";
 import { run } from "../../herdr-insights/mods/insights/presenter.mjs";
-import { rowsFileText, stateFileText } from "../../herdr-insights/mods/insights/remote.mjs";
+import { rowsFileText, stateFileText, timeZoneStoreKey } from "../../herdr-insights/mods/insights/remote.mjs";
 
 function row(day, session, total) {
   return {
@@ -29,13 +29,17 @@ async function context(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "insights-presenter-remote-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = path.join(root, "data/insights.json");
-  const machines = path.join(root, "data/machines");
-  await mkdir(machines, { recursive: true });
-  const save = (name, rows, extra = {}) => Promise.all([
-    writeFile(path.join(machines, `${name}.rows.json`), rowsFileText({ machine: name, envelope: envelope(rows), fetchedAt: "2026-11-13T01:00:00.000Z" })),
-    writeFile(path.join(machines, `${name}.state.json`), stateFileText({ machine: name, attemptedAt: "2026-11-13T01:00:00.000Z", error: extra.error ?? null })),
-  ]);
-  return { root, store, machines, save, home: path.join(root, "home") };
+  const machinesRoot = path.join(root, "data/machines");
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const machines = path.join(machinesRoot, timeZoneStoreKey(timeZone));
+  const save = async (name, rows, { error = null, dir = machines } = {}) => {
+    await mkdir(dir, { recursive: true });
+    await Promise.all([
+      writeFile(path.join(dir, `${name}.rows.json`), rowsFileText({ machine: name, envelope: envelope(rows), fetchedAt: "2026-11-13T01:00:00.000Z" })),
+      writeFile(path.join(dir, `${name}.state.json`), stateFileText({ machine: name, attemptedAt: "2026-11-13T01:00:00.000Z", error })),
+    ]);
+  };
+  return { root, store, machines, machinesRoot, timeZone, save, home: path.join(root, "home") };
 }
 
 async function prepare(ctx, options = {}) {
@@ -43,6 +47,18 @@ async function prepare(ctx, options = {}) {
   assert.equal(result.exitCode, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
+
+test("prepare loads only remote snapshots for its own timezone", async (t) => {
+  const ctx = await context(t);
+  const otherZone = ctx.timeZone === "UTC" ? "America/Los_Angeles" : "UTC";
+  await ctx.save("box", [row("2026-11-12", "a", 7)], { dir: ctx.machinesRoot });
+  await ctx.save("box", [row("2026-11-12", "a", 11)], { dir: path.join(ctx.machinesRoot, timeZoneStoreKey(otherZone)) });
+  assert.equal((await prepare(ctx)).dashboard.lifetime.total, 0);
+  await ctx.save("box", [row("2026-11-13", "a", 3)]);
+  const payload = await prepare(ctx);
+  assert.equal(payload.snapshot.remoteTimeZone, ctx.timeZone);
+  assert.equal(payload.dashboard.lifetime.total, 3);
+});
 
 test("prepare merges saved remote machines next to the store", async (t) => {
   const ctx = await context(t);
