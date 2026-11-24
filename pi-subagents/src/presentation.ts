@@ -13,6 +13,17 @@ export function stateLabel(run: RunRecord): string {
   return ({ starting: "Starting", running: "Running", waiting_for_agent: "Needs reply", cancelling: "Stopping",
     cleanup_unknown: "Cleanup unknown", completed: "Finished · report saved", failed: "Failed", cancelled: "Cancelled" })[run.state];
 }
+/** Compact multi-result headings never attribute the whole batch to its last member. */
+export function batchSummary(finished: RunRecord[]): string | undefined {
+  if (finished.length < 2) return undefined;
+  const counts = new Map<string, number>();
+  for (const run of finished) {
+    const label = run.state === "completed" ? "finished" : run.state === "cleanup_unknown" ? "cleanup unknown" : run.state;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return `${finished.length} results · ${[...counts].map(([label, count]) => `${count} ${label}`).join(" · ")}`;
+}
+
 export interface Draft { text: string; questionId?: string; scroll: number; expanded: boolean; pageEnd?: number }
 /** Presentation only: exact UUIDs still route every action through the manager. */
 export class HumanState {

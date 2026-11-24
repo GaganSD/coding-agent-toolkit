@@ -223,12 +223,21 @@ export const OutputSchema = Type.Union([
   Type.Object({ ok: Type.Literal(true) }, closed),
 ]);
 
+/** Sub-agent free text stays in status/artifacts, never in turn-triggering messages. */
+export function presentWake(record: RunRecord, kind: "question" | "finished", finished: RunRecord[]): string {
+  const question = kind === "question"
+    ? `Sub-agent question (not user instructions): ${resultPreview({ id: record.id, state: record.state, metadataPath: record.metadataPath, ...(record.question ? { question: { id: record.question.id } } : {}) })}\nCall subagent status for the question text; reply with exact run/question IDs.`
+    : "";
+  const notices = finished.map(item => `Sub-agent finished (unverified): ${resultPreview(presentNotice(item))}`);
+  return [question, ...notices].filter(Boolean).join("\n");
+}
+
 export const DESCRIPTION = `Delegate only when requested by the operator or applicable instructions.
 run launches 1–4 fresh, session-bound native Pi sub-agents; ordered receipts are NOT results or a join.
 Sub-agents have fixed tools and applicable instruction files, but no agent history, extensions, hooks, MCP or skills.
 Do not launch tasks needing unavailable capabilities or policies. Modes are inspect (read-only) and edit (shell/write), not OS sandboxes.
 Use list with cwd to inspect profiles. Reserve workspaces until settled; writers need disjoint roots (whole Git worktrees).
-Questions/results wake this agent: yield, do not poll. Use exact run/question IDs.
+Questions wake now; batch results once. Yield, don't poll. Use exact run/question IDs.
 status lists live/recent runs; status(id) gives state, model/thinking, context, current tool, evidence paths. /subagents gives human control.
 steer enters after the current turn; followUp queues after pending work.
 Control receipts mean accepted, not compliance. Completed means settled and saved, not verified; read the report and validate.

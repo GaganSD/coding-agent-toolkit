@@ -21,7 +21,12 @@ interface PendingQuestion {
   resolve(message: string): void;
   reject(error: Error): void;
 }
+interface Batch {
+  pending: Set<Run>;
+  finished: RunRecord[];
+}
 interface Run {
+  batch: Batch;
   record: RunRecord;
   plan: PreparedTask;
   preview: string[];
@@ -29,6 +34,7 @@ interface Run {
   resuming?: AbortController;
   subAgent?: SubAgent;
   question?: PendingQuestion;
+  submittedQuestionId?: string;
   work: Promise<void>;
   writes: Promise<void>;
   timer?: ReturnType<typeof setTimeout>;
@@ -46,7 +52,7 @@ export interface ManagerOptions {
   admitted?: number;
   recordAdmissions?(total: number): void;
   changed?(): void;
-  notify?(record: RunRecord, kind: "question" | "finished"): Promise<void>;
+  notify?(record: RunRecord, kind: "question" | "finished", finished: RunRecord[]): Promise<void>;
   unsafeCleanup?(record: RunRecord): void;
   assertLaunchable?(): void;
   cleanupMs?: number;
@@ -97,6 +103,7 @@ export class RunManager {
         if (result.status === "rejected") throw new Error(`tasks[${index}]: ${errorText(result.reason)}`);
       }
       const staged: Run[] = [];
+      const batch: Batch = { pending: new Set(), finished: [] };
       try {
         for (const plan of plans) {
           const id = randomUUID();
@@ -106,7 +113,7 @@ export class RunManager {
             startedAt: new Date().toISOString(), elapsedMs: 0, pid: process.pid,
             metadataPath: path.join(this.options.store.directory(id), "run.json"),
           };
-          const run: Run = { record, plan, preview: [], controller: new AbortController(), work: Promise.resolve(), writes: Promise.resolve(), notified: false, cleaned: false, pendingWrites: new Set() };
+          const run: Run = { batch, record, plan, preview: [], controller: new AbortController(), work: Promise.resolve(), writes: Promise.resolve(), notified: false, cleaned: false, pendingWrites: new Set() };
           staged.push(run);
           await this.io(signal => this.options.store.create(record, signal));
         }
@@ -124,7 +131,10 @@ export class RunManager {
         throw error;
       }
       this.admitted += plans.length;
-      for (const run of staged) this.runs.set(run.record.id, run);
+      for (const run of staged) {
+        this.runs.set(run.record.id, run);
+        batch.pending.add(run);
+      }
       for (const run of staged) {
         run.timer = setTimeout(() => { void this.stop(run.record.id, "Run deadline exceeded").catch(() => {}); }, this.options.config.timeoutMs);
         run.work = this.execute(run);
@@ -185,6 +195,9 @@ export class RunManager {
       await this.persist(run).catch(() => {});
       throw error;
     }
+    run.batch.finished = run.batch.finished.filter(record => record.id !== run.record.id);
+    run.batch = { pending: new Set([run]), finished: [] };
+    run.submittedQuestionId = undefined;
     run.preview = [];
     run.question = undefined;
     run.subAgent = undefined;
@@ -247,6 +260,10 @@ export class RunManager {
 
   async shutdown(): Promise<void> {
     this.closed = true;
+    for (const run of this.runs.values()) {
+      run.batch.finished = [];
+      run.batch.pending.clear();
+    }
     this.lifetime.abort(new Error("Agent session ended or reloaded"));
     // An in-flight admission checks closed again before starting any sub-agent.
     // Do not let allocation I/O hold shutdown hostage.
@@ -488,7 +505,7 @@ export class RunManager {
     }
     try {
       if (run.question?.question.id === question.id && !run.controller.signal.aborted) {
-        await bounded(Promise.resolve(this.options.notify?.(this.snapshot(run), "question")), this.options.cleanupMs ?? 5000, "Notification submission deadline exceeded");
+        await this.notify(run, "question");
       }
     } catch (error) {
       if (run.question?.question.id !== question.id) {
@@ -512,6 +529,57 @@ export class RunManager {
     }
   }
 
+  /** Publication, not isLive(), settles notification membership (including cleanup_unknown).
+   * Never wait for a sibling's notification submission: each submission stays bounded.
+   */
+  private async notify(run: Run, kind: "question" | "finished"): Promise<void> {
+    if (this.closed) return;
+    const batch = run.batch;
+    if (kind === "finished") {
+      batch.pending.delete(run);
+      batch.finished.push(this.snapshot(run));
+    }
+    await this.flush(run, kind);
+  }
+
+  private async flush(run: Run, kind: "question" | "finished"): Promise<void> {
+    if (this.closed) return;
+    const batch = run.batch;
+    // waiting_for_agent precedes persistence/submission; only a submitted question parks a sibling.
+    if (kind === "finished" && [...batch.pending].some(sibling =>
+      !sibling.question || sibling.submittedQuestionId !== sibling.question.question.id)) return;
+    const record = kind === "question" ? this.snapshot(run) : batch.finished.at(-1);
+    if (!record) return;
+    const finished = batch.finished.splice(0);
+    const deadline = new AbortController();
+    try {
+      await bounded(Promise.resolve().then(() => {
+        if (!this.closed) return this.options.notify?.(record, kind, finished);
+      }),
+        this.options.cleanupMs ?? 5000, "Notification submission deadline exceeded", deadline);
+    } catch (error) {
+      // A timeout is ambiguous: delivery may have succeeded. Never replay those notices.
+      // Definite rejections may ride the next same-owner flush, not an automatic retry.
+      const affected = [...finished, ...(kind === "question" ? [record] : [])];
+      for (const notice of affected) {
+        const member = this.runs.get(notice.id);
+        if (!member || member.batch !== batch) continue; // A newer resumed attempt owns its own warnings.
+        member.record.notificationError = errorText(error);
+        void this.persist(member).catch(() => {});
+      }
+      if (!deadline.signal.aborted && !this.closed && batch.pending.size) {
+        batch.finished.unshift(...finished.filter(notice => this.runs.get(notice.id)?.batch === batch));
+      }
+      this.changed();
+      throw error;
+    }
+    if (kind === "question" && run.question?.question.id === record.question?.id) {
+      run.submittedQuestionId = record.question?.id;
+      // Results may have arrived while this question submission was in flight.
+      void this.flush(run, "finished").catch(() => {}); // flush records delivery warnings itself.
+    }
+  }
+
   private finish(run: Run): Promise<void> {
     return run.finishing ??= this.publish(run);
   }
@@ -526,7 +594,7 @@ export class RunManager {
     this.changed();
     if (!this.closed && !run.notified) {
       run.notified = true;
-      try { await bounded(Promise.resolve(this.options.notify?.(this.snapshot(run), "finished")), this.options.cleanupMs ?? 5000, "Notification submission deadline exceeded"); }
+      try { await this.notify(run, "finished"); }
       catch (error) {
         run.record.notificationError = errorText(error);
         void this.persist(run).catch(() => {});

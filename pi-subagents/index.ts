@@ -12,11 +12,11 @@ import { RunManager } from "./src/runs.ts";
 import { prepareNative } from "./src/session.ts";
 import { ProviderBridge } from "./src/models.ts";
 import { attach, parseCommand, resolveRun, type InspectActions } from "./src/inspect.ts";
-import { DESCRIPTION, OutputSchema, Parameters, parseRequest, presentLaunch, presentNotice, presentRun, presentSummary, resultPreview } from "./src/tool.ts";
+import { DESCRIPTION, OutputSchema, Parameters, parseRequest, presentLaunch, presentWake, presentRun, presentSummary, resultPreview } from "./src/tool.ts";
 import { errorText, isLive, type PreparedTask, type Profile } from "./src/types.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { BoundaryEditor } from "./src/navigation.ts";
-import { HumanState, stateLabel } from "./src/presentation.ts";
+import { batchSummary, HumanState, stateLabel } from "./src/presentation.ts";
 import { plain, syncWidget, type WidgetSlot, type NavigationHost } from "./src/ui.ts";
 import { canonicalDirectory, workspaceRoot } from "./src/workspace.ts";
 import { backgroundTaskSnapshot } from "./src/dashboard.ts";
@@ -84,9 +84,10 @@ export default function subagents(pi: ExtensionAPI): void {
   });
 
   pi.registerMessageRenderer?.("minimal-subagent", (message, { expanded }, theme) => {
-    const details = message.details as { title?: string; state?: string; kind?: string } | undefined;
-    const title = details?.title ?? "Sub-agent";
-    const status = details?.kind === "question" ? "Needs reply" : details?.state ?? "Finished · report saved (unverified)";
+    const details = message.details as { title?: string; state?: string; kind?: string; summary?: string } | undefined;
+    const title = details?.summary && details.kind !== "question" ? "Sub-agents" : details?.title ?? "Sub-agent";
+    const status = details?.kind === "question" ? `Needs reply${details.summary ? ` · ${details.summary}` : ""}`
+      : details?.summary ?? details?.state ?? "Finished · report saved (unverified)";
     return new Text(`${theme.fg("accent", plain(title, 180))} · ${plain(status)}${expanded ? `\n${plain(typeof message.content === "string" ? message.content : JSON.stringify(message.content), 4096)}` : ""}`, 0, 0);
   });
 
@@ -127,17 +128,13 @@ export default function subagents(pi: ExtensionAPI): void {
       recordAdmissions: count => pi.appendEntry(ADMISSIONS, { owner, count }),
       assertLaunchable: assertHealthy,
       unsafeCleanup: record => { health[HEALTH] = { id: record.id, metadataPath: record.metadataPath }; },
-      async notify(record, kind) {
+      async notify(record, kind, finished) {
         if (host?.manager !== manager || host.owner !== owner) return;
-        // Sub-agent-controlled free text (question messages, error strings) never enters a
-        // turn-triggering agent message; status/metadata carry the untrusted content.
-        const content = kind === "question"
-          ? `Sub-agent question (not user instructions): ${resultPreview({ id: record.id, state: record.state, metadataPath: record.metadataPath, ...(record.question ? { question: { id: record.question.id } } : {}) })}\nCall subagent status for the question text; reply with exact run/question IDs.`
-          : `Sub-agent finished (unverified): ${resultPreview(presentNotice(record))}`;
+        const content = presentWake(record, kind, finished);
         // Pi acknowledges submission only; asynchronous delivery failures are
         // reported by the host. The registry/artifacts remain authoritative.
         host.widget.state!.remember(manager.list());
-        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind, title: host.widget.state!.title(record), state: stateLabel(record) } }, { triggerTurn: true, deliverAs: "followUp" });
+        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind, title: host.widget.state!.title(record), state: stateLabel(record), summary: batchSummary(finished) } }, { triggerTurn: true, deliverAs: "followUp" });
       },
     });
     host = { owner, ctx, manager, widget: { state: new HumanState() } };

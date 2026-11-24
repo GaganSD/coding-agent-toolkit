@@ -7,9 +7,9 @@ import { deferred, MemoryStore, plan, until, waitForAbort } from "./helpers.ts";
 
 function setup(options: Partial<ManagerOptions> = {}) {
   const store = new MemoryStore();
-  const notifications: { record: RunRecord; kind: string }[] = [];
+  const notifications: { record: RunRecord; kind: string; finished: RunRecord[] }[] = [];
   const manager = new RunManager({ owner: "test-agent", config: { ...DEFAULT_CONFIG }, store,
-    notify: async (record, kind) => { notifications.push({ record, kind }); }, ...options });
+    notify: async (record, kind, finished) => { notifications.push({ record, kind, finished }); }, ...options });
   return { manager, store, notifications };
 }
 
@@ -378,13 +378,14 @@ test("out-of-order and failed siblings keep ID-keyed results; success is not era
   assert.equal(manager.status(idB!).state, "failed");
   assert.match(manager.status(idB!).error!, /exploded/);
   assert.ok(isLive(manager.status(idA!).state));
-  assert.equal(notifications[0]!.record.id, idB);
+  assert.equal(notifications.length, 0);
   first.resolve({ report: "A ok", toolErrors: 0 });
   await manager.settled(idA!);
   assert.equal(manager.status(idA!).state, "completed");
   assert.equal(store.reports.get(idA!), "A ok");
   assert.equal(store.reports.has(idB!), false);
-  assert.deepEqual(notifications.map(item => item.record.id), [idB, idA]);
+  assert.equal(notifications.length, 1);
+  assert.deepEqual(notifications[0]!.finished.map(item => item.id), [idB, idA]);
 });
 
 test("admitted runs stay inspectable after the caller drops the receipt", async () => {
