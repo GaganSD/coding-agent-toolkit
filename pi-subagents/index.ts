@@ -17,7 +17,7 @@ import { errorText, isLive, type PreparedTask, type Profile } from "./src/types.
 import { Text } from "@earendil-works/pi-tui";
 import { BoundaryEditor } from "./src/navigation.ts";
 import { batchSummary, HumanState, stateLabel } from "./src/presentation.ts";
-import { plain, syncWidget, type WidgetSlot, type NavigationHost } from "./src/ui.ts";
+import { plain, syncWidget, type WidgetSlot } from "./src/ui.ts";
 import { canonicalDirectory, workspaceRoot } from "./src/workspace.ts";
 import { backgroundTaskSnapshot } from "./src/dashboard.ts";
 
@@ -164,12 +164,9 @@ export default function subagents(pi: ExtensionAPI): void {
     if (host.widget.navigation?.isActive?.() === false) { host.unsubInput?.(); host.widget.navigation = undefined; }
     if (host.widget.navigation) return;
     const state = host;
-    pi.events?.emit("subagent:ui-host-request", { version: 1, owner: state.owner, accept: (navigation: NavigationHost) => {
-      if (host !== state || navigation.version !== 1) return;
-      state.widget.navigation = navigation;
-      state.unsubInput = navigation.bindDown(() => { if (!state.inspecting) state.widget.instance?.focusRoster(); });
-    } });
-    if (!state.widget.navigation && plainEditor && ctx.ui.getEditorComponent?.() === plainFactory) {
+    // Only this package's own editor (installed when no other extension owns one) hands Down to the roster.
+    // No other extension is asked to lend its editor or chat workspace.
+    if (plainEditor && ctx.ui.getEditorComponent?.() === plainFactory) {
       const editor = plainEditor;
       state.widget.navigation = {
         version: 1,
@@ -188,13 +185,13 @@ export default function subagents(pi: ExtensionAPI): void {
     state.inspecting = true;
     state.widget.state!.remember(state.manager.list());
     state.widget.state!.selected = id;
-    try { await attach(ctx, id, actions(state.manager), state.widget.state, state.widget.navigation, close => { state.closeThread = close; }); }
+    try { await attach(ctx, id, actions(state.manager), state.widget.state, close => { state.closeThread = close; }); }
     catch (error) { try { ctx.ui.notify(plain(errorText(error)), "error"); } catch { /* UI never determines execution success. */ } }
     finally {
       state.closeThread = undefined;
       if (host === state) {
         state.inspecting = false;
-        const returnFocus = state.widget.navigation?.isActive?.() !== false && state.widget.navigation?.canFocusRoster?.() !== false;
+        const returnFocus = state.widget.navigation?.isActive?.() !== false;
         if (returnFocus) state.widget.state!.selected = id;
         draw();
         if (returnFocus) {

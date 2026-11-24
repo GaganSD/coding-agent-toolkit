@@ -14,6 +14,7 @@
 
 ### Changed
 
+- Remove the cooperative UI-host bridge (`subagent:ui-host-request`). Threads always open as this package's own full-viewport overlay, and Down-to-roster works only with this package's editor. No other extension is asked to lend an editor, chat slot or sidebar, or to render sub-agent UI.
 - Coalesce finished notices per `run` batch into one parent wake-up. Questions wake immediately with buffered results; waiting questions never strand later results. Resumes notify independently, and teardown drops buffered notices.
 
 - Worker threads render finalized conversation with Pi's native markdown theme and show context usage in the header; tool output stays clamped behind Tools.

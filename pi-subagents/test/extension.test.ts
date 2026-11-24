@@ -177,7 +177,7 @@ test("large fields disclose truncation without corrupting JSON or losing run IDs
   assert.deepEqual(JSON.parse(encoded), unsafe, "display escaping must preserve exact string values");
 });
 
-test("draw rebinds Down after the host editor remounts", async t => {
+test("no other extension is asked to lend its editor or chat workspace", async t => {
   const root = await temp(t);
   const before = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");
@@ -185,22 +185,15 @@ test("draw rebinds Down after the host editor remounts", async t => {
   await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
   await writeFile(path.join(process.env.PI_CODING_AGENT_DIR, "settings.json"), "{}");
   const tools: ToolDefinition[] = [];
-  let active = true, binds = 0;
+  const emitted: string[] = [];
   register({
     registerTool: (tool: ToolDefinition) => tools.push(tool),
     registerCommand() {},
     on() { return () => {}; },
     getThinkingLevel: () => "off", appendEntry() {}, sendMessage() {},
     events: {
-      emit(name: string, request: { version: number; accept: (host: unknown) => void }) {
-        if (name !== "subagent:ui-host-request") return;
-        request.accept({
-          version: 1,
-          isActive: () => active,
-          focusEditor() {},
-          bindDown() { binds++; return () => {}; },
-        });
-      },
+      emit(name: string) { emitted.push(name); },
+      on() { return () => {}; },
     },
   } as unknown as ExtensionAPI);
   const ctx = {
@@ -208,9 +201,8 @@ test("draw rebinds Down after the host editor remounts", async t => {
     sessionManager: SessionManager.create(root, path.join(root, "sessions")),
     ui: { setWidget() {}, notify() {} },
   } as unknown as ExtensionToolContext;
-  await tools[0]!.execute("rebind-1", { action: "list" }, undefined, undefined, ctx);
-  assert.equal(binds, 1);
-  active = false;
-  await tools[0]!.execute("rebind-2", { action: "list" }, undefined, undefined, ctx);
-  assert.ok(binds >= 2, "draw must rebind after the previous host goes inactive");
+  await tools[0]!.execute("list-1", { action: "list" }, undefined, undefined, ctx);
+  await tools[0]!.execute("list-2", { action: "list" }, undefined, undefined, ctx);
+  assert(!emitted.includes("subagent:ui-host-request"), "the cooperative UI-host handshake is removed");
+  assert.deepEqual([...new Set(emitted)], ["pi:background-tasks"], "only the generic, display-only dashboard event is published");
 });

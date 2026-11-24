@@ -2,7 +2,7 @@ import { getMarkdownTheme, type ExtensionContext, type Theme } from "@earendil-w
 import { CURSOR_MARKER, Editor, Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
 import { formatUsage } from "./usage.ts";
-import { formatContext, formatElapsed, plain, type NavigationHost } from "./ui.ts";
+import { formatContext, formatElapsed, plain } from "./ui.ts";
 import { HumanState, stateLabel } from "./presentation.ts";
 import { conversationText, readConversation, type ConversationMessage } from "./conversation.ts";
 
@@ -48,69 +48,17 @@ export interface InspectActions {
   live(): RunRecord[];
 }
 
-export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions, state = new HumanState(), navigation?: NavigationHost, onView?: (close: () => void) => void): Promise<void> {
+/** Threads always open as this package's own opaque full-viewport overlay; no host lends a workspace. */
+export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions, state = new HumanState(), onView?: (close: () => void) => void): Promise<void> {
   actions.status(id);
-  let notice: string | undefined;
-  if (navigation?.mount) {
-    const result = await mountThread(ctx, id, actions, state, navigation, onView);
-    if (result === "mounted") return;
-    notice = `${result === "failed" ? "Workspace mount failed" : "Workspace unavailable"} · full-viewport overlay (sidebar not preserved)`;
-    try { ctx.ui.notify(notice, "warning"); } catch { /* UI never determines execution success. */ }
-  }
-  // Unavailable slot or failed offered mount: opaque entire viewport. Never pretend it preserves a sidebar.
   await ctx.ui.custom((tui, theme, _keys, done) => {
-    const view = new InspectView(tui, theme, id, actions, done, state, notice);
+    const view = new InspectView(tui, theme, id, actions, done, state);
     onView?.(() => view.dispose());
     // The overlay host owns focus acquisition and its original restore target.
     return view;
   }, {
     overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 },
   });
-}
-
-async function mountThread(ctx: ExtensionContext, id: string, actions: InspectActions, state: HumanState, navigation: NavigationHost, onView?: (close: () => void) => void): Promise<"mounted" | "unavailable" | "failed"> {
-  let view: InspectView | undefined;
-  let release: (() => void) | undefined;
-  let mounted = false;
-  let reason: "unavailable" | "failed" = "unavailable";
-  const drop = (): void => {
-    const loan = release; release = undefined;
-    try { loan?.(); } catch { /* Loan must not survive a failed attach. */ }
-    const created = view; view = undefined;
-    try { created?.dispose(); } catch { /* Listener must not survive a failed attach. */ }
-  };
-  try {
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const fail = (error: unknown, kind: "unavailable" | "failed" = "failed") => {
-        if (settled) return;
-        settled = true;
-        reason = kind;
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-      const empty = { render: () => [] as string[], invalidate() {}, dispose() {} };
-      try {
-        // Obtain the host's active TUI without occupying/changing the main editor.
-        ctx.ui.setWidget("minimal-subagents:thread-host", (tui, theme) => {
-          view = new InspectView(tui, theme, id, actions, () => {
-            try { release?.(); } catch { /* Restore independently of view teardown. */ }
-            if (mounted && !settled) { settled = true; resolve(); }
-          }, state);
-          onView?.(() => view?.dispose());
-          try { release = navigation.mount!(view); }
-          catch (error) { drop(); fail(error, "failed"); return empty; }
-          if (!release) { drop(); fail(new Error("Conversation workspace unavailable"), "unavailable"); return empty; }
-          mounted = true;
-          return { render: () => [], invalidate() {}, dispose() { if (mounted) view?.dispose(); } };
-        }, { placement: "belowEditor" });
-      } catch (error) { fail(error, "failed"); return; }
-      if (!mounted) fail(new Error("Conversation workspace unavailable"), "unavailable");
-    });
-    return "mounted";
-  } catch {
-    drop();
-    return reason;
-  } finally { try { ctx.ui.setWidget("minimal-subagents:thread-host", undefined); } catch { /* Host UI may already be gone. */ } }
 }
 
 export class InspectView implements Component, Focusable {
