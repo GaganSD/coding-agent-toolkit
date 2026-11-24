@@ -11,6 +11,8 @@
 
 ### Changed
 
+- Coalesce finished notices per `run` batch into one parent wake-up. Questions wake immediately with buffered results; waiting questions never strand later results. Resumes notify independently, and teardown drops buffered notices.
+
 - Worker threads render finalized conversation with Pi's native markdown theme and show context usage in the header; tool output stays clamped behind Tools.
 
 ### Fixed

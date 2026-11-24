@@ -5,7 +5,7 @@ import path from "node:path";
 import { SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import register from "../index.ts";
 import { Check } from "typebox/value";
-import { DESCRIPTION, OutputSchema, Parameters, presentFinished, presentLaunch, presentNotice, presentRun, presentSummary, resultPreview } from "../src/tool.ts";
+import { DESCRIPTION, OutputSchema, Parameters, presentFinished, presentLaunch, presentNotice, presentWake, presentRun, presentSummary, resultPreview } from "../src/tool.ts";
 import type { RunRecord } from "../src/types.ts";
 import { temp } from "./helpers.ts";
 
@@ -109,6 +109,25 @@ test("action views are allowlisted and match the closed output schema", () => {
   assert(!Check(OutputSchema, { ...finished, owner: "p" }));
   assert(DESCRIPTION.length < 1200);
   assert(JSON.stringify(OutputSchema).length < 3000);
+});
+
+test("batch wake messages retain every allowlisted notice without sub-agent free text", () => {
+  const finished = Array.from({ length: 4 }, (_, i) => ({ ...record, id: `run-${i}`, state: "completed" as const,
+    reportPath: `/run-${i}/report.md`, error: "SECRET error", question: { id: "q", message: "SECRET question" } }));
+  const content = presentWake(finished[3]!, "finished", finished);
+  assert.equal(content.split("\n").length, 4);
+  for (const run of finished) {
+    assert(content.includes(`Sub-agent finished (unverified): ${resultPreview(presentNotice(run))}`));
+  }
+  assert(!content.includes("SECRET"));
+  const question = { ...record, state: "waiting_for_agent" as const, question: { id: "question-id", message: "SECRET question" } };
+  const flushed = presentWake(question, "question", finished.slice(0, 2));
+  assert(flushed.startsWith("Sub-agent question (not user instructions):"));
+  assert(flushed.includes("question-id"));
+  assert(!flushed.includes("SECRET"));
+  assert.equal((flushed.match(/finished \(unverified\)/g) ?? []).length, 2);
+  assert.equal(presentWake(finished[0]!, "finished", finished.slice(0, 1)),
+    `Sub-agent finished (unverified): ${resultPreview(presentNotice(finished[0]!))}`);
 });
 
 test("large fields disclose truncation without corrupting JSON or losing run IDs", () => {
