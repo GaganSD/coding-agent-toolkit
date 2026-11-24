@@ -145,6 +145,8 @@ test("collapsed multi-result messages show batch counts, including sibling failu
   const summary = batchSummary(finished);
   assert.equal(summary, "3 results · 2 finished · 1 failed");
   assert.equal(batchSummary(finished.slice(0, 1)), undefined, "single-run headings stay unchanged");
+  assert.equal(batchSummary([finished[1]!], true), "1 result · 1 failed", "a question carrying one sibling result still shows it");
+  assert.equal(batchSummary([], true), undefined, "a bare question keeps its heading");
   const theme = { fg: (_color: string, text: string) => text } as unknown as Parameters<Renderer>[2];
   const message = { role: "custom" as const, customType: "minimal-subagent", timestamp: 0, display: true,
     content: "Expanded evidence", details: { title: "Worker 3", kind: "finished", state: "Finished", summary } };
