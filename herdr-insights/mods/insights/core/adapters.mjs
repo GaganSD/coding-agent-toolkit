@@ -893,7 +893,26 @@ function parseCodex(record, ctx) {
     let identityTail;
     let reset = false;
 
-    if (totals) {
+    if (totals && isPlainObject(info.last_token_usage)) {
+      // last_token_usage is this response's own usage. The cumulative total is
+      // only its identity: concurrent responses of one thread branch from
+      // earlier totals, so chains interleave and the counter drops without a
+      // restart, and a paginated fork's first total includes the parent's
+      // usage. Neither is new usage. A re-emitted total is the same response.
+      const current = codexRawTotals(totals);
+      const previous = isPlainObject(state.legacyTotals) ? state.legacyTotals : null;
+      const repeat = previous && Object.keys(current).every((key) => current[key] === toNonNegInt(previous[key]));
+      raw = repeat ? codexRawTotals({}) : info.last_token_usage;
+      state.legacyTotals = current;
+      identityTail = [
+        "legacy-total",
+        current.input_tokens,
+        current.cached_input_tokens,
+        current.cache_write_input_tokens,
+        current.output_tokens,
+        current.reasoning_output_tokens,
+      ];
+    } else if (totals) {
       const current = codexRawTotals(totals);
       const previous = isPlainObject(state.legacyTotals)
         ? state.legacyTotals

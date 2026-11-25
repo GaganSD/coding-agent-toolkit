@@ -32,7 +32,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 8, claude: 2, antigravity: 2 };
+const PARSER_VERSIONS = { pi: 3, codex: 9, claude: 2, antigravity: 2 };
 const PROGRESS_CHUNK_INTERVAL = 64;
 
 export class ScanStopError extends Error {
