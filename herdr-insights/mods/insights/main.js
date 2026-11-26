@@ -545,6 +545,8 @@ export default class Insights extends View {
     this.remoteRevision = 0;
     this.remoteDisabled = [];
     this.remoteSettingsGeneration = 0;
+    this.remoteRequest = 0;
+    this.remoteAppliedRequest = 0;
     this.bundlePromise = null;
     this.period = "all";
     this.year = Number(todayKey().slice(0, 4));
@@ -1234,6 +1236,7 @@ export default class Insights extends View {
     }
     const generation = (this.dashboardGeneration ?? 0) + 1;
     this.dashboardGeneration = generation;
+    const remoteRequest = ++this.remoteRequest;
     try { this.dashboardWatchdog?.cancel(); } catch { /* already gone */ }
     this.dashboardWatchdog = cx.timer.after(ACTIVITY_TIMEOUT_MS, (timerCx) => {
       this.dashboardWatchdog = null;
@@ -1263,7 +1266,7 @@ export default class Insights extends View {
         if (payload.error && !payload.dashboard) throw new Error(payload.error);
         if (!payload.dashboard) throw new Error("The presentation helper returned no dashboard.");
         if (!this.snapshot || presentationKey(this.snapshot, this.dashboardOptions()) !== key) return;
-        this.applyRemoteContext(payload.snapshot, prepareCx);
+        if (!this.applyRemoteContext(payload.snapshot, prepareCx, remoteRequest)) return;
         this.dashboard = payload.dashboard;
         this.dashboardKey = key;
         if (Array.isArray(payload.dashboard.years) && payload.dashboard.years.length) this.years = payload.dashboard.years;
@@ -1309,6 +1312,7 @@ export default class Insights extends View {
     const store = this.storePath();
     const options = this.dashboardOptions();
     const remoteSettingsGeneration = this.remoteSettingsGeneration;
+    const remoteRequest = ++this.remoteRequest;
     this.activityTask = cx.spawn(async (refreshCx) => {
       let payload = null;
       let failure = null;
@@ -1342,7 +1346,7 @@ export default class Insights extends View {
       if (!payload || generation !== this.activityGeneration) return;
       this.error = null;
       try {
-        this.applySnapshot(payload, refreshCx, remoteSettingsGeneration);
+        this.applySnapshot(payload, refreshCx, { remoteSettingsGeneration, remoteRequest });
       } catch (error) {
         this.error = sanitizeError(error);
         refreshCx.notify();
@@ -1382,9 +1386,12 @@ export default class Insights extends View {
     });
   }
 
-  applyRemoteContext(snapshot, cx) {
+  applyRemoteContext(snapshot, cx, request) {
     const timeZone = isTimeZoneId(snapshot.remoteTimeZone) ? snapshot.remoteTimeZone : null;
-    if ((this.remoteTimeZone ?? null) === timeZone) return;
+    const sameTimeZone = (this.remoteTimeZone ?? null) === timeZone;
+    if (request < this.remoteAppliedRequest) return sameTimeZone;
+    this.remoteAppliedRequest = request;
+    if (sameTimeZone) return true;
     // Old work may finish writing to its own timezone's directory.
     for (const entry of this.remote.values()) {
       try { entry.timer?.cancel(); } catch { /* already gone */ }
@@ -1392,16 +1399,19 @@ export default class Insights extends View {
     this.remote.clear();
     this.remoteTimeZone = timeZone;
     this.syncRemotes(cx);
+    return true;
   }
 
-  applySnapshot(payload, cx, remoteSettingsGeneration = this.remoteSettingsGeneration) {
+  applySnapshot(payload, cx, {
+    remoteSettingsGeneration = this.remoteSettingsGeneration, remoteRequest = ++this.remoteRequest,
+  } = {}) {
     if (!isPresentation(payload)) throw new Error("The presentation helper returned an unexpected dashboard payload.");
     const snapshot = payload.snapshot;
     this.cancelDashboardWork();
     this.snapshot = snapshot;
     const currentRemoteSettings = !this.remoteSettingsTask && remoteSettingsGeneration === this.remoteSettingsGeneration;
     if (currentRemoteSettings && Array.isArray(snapshot.remoteDisabled)) this.remoteDisabled = snapshot.remoteDisabled;
-    this.applyRemoteContext(snapshot, cx);
+    const currentRemoteContext = this.applyRemoteContext(snapshot, cx, remoteRequest);
     const savedConfig = normalizeConfig(snapshot.config);
     const today = todayKey();
     const years = Array.isArray(payload.dashboard?.years) && payload.dashboard.years.length
@@ -1415,7 +1425,7 @@ export default class Insights extends View {
     // interruption there can never bring back a permanent Preparing screen.
     const optionsNow = this.dashboardOptions();
     const key = presentationKey(snapshot, optionsNow);
-    if (currentRemoteSettings && payload.dashboard && sameOptions(payload.options, optionsNow)) {
+    if (currentRemoteSettings && currentRemoteContext && payload.dashboard && sameOptions(payload.options, optionsNow)) {
       this.dashboard = payload.dashboard;
       this.dashboardKey = key;
       this.dashboardError = payload.error ? sanitizeError(payload.error) : null;
@@ -1627,6 +1637,7 @@ export default class Insights extends View {
     const store = this.storePath();
     const options = this.dashboardOptions();
     const remoteSettingsGeneration = this.remoteSettingsGeneration;
+    const remoteRequest = ++this.remoteRequest;
     this.activityTask = cx.spawn(async (saveCx) => {
       let payload = null;
       let failure = null;
@@ -1669,7 +1680,7 @@ export default class Insights extends View {
       this.error = null;
       this.saveError = null;
       try {
-        this.applySnapshot(payload, saveCx, remoteSettingsGeneration);
+        this.applySnapshot(payload, saveCx, { remoteSettingsGeneration, remoteRequest });
         this.saveMessage = draftUnchanged ? "Configuration saved." : "Saved. Newer edits are still unsaved.";
       } catch (error) {
         this.saveError = sanitizeError(error);

@@ -331,6 +331,8 @@ function blankInstance() {
   instance.dashboardTask = null;
   instance.dashboardQueued = false;
   instance.dashboardGeneration = 0;
+  instance.remoteRequest = 0;
+  instance.remoteAppliedRequest = 0;
   instance.refreshWatchdog = null;
   instance.saveWatchdog = null;
   instance.presenterPath = () => "/app/mods/insights/presenter.mjs";
@@ -1667,9 +1669,9 @@ function remoteHerdr({ machines, rows = "fail", disabled = [], scan = null, firs
       }
       if (firstSnapshotFails && args[1] === "snapshot") return { code: 1, stdout: "", stderr: "Error: slow disk" };
       const options = optionArgument(args);
-      const payload = presentationFor({ ...savedSnapshot(), remoteDisabled: disabled }, options, args[1]);
-      payload.snapshot.remoteDisabled = disabled;
-      payload.snapshot.remoteTimeZone = state.remoteTimeZone ?? remoteTimeZone;
+      const payload = presentationFor({
+        ...savedSnapshot(), remoteDisabled: disabled, remoteTimeZone: state.remoteTimeZone ?? remoteTimeZone,
+      }, options, args[1]);
       return { code: 0, stdout: JSON.stringify(payload), stderr: "" };
     },
   });
@@ -1771,6 +1773,35 @@ test("a running dashboard syncs into a new directory after its timezone changes"
   await settle();
   assert.ok(state.execCalls.some((call) => call.args.includes("TZ=UTC")));
   assert.ok(state.files[`/app/data/insights/machines/${timeZoneStoreKey("UTC")}/box.rows.json`]);
+  instance.close();
+});
+
+test("an older refresh cannot restore a timezone superseded by dashboard preparation", async () => {
+  const state = remoteHerdr();
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  const exec = state.herdr.exec;
+  const delayed = Promise.withResolvers();
+  state.herdr.exec = async (...args) => {
+    const result = await exec(...args);
+    if (args[1][1] === "snapshot") await delayed.promise;
+    return result;
+  };
+  instance.refresh(cx);
+  await settle();
+
+  state.remoteTimeZone = "UTC";
+  instance.scheduleDashboard(cx, { force: true });
+  calls.after.find((timer) => timer.ms === 0 && !timer.cancelled).fn();
+  await settle();
+  assert.equal(instance.remoteTimeZone, "UTC");
+  delayed.resolve();
+  await settle();
+  assert.equal(instance.remoteTimeZone, "UTC", "the newer prepare already observed the timezone change");
+  await calls.runAfter();
+  assert.equal(instance.dashboard.remoteTimeZone, "UTC");
   instance.close();
 });
 
