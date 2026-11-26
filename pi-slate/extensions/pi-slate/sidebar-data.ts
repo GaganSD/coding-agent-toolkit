@@ -11,7 +11,6 @@ export { parseMcpFile, sidebarMcp, SidebarMcpFiles, type SidebarMcp, type Sideba
 export type SidebarUsage = {
   input: number | null; output: number | null; cacheRead: number | null;
   cacheWrite: number | null; uncached: number | null; total: number | null; cost: number | null;
-  cacheSeen: boolean;
 };
 export type SidebarSkill = { name: string; path: string; source: string; loaded: boolean };
 export type SidebarCommand = { name: string; source: string; description?: string };
@@ -43,7 +42,6 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
   const sums = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const missing = new Set<keyof typeof sums>();
   const seen = new Set<string>();
-  let cacheSeen = false;
   for (const entry of entries) {
     if (seen.has(entry.id)) continue;
     seen.add(entry.id);
@@ -68,7 +66,6 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
       else {
         sums[key] += value;
         if (!Number.isFinite(sums[key])) missing.add(key);
-        if ((key === "cacheRead" || key === "cacheWrite") && value > 0) cacheSeen = true;
       }
     }
   }
@@ -77,7 +74,7 @@ export function sidebarUsage(entries: readonly SessionEntry[]): SidebarUsage {
     ? null : nonnegative(sums.input + sums.cacheRead + sums.cacheWrite);
   const output = missing.has("output") ? null : sums.output;
   return {
-    input: inbound, output, cacheSeen,
+    input: inbound, output,
     uncached: missing.has("input") ? null : sums.input,
     cacheRead: missing.has("cacheRead") ? null : sums.cacheRead,
     cacheWrite: missing.has("cacheWrite") ? null : sums.cacheWrite,

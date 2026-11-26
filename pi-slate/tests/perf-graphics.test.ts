@@ -10,8 +10,9 @@ import { perfFixture } from "./perf-fixture.ts";
 
 const strip = (t: string) => t.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plainPaint = { paint: (_t: string, x: string) => x, heading: (x: string) => x };
-const usage: SidebarUsage = { input: 1_559_000, output: 12_000, total: 1_571_000, cacheRead: 1_310_000, cacheWrite: 108_000, uncached: 141_000, cacheSeen: true, cost: 0.84 };
-const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null };
+const usage: SidebarUsage = { input: 1_559_000, output: 12_000, total: 1_571_000, cacheRead: 1_310_000, cacheWrite: 108_000, uncached: 141_000, cost: 0.84 };
+const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cost: null };
+const uncachedUsage: SidebarUsage = { input: 100, output: 20, total: 120, cacheRead: 0, cacheWrite: 0, uncached: 100, cost: 0.01 };
 const input = (perf: SidebarPerf, inner = 40, tier: PerfInput["tier"] = "full", _now = 1000, totals = usage): PerfInput => ({ perf, usage: totals, inner, tier, ...plainPaint });
 
 test("formatRate uses one decimal below 100, integers below 1000, then compact units", () => {
@@ -117,10 +118,8 @@ test("CACHE distinguishes a failed first reply with missing usage from an empty 
   }
 });
 
-test("an uncached reply shows its actual usage, without a cache timer", () => {
-  const { cache } = stacked(input(perfFixture(1000), 40, "compact", 1000, {
-    ...noUsage, input: 100, cacheRead: 0, cacheWrite: 0, uncached: 100, cost: 0.01,
-  }));
+test("an uncached reply shows its actual usage", () => {
+  const { cache } = stacked(input(perfFixture(1000), 40, "compact", 1000, uncachedUsage));
   assert.match(cache[0]!, /CACHE\s+0% hit$/);
   assert.deepEqual(cache.slice(1), ["━".repeat(40), "read 0 · new 100"]);
 });
@@ -232,11 +231,11 @@ test("a segment is ellipsized only when it cannot fit even on its own line", () 
   assert(rows.every(row => visibleWidth(row) <= 6));
 });
 
-test("two-column height is stable for ordinary figures with and without a timer or cache", () => {
+test("two-column height is stable across speed and cache activity", () => {
   const perf = perfFixture(1000);
   for (const inner of [47, 48, 52, 62, 67, 72, 95]) for (const tier of ["compact", "full"] as const) {
     const [empty] = perfRows(input(EMPTY_PERF, inner, tier, 1000, sidebarUsage([])));
-    for (const [current, totals] of [[perf, usage], [perf, { ...usage, cacheSeen: false }]] as const) {
+    for (const [current, totals] of [[perf, usage], [EMPTY_PERF, uncachedUsage]] as const) {
       const [rows] = perfRows(input(current, inner, tier, 1000, totals));
       assert.equal(rows?.length, empty?.length, `${inner} (${tier})`);
       assert.equal(rows?.at(-1), null);
@@ -258,8 +257,8 @@ test("cards keep empty and populated heights equal and stay within width", () =>
   const base = perfFixture(1000);
   for (const inner of [28, 29, 32, 36, 40, 60]) for (const tier of ["compact", "full"] as const) {
     const [empty] = perfRows(input(EMPTY_PERF, inner, tier, 1000, sidebarUsage([])));
-    for (const [perf, now, totals] of [[base, 1000, usage], [base, 1000, { ...usage, cacheSeen: false }]] as const) {
-      const [rows] = perfRows(input(perf, inner, tier, now, totals));
+    for (const totals of [usage, uncachedUsage]) {
+      const [rows] = perfRows(input(base, inner, tier, 1000, totals));
       assert.equal(rows?.length, empty?.length, `${inner} (${tier})`);
       for (const row of rows ?? []) if (row !== null) assert(visibleWidth(row) <= inner, `${inner}: ${row}`);
     }

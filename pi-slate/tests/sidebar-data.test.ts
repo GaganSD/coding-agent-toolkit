@@ -16,30 +16,29 @@ function skill(name: string): Skill { return { name, filePath: `/skills/${name}/
 test("usage input includes cache categories once; reasoning is already part of output", () => {
   const a = message("a", "assistant", { usage });
   const result = sidebarUsage([a, a]);
-  assert.deepEqual(result, { input: 450, output: 20, cacheRead: 300, cacheWrite: 50, uncached: 100, cacheSeen: true, total: 470, cost: 0.25 });
+  assert.deepEqual(result, { input: 450, output: 20, cacheRead: 300, cacheWrite: 50, uncached: 100, total: 470, cost: 0.25 });
 });
 
 test("tool nested usage, compaction, branch summaries and cache warming each count once", () => {
   const entries = [message("a", "assistant", { usage }), message("t", "toolResult", { usage, nestedCalls: { calls: [{ usage }], complete: true } }), entry("c", { type: "compaction", usage }), entry("b", { type: "branch_summary", usage }), entry("w", { type: "usage", kind: "cache_warm", usage })];
   const result = sidebarUsage(entries);
-  assert.deepEqual(result, { input: 2250, output: 100, cacheRead: 1500, cacheWrite: 250, uncached: 500, cacheSeen: true, total: 2350, cost: 1.25 });
+  assert.deepEqual(result, { input: 2250, output: 100, cacheRead: 1500, cacheWrite: 250, uncached: 500, total: 2350, cost: 1.25 });
 });
 
 test("ordinary tool results without usage are not invented model requests", () => {
-  assert.deepEqual(sidebarUsage([message("t", "toolResult")]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, uncached: 0, cacheSeen: false, total: 0, cost: 0 });
+  assert.deepEqual(sidebarUsage([message("t", "toolResult")]), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, uncached: 0, total: 0, cost: 0 });
 });
 
 test("missing or invalid provider facts show unknown rather than fake zero", () => {
-  assert.deepEqual(sidebarUsage([message("a", "assistant")]), { input: null, output: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, total: null, cost: null });
+  assert.deepEqual(sidebarUsage([message("a", "assistant")]), { input: null, output: null, cacheRead: null, cacheWrite: null, uncached: null, total: null, cost: null });
   const result = sidebarUsage([message("a", "assistant", { usage: { ...usage, cacheRead: NaN, cost: { total: -1 } } })]);
-  assert.deepEqual(result, { input: null, output: 20, cacheRead: null, cacheWrite: 50, uncached: 100, cacheSeen: true, total: null, cost: null });
+  assert.deepEqual(result, { input: null, output: 20, cacheRead: null, cacheWrite: 50, uncached: 100, total: null, cost: null });
 });
 
 test("legacy summaries without usage make billed totals unknown rather than silently free", () => {
   for (const type of ["compaction", "branch_summary"]) {
     const result = sidebarUsage([message("a", "assistant", { usage }), entry("summary", { type })]);
     assert.equal(result.input, null); assert.equal(result.uncached, null); assert.equal(result.cost, null);
-    assert.equal(result.cacheSeen, true);
   }
 });
 
