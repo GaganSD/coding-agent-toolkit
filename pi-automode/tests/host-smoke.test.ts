@@ -1,5 +1,6 @@
 /**
- * Host smoke tests: real Pi 1.1.0 loader, session, and tool execution,
+ * Host smoke tests: real Pi loader, session, and tool execution against the
+ * SDK version pinned in package.json,
  * fully offline (scripted fake provider, temp agent dir, temp workspace,
  * in-memory sessions where possible). Never touches the real ~/.pi.
  */
