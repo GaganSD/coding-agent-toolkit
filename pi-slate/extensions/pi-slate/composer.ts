@@ -486,11 +486,7 @@ export class ComposerEditor extends CustomEditor {
         : src.theme.fg("accent", progressFrame(phase, statusWidth))
       : undefined;
     const pidLabel = src.showPid === true ? src.theme.fg("dim", `PID-${AGENT_PID}`) : "";
-    const resourceParts = contextResources?.split(" · ") ?? [];
-    if (src.dashboardVisible === false && src.context && src.footer === "standard" && src.thinking) {
-      resourceParts.push(src.thinking);
-    }
-    const resources = resourceParts
+    const resources = (contextResources?.split(" · ") ?? [])
       .map((part) => src.theme.fg("dim", part))
       .join(metadataSeparator(src.theme, "dim"));
     return composerStatusContextEdge(
@@ -525,20 +521,13 @@ export class ComposerEditor extends CustomEditor {
         branch: src.branch,
         model: modelStatusLabel(src.model, src.modelDisplay),
         thinking: src.thinking,
-        tokens: src.context?.tokens,
+        tokens: src.dashboardVisible === false ? undefined : src.context?.tokens,
         footer: src.footer,
       },
       src.theme,
       width,
     );
     if (src.dashboardVisible === false && src.context) {
-      const rightParts: string[] = [];
-      if (src.footer === "standard" && width >= 66) {
-        rightParts.push(modelStatusLabel(src.model, src.modelDisplay));
-      }
-      const right = rightParts.length
-        ? ` ${rightParts.map((part) => src.theme.fg("muted", part)).join(metadataSeparator(src.theme))} `
-        : "";
       return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "└", "┘");
     }
     if (src.dashboardVisible) return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "└", "┘");
