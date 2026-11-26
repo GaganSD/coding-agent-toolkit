@@ -101,7 +101,8 @@ Ordinals distinguish duplicate roles and never renumber when a sibling finishes.
 Run/session UUIDs and PID are not primary navigation labels.
 
 - **Down at the editor boundary** focuses the roster, without opening anything
-  (`tui.editor.cursorDown`, Down by default). Native movement, history,
+  (`tui.editor.cursorDown`, Down by default). This works only with this package's
+  own editor, which is installed only when no other extension owns the editor. Native movement, history,
   autocomplete and selection run first. If Down still moves your caret or clears
   a selection, press it again after that movement finishes.
 - **Up/Down** selects, including the configured `tui.editor.cursorDown` handoff
@@ -116,17 +117,12 @@ Run/session UUIDs and PID are not primary navigation labels.
   stays available independently of an in-flight send. **Resume** appears only for
   a transient provider failure with a saved transcript and also requires confirmation.
 
-The thread paints the whole conversation workspace, not a translucent diagnostic
-popup. With cooperative Slate and a compatible fullscreen Pi 1.1+ host, it borrows
-Slate's chat slot while retaining its sidebar. The sidebar still describes the
-parent workspace; worker-specific usage/workspace is in Details. Parent dialogs
-reclaim the workspace without losing focus, and the worker draft is retained.
-
-Without an owned workspace bridge (plain Pi, regular mode or older hosts), an
-opaque full-viewport conversation is the disclosed fallback; it does not claim
-sidebar preservation. If an offered workspace becomes unavailable or fails to
-mount, a warning and thread note disclose the fallback. Other custom editors are not replaced or assigned global
-Down interception. The original main editor/chat objects survive switching,
+The thread is this package's own opaque, full-viewport overlay, not a translucent
+diagnostic popup. Worker-specific usage and workspace details are under Details.
+pi-subagents never asks another extension to lend its editor, chat area or sidebar,
+and other extensions don't render sub-agent UI. Parent dialogs take the screen back
+without losing focus, and the worker draft is kept. Other custom editors are never
+replaced or given global Down interception. The original main editor/chat objects survive switching,
 including native undo/paste/cursor state and background parent output.
 
 Per-run drafts and reading positions survive switching. Send failures keep the
@@ -139,14 +135,25 @@ verified work.
 
 ### Session dashboards
 
-When a session dashboard such as Slate is installed, sub-agents also publish
-optional `pi:background-tasks` display snapshots and answer matching-owner
-`pi:background-tasks:request` events. Completed/cancelled runs leave that shelf;
-live/uncertain-cleanup runs take priority over bounded failed history (64 rows
-per source). Snapshots include exact run IDs,
-state and shared host PID, not native session objects, private questions or run
+For any compatible dashboard consumer, sub-agents publish optional
+`pi:background-tasks` display snapshots and answer matching-owner
+`pi:background-tasks:request` events. Settled runs leave that shelf (64 live rows
+per source), but their spend remains in the optional v1 `totals` aggregate with
+measured/total run coverage. No particular dashboard or display is required.
+Snapshots include exact run IDs, state and shared host PID, not native session objects, private questions or run
 control. Use `/subagents` for authoritative inspection and control. Listener
 failures cannot change run outcomes; reload/shutdown clears the source.
+
+Finish notices and `status` include host-measured `usage` (input/output/cache
+read/cache write tokens and USD cost) when known, plus `elapsedMs`. Live usage
+refreshes only at turn end, settlement and compaction boundaries, never streaming
+deltas or paint. Missing live samples retain last-known cumulative usage. If final
+collection fails, retained usage is explicitly `usagePartial: true`; totals include
+that known spend in `usage`, count it in optional `partialRuns`, and exclude it
+from fully `measuredRuns`. The conversation header shows compact input/output/cost; Details retains cache
+accounting. Totals cover this manager runtime, including settled runs, not older
+artifacts after reload. Missing usage stays unknown, not zero. Resumed runs use
+the native transcript cumulative total rather than adding each attempt twice.
 
 ### Telemetry and evidence
 

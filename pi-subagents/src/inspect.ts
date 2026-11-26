@@ -1,7 +1,8 @@
 import { getMarkdownTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Editor, Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
-import { formatContext, formatElapsed, plain, type NavigationHost } from "./ui.ts";
+import { formatUsage } from "./usage.ts";
+import { formatContext, formatElapsed, plain } from "./ui.ts";
 import { HumanState, stateLabel } from "./presentation.ts";
 import { conversationText, readConversation, type ConversationMessage } from "./conversation.ts";
 
@@ -47,69 +48,17 @@ export interface InspectActions {
   live(): RunRecord[];
 }
 
-export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions, state = new HumanState(), navigation?: NavigationHost, onView?: (close: () => void) => void): Promise<void> {
+/** Threads always open as this package's own opaque full-viewport overlay; no host lends a workspace. */
+export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions, state = new HumanState(), onView?: (close: () => void) => void): Promise<void> {
   actions.status(id);
-  let notice: string | undefined;
-  if (navigation?.mount) {
-    const result = await mountThread(ctx, id, actions, state, navigation, onView);
-    if (result === "mounted") return;
-    notice = `${result === "failed" ? "Workspace mount failed" : "Workspace unavailable"} · full-viewport overlay (sidebar not preserved)`;
-    try { ctx.ui.notify(notice, "warning"); } catch { /* UI never determines execution success. */ }
-  }
-  // Unavailable slot or failed offered mount: opaque entire viewport. Never pretend it preserves a sidebar.
   await ctx.ui.custom((tui, theme, _keys, done) => {
-    const view = new InspectView(tui, theme, id, actions, done, state, notice);
+    const view = new InspectView(tui, theme, id, actions, done, state);
     onView?.(() => view.dispose());
     // The overlay host owns focus acquisition and its original restore target.
     return view;
   }, {
     overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 },
   });
-}
-
-async function mountThread(ctx: ExtensionContext, id: string, actions: InspectActions, state: HumanState, navigation: NavigationHost, onView?: (close: () => void) => void): Promise<"mounted" | "unavailable" | "failed"> {
-  let view: InspectView | undefined;
-  let release: (() => void) | undefined;
-  let mounted = false;
-  let reason: "unavailable" | "failed" = "unavailable";
-  const drop = (): void => {
-    const loan = release; release = undefined;
-    try { loan?.(); } catch { /* Loan must not survive a failed attach. */ }
-    const created = view; view = undefined;
-    try { created?.dispose(); } catch { /* Listener must not survive a failed attach. */ }
-  };
-  try {
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const fail = (error: unknown, kind: "unavailable" | "failed" = "failed") => {
-        if (settled) return;
-        settled = true;
-        reason = kind;
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-      const empty = { render: () => [] as string[], invalidate() {}, dispose() {} };
-      try {
-        // Obtain the host's active TUI without occupying/changing the main editor.
-        ctx.ui.setWidget("minimal-subagents:thread-host", (tui, theme) => {
-          view = new InspectView(tui, theme, id, actions, () => {
-            try { release?.(); } catch { /* Restore independently of view teardown. */ }
-            if (mounted && !settled) { settled = true; resolve(); }
-          }, state);
-          onView?.(() => view?.dispose());
-          try { release = navigation.mount!(view); }
-          catch (error) { drop(); fail(error, "failed"); return empty; }
-          if (!release) { drop(); fail(new Error("Conversation workspace unavailable"), "unavailable"); return empty; }
-          mounted = true;
-          return { render: () => [], invalidate() {}, dispose() { if (mounted) view?.dispose(); } };
-        }, { placement: "belowEditor" });
-      } catch (error) { fail(error, "failed"); return; }
-      if (!mounted) fail(new Error("Conversation workspace unavailable"), "unavailable");
-    });
-    return "mounted";
-  } catch {
-    drop();
-    return reason;
-  } finally { try { ctx.ui.setWidget("minimal-subagents:thread-host", undefined); } catch { /* Host UI may already be gone. */ } }
 }
 
 export class InspectView implements Component, Focusable {
@@ -237,7 +186,8 @@ export class InspectView implements Component, Focusable {
     if (!this.closed && this.focused && record && this.isPresented()) this.state.markRead(record);
     const activity = record?.currentTool ? ` · ${plain(record.currentTool)}` : "";
     const header = [this.theme.fg("accent", truncateToWidth(`Agent › ${record ? this.state.title(record) : "Unavailable worker"}`, inner)),
-      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatContext(record)} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
+      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatContext(record)} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner)),
+      ...(record?.usage ? [this.theme.fg("dim", truncateToWidth(formatUsage(record.usage, record.usagePartial), inner))] : [])];
     this.input.focused = this.focused && this.zone === "message" && !this.details;
     const editor = this.fitEditor(inner, Math.max(1, Math.min(5, height - 5)));
     const footer = [this.theme.fg("dim", truncateToWidth(this.note, inner)),
@@ -290,7 +240,7 @@ export class InspectView implements Component, Focusable {
     if (this.details && record) return wrapTextWithAnsi(conversationText([
       `Run ID: ${record.id}`, `Native session ID: ${record.sessionId ?? "starting"}`, `Shared process PID: ${record.pid ?? "unknown"}`,
       `Workspace: ${record.cwd}`, `Model: ${record.model} · ${record.thinking}`, `Context estimate: ${formatContext(record)}`,
-      `Usage: ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
+      `Usage: ${formatUsage(record.usage, record.usagePartial)}`, `Accounting (includes cache tokens): ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
       `Report: ${record.reportPath ?? "not saved"}`, `Delivery warning: ${record.notificationError ?? "none"}`,
       `Resume: ${record.resume ? `${record.resume.eligible ? "eligible" : "not eligible"} · ${record.resume.attempts} of ${record.resume.maxAttempts} resumes used` : "not resumable"}`,
     ].join("\n")), width);

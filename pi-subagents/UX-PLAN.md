@@ -1,5 +1,8 @@
 # Human / sub-agent UX plan
 
+> **Superseded (2026-11):** the cooperative Slate workspace/editor bridge described below was removed.
+> pi-subagents owns all of its UI: threads use its own full-viewport overlay, and Down-to-roster works only with its own editor.
+
 ## Decisions (operator-approved)
 
 - Inline roster below the main editor, followed by a dedicated conversation.

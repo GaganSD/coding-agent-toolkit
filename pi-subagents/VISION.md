@@ -50,9 +50,10 @@ when requested, and decides whether the task is accepted.
 Make switching among the agent and its sub-agents feel like editor navigation.
 Focus and activation are separate. Use human names in normal surfaces; retain
 exact IDs for routing and on-demand evidence. Preserve drafts, native parent
-editor state and readable conversations. Cooperative layout owners lend their
-own slots; unavailable host capabilities require a disclosed fallback, not
-private container discovery or damage to another extension's UI.
+editor state and readable conversations. This package owns all of its UI. It never
+borrows another extension's editor, layout or slots, and it never asks another
+extension to render sub-agent UI. It uses no private container discovery and
+does no damage to another extension's UI.
 
 ## Compose before inventing
 

@@ -61,10 +61,8 @@ function rosterAction(data: string): "up" | "down" | "pageUp" | "pageDown" | "ac
 export interface NavigationHost {
   version: 1;
   isActive?(): boolean;
-  canFocusRoster?(): boolean;
   focusEditor(data?: string): void;
   bindDown(handler: () => void): () => void;
-  mount?(view: Component & { dispose?(): void }): (() => void) | undefined;
 }
 export interface WidgetSlot { instance?: SubagentWidget; state?: HumanState; navigation?: NavigationHost }
 export function syncWidget(ctx: ExtensionContext, runs: RunRecord[], blocked: boolean, onOpen: (id: string) => void, slot: WidgetSlot): void {

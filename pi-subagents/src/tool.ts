@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import { THINKING_LEVELS, type RunRecord, type Task } from "./types.ts";
+import { measuredUsage } from "./usage.ts";
 import { keys, modelName, object, text, thinkingLevel } from "./validation.ts";
 
 const ThinkingSchema = Type.String({ enum: [...THINKING_LEVELS] });
@@ -76,9 +77,16 @@ export function parseRequest(input: unknown): Request {
 
 const clip = (value: string, max: number) => value.length > max ? value.slice(0, max) + "…" : value;
 
-/** Allowlisted control view. Full briefs, configuration and usage stay in evidence. */
+function accounting(record: RunRecord) {
+  const usage = measuredUsage(record.usage);
+  return { ...(usage ? { usage, ...(record.usagePartial ? { usagePartial: true as const } : {}) } : {}),
+    ...(Number.isFinite(record.elapsedMs) && record.elapsedMs >= 0 ? { elapsedMs: record.elapsedMs } : {}) };
+}
+
+/** Allowlisted control view. Full briefs and configuration stay in evidence. */
 export function presentRun(record: RunRecord) {
   return {
+    ...accounting(record),
     id: record.id, state: record.state, metadataPath: record.metadataPath,
     model: record.model, thinking: record.thinking,
     ...(record.currentTool ? { currentTool: clip(record.currentTool, 80) } : {}),
@@ -101,6 +109,7 @@ function presentResume(record: RunRecord) {
 }
 export function presentFinished(record: RunRecord) {
   return {
+    ...accounting(record),
     id: record.id, state: record.state, agent: record.agent, taskPreview: clip(record.task, 80),
     ...(record.reportPath ? { reportPath: record.reportPath } : {}),
     ...(record.error ? { error: clip(record.error, 512) } : {}),
@@ -108,9 +117,10 @@ export function presentFinished(record: RunRecord) {
     ...((record.error?.length ?? 0) > 512 ? { truncated: true as const } : {}),
   };
 }
-/** Turn-triggering wake-ups carry only agent-controlled fields; sub-agent free text stays behind status/metadata. */
+/** Turn-triggering wake-ups carry only agent-controlled fields and host accounting; sub-agent free text stays behind status/metadata. */
 export function presentNotice(record: RunRecord) {
   return {
+    ...accounting(record),
     id: record.id, state: record.state, agent: record.agent, taskPreview: clip(record.task, 80),
     ...(record.reportPath ? { reportPath: record.reportPath } : {}),
     ...(record.state !== "completed" ? { metadataPath: record.metadataPath } : {}),
@@ -122,6 +132,7 @@ export function presentLaunch(records: RunRecord[]) {
 }
 export function presentSummary(record: RunRecord) {
   return {
+    ...accounting(record),
     id: record.id, agent: record.agent, state: record.state, taskPreview: clip(record.task, 80),
     ...presentResume(record),
   };
@@ -170,7 +181,14 @@ const ResumeSchema = Type.Object({
   eligible: Type.Boolean(), attempts: Type.Number(), maxAttempts: Type.Number(),
   kind: Type.Optional(Type.String({ enum: ["transient_provider", "provider", "cancelled", "unknown"] })),
 }, closed);
+const AccountingSchema = {
+  usagePartial: Type.Optional(Type.Literal(true)),
+  usage: Type.Optional(Type.Object({ input: Type.Number({ minimum: 0 }), output: Type.Number({ minimum: 0 }),
+    cacheRead: Type.Number({ minimum: 0 }), cacheWrite: Type.Number({ minimum: 0 }), cost: Type.Number({ minimum: 0 }) }, closed)),
+  elapsedMs: Type.Optional(Type.Number({ minimum: 0 })),
+};
 const RunSchema = Type.Object({
+  ...AccountingSchema,
   id: Type.String(), state: StateSchema,
   agent: Type.Optional(Type.String()), taskPreview: Type.Optional(Type.String()),
   model: Type.Optional(Type.String()), thinking: Type.Optional(ThinkingSchema),
@@ -191,7 +209,7 @@ export const OutputSchema = Type.Union([
   Type.Object({
     runs: Type.Array(Type.Union([
       Type.Object({ id: Type.String(), cwd: Type.String(), workspace: Type.String(), model: Type.String(), thinking: ThinkingSchema }, closed),
-      Type.Object({ id: Type.String(), agent: Type.String(), state: StateSchema, taskPreview: Type.String(),
+      Type.Object({ ...AccountingSchema, id: Type.String(), agent: Type.String(), state: StateSchema, taskPreview: Type.String(),
         resume: Type.Optional(Type.Object({ eligible: Type.Literal(true), attempts: Type.Number(), maxAttempts: Type.Number() }, closed)),
       }, closed),
     ])),
