@@ -630,6 +630,7 @@ test("rail omits the command catalog", async t => {
 test("dashboard uses live branch facts", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false, sidebarPercent: 30 }));
   const tui = f.tui; assert(tui instanceof TuiAltScreen);
+  (tui.terminal as NullTerminal).rows = 60;
   const rail = () => unstyled((Reflect.get(tui, "layoutRoot") as Component).render(140).join("\n"));
   f.manager.appendSessionInfo("Dashboard test");
   f.manager.appendMessage({ role: "user", content: "hi", timestamp: 0 });
@@ -640,6 +641,10 @@ test("dashboard uses live branch facts", async t => {
   assert.ok(rail().includes(f.manager.getSessionId().slice(0, 8)));
   assert.match(railOf(f).sessionDetails(), /Title: Dashboard test/);
   assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /read +300/); assert.match(rail(), /new +100/);
+  assert.doesNotMatch(rail(), /\bsaved\b/i);
+  const details = railOf(f).sessionDetails();
+  assert.match(details, /Cost: \$0\.35/);
+  assert.doesNotMatch(details, /\bsaved\b/i);
   assert(!/Summary|Activity Preview|Context\s*\n/.test(rail()));
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });

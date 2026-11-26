@@ -138,8 +138,8 @@ for (const carrier of ["modern-mixed", "modern-thread-prefix", "modern-only", "m
     assert.deepEqual((await collectSnapshot("snapshot", { home: root, store })).rows, oracle.rows);
     const saved = JSON.parse(await readFile(store, "utf8"));
     const entry = Object.values(saved.files)[0];
-    assert.equal(entry.state.codexParserVersion, 8);
-    entry.state.codexParserVersion = 7;
+    assert.equal(entry.state.codexParserVersion, 9);
+    entry.state.codexParserVersion = 8;
     entry.rows[0].input += 2500; // A stale PR parser contribution must be rebuilt, not retained.
     await writeFile(store, JSON.stringify(saved));
     const migrated = await collectSnapshot("snapshot", { home: root, store });

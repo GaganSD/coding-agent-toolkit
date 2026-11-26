@@ -198,6 +198,8 @@ export function inscribedBorder(
 
 /** Pi agent process id, read once: it never changes during the session. */
 const AGENT_PID = process.pid;
+/** Focused mode drops tokens, so thinking keeps the narrow floor it had on the top edge. */
+const FOCUSED_THINKING_MIN_WIDTH = 32;
 
 export function composerLabels(
   input: {
@@ -207,11 +209,13 @@ export function composerLabels(
     thinking?: string;
     tokens?: string;
     footer: "standard" | "minimal";
+    focused?: boolean;
   },
   theme: Theme,
   width: number,
 ): { left: string; right: string } {
   const visible = footerVisibility(width);
+  if (input.focused) visible.showThinking = width >= FOCUSED_THINKING_MIN_WIDTH;
   const project = theme.fg("accent", input.project);
   const branch = visible.showBranch && input.branch ? theme.fg("muted", ` / ${input.branch}`) : "";
   const projectLabel = ` ${project}${branch} `;
@@ -486,11 +490,7 @@ export class ComposerEditor extends CustomEditor {
         : src.theme.fg("accent", progressFrame(phase, statusWidth))
       : undefined;
     const pidLabel = src.showPid === true ? src.theme.fg("dim", `PID-${AGENT_PID}`) : "";
-    const resourceParts = contextResources?.split(" · ") ?? [];
-    if (src.dashboardVisible === false && src.context && src.footer === "standard" && src.thinking) {
-      resourceParts.push(src.thinking);
-    }
-    const resources = resourceParts
+    const resources = (contextResources?.split(" · ") ?? [])
       .map((part) => src.theme.fg("dim", part))
       .join(metadataSeparator(src.theme, "dim"));
     return composerStatusContextEdge(
@@ -519,29 +519,21 @@ export class ComposerEditor extends CustomEditor {
   private paintBottomBorder(width: number, hiddenLineCount: number): string {
     const src = this.source();
     const more = hiddenLineCount > 0 ? this.borderColor(` ↓ ${hiddenLineCount} more `) : "";
+    const focused = src.dashboardVisible === false && src.context !== undefined;
     const { left, right } = composerLabels(
       {
         project: src.project,
         branch: src.branch,
         model: modelStatusLabel(src.model, src.modelDisplay),
         thinking: src.thinking,
-        tokens: src.context?.tokens,
+        tokens: focused ? undefined : src.context?.tokens,
         footer: src.footer,
+        focused,
       },
       src.theme,
       width,
     );
-    if (src.dashboardVisible === false && src.context) {
-      const rightParts: string[] = [];
-      if (src.footer === "standard" && width >= 66) {
-        rightParts.push(modelStatusLabel(src.model, src.modelDisplay));
-      }
-      const right = rightParts.length
-        ? ` ${rightParts.map((part) => src.theme.fg("muted", part)).join(metadataSeparator(src.theme))} `
-        : "";
-      return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "└", "┘");
-    }
-    if (src.dashboardVisible) return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "└", "┘");
+    if (src.dashboardVisible || focused) return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "└", "┘");
     const compactRight = src.footer === "minimal" ? (src.context?.tokens ? src.theme.fg("muted", ` ${src.context.tokens} `) : "") : right;
     return inscribedBorder(`${more}${left}`, compactRight, width, (text) => this.borderColor(text), "└", "┘");
   }

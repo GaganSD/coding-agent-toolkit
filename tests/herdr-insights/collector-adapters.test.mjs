@@ -689,3 +689,17 @@ test("Codex non-fork session still counts its first cumulative total in full", a
   assert.equal(total, 2750);
   assert.ok(rows.some((row) => row.model === "unknown"), "records before any turn_context keep today's behavior");
 });
+
+test("Codex interleaved cumulative counters count each response once, not a reset", async () => {
+  const rows = await codexRows("codex-concurrent-counters.jsonl");
+  const total = rows.reduce((sum, row) => sum + row.tokens.total, 0);
+  // 110 + 130 + 121 + 140: a lower branch total is one response, and its later
+  // re-emission is a duplicate. Treating the drop as a restart counted 851.
+  assert.equal(total, 501);
+});
+
+test("Codex paginated fork counts its own responses, not the inherited parent total", async () => {
+  const rows = await codexRows("codex-fork-inherited-total.jsonl");
+  assert.deepEqual(rows.map((row) => row.model), ["child-model"]);
+  assert.equal(rows[0].tokens.total, 250, "100 + 150, without the parent's 5500");
+});

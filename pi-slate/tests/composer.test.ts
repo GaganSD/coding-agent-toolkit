@@ -213,7 +213,7 @@ test("a changed focused context label needs a repaint only if it can be seen", (
   assert.equal(editor.needsContextRepaint(), false);
 });
 
-test("focused composer puts thinking after MCP on the top edge, leaving the model below", () => {
+test("focused composer keeps context on top and puts thinking beside the model below", () => {
   const editor = new ComposerEditor(
     { terminal: { rows: 24, columns: 100 }, requestRender() {} } as TUI,
     { borderColor: (text) => text } as EditorTheme,
@@ -230,17 +230,18 @@ test("focused composer puts thinking after MCP on the top edge, leaving the mode
     }),
   );
   const lines = editor.render(100);
-  assert.match(lines[0]!, /\[dim\]ctx 10%\[dim\] · \[dim\]2 mcp\[dim\] · \[dim\]medium/);
+  assert.match(lines[0]!, /\[dim\]ctx 10%\[dim\] · \[dim\]2 mcp/);
+  assert.doesNotMatch(lines[0]!, /medium/);
   const bottom = lines.at(-1)!;
-  assert.doesNotMatch(bottom, /ctx 10%|medium| · /);
-  assert.match(bottom, /sample/);
+  assert.doesNotMatch(bottom, /ctx 10%/);
+  assert.match(bottom, /\[muted\]sample\[muted\] · \[dim\]medium/);
   assert.doesNotMatch(bottom, /borderMuted/);
 });
 
-test("top-edge thinking respects minimal metadata, narrow widths, and missing levels", () => {
+test("focused bottom-edge thinking respects minimal metadata, narrow widths, and missing levels", () => {
   for (const footer of ["standard", "minimal"] as const) {
     for (const thinking of [undefined, "medium"]) {
-      for (const width of [12, 20, 32, 40, 65, 79, 80, 100]) {
+      for (const width of [12, 20, 31, 32, 40, 65, 66, 70, 79, 80, 100]) {
         const editor = new ComposerEditor(
           { terminal: { rows: 24, columns: width }, requestRender() {} } as TUI,
           { borderColor: (text) => text } as EditorTheme,
@@ -253,13 +254,15 @@ test("top-edge thinking respects minimal metadata, narrow widths, and missing le
         );
         const lines = editor.render(width).map(stripVTControlCharacters);
         assert.ok(lines.every(line => visibleWidth(line) <= width));
-        if (footer === "standard" && thinking) {
-          if (width >= 32) assert.match(lines[0]!, /ctx 10% · 1 mcp · medium/);
-        } else {
-          assert.doesNotMatch(lines[0]!, /medium/);
-        }
+        assert.doesNotMatch(lines[0]!, /medium/);
         assert.doesNotMatch(lines[0]!, /undefined/);
-        assert.doesNotMatch(lines.at(-1)!, /medium/);
+        const bottom = lines.at(-1)!;
+        if (footer === "standard" && width >= 66) assert.match(bottom, /sample/);
+        else assert.doesNotMatch(bottom, /sample/);
+        // Thinking keeps the top edge's old 32-column floor; beside the model once the model fits.
+        if (footer === "standard" && thinking && width >= 66) assert.match(bottom, /sample · medium/);
+        else if (footer === "standard" && thinking && width >= 32) assert.match(bottom, /medium/);
+        else assert.doesNotMatch(bottom, /medium/);
       }
     }
   }

@@ -162,8 +162,7 @@ export class Sidebar implements Component {
       `Replies with less than 32 output tokens, less than 300 ms, or missing timing are excluded from speed.`,
       `The composer's live rate is an estimate (visible text ÷ 4) and is marked ~.`,
       `Timed replies: ${perf.timedReplies} · last timed reply: ${formatRate(perf.rates.at(-1))} tok/s · peak: ${formatRate(perf.peak)} tok/s · this turn: ${formatRate(perf.turn.rate)} tok/s`,
-      `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`,
-      `Saved is estimated from recorded prices only when all branch cache reads are priceable.`];
+      `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`];
   }
   tick(): void { this.refresh(); }
   invalidate(): void {

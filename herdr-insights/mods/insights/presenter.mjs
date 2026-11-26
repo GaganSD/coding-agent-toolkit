@@ -5,6 +5,7 @@
 // the pure analytics derivation stay in Node, where a filter change can also be
 // prepared from the existing store without scanning transcripts again.
 import { realpathSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,9 @@ import {
   deriveDashboard,
 } from "./analytics.js";
 import { collectSnapshot, readCommittedSnapshot } from "./collector.mjs";
+import { buildRemoteBundle, loadMachineRecords, publishRemoteFile } from "./core/machines.mjs";
+import { mergeSnapshots } from "./merge.mjs";
+import { timeZoneStoreKey } from "./remote.mjs";
 
 function usage() {
   return [
@@ -22,6 +26,7 @@ function usage() {
     "  presenter.mjs configure --store <file> --home <dir> --config <json> [--options <json>]",
     "  presenter.mjs prepare --store <file> [--options <json>]",
     "  presenter.mjs status --store <file> [--options <json>]",
+    "  presenter.mjs bundle",
   ].join("\n");
 }
 
@@ -78,6 +83,10 @@ function compactSnapshot(snapshot, rowCount = 0) {
     sourceStats,
     scan,
     warnings = [],
+    machines = [],
+    remoteDisabled = [],
+    remoteTimeZone = null,
+    remoteWarnings = [],
   } = snapshot ?? {};
   return {
     version,
@@ -95,7 +104,54 @@ function compactSnapshot(snapshot, rowCount = 0) {
     sourceStats,
     scan: scan && typeof scan === "object" ? scan : null,
     warnings: Array.isArray(warnings) ? warnings : [],
+    machines: Array.isArray(machines) ? machines : [],
+    remoteDisabled: Array.isArray(remoteDisabled) ? remoteDisabled : [],
+    remoteTimeZone,
+    remoteWarnings,
   };
+}
+
+// Remote files live beside the store: machines/<timezone>/<stem>.{rows,state}.json
+// written by main.js, and remote.json {disabled: [names]} from Settings.
+async function disabledMachines(dataDir, warnings) {
+  let text;
+  try {
+    text = await readFile(path.join(dataDir, "remote.json"), "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") warnings.push(`remote.json: ${error.message}; ignored.`);
+    return [];
+  }
+  try {
+    const disabled = JSON.parse(text)?.disabled;
+    return Array.isArray(disabled) ? disabled.filter((name) => typeof name === "string") : [];
+  } catch {
+    warnings.push("remote.json is not valid JSON; ignored.");
+    return [];
+  }
+}
+
+async function withMachines(snapshot, storePath) {
+  const dataDir = path.dirname(storePath);
+  const warnings = [];
+  let records = [];
+  let disabled = [];
+  // This local process derives the dashboard and gives QuickJS the same zone
+  // for remote collection, even on builds without Intl in QuickJS.
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try {
+    disabled = await disabledMachines(dataDir, warnings);
+    const loaded = await loadMachineRecords(path.join(dataDir, "machines", timeZoneStoreKey(timeZone)), { disabled });
+    records = loaded.records;
+    warnings.push(...loaded.warnings);
+  } catch (error) {
+    warnings.push(`remote machines: ${error.message}; ignored.`);
+  }
+  const merged = mergeSnapshots(snapshot, records);
+  merged.remoteWarnings = [...merged.warnings.slice(snapshot?.warnings?.length ?? 0), ...warnings];
+  merged.warnings.push(...warnings);
+  merged.remoteDisabled = disabled;
+  merged.remoteTimeZone = timeZone;
+  return merged;
 }
 
 function presentation(command, snapshot, options, dashboard, error) {
@@ -119,9 +175,19 @@ function derive(snapshot, options) {
 }
 
 export async function run(argv, environment = {}) {
+  if (argv[0] === "publish-remote") {
+    const [, staged, destination, kind] = argv;
+    if (!staged || !destination || !["settings", "data"].includes(kind)) throw new Error("Missing remote publish arguments.");
+    const disabled = await publishRemoteFile(staged, destination, kind);
+    return { exitCode: 0, stdout: `${JSON.stringify(disabled)}\n`, stderr: "" };
+  }
   const { command, options } = parseArgs(argv);
   if (options.help || !command) {
     return { exitCode: 0, stdout: "", stderr: `${usage()}\n` };
+  }
+  if (command === "bundle") {
+    const bundle = await buildRemoteBundle(path.dirname(fileURLToPath(import.meta.url)));
+    return { exitCode: 0, stdout: `${JSON.stringify(bundle)}\n`, stderr: "" };
   }
   if (!["snapshot", "configure", "prepare", "status"].includes(command)) {
     return { exitCode: 2, stdout: "", stderr: `unknown command ${command}\n${usage()}\n` };
@@ -139,7 +205,7 @@ export async function run(argv, environment = {}) {
 
   if (command === "prepare" || command === "status") {
     // Never takes the writer lock: a long indexer must not block the cached UI.
-    const snapshot = await readCommittedSnapshot(storePath);
+    const snapshot = await withMachines(await readCommittedSnapshot(storePath), storePath);
     const derived = derive(snapshot, dashboardOptions);
     return {
       exitCode: 0,
@@ -148,9 +214,9 @@ export async function run(argv, environment = {}) {
     };
   }
 
-  const snapshot = await collectSnapshot(command, {
+  const snapshot = await withMachines(await collectSnapshot(command, {
     store: storePath, home, config: options.config,
-  });
+  }), storePath);
   const derived = derive(snapshot, dashboardOptions);
   return {
     exitCode: 0,
