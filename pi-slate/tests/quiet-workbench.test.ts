@@ -140,9 +140,10 @@ test("quiet editor avoids duplicate identity/model and restores compact facts wi
     if (width >= 42) assert.match(text, /project \/ feat\/workbench/);
     if (width >= 66) {
       const bottom = stripVTControlCharacters(lines.at(-1)!);
-      assert.match(bottom, /sample-model/);
       assert.doesNotMatch(bottom, /ctx 11%/);
-      if (width >= 80) assert.match(bottom, /sample-model · medium/);
+      assert.match(bottom, /sample-model · medium/);
+    } else {
+      assert.match(stripVTControlCharacters(lines.at(-1)!), /medium/);
     }
   }
   assert.equal(editor.getText(), "Preserve this draft");

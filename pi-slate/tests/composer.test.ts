@@ -241,7 +241,7 @@ test("focused composer keeps context on top and puts thinking beside the model b
 test("focused bottom-edge thinking respects minimal metadata, narrow widths, and missing levels", () => {
   for (const footer of ["standard", "minimal"] as const) {
     for (const thinking of [undefined, "medium"]) {
-      for (const width of [12, 20, 32, 40, 65, 79, 80, 100]) {
+      for (const width of [12, 20, 31, 32, 40, 65, 66, 70, 79, 80, 100]) {
         const editor = new ComposerEditor(
           { terminal: { rows: 24, columns: width }, requestRender() {} } as TUI,
           { borderColor: (text) => text } as EditorTheme,
@@ -259,7 +259,9 @@ test("focused bottom-edge thinking respects minimal metadata, narrow widths, and
         const bottom = lines.at(-1)!;
         if (footer === "standard" && width >= 66) assert.match(bottom, /sample/);
         else assert.doesNotMatch(bottom, /sample/);
-        if (footer === "standard" && thinking && width >= 80) assert.match(bottom, /sample · medium/);
+        // Thinking keeps the top edge's old 32-column floor; beside the model once the model fits.
+        if (footer === "standard" && thinking && width >= 66) assert.match(bottom, /sample · medium/);
+        else if (footer === "standard" && thinking && width >= 32) assert.match(bottom, /medium/);
         else assert.doesNotMatch(bottom, /medium/);
       }
     }
