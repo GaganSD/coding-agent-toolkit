@@ -214,14 +214,17 @@ const remoteInflight = new Map();
 
 export function machineStatusText(machine, live = {}) {
   if (live.syncing) return "Syncing…";
+  const count = machine?.warningCount ?? 0;
+  const warnings = count > 0 ? ` · ${formatInt(count)} scan warning${count === 1 ? "" : "s"}` : "";
   const scan = live.error ? null : live.scan;
   if (scan && REMOTE_CONTINUE_MS[scan.status]) {
-    return scan.total > 0 ? `Indexing ${formatInt(scan.processed)} of ${formatInt(scan.total)} files` : "Indexing…";
+    const status = scan.total > 0 ? `Indexing ${formatInt(scan.processed)} of ${formatInt(scan.total)} files` : "Indexing…";
+    return status + warnings;
   }
   const error = live.error ?? machine?.error ?? null;
   if (!machine?.fetchedAt) return error ? `Unavailable: ${error}` : "Waiting for first sync";
   const synced = formatTimestamp(machine.fetchedAt);
-  return error ? `Offline · last synced ${synced}` : `Synced ${synced}`;
+  return (error ? `Offline · last synced ${synced}` : `Synced ${synced}`) + warnings;
 }
 
 function machineTone(machine, live, c) {

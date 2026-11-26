@@ -32,10 +32,10 @@ async function context(t) {
   const machinesRoot = path.join(root, "data/machines");
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const machines = path.join(machinesRoot, timeZoneStoreKey(timeZone));
-  const save = async (name, rows, { error = null, dir = machines } = {}) => {
+  const save = async (name, rows, { error = null, dir = machines, details = {} } = {}) => {
     await mkdir(dir, { recursive: true });
     await Promise.all([
-      writeFile(path.join(dir, `${name}.rows.json`), rowsFileText({ machine: name, envelope: envelope(rows), fetchedAt: "2026-11-13T01:00:00.000Z" })),
+      writeFile(path.join(dir, `${name}.rows.json`), rowsFileText({ machine: name, envelope: { ...envelope(rows), ...details }, fetchedAt: "2026-11-13T01:00:00.000Z" })),
       writeFile(path.join(dir, `${name}.state.json`), stateFileText({ machine: name, attemptedAt: "2026-11-13T01:00:00.000Z", error })),
     ]);
   };
@@ -71,6 +71,19 @@ test("prepare merges saved remote machines next to the store", async (t) => {
   assert.deepEqual(payload.dashboard.machines.map((m) => m.name), [null, "box", "vps"]);
   assert.equal((await prepare(ctx, { filters: { machine: "box" } })).dashboard.lifetime.total, 7);
   assert.equal((await prepare(ctx, { filters: { machine: THIS_COMPUTER } })).dashboard.lifetime.total, 0);
+});
+
+test("prepare gives the dashboard a warning count for the affected remote machine", async (t) => {
+  const ctx = await context(t);
+  await ctx.save("box", [row("2026-11-12", "a", 7)], {
+    details: { warningCount: 2, warnings: ["Could not read /private/remote/session.jsonl"] },
+  });
+  await ctx.save("vps", [row("2026-11-13", "a", 3)]);
+  const payload = await prepare(ctx);
+  assert.equal(payload.dashboard.lifetime.total, 10);
+  assert.equal(payload.dashboard.machines.find((machine) => machine.name === "box").warningCount, 2);
+  assert.equal(payload.dashboard.machines.find((machine) => machine.name === "vps").warningCount, 0);
+  assert.doesNotMatch(JSON.stringify(payload), /\/private\/remote/);
 });
 
 test("disabled machines in remote.json are left out", async (t) => {

@@ -1802,6 +1802,7 @@ test("machine status text covers syncing, indexing, synced, offline and never sy
   assert.equal(machineStatusText(synced, { syncing: true }), "Syncing…");
   assert.equal(machineStatusText(synced, { scan: { status: "partial", processed: 5, total: 1200 } }), "Indexing 5 of 1,200 files");
   assert.match(machineStatusText(synced, {}), /^Synced /);
+  assert.match(machineStatusText({ ...synced, warningCount: 2 }), / · 2 scan warnings$/);
   assert.match(machineStatusText({ ...synced, status: "offline", error: "gone" }, {}), /^Offline · last synced /);
   assert.equal(machineStatusText({ name: "box", status: "error", fetchedAt: null, error: "node was not found on PATH" }, {}), "Unavailable: node was not found on PATH");
   assert.equal(machineStatusText({ name: "box", fetchedAt: null }, {}), "Waiting for first sync");

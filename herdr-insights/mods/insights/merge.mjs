@@ -111,6 +111,7 @@ export function mergeSnapshots(local, records) {
       name: record.machine,
       status,
       rowCount,
+      warningCount: toNonNegInt(record.snapshot?.warningCount),
       fetchedAt: typeof record.fetchedAt === "string" ? record.fetchedAt : null,
       lastCompletedScanAt: typeof record.snapshot?.lastCompletedScanAt === "string"
         ? record.snapshot.lastCompletedScanAt

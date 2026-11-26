@@ -6,7 +6,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { REMOTE_RECORD_VERSION } from "../merge.mjs";
-import { isPlainObject } from "./util.mjs";
+import { isPlainObject, toNonNegInt } from "./util.mjs";
 
 const BUNDLE_ROOT_FILES = ["collector.mjs", "indexer.mjs", "remote-entry.mjs", "remote.mjs"];
 
@@ -55,6 +55,7 @@ function parseFile(text, kind) {
         rows,
         lastCompletedScanAt: typeof envelope.lastCompletedScanAt === "string" ? envelope.lastCompletedScanAt : null,
         scan: isPlainObject(envelope.scan) ? envelope.scan : null,
+        warningCount: toNonNegInt(envelope.warningCount),
       },
     };
   }
