@@ -753,6 +753,70 @@ test("Codex identical token vectors stay distinct when cumulative counters disag
   assert.equal(rows.get("codex:codex-twins-b").messages, 3);
 });
 
+const countInput = (last, total, identity = {}) => {
+  const record = codexTokenCount(codexUsage(last, 0), codexUsage(total, 0));
+  return { ...record, payload: { ...record.payload, ...identity } };
+};
+
+for (const { name, records, echo, expectedInput, expectedMessages } of [
+  {
+    name: "preserves independent legacy usage after a modern response",
+    records: [countInput(100, 100), codexTurnUsage("modern", codexUsage(30, 0), codexUsage(130, 0)), countInput(50, 180)],
+    expectedInput: 180,
+    expectedMessages: 3,
+  },
+  {
+    name: "distinguishes concurrent responses that reach the same cumulative total",
+    records: [countInput(100, 100), countInput(20, 120), countInput(10, 110), countInput(10, 120)],
+    echo: countInput(20, 120),
+    expectedInput: 140,
+    expectedMessages: 4,
+  },
+  {
+    name: "distinguishes responses that reuse the same counters after a reset",
+    records: [
+      countInput(20, 20, { response_id: "before-a" }),
+      countInput(10, 30, { response_id: "before-b" }),
+      countInput(20, 20, { response_id: "after-a" }),
+      countInput(10, 30, { response_id: "after-b" }),
+    ],
+    echo: countInput(10, 30, { response_id: "before-b" }),
+    expectedInput: 60,
+    expectedMessages: 4,
+  },
+  {
+    name: "remembers a matching modern response across scans and delayed legacy echoes",
+    records: [
+      codexTurnUsage("modern", codexUsage(30, 0), codexUsage(30, 0)),
+      countInput(30, 30),
+      countInput(50, 80),
+    ],
+    echo: countInput(30, 30),
+    expectedInput: 80,
+    expectedMessages: 2,
+  },
+]) {
+  test(`Codex ${name}`, async () => {
+    const context = await env();
+    const file = path.join(context.home, ".codex", "sessions", "rollout-accounting.jsonl");
+    await mkdir(path.dirname(file), { recursive: true });
+    const started = Date.UTC(2026, 2, 9, 9);
+    const header = { type: "session_meta", payload: { id: "accounting", cwd: "/repo/accounting" } };
+    const line = (record, offset) => `${JSON.stringify({ ...record, timestamp: new Date(started + offset).toISOString() })}\n`;
+    await writeFile(file, [header, ...records].map((record, index) => line(record, index * 1000)).join(""));
+    const first = await snapshot(context);
+    assert.deepEqual(first.rows.map((row) => [row.tokens.input, row.messages]), [[expectedInput, expectedMessages]]);
+
+    if (echo) {
+      const appended = line(echo, 10 * 60 * 1000);
+      await appendFile(file, appended);
+      const next = await snapshot(context);
+      assert.equal(next.stats.bytesRead, Buffer.byteLength(appended));
+      assert.deepEqual(next.rows, first.rows);
+    }
+  });
+}
+
 test("old file-level Codex modern state is rescanned once to recover the prefix", async () => {
   const context = await env();
   await placeFixture(
