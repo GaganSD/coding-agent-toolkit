@@ -73,8 +73,9 @@ const KINDS = {
   state: "insights-remote-machine-state",
 };
 
-// The worker caps encoded rows at MAX_ROWS_CHARS, about 5 MB of gzip, and usage
-// rows gzip about 5-7x: this is roughly twice the largest history it can send.
+// The worker caps encoded rows at MAX_ROWS_CHARS, about 5 MB of gzip. Typical
+// usage rows gzip about 5-7x, so this is about twice what such a history inflates
+// to at that limit.
 const MAX_ROWS_BYTES = 64 * 1024 * 1024;
 
 function parseFile(text, kind) {
