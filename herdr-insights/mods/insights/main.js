@@ -977,33 +977,40 @@ export default class Insights extends View {
     const current = new Set(this.remoteDisabled ?? []);
     if (enabled) current.delete(name);
     else current.add(name);
-    const disabled = [...current].sort();
-    this.remoteDisabled = disabled;
-    const generation = ++this.remoteSettingsGeneration;
+    this.remoteDisabled = [...current].sort();
+    this.remoteSettingsGeneration += 1;
     this.remoteRevision += 1;
     if (!enabled) {
       const entry = this.remote?.get(name);
       try { entry?.timer?.cancel(); } catch { /* already gone */ }
       if (entry) entry.timer = null;
     }
-    try { this.remoteSettingsTask?.cancel(); } catch { /* superseded by this write */ }
+    if (this.remoteSettingsTask) return;
     this.remoteSettingsTask = cx.spawn(async (writeCx) => {
-      try {
-        await mkdir(`${appHome()}/data/insights`, { recursive: true });
-        await this.writeRemoteFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
-      } catch (error) {
-        if (generation === this.remoteSettingsGeneration) this.saveError = sanitizeError(error);
+      // A write that has reached the filesystem cannot be canceled. Let it
+      // finish before saving the latest requested list.
+      while (!this.closed) {
+        const generation = this.remoteSettingsGeneration;
+        const disabled = this.remoteDisabled;
+        let failure = null;
+        try {
+          await mkdir(`${appHome()}/data/insights`, { recursive: true });
+          await this.writeRemoteFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
+        } catch (error) {
+          failure = error;
+        }
+        if (this.closed) return;
+        if (generation !== this.remoteSettingsGeneration) continue;
+        if (failure) this.saveError = sanitizeError(failure);
+        this.remoteSettingsTask = null;
+        // Invalidate results from requests that began while the write was pending.
+        this.remoteSettingsGeneration += 1;
+        this.remoteRevision += 1;
+        this.scheduleDashboard(writeCx, { force: true });
+        this.syncRemotes(writeCx);
+        writeCx.notify();
+        return;
       }
-      if (this.closed || generation !== this.remoteSettingsGeneration) return;
-      this.remoteSettingsTask = null;
-      // Invalidate results from requests that began while the write was pending.
-      this.remoteSettingsGeneration += 1;
-      this.remoteRevision += 1;
-      this.scheduleDashboard(writeCx, { force: true });
-      // A newer toggle may have cancelled an earlier write that enabled a
-      // machine; syncing every enabled machine covers both.
-      this.syncRemotes(writeCx);
-      writeCx.notify();
     });
   }
 

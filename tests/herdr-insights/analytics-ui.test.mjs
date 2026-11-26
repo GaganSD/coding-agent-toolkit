@@ -1894,3 +1894,30 @@ test("each Settings write resyncs enabled machines even when it replaces an earl
   assert.deepEqual([...machinesSynced], ["a"]);
   instance.close();
 });
+
+test("a slow settings write cannot overwrite the newest toggle on disk", async () => {
+  const state = remoteHerdr({ disabled: [] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  const write = state.herdr.writeFile;
+  const firstWrite = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  state.herdr.writeFile = async (file, text) => {
+    if (JSON.parse(text).disabled.includes("box")) {
+      firstWrite.resolve();
+      await resume.promise;
+    }
+    await write(file, text);
+  };
+
+  instance.setMachineEnabled("box", false, cx);
+  await firstWrite.promise;
+  instance.setMachineEnabled("box", true, cx);
+  await settle();
+  resume.resolve();
+  await settle();
+  assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, []);
+  instance.close();
+});
