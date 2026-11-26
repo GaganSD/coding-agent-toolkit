@@ -25,7 +25,7 @@ export interface Usage { input: number; output: number; cacheRead: number; cache
 export interface Question { id: string; message: string }
 /** Cached native SDK estimate, separate from cumulative billed Usage. */
 export interface ContextEstimate { tokens: number | null; contextWindow: number | null; percent: number | null }
-export interface Telemetry { pid: number; sessionId?: string; contextUsage: ContextEstimate }
+export interface Telemetry { pid: number; sessionId?: string; contextUsage: ContextEstimate; usage?: Usage }
 export interface RunRecord {
   id: string;
   owner: string;
@@ -51,6 +51,8 @@ export interface RunRecord {
   error?: string;
   notificationError?: string;
   usage?: Usage;
+  /** Retained cumulative sample when final accounting could not be collected. */
+  usagePartial?: true;
   /** Shared owning-process PID; sub-agents are in-process sessions. */
   pid?: number;
   /** Full native Pi session ID, never the manager's run UUID. */
@@ -65,7 +67,7 @@ export interface SubAgent {
   followUp(message: string): Promise<string>;
   abort(): Promise<void>;
   failure?(): FailureKind | undefined;
-  evidence?(): Pick<SubAgentResult, "usage" | "toolErrors">;
+  evidence?(): Pick<SubAgentResult, "usage" | "toolErrors"> | undefined;
   dispose(): void | Promise<void>;
 }
 export const PREVIEW_LINES = 24;

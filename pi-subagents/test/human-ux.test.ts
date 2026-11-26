@@ -353,93 +353,29 @@ test("invalidate re-renders cached markdown with the new theme", async t => {
   view.dispose();
 });
 
-test("a throwing workspace host does not hang attach and uses the overlay", async () => {
+test("threads open as this package's own full-viewport overlay and never borrow a host widget slot", async () => {
   const h = harness();
-  let overlay = 0;
-  const tui = terminal();
-  const ctx = {
-    ui: {
-      setWidget() { throw new Error("widget factory unavailable"); },
-      async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
-        overlay++;
-        factory(tui, theme, undefined, () => {}).dispose();
-      },
-    },
-  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
-  await Promise.race([
-    attach(ctx, record().id, h.actions, new HumanState(), {
-      version: 1, focusEditor() {}, bindDown() { return () => {}; }, mount() { return () => {}; },
-    }),
-    new Promise((_resolve, reject) => setTimeout(() => reject(new Error("attach hung after host widget failure")), 500)),
-  ]);
-  assert.equal(overlay, 1);
-});
-
-test("a host that offers mount but cannot lend a slot falls back to the opaque overlay", async () => {
-  const h = harness();
-  let overlay = 0, mounted = 0;
+  let overlay = 0, widgets = 0;
   const notices: string[] = [];
   const tui = terminal();
   const ctx = {
     ui: {
-      setWidget(_key: string, factory?: (tui: TUI, theme: Theme) => { dispose(): void }) {
-        factory?.(tui, theme)?.dispose();
-      },
-      async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
+      setWidget() { widgets++; },
+      async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView, options: { overlay?: boolean }) {
         overlay++;
+        assert.equal(options.overlay, true);
         const view = factory(tui, theme, undefined, () => {});
-        assert.match(view.render(80).join("\n"), /sidebar not preserved/);
+        assert.doesNotMatch(view.render(80).join("\n"), /sidebar not preserved/);
         view.dispose();
       },
       notify(message: string) { notices.push(message); },
     },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
-  await attach(ctx, record().id, h.actions, new HumanState(), {
-    version: 1,
-    focusEditor() {},
-    bindDown() { return () => {}; },
-    mount() { mounted++; return undefined; },
-  });
-  assert.equal(mounted, 1);
+  await attach(ctx, record().id, h.actions, new HumanState());
   assert.equal(overlay, 1);
-  assert.match(notices.join("\n"), /Workspace unavailable.*sidebar not preserved/);
+  assert.equal(widgets, 0, "no thread-host widget is mounted");
+  assert.deepEqual(notices, []);
   assert.equal(h.listeners, 0);
-});
-
-test("setWidget throw after a successful mount still releases the loan when unset also throws", async () => {
-  const done = { ...record("done", "completed"), endedAt: new Date(1).toISOString() };
-  const h = harness(done);
-  const state = new HumanState();
-  let released = 0, overlay = 0, closer: (() => void) | undefined;
-  const notices: string[] = [];
-  const tui = terminal();
-  const ctx = {
-    ui: {
-      setWidget(_key: string, factory?: (tui: TUI, theme: Theme) => { dispose(): void }) {
-        if (!factory) throw new Error("unset failed");
-        factory(tui, theme);
-        throw new Error("setWidget failed after factory");
-      },
-      async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
-        overlay++;
-        factory(tui, theme, undefined, () => {}).dispose();
-      },
-      notify(message: string) { notices.push(message); },
-    },
-  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
-  await attach(ctx, done.id, h.actions, state, {
-    version: 1, focusEditor() {}, bindDown() { return () => {}; },
-    mount() {
-      let once = false;
-      return () => { if (once) return; once = true; released++; };
-    },
-  }, close => { closer = close; });
-  closer?.();
-  assert.equal(released, 1);
-  assert.equal(h.listeners, 0);
-  assert.equal(overlay, 1);
-  assert.equal(state.open, undefined);
-  assert.match(notices.join("\n"), /overlay|sidebar not preserved/i);
 });
 
 test("constructing or failing to open a thread does not mark a completed worker read", async () => {
@@ -469,10 +405,7 @@ test("constructing or failing to open a thread does not mark a completed worker 
       notify() {},
     },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
-  await assert.rejects(attach(ctx, done.id, failed.actions, unread, {
-    version: 1, focusEditor() {}, bindDown() { return () => {}; },
-    mount() { return () => {}; },
-  }));
+  await assert.rejects(attach(ctx, done.id, failed.actions, unread));
   assert.equal(unread.unread(done), true);
   assert.equal(failed.listeners, 0);
 });

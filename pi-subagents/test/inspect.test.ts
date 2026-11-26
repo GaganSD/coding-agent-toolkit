@@ -61,6 +61,7 @@ test("inspector renders cached content at narrow widths and keeps input visible 
     id: "aaaaaaaa-1111", owner: "p", agent: "worker", mode: "edit", task: "Inspect",
     cwd: "/repo/\u001b]52;bad\u0007", workspace: "/repo", model: "fixture/test", thinking: "off", state: "waiting_for_agent",
     startedAt: "t", elapsedMs: 1, metadataPath: "/run.json",
+    usage: { input: 12300, output: 1100, cacheRead: 2000, cacheWrite: 30, cost: 0.04 },
     pid: process.pid, sessionId: "01a11744-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     contextUsage: { tokens: 32640, contextWindow: 272000, percent: 12 }, question: { id: "q", message: "\u001b]52;bad\u0007Which API?\u202e" },
   };
@@ -89,6 +90,7 @@ test("inspector renders cached content at narrow widths and keeps input visible 
   assert(!details.includes(record.id) && !details.includes(record.sessionId!), "normal reading hides technical IDs");
   assert(!details.includes(`PID-${process.pid}`));
   assert(details.includes("Worker 1"));
+  assert(view.render(80).some(line => line.includes("12.3k in · 1.1k out · $0.04")), "accounting has its own compact header line");
   view.handleInput("\t"); view.handleInput("\t"); view.handleInput("\x1b[C"); view.handleInput("\r");
   const diagnostics = view.render(120).join("\n");
   assert(diagnostics.includes(record.id) && diagnostics.includes(record.sessionId!));

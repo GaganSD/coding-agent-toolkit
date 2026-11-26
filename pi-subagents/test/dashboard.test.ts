@@ -19,10 +19,28 @@ test("display snapshots preserve exact owner/id and state without exporting auth
   for (const privateText of ["PRIVATE QUESTION", "metadataPath", "/private/run.json", "question", '"owner":', "workspace"]) assert(!json.includes(privateText));
 });
 
+test("usage totals include settled spend, exclude unknown accounting, and do not duplicate rows", () => {
+  const usage = { input: 12300, output: 1100, cacheRead: 2000, cacheWrite: 30, cost: 0.04 };
+  const records = [{ ...run("running"), usage }, { ...run("completed"), usage }, run("failed")];
+  const snapshot = backgroundTaskSnapshot("owner", records);
+  assert.deepEqual(snapshot.totals, { runs: 3, measuredRuns: 2, usage: { input: 24600, output: 2200, cacheRead: 4000, cacheWrite: 60, cost: 0.08 } });
+  assert.equal(snapshot.tasks.length, 1);
+  assert.deepEqual(snapshot.tasks[0]!.usage, usage);
+  assert.deepEqual(backgroundTaskSnapshot("owner", [run("completed")]).totals, { runs: 1, measuredRuns: 0 });
+  const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  assert.deepEqual(backgroundTaskSnapshot("owner", [{ ...run("failed"), usage: zero }]).totals, { runs: 1, measuredRuns: 1, usage: zero });
+  const partial = backgroundTaskSnapshot("owner", [{ ...run("cleanup_unknown"), usage, usagePartial: true }]);
+  assert.equal(partial.tasks[0]!.usagePartial, true);
+  assert.deepEqual(partial.totals, { runs: 1, measuredRuns: 0, partialRuns: 1, usage });
+  assert.equal(usage.cost, 0.04, "aggregation never mutates a run");
+  assert.deepEqual(backgroundTaskSnapshot("owner", records.map(record => ({ ...record, elapsedMs: record.elapsedMs + 1000 }))), snapshot,
+    "clock-only updates do not change the snapshot or trigger downstream accounting work");
+});
+
 test("task labels are bounded, a blank snapshot clears only this owner's source", () => {
   const snapshot = backgroundTaskSnapshot("owner", [{ ...run("starting"), task: "x ".repeat(10000) }]);
   assert(snapshot.tasks[0]!.label.length < 200);
-  assert.deepEqual(backgroundTaskSnapshot("owner", []), { version: 1, source: "pi-subagents", sessionId: "owner", tasks: [] });
+  assert.deepEqual(backgroundTaskSnapshot("owner", []), { version: 1, source: "pi-subagents", sessionId: "owner", totals: { runs: 0, measuredRuns: 0 }, tasks: [] });
 });
 
 test("a large failed history cannot displace live or uncertain runs or exceed the receiver's bound", () => {
