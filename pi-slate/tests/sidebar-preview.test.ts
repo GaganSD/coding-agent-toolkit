@@ -19,7 +19,7 @@ const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^�
 const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cost: 0.12 }, perf: perfFixture(1000) };
 const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cost: null };
 const resources: SidebarResources = {
-  mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
+  mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global", runtime: "idle" as const })),
   skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
   commands: Array.from({ length: 6 }, (_, i) => ({ name: `run-${i}`, source: "extension" })),
   prompts: Array.from({ length: 6 }, (_, i) => ({ name: `prompt-${i}`, source: "prompt", description: `Prompt ${i} description` })),
@@ -412,20 +412,29 @@ test("a failed preference save cannot change the visible fold state", () => {
   assert.equal(sidebar.getFolds().skills, false);
 });
 
-test("resource status glyphs distinguish unknown MCP state without color or redundant labels", () => {
+test("MCP dots show runtime while details retain configured state", () => {
   const { sidebar } = fixture(); const details: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
   sidebar.setResources({ ...resources, mcp: [
-    { name: "enabled-server", enabled: true, source: "global" },
-    { name: "disabled-server", enabled: false, source: "global" },
-    { name: "unknown-server", enabled: null, source: "extension" },
+    { name: "enabled-server", enabled: true, source: "global", runtime: "active" },
+    { name: "disabled-server", enabled: false, source: "global", runtime: "error" },
+    { name: "unknown-server", enabled: null, source: "extension", runtime: "idle" },
   ] });
+  sidebar.setThemeProvider(() => ({
+    fg: (tone: string, text: string) => tone === "success" ? `\x1b[32m${text}\x1b[0m` : tone === "error" ? `\x1b[31m${text}\x1b[0m` : tone === "dim" ? `\x1b[90m${text}\x1b[0m` : text,
+    bold: (text: string) => text,
+  }) as Theme);
   sidebar.setFolds({ mcp: true, skills: true, prompts: false });
-  const lines = plain(sidebar.render(80));
-  for (const expected of ["● enabled-server", "○ disabled-server", "— unknown-server", "● skill-0", "○ skill-1"])
+  const rendered = sidebar.render(80), lines = plain(rendered);
+  for (const expected of ["● enabled-server", "● disabled-server", "● unknown-server", "● skill-0", "○ skill-1"])
     assert(lines.some(line => line.trim() === expected), expected);
+  assert(rendered.some(line => line.includes("\x1b[32m●\x1b[0m") && line.includes("enabled-server")));
+  assert(rendered.some(line => line.includes("\x1b[31m●\x1b[0m") && line.includes("disabled-server")));
+  assert(rendered.some(line => line.includes("\x1b[90m●\x1b[0m") && line.includes("unknown-server")));
   sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));
-  assert.match(details[0]!, /^— \(configuration, not connection status\)/);
+  assert.match(details[0]!, /^— \(configured state\)\nRuntime: idle/);
+  sidebar.handleMouse(mouse(row(sidebar, "disabled-server")));
+  assert.match(details[1]!, /^disabled \(configured state\)\nRuntime: last completed call failed/);
 });
 
 test("MCP is limited to five rows; list wheel scroll does not move the session header", () => {
@@ -534,14 +543,14 @@ test("unknown MCP declarations are neutral when folded or expanded and inspectio
   const { sidebar } = fixture();
   const details: string[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
-  sidebar.setResources({ ...resources, mcp: [{ name: "unknown-server", enabled: null, source: "global" }] });
+  sidebar.setResources({ ...resources, mcp: [{ name: "unknown-server", enabled: null, source: "global", runtime: "idle" }] });
   const folded = plain(sidebar.render(80));
   assert(folded.some(line => line.includes("› MCP · —")));
   assert(!folded.some(line => /Error|Warning|0 Enabled/.test(line)));
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
   const expanded = plain(sidebar.render(80));
   assert(expanded.some(line => line.includes("⌄ MCP · —")));
-  assert(expanded.some(line => line.trim() === "— unknown-server"));
+  assert(expanded.some(line => line.trim() === "● unknown-server"));
   sidebar.setThemeProvider(() => ({ fg: (tone: string, text: string) => tone === "warning" ? `\x1b[33m${text}\x1b[0m` : tone === "error" ? `\x1b[31m${text}\x1b[0m` : text, bold: (text: string) => text }) as Theme);
   assert(!/\x1b\[(?:33|31)m/.test(sidebar.render(80).filter(line => /MCP|unknown-server/.test(stripAnsi(line))).join("\n")));
   sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));

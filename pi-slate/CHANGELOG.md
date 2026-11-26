@@ -3,6 +3,7 @@
 ## Unreleased
 
 * Focused mode now shows the thinking level beside the model on the composer's bottom edge, leaving context and MCP status on top.
+* MCP rows now show current-session call state: gray when idle, green while calls are active, and sticky red after a failure until a later call succeeds. Direct and nested calls use Pi's public tool namespace metadata, and configured state remains separate in the row details.
 
 ## 0.4.1
 

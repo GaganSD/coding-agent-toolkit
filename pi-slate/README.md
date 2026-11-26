@@ -76,7 +76,9 @@ The sidebar keeps session facts visible without sending them to a model: a live 
 
 ![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
 
-MCP indicators show **requested configuration**, not schema validity or connection health. Slate reads enabled flags without importing Pi's MCP internals, validating transports/authentication, running credential commands, or connecting to servers. Unreadable/malformed files remain visible; unknown enabled state is a neutral `—`. Use `/mcp` for authoritative validation and live status.
+Each MCP row has a runtime call dot: gray while idle, green while one or more calls to that server are in flight, and red after a failed call until a later call succeeds. Retries turn green while active. The row details keep this call state separate from the requested enabled, disabled, or unknown configuration state.
+
+These dots report calls observed in the current session, not schema validity, authentication, or connection health. Slate maps direct and nested calls through Pi's public tool namespace metadata. It reads configured enabled flags without importing Pi's MCP internals, validating transports, running credential commands, or connecting to servers. Unreadable or malformed files remain visible, and unknown enabled state stays neutral in the details. Use `/mcp` for authoritative validation and connection status.
 
 ### Subagents
 
@@ -172,7 +174,7 @@ Run `/slate diagnostics` for feature-level `active` / `fallback` details. Adapte
 Compatibility boundaries:
 
 - Production imports only public Pi package entrypoints; an architecture test rejects private/computed host imports.
-- MCP is a read-only configuration projection. Pi owns server validation, authentication, and connections.
+- MCP configuration is a read-only projection. Runtime dots observe current-session tool calls through Pi's public events and tool catalog. Pi owns server validation, authentication, and connections.
 - Sidebar layout uses root-identity leases, not intercepted setters or function-identity assumptions.
 - One chat-surface owner copies the visible message list and paints grouped or native rows without removing host components. Active work stays visible; grouping faults retain the window in the same frame. Unknown render/mouse owners are preserved, and cleanup is not dependent on wrapper order.
 - Editor adapters unwind in reverse installation order. Retained disposed wrappers become native delegates. Paste reveals require undo support and never collapse a buffer edited since the reveal.

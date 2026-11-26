@@ -336,7 +336,8 @@ export class Sidebar implements Component {
     for (let i = start; i < Math.min(items.length, start + visible); i++) {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
-        rows.push({ text: this.paint(server.enabled === true ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
+        const tone = server.runtime === "active" ? "success" : server.runtime === "error" ? "error" : "dim";
+        rows.push({ text: `${this.paint(tone, "●")} ${this.paint(server.enabled === true ? "muted" : "dim", sidebarText(server.name))}`, list, item: i,
           action: () => this.actions?.inspect?.(server.name, mcpDetails(server)) });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;

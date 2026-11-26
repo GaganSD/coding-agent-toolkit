@@ -9,6 +9,7 @@ import { Container, Editor, ScrollView, Text, TuiAltScreen, type Component, type
 import piSlate from "../extensions/pi-slate/index.ts";
 import { ComposerEditor } from "../extensions/pi-slate/composer.ts";
 import { Sidebar, type SidebarActions } from "../extensions/pi-slate/sidebar.ts";
+import type { SidebarResources } from "../extensions/pi-slate/sidebar-data.ts";
 import { GitStatusPoller } from "../extensions/pi-slate/git-status.ts";
 import { FRESH_SURFACES, has, SURFACES, type Surface } from "../extensions/pi-slate/surfaces.ts";
 import { isWaveActive, WAVE_STEP_MS } from "../extensions/pi-slate/working-wave.ts";
@@ -45,6 +46,9 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const notifications: Array<{ message: string; kind: string }> = [];
   const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
   const tools: ToolDefinition[] = [];
+  const catalogTools: Array<{ name: string; namespace?: { name: string; aliases?: readonly string[] } }> = [];
+  let registeredMcpServers: Array<{ name: string; config: unknown }> = [];
+  let catalogFailure = false;
   const handlers = new Map<string, Handler[]>();
   const choices: string[] = [];
   const inspected: string[] = [];
@@ -60,11 +64,16 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
     registerTool(tool: ToolDefinition) { tools.push(tool); },
     registerToolRenderer() { calls.push("tool-renderer"); },
     getCommands: () => extraCommands,
-    getAllTools: () => [
-      ...tools.map((tool) => ({ ...tool, sourceInfo: { path: conflict ? "/foreign/cards.ts" : new URL("../extensions/pi-slate/index.ts", import.meta.url).pathname } })),
-      // Claude mode deliberately keeps the host's read registration.
-      ...tools.some((tool) => tool.name === "read") ? [] : [{ name: "read", sourceInfo: { path: "/host/read.ts" } }],
-    ],
+    getMcpServers: () => registeredMcpServers,
+    getAllTools: () => {
+      if (catalogFailure) throw new Error("catalog unavailable");
+      return [
+        ...tools.map((tool) => ({ ...tool, sourceInfo: { path: conflict ? "/foreign/cards.ts" : new URL("../extensions/pi-slate/index.ts", import.meta.url).pathname } })),
+        // Claude mode deliberately keeps the host's read registration.
+        ...tools.some((tool) => tool.name === "read") ? [] : [{ name: "read", sourceInfo: { path: "/host/read.ts" } }],
+        ...catalogTools.map(tool => ({ ...tool, description: "fixture", parameters: {}, exposure: "codemode", sourceInfo: { path: "builtin:mcp" } })),
+      ];
+    },
     exec: async () => { calls.push("branch-git"); return { code: 0, stdout: "test-branch\n", stderr: "", killed: false }; },
     events: {
       on(name: string) {
@@ -147,7 +156,10 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, handlers, catalogTools,
+    setCatalogFailure: (value: boolean) => { catalogFailure = value; },
+    setRegisteredMcpServers: (servers: Array<{ name: string; config: unknown }>) => { registeredMcpServers = servers; },
+    shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {
@@ -606,6 +618,72 @@ test("dashboard uses live branch facts", async t => {
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });
   assert.match(rail(), /Skills · 1 Loaded/, "nested successful reads update the live rail, not only restoration");
+});
+
+test("MCP runtime events map namespaces, include nested calls, and reset on replacement", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false, sidebarSections: { mcp: true } }));
+  await writeFile(join(dirname(f.path), "mcp.json"), JSON.stringify({ mcpServers: { "dev-radius": {}, unused: {} } }));
+  f.catalogTools.push({ name: "mcp__dev_radius__lookup", namespace: { name: "mcp__dev_radius", aliases: ["dev-radius"] } });
+  await f.emit("agent_settled");
+  assert.equal(f.handlers.has("tool_call"), false);
+  assert.equal(f.handlers.has("tool_result"), false);
+  assert.equal(f.handlers.get("tool_execution_start")?.length, 1);
+  assert.equal(f.handlers.get("tool_execution_end")?.length, 1);
+  assert.equal(f.handlers.has("mcp_servers_change"), false);
+  const states = () => (Reflect.get(railOf(f), "resources") as SidebarResources).mcp
+    .map(server => [server.name, server.runtime]);
+  assert.deepEqual(states(), [["dev-radius", "idle"], ["unused", "idle"]]);
+
+  await f.emit("tool_execution_start", { toolCallId: "outer/1", parentToolCallId: "outer", toolName: "mcp__dev_radius__lookup", args: {} });
+  assert.deepEqual(states(), [["dev-radius", "active"], ["unused", "idle"]]);
+  await f.emit("tool_execution_end", { toolCallId: "outer/1", parentToolCallId: "outer", toolName: "mcp__dev_radius__lookup", result: { content: [], details: {} }, isError: true });
+  assert.deepEqual(states(), [["dev-radius", "error"], ["unused", "idle"]]);
+
+  f.setCatalogFailure(true);
+  await assert.doesNotReject(() => f.emit("tool_execution_start", { toolCallId: "unmapped", toolName: "mcp__dev_radius__lookup", args: {} }));
+  assert.deepEqual(states(), [["dev-radius", "error"], ["unused", "idle"]]);
+  f.setCatalogFailure(false);
+  await f.emit("tool_execution_start", { toolCallId: "retry", toolName: "mcp__dev_radius__lookup", args: {} });
+  assert.deepEqual(states(), [["dev-radius", "active"], ["unused", "idle"]]);
+  await f.emit("tool_execution_end", { toolCallId: "retry", toolName: "mcp__dev_radius__lookup", result: { content: [], details: {} }, isError: false });
+  assert.deepEqual(states(), [["dev-radius", "idle"], ["unused", "idle"]]);
+
+  for (const toolCallId of ["blocked", "invalid-arguments"]) {
+    await f.emit("tool_execution_start", { toolCallId, toolName: "mcp__dev_radius__lookup", args: {} });
+    await f.emit("tool_execution_end", { toolCallId, toolName: "mcp__dev_radius__lookup", result: { content: [], details: {} }, isError: true });
+    assert.deepEqual(states(), [["dev-radius", "error"], ["unused", "idle"]], `${toolCallId} attempt is finalized by execution events alone`);
+  }
+
+  await f.emit("tool_execution_start", { toolCallId: "modified", toolName: "mcp__dev_radius__lookup", args: {} });
+  await f.emit("tool_result", { toolCallId: "modified", toolName: "mcp__dev_radius__lookup", isError: true });
+  assert.deepEqual(states(), [["dev-radius", "active"], ["unused", "idle"]], "pre-final middleware state is ignored");
+  await f.emit("tool_execution_end", { toolCallId: "modified", toolName: "mcp__dev_radius__lookup", result: { content: [], details: {} }, isError: false });
+  assert.deepEqual(states(), [["dev-radius", "idle"], ["unused", "idle"]], "final isError reflects tool_result middleware changes");
+
+  await f.emit("tool_execution_start", { toolCallId: "failed", toolName: "mcp__dev_radius__lookup", args: {} });
+  await f.emit("tool_execution_end", { toolCallId: "failed", toolName: "mcp__dev_radius__lookup", result: { content: [], details: {} }, isError: true });
+  await f.emit("session_start");
+  assert.deepEqual(states(), [["dev-radius", "idle"], ["unused", "idle"]]);
+});
+
+test("MCP server changes refresh rows and prune removed runtime state", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false, sidebarSections: { mcp: true } }));
+  f.catalogTools.push({ name: "lookup", namespace: { name: "mcp__dynamic", aliases: ["dynamic"] } });
+  const states = () => (Reflect.get(railOf(f), "resources") as SidebarResources).mcp
+    .map(server => [server.name, server.runtime]);
+
+  assert.equal(f.handlers.has("mcp_servers_change"), false);
+  f.setRegisteredMcpServers([{ name: "dynamic", config: {} }]);
+  await f.emit("agent_settled");
+  assert.deepEqual(states(), [["dynamic", "idle"]]);
+  await f.emit("tool_execution_start", { toolCallId: "dynamic-call", toolName: "lookup", args: {} });
+  assert.deepEqual(states(), [["dynamic", "active"]]);
+
+  f.setRegisteredMcpServers([{ name: "replacement", config: {} }]);
+  await f.emit("agent_settled");
+  assert.deepEqual(states(), [["replacement", "idle"]]);
+  await f.emit("tool_execution_end", { toolCallId: "dynamic-call", toolName: "lookup", result: {}, isError: true });
+  assert.deepEqual(states(), [["replacement", "idle"]], "removed server calls cannot leak into the new catalog");
 });
 
 test("session titles restore, repaint on rename/clear events, and clear when switching sessions", async t => {

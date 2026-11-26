@@ -104,9 +104,9 @@ test("explicit skill invocation and structured catalog work with skill commands 
   tracker.reset([]); assert.deepEqual(tracker.snapshot(), []);
 });
 
-test("MCP data re-exports remain configuration-only and independent of host modules", () => {
+test("MCP data re-exports keep configured state separate from idle runtime state", () => {
   assert.deepEqual(sidebarMcp([], parseMcpFile('{"mcpServers":{"future":{"type":"future-transport","enabled":false}}}')),
-    [{ name: "future", source: "global", enabled: false }]);
+    [{ name: "future", source: "global", enabled: false, runtime: "idle" }]);
 });
 
 test("fold config defaults safely and display strings neutralize terminal escape/control data", () => {

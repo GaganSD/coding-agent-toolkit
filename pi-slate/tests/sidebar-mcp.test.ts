@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { mcpDetails, parseMcpFile, sidebarMcp, SidebarMcpFiles } from "../extensions/pi-slate/sidebar-mcp.ts";
+import { McpRuntimeTracker, mcpDetails, parseMcpFile, sidebarMcp, SidebarMcpFiles } from "../extensions/pi-slate/sidebar-mcp.ts";
 
 const file = (servers: Record<string, unknown>) => parseMcpFile(JSON.stringify({ mcpServers: servers }));
 
@@ -30,9 +30,91 @@ test("file declarations override registrations without revalidating the public r
     { name: "registered", config: { enabled: true, futureTransport: {} } },
   ], file({ "web-search": { enabled: true, command: "file" } }));
   assert.deepEqual(result, [
-    { name: "registered", source: "extension", enabled: true },
-    { name: "web-search", source: "global", enabled: true },
+    { name: "registered", source: "extension", enabled: true, runtime: "idle" },
+    { name: "web-search", source: "global", enabled: true, runtime: "idle" },
   ]);
+});
+
+test("runtime state handles success, sticky errors, retries, and concurrent calls", () => {
+  const tracker = new McpRuntimeTracker();
+  const rows = sidebarMcp([], file({ "dev-radius": { command: "server" } }));
+  const tools = () => [{ name: "lookup", namespace: { name: "mcp__dev_radius" } }];
+  tracker.apply(rows);
+
+  tracker.start("a", "lookup", tools);
+  tracker.start("b", "lookup", tools);
+  assert.equal(tracker.state("dev-radius"), "active");
+  tracker.finish("a", true);
+  assert.equal(tracker.state("dev-radius"), "active", "another in-flight call takes precedence over failure");
+  tracker.finish("b", true);
+  assert.equal(tracker.state("dev-radius"), "error");
+
+  tracker.start("retry", "lookup", tools);
+  assert.equal(tracker.state("dev-radius"), "active");
+  tracker.finish("retry", false);
+  assert.equal(tracker.state("dev-radius"), "idle", "a later success clears the sticky error");
+});
+
+test("runtime mapping prefers raw aliases over exact and canonical namespace candidates", () => {
+  const tracker = new McpRuntimeTracker();
+  const rows = sidebarMcp([], file({ "foo-bar": {}, foo_bar: {}, exact: {}, "unique-name": {} }));
+  tracker.apply(rows);
+
+  tracker.start("hyphen", "lookup", () => [{ name: "lookup", namespace: { name: "mcp__foo_bar", aliases: ["foo-bar"] } }]);
+  assert.equal(tracker.state("foo-bar"), "active");
+  assert.equal(tracker.state("foo_bar"), "idle");
+  tracker.finish("hyphen", false);
+
+  tracker.start("underscore", "lookup", () => [{ name: "lookup", namespace: { name: "mcp__foo_bar", aliases: ["foo_bar"] } }]);
+  assert.equal(tracker.state("foo_bar"), "active");
+  tracker.finish("underscore", false);
+
+  tracker.start("exact", "exact-tool", () => [{ name: "exact-tool", namespace: { name: "mcp__exact" } }]);
+  assert.equal(tracker.state("exact"), "active");
+  tracker.finish("exact", false);
+
+  tracker.start("canonical", "unique-tool", () => [{ name: "unique-tool", namespace: { name: "mcp__unique_name" } }]);
+  assert.equal(tracker.state("unique-name"), "active");
+});
+
+test("runtime mapping accepts double separators and leaves canonical collisions untracked", () => {
+  const tracker = new McpRuntimeTracker();
+  const rows = sidebarMcp([], file({ "double--dash": {}, double__underscore: {}, "same--name": {}, same__name: {} }));
+  tracker.apply(rows);
+
+  tracker.start("double-hyphen", "a", () => [{ name: "a", namespace: { name: "mcp__double__dash", aliases: ["double--dash"] } }]);
+  tracker.start("double-underscore", "b", () => [{ name: "b", namespace: { name: "mcp__double__underscore", aliases: ["double__underscore"] } }]);
+  tracker.start("ambiguous", "c", () => [{ name: "c", namespace: { name: "mcp__same-_name" } }]);
+  assert.deepEqual(rows.map(row => tracker.state(row.name)), ["active", "active", "idle", "idle"]);
+});
+
+test("runtime state ignores unrelated and unknown tools and resets with the session", () => {
+  const tracker = new McpRuntimeTracker();
+  const rows = sidebarMcp([], file({ docs: {}, other: {} }));
+  tracker.apply(rows);
+  tracker.start("builtin", "read", () => [{ name: "read" }]);
+  tracker.start("unknown", "search", () => [{ name: "search", namespace: { name: "mcp__missing" } }]);
+  assert.deepEqual(rows.map(row => tracker.state(row.name)), ["idle", "idle"]);
+
+  tracker.start("docs", "search", () => [{ name: "search", namespace: { name: "mcp__docs" } }]);
+  tracker.finish("docs", true);
+  assert.equal(tracker.state("docs"), "error");
+  tracker.reset();
+  tracker.apply(rows);
+  assert.deepEqual(rows.map(row => tracker.state(row.name)), ["idle", "idle"]);
+});
+
+test("runtime lookup fails open for malformed, ambiguous, oversized, and throwing catalogs", () => {
+  const tracker = new McpRuntimeTracker();
+  const rows = sidebarMcp([], file({ "same-name_part": {}, "same_name-part": {}, safe: {} }));
+  tracker.apply(rows);
+  const throwing = () => { throw new Error("catalog unavailable"); };
+  assert.doesNotThrow(() => tracker.start("throw", "tool", throwing));
+  tracker.start("ambiguous", "tool", () => [{ name: "tool", namespace: { name: "mcp__same-name-part" } }]);
+  tracker.start("prefix-only", "mcp__safe__tool", () => [{ name: "mcp__safe__tool" }]);
+  tracker.start("oversized", "x".repeat(513), () => [{ name: "x".repeat(513), namespace: { name: "mcp__safe" } }]);
+  tracker.start("malformed", "tool", () => [{ name: "tool", namespace: { get name(): never { throw new Error("bad getter"); } } }]);
+  assert.deepEqual(rows.map(row => tracker.state(row.name)), ["idle", "idle", "idle"]);
 });
 
 test("trusted project declarations inherit exact-name global flags or replace full declarations", () => {

@@ -30,6 +30,7 @@ import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
 import { Sidebar } from "./sidebar.ts";
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
+import { McpRuntimeTracker } from "./sidebar-mcp.ts";
 import { inspectSidebarText } from "./sidebar-inspector.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
@@ -231,6 +232,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   const selection = new ComposerSelectionController();
   const skills = new SidebarSkills();
   const mcpFiles = new SidebarMcpFiles();
+  const mcpRuntime = new McpRuntimeTracker();
   let resources: SidebarResources = { skills: [], commands: [], prompts: [], mcp: [] };
   let sessionStartedAt = 0;
   let turnStartedAt: number | undefined;
@@ -406,7 +408,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       else diagnostics.active("mcp-catalog", "Read-only configured state; Pi owns validation and connections.");
       return snapshot;
     }, () => ({ mcp: resources.mcp, ...(resources.mcpError ? { mcpError: resources.mcpError } : {}) }));
-    resources = { commands: catalog.commands, prompts: catalog.prompts, skills: skills.snapshot(), ...mcp };
+    resources = { commands: catalog.commands, prompts: catalog.prompts, skills: skills.snapshot(), ...mcp, mcp: mcpRuntime.apply(mcp.mcp) };
     if (owns("sidebar") && !sidebarYielded) sidebar.setResources(resources);
     updateContextEdge(contextEdge);
   };
@@ -433,6 +435,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   }
 
   const install = (ctx: ExtensionContext): void => {
+    mcpRuntime.reset();
+    resources = { ...resources, mcp: resources.mcp.map(server => ({ ...server, runtime: "idle" })) };
     try { chatSurface?.dispose(); }
     finally { chatSurface = undefined; hiddenThinkingLabel.sync(undefined); }
     groupPainter = claudeTools ? new ToolGroups(liveTheme, undefined, decorateThinkingRows, thinkingDecorationKey) : undefined;
@@ -763,11 +767,16 @@ export default function piSlate(pi: ExtensionAPI): void {
     pi.on("tool_execution_start", (event, ctx) => {
       if (ctx.mode !== "tui") return;
       skills.readStart(event.toolCallId, event.toolName, event.args, ctx.cwd);
+      mcpRuntime.start(event.toolCallId, event.toolName, () => pi.getAllTools());
+      resources = { ...resources, mcp: mcpRuntime.apply(resources.mcp) };
+      if (!sidebarYielded) sidebar.setResources(resources);
       syncSidebar(ctx); // message_end precedes persistence; the tool starts after it.
     });
     pi.on("tool_execution_end", (event, ctx) => {
       if (ctx.mode !== "tui") return;
       skills.readEnd(event.toolCallId, event.isError);
+      // Blocked calls skip tool_result, but tool_execution_end still finalizes them.
+      mcpRuntime.finish(event.toolCallId, event.isError);
       refreshResources(ctx);
     });
   }
@@ -798,6 +807,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("session_shutdown", (_event, ctx) => {
     sessionEpoch += 1;
+    mcpRuntime.reset();
+    resources = { ...resources, mcp: resources.mcp.map(server => ({ ...server, runtime: "idle" })) };
     workingWord = undefined;
     try {
       setWaveActive(false);
