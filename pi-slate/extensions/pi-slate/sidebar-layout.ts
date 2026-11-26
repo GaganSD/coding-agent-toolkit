@@ -1,7 +1,7 @@
 export type SidebarSlots = { frame: number; header: number; middle: number; image: number };
 export type SidebarTier = "full" | "compact";
 
-// Columns hold one stat per row, so 13 cells fit "saved ~$12.34" and "99.99% hit".
+// Columns hold one stat per row, so 13 cells fit "99.99% hit" with room to spare.
 const PERF_MIN_COLUMN = 13;
 const PERF_COLUMN_GAP = "  ";
 

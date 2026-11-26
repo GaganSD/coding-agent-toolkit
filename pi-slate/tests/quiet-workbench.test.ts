@@ -16,7 +16,7 @@ const theme = loadThemeFromPath(new URL("../themes/tokyo-night.json", import.met
 const session: SidebarSession = { id: "example-session", pid: 8421, cwd: "/tmp/project",
   model: "sample-model", thinking: "medium", tokens: 55000, percent: 11, contextWindow: 500000,
   estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 14000, working: true, turns: 4, messages: 8,
-  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, uncached: 12400, cacheSeen: true, cost: 1.24, saved: null }, perf: perfFixture(1000) };
+  usage: { input: 128400, output: 6800, total: 135200, cacheRead: 94000, cacheWrite: 22000, uncached: 12400, cost: 1.24 }, perf: perfFixture(1000) };
 
 test("bundled default Tokyo Night loads with the native validator and restrained backgrounds", () => {
   assert.equal(SLATE_THEME, "tokyo-night"); assert.equal(theme.name, SLATE_THEME);
