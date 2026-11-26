@@ -2,11 +2,11 @@
 // remote.mjs installs, and turns the files main.js saved after each fetch
 // into merge.mjs records. Saved files are untrusted; a bad one is skipped.
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { REMOTE_RECORD_VERSION } from "../merge.mjs";
-import { isPlainObject, toNonNegInt } from "./util.mjs";
+import { isPlainObject, toNonNegInt, withStoreLock } from "./util.mjs";
 
 const BUNDLE_ROOT_FILES = ["collector.mjs", "indexer.mjs", "remote-entry.mjs", "remote.mjs"];
 
@@ -31,6 +31,40 @@ function bundleHash(files) {
 export async function buildRemoteBundle(modDir) {
   const files = await bundleFiles(modDir);
   return { hash: bundleHash(files), payload: gzipSync(JSON.stringify({ files })).toString("base64") };
+}
+
+export function applyMachineSettings(saved, { writer, changes }) {
+  const disabled = new Set(Array.isArray(saved?.disabled) ? saved.disabled.filter((name) => typeof name === "string") : []);
+  const orders = new Map(saved?.writer === writer && Array.isArray(saved.orders) ? saved.orders : []);
+  for (const { name, enabled, order } of changes) {
+    if ((orders.get(name) ?? 0) >= order) continue;
+    if (enabled) disabled.delete(name);
+    else disabled.add(name);
+    orders.set(name, order);
+  }
+  return { disabled: [...disabled].sort(), writer, orders: [...orders] };
+}
+
+export async function publishRemoteFile(staged, destination, kind) {
+  if (kind !== "settings") {
+    await rename(staged, destination);
+    return null;
+  }
+  // The pane may have read Settings before another dashboard copy changed it.
+  // Merge only the requested toggles while holding the writer lock.
+  return withStoreLock(destination, async () => {
+    const pending = JSON.parse(await readFile(staged, "utf8"));
+    let saved;
+    try {
+      saved = JSON.parse(await readFile(destination, "utf8"));
+    } catch (error) {
+      if (error?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+    }
+    const settings = applyMachineSettings(saved, pending);
+    await writeFile(staged, `${JSON.stringify(settings, null, 2)}\n`);
+    await rename(staged, destination);
+    return settings.disabled;
+  });
 }
 
 const KINDS = {

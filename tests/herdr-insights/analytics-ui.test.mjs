@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { applyMachineSettings } from "../../herdr-insights/mods/insights/core/machines.mjs";
 
 const mainSource = await readFile(new URL("../../herdr-insights/mods/insights/main.js", import.meta.url), "utf8");
 const analyticsSource = await readFile(new URL("../../herdr-insights/mods/insights/analytics.js", import.meta.url), "utf8");
@@ -231,12 +232,20 @@ function useHerdr({ readTextFile, execResult } = {}) {
     },
     exec: async (command, args, execOptions) => {
       state.execCalls.push({ command, args, options: execOptions });
-      if (args[0] === "-e") {
-        const [, , source, destination] = args;
+      if (args[1] === "publish-remote") {
+        const [, , source, destination, kind] = args;
         assert.ok(source.startsWith(`${destination}.tmp-`), "publish from a temporary sibling");
-        state.files[destination] = state.files[source];
+        let disabled = null;
+        if (kind === "settings") {
+          const saved = JSON.parse(state.files[destination] ?? JSON.stringify({ disabled: state.initialRemoteDisabled }));
+          const settings = applyMachineSettings(saved, JSON.parse(state.files[source]));
+          disabled = settings.disabled;
+          state.files[destination] = JSON.stringify(settings);
+        } else {
+          state.files[destination] = state.files[source];
+        }
         delete state.files[source];
-        return { code: 0, stdout: "", stderr: "" };
+        return { code: 0, stdout: JSON.stringify(disabled), stderr: "" };
       }
       if (execResult) return execResult(command, args, state);
       const options = optionArgument(args);
@@ -1670,13 +1679,15 @@ function remoteHerdr({ machines, rows = "fail", disabled = [], scan = null, firs
       }
       if (firstSnapshotFails && args[1] === "snapshot") return { code: 1, stdout: "", stderr: "Error: slow disk" };
       const options = optionArgument(args);
+      const savedSettings = JSON.parse(state.files?.["/app/data/insights/remote.json"] ?? "null");
       const payload = presentationFor({
-        ...savedSnapshot(), remoteDisabled: disabled, remoteTimeZone: state.remoteTimeZone ?? remoteTimeZone,
+        ...savedSnapshot(), remoteDisabled: savedSettings?.disabled ?? disabled, remoteTimeZone: state.remoteTimeZone ?? remoteTimeZone,
       }, options, args[1]);
       return { code: 0, stdout: JSON.stringify(payload), stderr: "" };
     },
   });
   state.machines = machines;
+  state.initialRemoteDisabled = disabled;
   return state;
 }
 
@@ -1982,7 +1993,7 @@ test("a slow settings write cannot overwrite the newest toggle on disk", async (
   const firstWrite = Promise.withResolvers();
   const resume = Promise.withResolvers();
   state.herdr.writeFile = async (file, text) => {
-    if (JSON.parse(text).disabled.includes("box")) {
+    if (JSON.parse(text).changes.some((change) => change.name === "box" && !change.enabled)) {
       firstWrite.resolve();
       await resume.promise;
     }
@@ -1997,4 +2008,21 @@ test("a slow settings write cannot overwrite the newest toggle on disk", async (
   await settle();
   assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, []);
   instance.close();
+});
+
+test("settings changes from two dashboard copies preserve both machine toggles", async () => {
+  const state = remoteHerdr();
+  const { cx } = liveCx();
+  const first = new Insights();
+  const second = new Insights();
+  first.init({}, cx);
+  second.init({}, cx);
+  await settle();
+  first.setMachineEnabled("box", false, cx);
+  await settle();
+  second.setMachineEnabled("vps", false, cx);
+  await settle();
+  assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, ["box", "vps"]);
+  first.close();
+  second.close();
 });

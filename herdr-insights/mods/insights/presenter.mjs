@@ -15,7 +15,7 @@ import {
   deriveDashboard,
 } from "./analytics.js";
 import { collectSnapshot, readCommittedSnapshot } from "./collector.mjs";
-import { buildRemoteBundle, loadMachineRecords } from "./core/machines.mjs";
+import { buildRemoteBundle, loadMachineRecords, publishRemoteFile } from "./core/machines.mjs";
 import { mergeSnapshots } from "./merge.mjs";
 import { timeZoneStoreKey } from "./remote.mjs";
 
@@ -175,6 +175,12 @@ function derive(snapshot, options) {
 }
 
 export async function run(argv, environment = {}) {
+  if (argv[0] === "publish-remote") {
+    const [, staged, destination, kind] = argv;
+    if (!staged || !destination || !["settings", "data"].includes(kind)) throw new Error("Missing remote publish arguments.");
+    const disabled = await publishRemoteFile(staged, destination, kind);
+    return { exitCode: 0, stdout: `${JSON.stringify(disabled)}\n`, stderr: "" };
+  }
   const { command, options } = parseArgs(argv);
   if (options.help || !command) {
     return { exitCode: 0, stdout: "", stderr: `${usage()}\n` };

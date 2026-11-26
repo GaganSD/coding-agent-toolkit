@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -122,6 +122,26 @@ test("disabled machines in remote.json are left out", async (t) => {
   assert.equal(payload.dashboard.lifetime.total, 7);
   assert.deepEqual(payload.snapshot.machines.map((m) => m.name), [null, "box"]);
   assert.deepEqual(payload.snapshot.remoteDisabled, ["vps"], "main.js reads the disabled list from the presenter");
+});
+
+test("publishing machine settings merges concurrent saves and rejects older toggles", async (t) => {
+  const ctx = await context(t);
+  const dataDir = path.dirname(ctx.store);
+  const settingsPath = path.join(dataDir, "remote.json");
+  await mkdir(dataDir);
+  await writeFile(settingsPath, JSON.stringify({ disabled: ["existing"] }));
+  const publish = async (name, enabled, order) => {
+    const stage = `${settingsPath}.tmp-${order}`;
+    await writeFile(stage, JSON.stringify({ writer: "test", changes: [{ name, enabled, order }] }));
+    const result = await run(["publish-remote", stage, settingsPath, "settings"]);
+    assert.equal(result.exitCode, 0, result.stderr);
+  };
+  await Promise.all([publish("box", false, 1), publish("vps", false, 2)]);
+  await publish("box", true, 4);
+  await publish("box", false, 3);
+  const { snapshot } = await prepare(ctx);
+  assert.deepEqual(snapshot.remoteDisabled, ["existing", "vps"]);
+  assert.deepEqual(await readdir(dataDir), ["remote.json"]);
 });
 
 test("a corrupt machine file or remote.json never breaks the dashboard", async (t) => {

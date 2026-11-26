@@ -213,6 +213,8 @@ const REMOTE_MAX_STALLS = 3;
 
 // Dashboard copies share one sync per machine and timezone.
 const remoteInflight = new Map();
+const remoteSettingsWriter = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let remoteSettingsOrder = 0;
 
 export function machineStatusText(machine, live = {}) {
   if (live.syncing) return "Syncing…";
@@ -550,6 +552,7 @@ export default class Insights extends View {
     this.remoteDisabled = [];
     this.remoteWarnings = [];
     this.remoteSettingsGeneration = 0;
+    this.remoteMachineChanges = new Map();
     this.remoteRequest = 0;
     this.remoteAppliedRequest = 0;
     this.bundlePromise = null;
@@ -853,15 +856,16 @@ export default class Insights extends View {
     return `${appHome()}/data/insights/remote.json`;
   }
 
-  async writeRemoteFile(file, text) {
+  async writeRemoteFile(file, text, kind = "data") {
     const temp = `${file}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
       await writeFile(temp, text);
       // Herdr's fs module has no rename. Pass only the paths to local Node.
       const result = await exec(this.nodeBinary, [
-        "-e", 'require("node:fs").renameSync(process.argv[1], process.argv[2])', temp, file,
+        this.presenterPath(), "publish-remote", temp, file, kind,
       ]);
       if (result.code !== 0) throw new Error(resultError(result));
+      return result.stdout;
     } catch (error) {
       await unlink(temp).catch(() => {});
       throw error;
@@ -985,6 +989,7 @@ export default class Insights extends View {
     if (enabled) current.delete(name);
     else current.add(name);
     this.remoteDisabled = [...current].sort();
+    this.remoteMachineChanges.set(name, { name, enabled, order: ++remoteSettingsOrder });
     this.remoteSettingsGeneration += 1;
     this.remoteRevision += 1;
     if (!enabled) {
@@ -998,17 +1003,23 @@ export default class Insights extends View {
       // finish before saving the latest requested list.
       while (!this.closed) {
         const generation = this.remoteSettingsGeneration;
-        const disabled = this.remoteDisabled;
+        const changes = [...this.remoteMachineChanges.values()];
+        let savedDisabled;
         let failure = null;
         try {
           await mkdir(`${appHome()}/data/insights`, { recursive: true });
-          await this.writeRemoteFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
+          const staged = JSON.stringify({ writer: remoteSettingsWriter, changes });
+          savedDisabled = JSON.parse(await this.writeRemoteFile(this.remoteSettingsPath(), staged, "settings"));
+          for (const change of changes) {
+            if (this.remoteMachineChanges.get(change.name) === change) this.remoteMachineChanges.delete(change.name);
+          }
         } catch (error) {
           failure = error;
         }
         if (this.closed) return;
         if (generation !== this.remoteSettingsGeneration) continue;
         if (failure) this.saveError = sanitizeError(failure);
+        else this.remoteDisabled = savedDisabled;
         this.remoteSettingsTask = null;
         // Invalidate results from requests that began while the write was pending.
         this.remoteSettingsGeneration += 1;
