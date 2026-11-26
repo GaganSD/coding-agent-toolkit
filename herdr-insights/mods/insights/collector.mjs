@@ -119,7 +119,14 @@ function scanResultFromStore(store) {
     stats: store.scan.stats ?? emptyStats(),
     sourceStats: store.scan.sourceStats ?? {},
     warnings: Array.isArray(store.scan.warnings) ? store.scan.warnings : [],
+    warningCount: store.scan.warningCount,
   };
+}
+
+function scanWarningCount(scan) {
+  return Number.isSafeInteger(scan?.warningCount) && scan.warningCount >= 0
+    ? scan.warningCount
+    : Array.isArray(scan?.warnings) ? scan.warnings.length : 0;
 }
 
 function buildSnapshot(store, scan, nowIso, loadWarnings = [], loadErrors = 0) {
@@ -142,6 +149,7 @@ function buildSnapshot(store, scan, nowIso, loadWarnings = [], loadErrors = 0) {
     sourceStats: scan?.sourceStats ?? undefined,
     scan: scanView(store.scan),
     warnings,
+    warningCount: loadWarnings.length + scanWarningCount(scan),
   };
 }
 
@@ -160,6 +168,7 @@ function buildSnapshotFromCache(cached, nowIso) {
     sourceStats: scan.sourceStats ?? undefined,
     scan: scanView(scan),
     warnings: Array.isArray(scan.warnings) ? scan.warnings : [],
+    warningCount: scanWarningCount(scan),
   };
 }
 
@@ -344,6 +353,7 @@ function updateScanFromResult(store, result, { nowIso, previousStatus }) {
   scan.stats = result.stats;
   scan.sourceStats = result.sourceStats;
   scan.warnings = result.warnings;
+  scan.warningCount = result.warningCount;
   scan.currentFile = null;
   scan.workerPid = null;
   scan.error = null;
@@ -491,6 +501,7 @@ async function finishWorkerAck(snapshot, worker, storePath, workerAckMs) {
     ...(snapshot.warnings ?? []),
     "The background indexer did not acknowledge startup; the next refresh retries it.",
   ];
+  snapshot.warningCount += 1;
   snapshot.scan = { ...snapshot.scan, status: "partial", workerPid: null };
   return snapshot;
 }

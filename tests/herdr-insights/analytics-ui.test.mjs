@@ -1,15 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { applyMachineSettings } from "../../herdr-insights/mods/insights/core/machines.mjs";
 
 const mainSource = await readFile(new URL("../../herdr-insights/mods/insights/main.js", import.meta.url), "utf8");
 const analyticsSource = await readFile(new URL("../../herdr-insights/mods/insights/analytics.js", import.meta.url), "utf8");
 const uiSource = await readFile(new URL("../../herdr-insights/mods/insights/ui.js", import.meta.url), "utf8");
+const remoteSource = await readFile(new URL("../../herdr-insights/mods/insights/remote.mjs", import.meta.url), "utf8");
 const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
 const analyticsUrl = dataUrl(analyticsSource);
 const analytics = await import(analyticsUrl);
 const analyticsNames = Object.keys(analytics).join(", ");
 const { buildHeatmap, compactDashboard, deriveDashboard } = analytics;
+const { timeZoneStoreKey } = await import(dataUrl(remoteSource));
+const remoteTimeZone = "America/Los_Angeles";
+const remoteFilesDir = `/app/data/insights/machines/${timeZoneStoreKey(remoteTimeZone)}`;
 
 function fakeNativeElement() {
   const node = { calls: [], childNodes: [], style: {} };
@@ -123,6 +128,7 @@ const Popover = {
       get openState() { return node.openState; },
       get contentEl() { return node.contentEl; },
       get triggerEl() { return node.triggerEl; },
+      get onOpenChange() { return node.onOpenChange; },
       trigger(element) { node.triggerEl = element; return builder; },
       open(value) { node.openState = value; return builder; },
       on_open_change(handler) { node.onOpenChange = handler; return builder; },
@@ -147,7 +153,18 @@ const notify = (...args) => globalThis.__insightsTestHerdr.notify(...args);
 const panes = () => globalThis.__insightsTestHerdr.panes();
 const props = () => globalThis.__insightsTestHerdr.props();
 const run = (...args) => globalThis.__insightsTestHerdr.run(...args);
-const spaces = () => globalThis.__insightsTestHerdr.spaces();`,
+const spaces = () => globalThis.__insightsTestHerdr.spaces();
+const machines = () => globalThis.__insightsTestHerdr.machines?.() ?? [];`,
+  )
+  .replace(
+    /^import \{ mkdir, unlink, writeFile \} from "fs\/promises";$/m,
+    `const mkdir = (...args) => globalThis.__insightsTestHerdr.mkdir(...args);
+const unlink = (...args) => globalThis.__insightsTestHerdr.unlink(...args);
+const writeFile = (...args) => globalThis.__insightsTestHerdr.writeFile(...args);`,
+  )
+  .replace(
+    /^import \{[^}]*\} from "\.\/remote\.mjs";$/m,
+    (line) => line.replace(/"\.\/remote\.mjs"/, `"${dataUrl(remoteSource)}"`),
   )
   .replace(
     /^import \{[\s\S]*?\} from "\.\/analytics\.js";$/m,
@@ -196,6 +213,10 @@ function useHerdr({ readTextFile, execResult } = {}) {
     props: () => state.props,
     run: (...args) => state.commands.push(args),
     spaces: () => state.spaces,
+    machines: () => state.machines ?? [],
+    mkdir: async (dir) => { (state.mkdirs ??= []).push(dir); },
+    unlink: async (file) => { delete state.files?.[file]; },
+    writeFile: async (file, text) => { (state.files ??= {})[file] = String(text); },
     readTextFile: async (path) => {
       state.runtimeReads.push(path);
       return readTextFile ? readTextFile(path) : null;
@@ -209,8 +230,23 @@ function useHerdr({ readTextFile, execResult } = {}) {
       state.notifications.push(notification);
       return "toast-1";
     },
-    exec: async (command, args) => {
-      state.execCalls.push({ command, args });
+    exec: async (command, args, execOptions) => {
+      state.execCalls.push({ command, args, options: execOptions });
+      if (args[1] === "publish-remote") {
+        const [, , source, destination, kind] = args;
+        assert.ok(source.startsWith(`${destination}.tmp-`), "publish from a temporary sibling");
+        let disabled = null;
+        if (kind === "settings") {
+          const saved = JSON.parse(state.files[destination] ?? JSON.stringify({ disabled: state.initialRemoteDisabled }));
+          const settings = applyMachineSettings(saved, JSON.parse(state.files[source]));
+          disabled = settings.disabled;
+          state.files[destination] = JSON.stringify(settings);
+        } else {
+          state.files[destination] = state.files[source];
+        }
+        delete state.files[source];
+        return { code: 0, stdout: JSON.stringify(disabled), stderr: "" };
+      }
       if (execResult) return execResult(command, args, state);
       const options = optionArgument(args);
       const payload = presentationFor(savedSnapshot(), options, args[1] ?? "snapshot");
@@ -305,6 +341,8 @@ function blankInstance() {
   instance.dashboardTask = null;
   instance.dashboardQueued = false;
   instance.dashboardGeneration = 0;
+  instance.remoteRequest = 0;
+  instance.remoteAppliedRequest = 0;
   instance.refreshWatchdog = null;
   instance.saveWatchdog = null;
   instance.presenterPath = () => "/app/mods/insights/presenter.mjs";
@@ -357,7 +395,8 @@ test("native mod keeps timers and shell use inside the Herdr contract", () => {
   assert.doesNotMatch(mainSource, /--rebuild/);
   assert.match(mainSource, /readTextFile\(this\.runtimePath\(\)\)/);
   assert.match(mainSource, /mods\/insights\/runtime\.json/);
-  assert.equal((mainSource.match(/exec\(this\.nodeBinary, \[/g) ?? []).length, 3);
+  assert.equal((mainSource.match(/exec\(this\.nodeBinary, \[/g) ?? []).length, 5);
+  assert.match(mainSource, /exec\(this\.nodeBinary, \[this\.presenterPath\(\), "bundle"\]\)/);
   assert.match(mainSource, /presenter\.mjs/);
   assert.match(mainSource, /"prepare"/);
   assert.match(mainSource, /timer\.after\(0/);
@@ -944,7 +983,7 @@ test("model usage wraps into columns instead of switching on a pane width", () =
 
 test("loading state shows live scan progress and scan status lives in settings", () => {
   assert.doesNotMatch(mainSource, /Reading local session history|collector and presentation helper|Preparing the compact dashboard|Initializing the native source|bottomGrid/);
-  assert.match(mainSource, /children\(\[preferences, sources, scan, json\]\)/);
+  assert.match(mainSource, /children\(\[preferences, sources, remoteMachines, scan, json\]\)/);
 
   const instance = blankInstance();
   instance.loading = true;
@@ -1620,4 +1659,387 @@ test("running worker status shows current file and decoded bytes", () => {
   assert.match(label, /Indexing 3 of 10 files/);
   assert.match(label, /open-giant\.jsonl\.zst/, "the live file is visible");
   assert.match(label, /decoded/, "in-progress decoded bytes are visible");
+});
+
+function remoteHerdr({ machines, rows = "fail", disabled = [], scan = null, firstSnapshotFails = false } = {}) {
+  const envelope = {
+    kind: "insights-remote-rows", version: 1, generatedAt: null, lastScanAt: null, lastCompletedScanAt: null,
+    rowCount: 0, rows: "H4sIAAAAAAAAA4uOBQApu0wNAgAAAA==", scan: { status: "complete", processed: 1, total: 1 }, warnings: [],
+  };
+  const state = useHerdr({
+    readTextFile: () => null,
+    execResult(command, args) {
+      if (args[1] === "bundle") return { code: 0, stdout: JSON.stringify({ hash: "0123456789abcdef", payload: "UA" }), stderr: "" };
+      if (command === "sh" && args.at(-1) === "rows") {
+        if (rows === "fail") return { code: 1, stdout: "", stderr: "Error: disk full" };
+        return { code: 0, stdout: JSON.stringify(scan ? { ...envelope, scan } : envelope), stderr: "" };
+      }
+      if (command === "sh") {
+        return { code: 0, stdout: JSON.stringify({ ok: true, installed: true, dir: "/r/.cache/herdr-insights/0123456789abcdef", node: "/usr/bin/node" }), stderr: "" };
+      }
+      if (firstSnapshotFails && args[1] === "snapshot") return { code: 1, stdout: "", stderr: "Error: slow disk" };
+      const options = optionArgument(args);
+      const savedSettings = JSON.parse(state.files?.["/app/data/insights/remote.json"] ?? "null");
+      const payload = presentationFor({
+        ...savedSnapshot(), remoteDisabled: savedSettings?.disabled ?? disabled, remoteTimeZone: state.remoteTimeZone ?? remoteTimeZone,
+      }, options, args[1]);
+      return { code: 0, stdout: JSON.stringify(payload), stderr: "" };
+    },
+  });
+  state.machines = machines;
+  state.initialRemoteDisabled = disabled;
+  return state;
+}
+
+async function settle() {
+  for (let index = 0; index < 12; index += 1) await flush();
+}
+
+test("remote machines sync with exec on, save only aggregated files, and re-prepare the dashboard", async () => {
+  const state = remoteHerdr({
+    rows: "ok",
+    machines: [
+      { name: null, layout: "ready" },
+      { name: "box", layout: "ready" },
+      { name: "gone", layout: "unavailable" },
+      { name: "wait", layout: "loading" },
+    ],
+  });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  await calls.runAfter();
+  await settle();
+
+  const remoteCalls = state.execCalls.filter((call) => call.command === "sh");
+  assert.ok(remoteCalls.length >= 2);
+  assert.ok(remoteCalls.some((call) => call.args.includes(`TZ=${remoteTimeZone}`)));
+  assert.ok(remoteCalls.every((call) => call.options?.on === "box"), "remote commands run only on the ready machine");
+  assert.equal(state.execCalls.filter((call) => call.args?.[1] === "bundle").length, 1);
+  const rowsFile = JSON.parse(state.files[`${remoteFilesDir}/box.rows.json`]);
+  assert.equal(rowsFile.kind, "insights-remote-machine-rows");
+  assert.equal(rowsFile.envelope.rowCount, 0);
+  assert.equal(JSON.parse(state.files[`${remoteFilesDir}/box.state.json`]).error, null);
+  assert.match(JSON.parse(state.files[`${remoteFilesDir}/gone.state.json`]).error, /offline/);
+  assert.equal(state.files[`${remoteFilesDir}/gone.rows.json`], undefined);
+  assert.equal(Object.keys(state.files).some((file) => file.includes("wait")), false);
+  const prepares = state.execCalls.filter((call) => call.args?.[1] === "prepare");
+  assert.ok(prepares.some((call) => optionArgument(call.args).remoteRevision >= 1), "a finished sync re-prepares the dashboard");
+  instance.close();
+});
+
+test("a failed remote keeps its last rows and records the error for the machine", async () => {
+  const state = remoteHerdr({ machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  assert.equal(state.files[`${remoteFilesDir}/box.rows.json`], undefined);
+  assert.match(JSON.parse(state.files[`${remoteFilesDir}/box.state.json`]).error, /disk full/);
+  assert.match(instance.remoteView("box").error, /disk full/);
+  instance.close();
+});
+
+test("remote rows and settings survive an interrupted write to any published file", async () => {
+  const state = remoteHerdr({ rows: "ok", machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  instance.setMachineEnabled("old-box", false, cx);
+  await settle();
+  const rowsPath = `${remoteFilesDir}/box.rows.json`;
+  const syncPath = `${remoteFilesDir}/box.state.json`;
+  const settingsPath = "/app/data/insights/remote.json";
+  const previous = { ...state.files };
+  const write = state.herdr.writeFile;
+  let fail = true;
+  state.herdr.writeFile = async (file, contents) => {
+    if (!fail) return write(file, contents);
+    await write(file, contents.slice(0, 1));
+    throw new Error("Interrupted write");
+  };
+  await assert.rejects(instance.fetchMachine("box", false, remoteTimeZone), /Interrupted write/);
+  instance.setMachineEnabled("another-box", false, cx);
+  await settle();
+  assert.equal(state.files[rowsPath], previous[rowsPath], "last rows must survive a partial write");
+  assert.equal(state.files[syncPath], previous[syncPath], "last sync state must survive a partial write");
+  assert.equal(state.files[settingsPath], previous[settingsPath], "settings must survive a partial write");
+  assert.deepEqual(Object.keys(state.files).sort(), Object.keys(previous).sort(), "temporary files are cleaned up");
+  fail = false;
+  await instance.fetchMachine("box", false, remoteTimeZone);
+  instance.close();
+});
+
+test("a running dashboard syncs into a new directory after its timezone changes", async () => {
+  const state = remoteHerdr({ rows: "ok", machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  assert.ok(state.files[`${remoteFilesDir}/box.rows.json`]);
+
+  state.remoteTimeZone = "UTC";
+  instance.refresh(cx);
+  await settle();
+  assert.ok(state.execCalls.some((call) => call.args.includes("TZ=UTC")));
+  assert.ok(state.files[`/app/data/insights/machines/${timeZoneStoreKey("UTC")}/box.rows.json`]);
+  instance.close();
+});
+
+test("an older refresh cannot restore a timezone superseded by dashboard preparation", async () => {
+  const state = remoteHerdr();
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  const exec = state.herdr.exec;
+  const delayed = Promise.withResolvers();
+  state.herdr.exec = async (...args) => {
+    const result = await exec(...args);
+    if (args[1][1] === "snapshot") await delayed.promise;
+    return result;
+  };
+  instance.refresh(cx);
+  await settle();
+
+  state.remoteTimeZone = "UTC";
+  instance.scheduleDashboard(cx, { force: true });
+  calls.after.find((timer) => timer.ms === 0 && !timer.cancelled).fn();
+  await settle();
+  assert.equal(instance.remoteTimeZone, "UTC");
+  delayed.resolve();
+  await settle();
+  assert.equal(instance.remoteTimeZone, "UTC", "the newer prepare already observed the timezone change");
+  await calls.runAfter();
+  assert.equal(instance.dashboard.remoteTimeZone, "UTC");
+  instance.close();
+});
+
+test("dashboard preparation updates remote warnings while retaining local scan warnings", async () => {
+  const state = remoteHerdr();
+  const { cx, calls } = liveCx();
+  const exec = state.herdr.exec;
+  state.herdr.exec = async (...args) => {
+    const result = await exec(...args);
+    const command = args[1][1];
+    if (command !== "snapshot" && command !== "prepare") return result;
+    const payload = JSON.parse(result.stdout);
+    payload.snapshot.remoteWarnings = command === "snapshot" ? ["Old remote warning"] : ["New remote warning"];
+    payload.snapshot.warnings = [...(command === "snapshot" ? ["Local scan warning"] : []), ...payload.snapshot.remoteWarnings];
+    return { ...result, stdout: JSON.stringify(payload) };
+  };
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  instance.scheduleDashboard(cx, { force: true });
+  await calls.runAfter();
+
+  const card = instance.statusCard(ui.tokens({}), instance.snapshot, instance.snapshot.config);
+  const warningRows = card.childNodes.at(-1).childNodes.slice(1);
+  const warnings = warningRows.map((warning) => warning.childNodes[1].childNodes[0]);
+  assert.deepEqual(warnings, ["Local scan warning", "New remote warning"]);
+  instance.close();
+});
+
+test("machines disabled in Settings are never synced, not even on the first pass", async () => {
+  const state = remoteHerdr({ rows: "ok", disabled: ["box"], machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  assert.equal(state.execCalls.filter((call) => call.command === "sh").length, 0);
+  assert.deepEqual(instance.remoteDisabled, ["box"]);
+  instance.close();
+});
+
+test("the machine filter and remote revisions reach the presenter options and the cache key", () => {
+  const instance = blankInstance();
+  assert.equal(instance.dashboardOptions().filters.machine, undefined);
+  instance.machineFilter = "box";
+  assert.equal(instance.dashboardOptions().filters.machine, "box");
+  const before = presentationKey(savedSnapshot(), instance.dashboardOptions());
+  instance.remoteRevision = 3;
+  assert.equal(instance.dashboardOptions().remoteRevision, 3);
+  assert.notEqual(presentationKey(savedSnapshot(), instance.dashboardOptions()), before);
+});
+
+test("a remote named all is selectable separately from All machines", () => {
+  const instance = blankInstance();
+  instance.dashboard = { machines: [{ name: null }, { name: "all" }] };
+  const machineBar = instance.machineBar(ui.tokens({}));
+  machineBar.childNodes[0].onOpenChange(true, fakeCx());
+  const option = instance.openOptions.options.find((candidate) => candidate.label === "all");
+  const snapshot = {
+    rows: [
+      { machine: null, session: "local", day: "2026-11-13", tokens: { input: 3 } },
+      { machine: "all", session: "remote", day: "2026-11-13", tokens: { input: 7 } },
+    ],
+  };
+  const report = compactDashboard(deriveDashboard(snapshot, { filters: { machine: option.value } }));
+  assert.equal(report.lifetime.total, 7, "selecting the remote must exclude local usage");
+  assert.match(analytics.dashboardMarkdown(report), /^- Machine: all$/m);
+});
+
+test("machine status text covers syncing, indexing, synced, offline and never synced", async () => {
+  const { machineStatusText } = await import(dataUrl(transformedMain));
+  const synced = { name: "box", status: "ok", fetchedAt: "2024-01-10T12:00:00Z", error: null };
+  assert.equal(machineStatusText(synced, { syncing: true }), "Syncing…");
+  assert.equal(machineStatusText(synced, { scan: { status: "partial", processed: 5, total: 1200 } }), "Indexing 5 of 1,200 files");
+  assert.match(machineStatusText(synced, {}), /^Synced /);
+  assert.match(machineStatusText({ ...synced, warningCount: 2 }), / · 2 scan warnings$/);
+  assert.match(machineStatusText({ ...synced, scanFailed: true }), /^Indexing failed/);
+  assert.match(machineStatusText(synced, { scan: { status: "partial", failed: true } }), /^Indexing failed/);
+  assert.match(machineStatusText({ ...synced, status: "offline", error: "gone" }, {}), /^Offline · last synced /);
+  assert.equal(machineStatusText({ name: "box", status: "error", fetchedAt: null, error: "node was not found on PATH" }, {}), "Unavailable: node was not found on PATH");
+  assert.equal(machineStatusText({ name: "box", fetchedAt: null }, {}), "Waiting for first sync");
+});
+
+test("no remote sync runs before the first snapshot delivers the disabled list, even from the refresh timer", async () => {
+  const state = remoteHerdr({ rows: "ok", disabled: ["box"], firstSnapshotFails: true, machines: [{ name: "box", layout: "ready" }] });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  for (const timer of calls.timers) timer.fn(cx);
+  await settle();
+  assert.equal(state.execCalls.filter((call) => call.command === "sh").length, 0);
+  instance.close();
+});
+
+test("a remote scan that stops advancing ends its fast continuation loop", async () => {
+  const state = remoteHerdr({ rows: "ok", scan: { status: "partial", processed: 4, total: 10 }, machines: [{ name: "box", layout: "ready" }] });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  for (let round = 0; round < 20; round += 1) {
+    await calls.runAfter();
+    await settle();
+  }
+  const rowsCalls = state.execCalls.filter((call) => call.command === "sh" && call.args.at(-1) === "rows").length;
+  assert.ok(rowsCalls >= 2 && rowsCalls <= 6, `continuations must stop when progress stalls (got ${rowsCalls})`);
+  instance.close();
+});
+
+test("disabling a machine cancels its pending continuation", async () => {
+  const state = remoteHerdr({ rows: "ok", scan: { status: "running", processed: 1, total: 10 }, machines: [{ name: "box", layout: "ready" }] });
+  const { cx, calls } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  const before = state.execCalls.filter((call) => call.command === "sh").length;
+  assert.ok(before >= 2);
+  instance.setMachineEnabled("box", false, cx);
+  await settle();
+  for (let round = 0; round < 3; round += 1) {
+    await calls.runAfter();
+    await settle();
+  }
+  assert.equal(state.execCalls.filter((call) => call.command === "sh").length, before);
+  assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, ["box"]);
+  instance.close();
+});
+
+test("older refresh and configure results cannot undo a new machine toggle", async () => {
+  for (const command of ["snapshot", "configure"]) {
+    const state = remoteHerdr({ rows: "ok", machines: [{ name: "box", layout: "ready" }] });
+    const { cx } = liveCx();
+    const instance = new Insights();
+    instance.init({}, cx);
+    await settle();
+    const exec = state.herdr.exec;
+    const delayed = Promise.withResolvers();
+    state.herdr.exec = async (...args) => {
+      const result = await exec(...args);
+      if (args[1][1] === command) await delayed.promise;
+      return result;
+    };
+    if (command === "snapshot") instance.refresh(cx);
+    else instance.saveConfig(cx);
+    await flush();
+    assert.equal(state.execCalls.at(-1).args[1], command);
+    instance.setMachineEnabled("box", false, cx);
+    await settle();
+    delayed.resolve();
+    await settle();
+    assert.deepEqual(instance.remoteDisabled, ["box"], `${command} must preserve the newer toggle`);
+    instance.close();
+  }
+});
+
+test("each Settings write resyncs enabled machines even when it replaces an earlier write", async () => {
+  const state = remoteHerdr({ rows: "ok", disabled: ["a", "b"], machines: [{ name: "a", layout: "ready" }, { name: "b", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  instance.setMachineEnabled("a", true, cx);
+  instance.setMachineEnabled("b", false, cx);
+  await settle();
+  const machinesSynced = new Set(state.execCalls.filter((call) => call.command === "sh").map((call) => call.options?.on));
+  assert.deepEqual([...machinesSynced], ["a"]);
+  instance.close();
+});
+
+test("a slow settings write cannot overwrite the newest toggle on disk", async () => {
+  const state = remoteHerdr({ disabled: [] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  const write = state.herdr.writeFile;
+  const firstWrite = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  state.herdr.writeFile = async (file, text) => {
+    if (JSON.parse(text).changes.some((change) => change.name === "box" && !change.enabled)) {
+      firstWrite.resolve();
+      await resume.promise;
+    }
+    await write(file, text);
+  };
+
+  instance.setMachineEnabled("box", false, cx);
+  await firstWrite.promise;
+  instance.setMachineEnabled("box", true, cx);
+  await settle();
+  resume.resolve();
+  await settle();
+  assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, []);
+  instance.close();
+});
+
+test("settings changes from two dashboard copies preserve both machine toggles", async () => {
+  const state = remoteHerdr();
+  const { cx } = liveCx();
+  const first = new Insights();
+  const second = new Insights();
+  first.init({}, cx);
+  second.init({}, cx);
+  await settle();
+  first.setMachineEnabled("box", false, cx);
+  await settle();
+  second.setMachineEnabled("vps", false, cx);
+  await settle();
+  assert.deepEqual(JSON.parse(state.files["/app/data/insights/remote.json"]).disabled, ["box", "vps"]);
+  first.close();
+  second.close();
+});
+
+test("dashboard preparation picks up machine settings saved by another copy", async () => {
+  remoteHerdr();
+  const { cx, calls } = liveCx();
+  const first = new Insights();
+  const second = new Insights();
+  first.init({}, cx);
+  second.init({}, cx);
+  await settle();
+  first.setMachineEnabled("box", false, cx);
+  await settle();
+  second.scheduleDashboard(cx, { force: true });
+  await calls.runAfter();
+  assert.deepEqual(second.remoteDisabled, ["box"]);
+  first.close();
+  second.close();
 });

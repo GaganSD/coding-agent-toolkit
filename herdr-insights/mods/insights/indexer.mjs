@@ -116,6 +116,7 @@ function scanViewUpdate(store, state, { status = "running" } = {}) {
   if (state?.stats) scan.stats = state.stats;
   if (state?.sourceStats) scan.sourceStats = state.sourceStats;
   if (Array.isArray(state?.warnings)) scan.warnings = state.warnings;
+  if (Number.isInteger(state?.warningCount)) scan.warningCount = state.warningCount;
   scan.currentFile = state?.file ?? null;
   return scan;
 }

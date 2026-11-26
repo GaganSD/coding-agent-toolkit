@@ -64,7 +64,6 @@ function pausableDelay(ms) {
 
 function warningSink(warnings, stats, sourceState) {
   let hidden = 0;
-  let reportedHidden = false;
   return {
     warn(message, sourceId) {
       stats.errors += 1;
@@ -77,10 +76,9 @@ function warningSink(warnings, stats, sourceState) {
       else hidden += 1;
     },
     finish() {
-      if (hidden > 0 && !reportedHidden) {
-        reportedHidden = true;
-        warnings.push(`${hidden} additional scan warnings were not shown.`);
-      }
+      const count = warnings.length + hidden;
+      if (hidden > 0) warnings.push(`${hidden} additional scan warnings were not shown.`);
+      return count;
     },
   };
 }
@@ -1358,10 +1356,11 @@ export async function scanSources(store, {
     };
   }
 
-  sink.finish();
+  const warningCount = sink.finish();
   return {
     stats,
     warnings,
+    warningCount,
     dirty,
     sourceStats,
     complete: stopReason === null,
