@@ -308,3 +308,34 @@ test("loadMachineRecords pairs files, skips corrupt ones, and honors disabled ma
   assert.deepEqual(await loadMachineRecords(path.join(dir, "missing")), { records: [], warnings: [] });
   assert.equal(JSON.parse(await readFile(path.join(dir, "box.state.json"), "utf8")).kind, "insights-remote-machine-state");
 });
+
+test("loadMachineRecords skips rows that inflate past the size cap", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "insights-machines-cap-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const cap = 64 * 1024 * 1024;
+  for (const [machine, size] of [["big", cap + 1], ["fits", cap]]) {
+    // An empty list padded with whitespace: valid rows of an exact inflated size.
+    const json = Buffer.alloc(size, " ");
+    json.write("[]");
+    const padded = envelope([], { rows: gzipSync(json).toString("base64") });
+    await writeFile(path.join(dir, `${machine}.rows.json`), rowsFileText({ machine, envelope: padded, fetchedAt: "2026-11-13T01:00:00.000Z" }));
+  }
+
+  const { records, warnings } = await loadMachineRecords(dir);
+  assert.deepEqual(records.map((record) => record.machine), ["fits"]);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /^big\.rows\.json: .*skipped\.$/);
+});
+
+test("loadMachineRecords never reads a disabled machine's files", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "insights-machines-off-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  // Reading a directory fails with a warning, so no warning means no read.
+  const disabled = ["off", "Build Box"];
+  for (const machine of disabled) {
+    await mkdir(path.join(dir, `${machineFileStem(machine)}.rows.json`));
+    await mkdir(path.join(dir, `${machineFileStem(machine)}.state.json`));
+  }
+
+  assert.deepEqual(await loadMachineRecords(dir, { disabled }), { records: [], warnings: [] });
+});
