@@ -7,6 +7,7 @@ process.env.TZ = "America/New_York";
 const source = await readFile(new URL("../../herdr-insights/mods/insights/analytics.js", import.meta.url), "utf8");
 const analytics = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const {
+  THIS_COMPUTER,
   addDays,
   addMonthsClamped,
   addYearsClamped,
@@ -141,6 +142,26 @@ test("dashboardMarkdown exports exact compact values without re-deriving", () =>
   }, options)), { now: new Date(2024, 0, 10, 19, 7) });
   assert.match(excluded, /- Tokens: input \+ output \(cache excluded\)/);
   assert.match(excluded, /\| Tokens \| 2,150 \|/);
+});
+
+test("dashboardMarkdown names the selected machine and scopes the lifetime wording", () => {
+  const snapshot = {
+    rows: [
+      row({ day: "2024-01-10", machine: null, session: "local", tokens: { input: 3 } }),
+      row({ day: "2024-01-10", machine: "build-box", session: "remote", tokens: { input: 7 } }),
+    ],
+  };
+  for (const [machine, label, tokens] of [
+    ["build-box", "build-box", 7],
+    [THIS_COMPUTER, "This computer", 3],
+    ["all", "All machines", 10],
+  ]) {
+    const dashboard = compactDashboard(deriveDashboard(snapshot, { today: "2024-01-10", filters: { machine } }));
+    const markdown = dashboardMarkdown(dashboard);
+    assert.ok(markdown.includes(`- Machine: ${label}\n`), `report must name ${label}`);
+    assert.ok(markdown.includes(`| Tokens | ${tokens} |`));
+    if (machine !== "all") assert.doesNotMatch(markdown, /cover every session/);
+  }
 });
 
 test("dashboardMarkdown handles an empty dashboard and escapes table cells", () => {

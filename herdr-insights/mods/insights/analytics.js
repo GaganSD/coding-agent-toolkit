@@ -1160,6 +1160,12 @@ function markdownChange(entry) {
     : String(change.label ?? "—");
 }
 
+export function machineLabel(value) {
+  if (!value || value === "all") return "All machines";
+  if (value === THIS_COMPUTER) return "This computer";
+  return value;
+}
+
 /**
  * A portable Markdown report of one prepared dashboard. Pure: it reads only the
  * compact presentation already held by the view, so exporting never rescans,
@@ -1179,6 +1185,9 @@ export function dashboardMarkdown(dashboard, options = {}) {
   const filters = dashboard.filters ?? {};
   const rangeLabel = range.label ?? (dashboard.period === "all" ? "All time" : "Selected period");
   const filterLabel = (value) => (!value || value === "all" ? "All" : markdownCell(value));
+  const lifetimeScope = !filters.machine || filters.machine === "all"
+    ? "every session on the included machines"
+    : "sessions from the selected machine";
   const dataThrough = dashboard.today ?? range.end ?? "";
   const selectedDay = isDay(dashboard.selectedDay) ? dashboard.selectedDay : dataThrough;
   const lines = [];
@@ -1187,9 +1196,10 @@ export function dashboardMarkdown(dashboard, options = {}) {
   lines.push(`- Generated: ${generated || "unknown"} (local)`);
   lines.push(`- Data through: ${dayLabel(dataThrough) || "unknown"}`);
   lines.push(`- Period: ${rangeLabel}${range.start && range.end ? ` (${range.start} to ${range.end})` : ""}`);
+  lines.push(`- Machine: ${markdownCell(machineLabel(filters.machine))}`);
   lines.push(`- Filters: Provider: ${filterLabel(filters.provider)} · Model: ${filterLabel(filters.model)}`);
   lines.push(`- Tokens: input + output${includeCache ? " + cache reads + cache writes" : " (cache excluded)"}`);
-  lines.push("", "Lifetime and token history cover every session. Model usage follows the selected period and filters.", "");
+  lines.push("", `Lifetime and token history cover ${lifetimeScope}. Model usage follows the selected period and filters.`, "");
 
   lines.push("## Lifetime", "");
   lines.push("| Metric | Value |", "| --- | ---: |");

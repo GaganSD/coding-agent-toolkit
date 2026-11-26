@@ -19,6 +19,7 @@ import {
   initials,
   isDay,
   isPresentation,
+  machineLabel,
   normalizeConfig,
   periodRange,
   projectName,
@@ -231,12 +232,6 @@ function machineTone(machine, live, c) {
   if (live.syncing || (live.scan && !live.error && REMOTE_CONTINUE_MS[live.scan.status])) return c.accent;
   if (!machine?.fetchedAt) return c.destructive;
   return live.error ?? machine?.error ? c.dim : c.done;
-}
-
-function machineLabel(value) {
-  if (value === "all") return "All machines";
-  if (value === THIS_COMPUTER) return "This computer";
-  return value;
 }
 
 function menuTrigger(id, label, valueLabel, active, c) {
