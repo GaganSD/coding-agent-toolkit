@@ -6,6 +6,7 @@ import { readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { REMOTE_RECORD_VERSION } from "../merge.mjs";
+import { machineFileStem } from "../remote.mjs";
 import { isPlainObject, toNonNegInt, withStoreLock } from "./util.mjs";
 
 const BUNDLE_ROOT_FILES = ["collector.mjs", "indexer.mjs", "remote-entry.mjs", "remote.mjs"];
@@ -72,6 +73,10 @@ const KINDS = {
   state: "insights-remote-machine-state",
 };
 
+// The worker caps encoded rows at MAX_ROWS_CHARS, about 5 MB of gzip, and usage
+// rows gzip about 5-7x: this is roughly twice the largest history it can send.
+const MAX_ROWS_BYTES = 64 * 1024 * 1024;
+
 function parseFile(text, kind) {
   const value = JSON.parse(text);
   if (!isPlainObject(value) || value.version !== 1 || value.kind !== KINDS[kind] || typeof value.machine !== "string" || !value.machine) {
@@ -80,7 +85,7 @@ function parseFile(text, kind) {
   if (kind === "rows") {
     const envelope = value.envelope;
     if (!isPlainObject(envelope) || typeof envelope.rows !== "string") throw new Error("missing usage rows");
-    const rows = JSON.parse(gunzipSync(Buffer.from(envelope.rows, "base64")).toString("utf8"));
+    const rows = JSON.parse(gunzipSync(Buffer.from(envelope.rows, "base64"), { maxOutputLength: MAX_ROWS_BYTES }).toString("utf8"));
     if (!Array.isArray(rows)) throw new Error("usage rows are not a list");
     return {
       machine: value.machine,
@@ -109,11 +114,12 @@ export async function loadMachineRecords(dir, { disabled = [] } = {}) {
     throw error;
   }
   const skip = new Set(disabled);
+  const skipStems = new Set(disabled.map(machineFileStem));
   const byMachine = new Map();
   const warnings = [];
   for (const name of names.sort()) {
     const kind = name.endsWith(".rows.json") ? "rows" : name.endsWith(".state.json") ? "state" : null;
-    if (!kind) continue;
+    if (!kind || skipStems.has(name.slice(0, -`.${kind}.json`.length))) continue;
     let parsed;
     try {
       parsed = parseFile(await readFile(path.join(dir, name), "utf8"), kind);
