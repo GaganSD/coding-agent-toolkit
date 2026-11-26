@@ -9,13 +9,12 @@ import {
 import { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { FileArtifacts } from "../src/artifacts.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { loadProfiles } from "../src/agents.ts";
 import { captureHead } from "../src/diff.ts";
 import { RunManager } from "../src/runs.ts";
 import { EDIT_TOOLS, INSPECT_TOOLS, prepareNative, type NativeOptions } from "../src/session.ts";
 import { RESUME_PROMPT, type Telemetry } from "../src/types.ts";
 import { git } from "../src/workspace.ts";
-import { temp, until } from "./helpers.ts";
+import { temp, until, testProfiles } from "./helpers.ts";
 
 const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 function response(model: Model<Api>, content: AssistantMessage["content"], stopReason: Exclude<AssistantMessage["stopReason"], "pending"> = "stop", errorMessage = "fixture failure"): AssistantMessageEventStream {
@@ -44,9 +43,9 @@ async function fixture(t: Parameters<typeof temp>[0], handler?: (model: Model<Ap
     models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], cost: zero, contextWindow: 64000, maxTokens: 2048 }],
     streamSimple: handler ?? ((model) => response(model, [{ type: "text", text: "An evidence-backed report." }])),
   });
-  const profiles = await loadProfiles(agentDir, cwd, true);
+  const profiles = testProfiles();
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { mode: "inspect" as const, task: "Review fixture" },
     profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: () => [],
   };
   const store = new FileArtifacts(path.join(root, "runs"));
@@ -100,7 +99,7 @@ test("real SDK: fresh read-only session, inherited instructions, no ambient tool
 test("real SDK: worker tools differ, no model/scoped/thinking fallback", async t => {
   let names: string[] = [];
   const f = await fixture(t, (model, context) => { names = getCurrentTools(context.messages).map(tool => tool.name); return response(model, [{ type: "text", text: "Worker evidence" }]); });
-  const options = { ...f.options, task: { agent: "worker", task: "Implement fixture" }, profile: f.profiles.get("worker")! };
+  const options = { ...f.options, task: { mode: "edit" as const, task: "Implement fixture" }, profile: f.profiles.get("worker")! };
   const [id] = await f.manager.launch([prepareNative(options)]);
   await f.manager.settled(id!);
   assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
@@ -120,8 +119,8 @@ test("real SDK: two inspectors have isolated cwd and task context", async t => {
   await writeFile(path.join(f.cwd, "AGENTS.md"), "ONLY_WORKSPACE_A");
   await writeFile(path.join(otherCwd, "AGENTS.md"), "ONLY_WORKSPACE_B");
   const ids = await f.manager.launch([
-    prepareNative({ ...f.options, task: { agent: "reviewer", task: "ONLY_TASK_A" } }),
-    prepareNative({ ...f.options, cwd: otherCwd, workspace: otherCwd, task: { agent: "reviewer", task: "ONLY_TASK_B" } }),
+    prepareNative({ ...f.options, task: { mode: "inspect" as const, task: "ONLY_TASK_A" } }),
+    prepareNative({ ...f.options, cwd: otherCwd, workspace: otherCwd, task: { mode: "inspect" as const, task: "ONLY_TASK_B" } }),
   ]);
   await Promise.all(ids.map(id => f.manager.settled(id)));
   assert(ids.every(id => f.manager.status(id).state === "completed"), JSON.stringify(f.manager.list()));
@@ -273,7 +272,7 @@ test("real SDK: stopping bash cancels its process tree before releasing workspac
     if (++calls === 1) return response(model, [{ type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "sleep 30 & echo $! > child.pid; wait" } }], "toolUse");
     return response(model, [{ type: "text", text: "Should not continue after stop" }]);
   });
-  const [id] = await f.manager.launch([prepareNative({ ...f.options, task: { agent: "worker", task: "Fixture cancellation" }, profile: f.profiles.get("worker")! })]);
+  const [id] = await f.manager.launch([prepareNative({ ...f.options, task: { mode: "edit" as const, task: "Fixture cancellation" }, profile: f.profiles.get("worker")! })]);
   await until(() => f.manager.status(id!).currentTool === "bash");
   let pid: number | undefined;
   for (let i = 0; i < 100; i++) {
@@ -315,7 +314,7 @@ test("real SDK: committed-range review reads a supplied artifact; live diff is l
   await git(f.cwd, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "change"]);
   artifact = path.join(f.root, "review.diff");
   await writeFile(artifact, await git(f.cwd, ["diff", baseline!, "HEAD"]));
-  const [id] = await f.manager.launch([prepareNative({ ...f.options, task: { agent: "reviewer", task: `Review ${artifact}` } })]);
+  const [id] = await f.manager.launch([prepareNative({ ...f.options, task: { mode: "inspect" as const, task: `Review ${artifact}` } })]);
   await f.manager.settled(id!);
   assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.equal(calls, 3);

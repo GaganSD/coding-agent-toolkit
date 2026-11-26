@@ -1,30 +1,36 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Check } from "typebox/value";
-import { loadProfiles, parseProfile } from "../src/agents.ts";
+import { loadSkillsFromDir, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
+import { loadTemplates, parseTemplate, projectTrusted, resolveRole, STARTER } from "../src/templates.ts";
 import { DEFAULT_CONFIG, parseConfig } from "../src/config.ts";
 import { parseCommand, resolveRun } from "../src/inspect.ts";
 import { formatEntry, readTranscript } from "../src/transcript.ts";
 import { OutputSchema, parseRequest, presentLaunch, presentRun } from "../src/tool.ts";
 import type { RunRecord } from "../src/types.ts";
 import { formatElapsed, nextLive, plain, rows } from "../src/ui.ts";
+import { fileURLToPath } from "node:url";
 import { temp } from "./helpers.ts";
 
 test("requests reject invalid action/field combinations", () => {
-  assert.deepEqual(parseRequest({ action: "run", tasks: [{ agent: "worker", task: "Implement" }] }), { action: "run", tasks: [{ agent: "worker", task: "Implement" }] });
-  assert.deepEqual(parseRequest({ action: "run", tasks: [{ agent: "worker", task: "Implement", thinking: "low" }] }), { action: "run", tasks: [{ agent: "worker", task: "Implement", thinking: "low" }] });
+  assert.deepEqual(parseRequest({ action: "run", tasks: [{ mode: "edit", task: "Implement" }] }), { action: "run", tasks: [{ mode: "edit", task: "Implement" }] });
+  assert.deepEqual(parseRequest({ action: "run", tasks: [{ template: "security-reviewer", name: "sec", role: " Focus on auth ", task: "Review", thinking: "low" }] }),
+    { action: "run", tasks: [{ template: "security-reviewer", name: "sec", role: "Focus on auth", task: "Review", thinking: "low" }] });
   for (const input of [
-    { agent: "worker", task: "Old direct syntax" }, { action: "run", workflow: true },
-    { action: "run", tasks: [] }, { action: "run", tasks: Array(5).fill({ agent: "worker", task: "x" }) },
-    { action: "resume" }, { action: "resume", id: "x", message: "y" }, { action: "run", tasks: [{ agent: "worker", task: "x", async: true }] },
+    { mode: "edit", task: "Old direct syntax" }, { action: "run", workflow: true },
+    { action: "run", tasks: [] }, { action: "run", tasks: Array(5).fill({ mode: "edit", task: "x" }) },
+    { action: "resume" }, { action: "resume", id: "x", message: "y" }, { action: "run", tasks: [{ mode: "edit", task: "x", async: true }] },
     { action: "list", config: {} }, { action: "stop" }, { action: "steer", id: "x" },
-    { action: "reply", id: "x", message: "answer" }, { action: "run", tasks: [{ agent: "", task: "x" }] },
-    { action: "run", tasks: [{ agent: "worker", task: "x", model: "alias" }] },
-    { action: "run", tasks: [{ agent: "worker", task: "x", thinking: "highest" }] },
-    { action: "run", tasks: [{ agent: "worker", task: "\0" }] },
+    { action: "reply", id: "x", message: "answer" }, { action: "run", tasks: [{ agent: "worker", task: "x" }] },
+    { action: "run", tasks: [{ mode: "write", task: "x" }] }, { action: "run", tasks: [{ template: "Bad Name", task: "x" }] },
+    { action: "run", tasks: [{ name: "../x", mode: "edit", task: "x" }] }, { action: "run", tasks: [{ role: "", mode: "edit", task: "x" }] },
+    { action: "run", tasks: [{ mode: "edit", task: "x", model: "alias" }] },
+    { action: "run", tasks: [{ mode: "edit", task: "x", thinking: "highest" }] },
+    { action: "run", tasks: [{ mode: "edit", task: "\0" }] },
   ]) assert.throws(() => parseRequest(input));
+  assert.throws(() => parseRequest({ action: "run", tasks: [{ task: "x" }] }), /needs mode/, "rejected before any discovery");
   assert.deepEqual(parseRequest({ action: "list", cwd: "../target" }), { action: "list", cwd: "../target" });
   assert.throws(() => parseRequest({ action: "status", cwd: "../target" }));
   assert.deepEqual(parseRequest({ action: "status" }), { action: "status" });
@@ -59,32 +65,101 @@ test("config is bounded and rejects unknown or unsafe limits", () => {
   for (const value of [{ maxConcurrent: 5 }, { maxRuns: 0 }, { timeoutMs: Infinity }, { timeoutMs: 500 }, { historyLimit: -1 }, { maxRuns: 1.5 }, { asyncByDefault: true }, []]) assert.throws(() => parseConfig(value));
 });
 
-const profile = (name: string, body = "Role prompt") => `---\nname: ${name}\ndescription: A role\nmode: inspect\n---\n${body}\n`;
-test("only worker/reviewer bundled; user and trusted project profiles override whole definitions", async t => {
+const template = (name: string, body = "Role prompt", mode = "inspect") => `---\nname: ${name}\ndescription: A role\nmode: ${mode}\n---\n${body}\n`;
+test("no fixed roles ship; global and trusted project templates load, project overrides global", async t => {
   const root = await temp(t);
   const user = path.join(root, "user");
   const repo = path.join(root, "repo");
-  await mkdir(path.join(user, "agents"), { recursive: true });
-  await mkdir(path.join(repo, ".pi", "agents"), { recursive: true });
-  const base = await loadProfiles(user, repo, false);
-  assert.deepEqual([...base.keys()].sort(), ["reviewer", "worker"]);
-  assert.equal(base.get("worker")!.mode, "edit");
-  await writeFile(path.join(user, "agents", "reviewer.md"), profile("reviewer", "User role"));
-  await writeFile(path.join(repo, ".pi", "agents", "reviewer.md"), profile("reviewer", "Project role"));
-  assert.equal((await loadProfiles(user, repo, false)).get("reviewer")!.prompt, "User role");
-  assert.equal((await loadProfiles(user, repo, true)).get("reviewer")!.prompt, "Project role");
+  const empty = await loadTemplates(user, repo, true);
+  assert.equal(empty.templates.size, 0);
+  assert.deepEqual(empty.skipped, []);
+  assert.deepEqual(empty.folders, { global: path.join(user, "subagent-templates"), project: path.join(repo, ".pi", "subagent-templates") });
+  assert.equal((await loadTemplates(user, repo, false)).folders.project, undefined, "untrusted projects expose no project folder");
+  await mkdir(path.join(user, "subagent-templates"), { recursive: true });
+  await mkdir(path.join(repo, ".pi", "subagent-templates"), { recursive: true });
+  await writeFile(path.join(user, "subagent-templates", "code-reviewer.md"), template("code-reviewer", "User role"));
+  await writeFile(path.join(repo, ".pi", "subagent-templates", "code-reviewer.md"), template("code-reviewer", "Project role"));
+  await writeFile(path.join(user, "subagent-templates", "broken.md"), "No YAML");
+  const global = await loadTemplates(user, repo, false);
+  assert.equal(global.templates.get("code-reviewer")!.prompt, "User role");
+  assert.deepEqual(global.skipped.map(item => path.basename(item.source)), ["broken.md"], "broken templates are disclosed, not silently dropped");
+  assert.match(global.skipped[0]!.error, /frontmatter/);
+  assert.equal((await loadTemplates(user, repo, true)).templates.get("code-reviewer")!.prompt, "Project role");
+  // A broken project override makes the name unavailable instead of silently launching the global role.
+  await writeFile(path.join(repo, ".pi", "subagent-templates", "code-reviewer.md"), template("code-reviewer").replace("mode: inspect", "mode: write"));
+  const shadowed = await loadTemplates(user, repo, true);
+  assert.equal(shadowed.templates.get("code-reviewer"), undefined);
+  assert.throws(() => resolveRole({ task: "x", template: "code-reviewer" }, shadowed.templates, shadowed.broken), /failed to load: .*needs mode/);
+  assert.equal((await loadTemplates(user, repo, false)).templates.get("code-reviewer")!.prompt, "User role", "without the project folder the global role is used");
+  // An unreadable project folder could hide an override for any name: template launches fail, inline roles still work.
+  await writeFile(path.join(repo, ".pi", "subagent-templates", "code-reviewer.md"), template("code-reviewer", "Project role"));
+  const { chmod } = await import("node:fs/promises");
+  await chmod(path.join(repo, ".pi", "subagent-templates"), 0o000);
+  const blocked = await loadTemplates(user, repo, true);
+  await chmod(path.join(repo, ".pi", "subagent-templates"), 0o700); // Restore before temp cleanup.
+  if (process.getuid?.() !== 0) {
+    assert.match(blocked.unreadable ?? "", /EACCES|permission/i);
+    assert(blocked.skipped.some(item => item.source === path.join(repo, ".pi", "subagent-templates")), "list still discloses the folder error");
+    assert.throws(() => resolveRole({ task: "x", template: "code-reviewer" }, blocked.templates, blocked.broken, blocked.unreadable), /project template folder is unreadable/);
+    assert.equal(resolveRole({ task: "x", mode: "inspect", role: "Inline" }, blocked.templates, blocked.broken, blocked.unreadable).prompt, "Inline");
+  }
 });
 
-test("profiles reject unknown fields, malformed/duplicate YAML, mismatches and oversized prompts", () => {
-  assert.equal(parseProfile(profile("reviewer"), "/roles/reviewer.md").mode, "inspect");
+test("project templates need an explicit saved trust decision for the target", async t => {
+  const root = await temp(t);
+  const agentDir = path.join(root, "agent"), repo = path.join(root, "repo"), child = path.join(repo, "pkg");
+  await mkdir(child, { recursive: true }); await mkdir(agentDir);
+  assert.equal(projectTrusted(agentDir, repo), false, "no decision is not trust");
+  new ProjectTrustStore(agentDir).set(repo, true);
+  assert.equal(projectTrusted(agentDir, repo), true);
+  assert.equal(projectTrusted(agentDir, child), true, "a trusted parent folder covers its children");
+  new ProjectTrustStore(agentDir).set(child, false);
+  assert.equal(projectTrusted(agentDir, child), false);
+});
+
+test("the package exposes exactly one skill; the starter beside it is not a skill", () => {
+  const { skills } = loadSkillsFromDir({ dir: fileURLToPath(new URL("../skills", import.meta.url)), source: "package" });
+  assert.deepEqual(skills.map(skill => skill.name), ["pi-subagents"]);
+});
+
+test("roles resolve from inline instructions, a template, or both; mode is never implicit", () => {
+  const saved = new Map([["security-reviewer", parseTemplate(template("security-reviewer", "Find auth bugs."), "/t/security-reviewer.md")]]);
+  assert.throws(() => resolveRole({ task: "x" }, saved), /needs mode/);
+  assert.throws(() => resolveRole({ task: "x", template: "missing" }, saved), /Unknown template 'missing'/);
+  assert.deepEqual(resolveRole({ task: "x", mode: "edit" }, saved), { name: "worker", description: "Inline role", mode: "edit", prompt: "", source: "inline" });
+  assert.equal(resolveRole({ task: "x", mode: "inspect", role: "Research only." }, saved).name, "inspector");
+  const combined = resolveRole({ task: "x", template: "security-reviewer", role: "Focus on src/auth." }, saved);
+  assert.equal(combined.mode, "inspect");
+  assert.equal(combined.name, "security-reviewer");
+  assert.equal(combined.prompt, "Find auth bugs.\n\nFocus on src/auth.");
+  assert.equal(resolveRole({ task: "x", template: "security-reviewer", mode: "edit", name: "fixer" }, saved).mode, "edit", "the agent decides; task mode wins");
+});
+
+test("templates reject unknown fields, malformed/duplicate YAML, mismatches and oversized prompts", () => {
+  assert.equal(parseTemplate(template("reviewer"), "/roles/reviewer.md").mode, "inspect");
   for (const text of [
-    profile("worker"), profile("reviewer").replace("mode: inspect", "mode: inspect\ntools: bash"),
-    profile("reviewer").replace("mode: inspect", "mode: invalid"),
-    profile("reviewer").replace("mode: inspect", "mode: inspect\nmode: edit"),
-    profile("reviewer").replace("mode: inspect", "mode: inspect\nmodel: alias"),
-    profile("reviewer").replace("mode: inspect", "mode: inspect\nthinking: highest"),
-    "No YAML", profile("reviewer", "x".repeat(33000)),
-  ]) assert.throws(() => parseProfile(text, "/roles/reviewer.md"));
+    template("worker"), template("reviewer").replace("mode: inspect", "mode: inspect\ntools: bash"),
+    template("reviewer").replace("mode: inspect", "mode: invalid"),
+    template("reviewer").replace("mode: inspect", "mode: inspect\nmode: edit"),
+    template("reviewer").replace("mode: inspect", "mode: inspect\nmodel: alias"),
+    template("reviewer").replace("mode: inspect", "mode: inspect\nthinking: highest"),
+    "No YAML", template("reviewer", "x".repeat(33000)),
+  ]) assert.throws(() => parseTemplate(text, "/roles/reviewer.md"));
+});
+
+test("the starter is a guide with a skeleton that loads once its placeholders are filled", async () => {
+  const contents = await readFile(STARTER, "utf8");
+  assert.doesNotMatch(contents, /^---\n/, "the starter itself is not a launchable template");
+  for (const archetype of ["implementer", "verifier", "code-reviewer", "security-reviewer", "researcher"]) assert.match(contents, new RegExp(archetype));
+  const skeleton = /```markdown\n([\s\S]*?)\n```/.exec(contents)![1]!;
+  assert.throws(() => parseTemplate(skeleton, "/t/x.md"), "unfilled placeholders never load");
+  const filled = skeleton
+    .replace(/^name: .*$/m, "name: auth-reviewer")
+    .replace(/^description: .*$/m, "description: Reviews auth changes")
+    .replace(/^mode: .*$/m, "mode: inspect");
+  const parsed = parseTemplate(filled, "/t/auth-reviewer.md");
+  assert.equal(parsed.mode, "inspect");
+  assert.match(parsed.prompt, /## Verification metrics/);
 });
 
 test("launch receipts map each requested task to an exact run identity", () => {

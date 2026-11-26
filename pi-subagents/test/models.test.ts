@@ -9,11 +9,10 @@ import {
 import { AgentSession, ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { ProviderBridge } from "../src/models.ts";
 import { prepareNative, INSPECT_TOOLS, type NativeOptions } from "../src/session.ts";
-import { loadProfiles } from "../src/agents.ts";
 import { FileArtifacts } from "../src/artifacts.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { RunManager } from "../src/runs.ts";
-import { temp } from "./helpers.ts";
+import { temp, testProfiles } from "./helpers.ts";
 
 const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 const definition = { id: "test/with-slash", name: "Fixture", reasoning: false, input: ["text"] as ["text"], cost, contextWindow: 64000, maxTokens: 2048 };
@@ -54,11 +53,11 @@ async function fixture(t: Parameters<typeof temp>[0]) {
   };
   register();
   bridge.ensure("fixture");
-  const profiles = await loadProfiles(agentDir, cwd, true);
+  const profiles = testProfiles();
   let scope = [name];
   const options: NativeOptions = {
     agentDir, cwd, workspace: cwd, runtime: bridge.runtime, checkAuth: bridge.checkAuth,
-    task: { agent: "reviewer", task: "ONLY_CHILD_BRIEF" }, profile: profiles.get("reviewer")!,
+    task: { mode: "inspect" as const, task: "ONLY_CHILD_BRIEF" }, profile: profiles.get("reviewer")!,
     agentModel: name, agentThinking: "off", scopedModels: () => scope,
   };
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store: new FileArtifacts(path.join(root, "runs")) });

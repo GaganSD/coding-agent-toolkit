@@ -38,7 +38,7 @@ export class HumanState {
   }
   name(run: RunRecord): string {
     this.remember([run]);
-    const role = safeText(run.agent, 32);
+    const role = safeText(run.agent, 32).replace(/-/g, " ");
     return `${role.charAt(0).toUpperCase()}${role.slice(1)} ${this.ordinals.get(run.id)}`;
   }
   title(run: RunRecord): string { return `${this.name(run)} · ${taskTitle(run.task)}`; }

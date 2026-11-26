@@ -22,7 +22,7 @@
   "files": [
     "index.ts",
     "src/**/*.ts",
-    "agents/*.md",
+    "skills/**/*.md",
     "README.md",
     "VISION.md",
     "LICENSE",
@@ -48,6 +48,9 @@
   "pi": {
     "extensions": [
       "./index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "peerDependencies": {

@@ -6,12 +6,11 @@ import { createAssistantMessageEventStream, type AssistantMessage, type Assistan
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { FileArtifacts } from "../src/artifacts.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { loadProfiles } from "../src/agents.ts";
 import { RunManager } from "../src/runs.ts";
 import { prepareNative, type NativeOptions } from "../src/session.ts";
 import { usageTotals } from "../src/usage.ts";
 import { presentNotice, presentSummary } from "../src/tool.ts";
-import { MemoryStore, plan, temp, waitForAbort } from "./helpers.ts";
+import { MemoryStore, plan, temp, waitForAbort, testProfiles } from "./helpers.ts";
 import type { PreparedTask } from "../src/types.ts";
 
 function setup(options: ConstructorParameters<typeof RunManager>[0] extends infer T ? Partial<T> : never = {}) {
@@ -265,9 +264,9 @@ test("bonus: deleting the native transcript cannot complete a resume", async t =
       return response(model, [{ type: "text", text: "should not complete after a missing transcript" }]);
     },
   });
-  const profiles = await loadProfiles(agentDir, cwd, true);
+  const profiles = testProfiles();
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { mode: "inspect" as const, task: "Review fixture" },
     profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: () => [],
   };
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store: new FileArtifacts(path.join(root, "runs")) });
@@ -306,9 +305,9 @@ async function nativeFailed(t: Parameters<typeof temp>[0], onCall?: (n: number, 
         : response(model, [{ type: "text", text: "should not complete a broken resume" }]));
     },
   });
-  const profiles = await loadProfiles(agentDir, cwd, true);
+  const profiles = testProfiles();
   const options: NativeOptions = {
-    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { agent: "reviewer", task: "Review fixture" },
+    agentDir, cwd, workspace: cwd, runtime, checkAuth: model => runtime.hasConfiguredAuth(model.provider), task: { mode: "inspect" as const, task: "Review fixture" },
     profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: () => [],
   };
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store: new FileArtifacts(path.join(root, "runs")) });

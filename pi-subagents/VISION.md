@@ -3,12 +3,14 @@
 ## One agent, focused native sub-agents
 
 This is a small, personal Pi delegation package. One interactive Pi session can
-ask a worker to implement a bounded task or a reviewer to inspect it, see their
-progress, answer questions, steer or stop them, and collect local reports.
+ask a sub-agent to implement a bounded task or to inspect and review work, see its
+progress, answer questions, steer or stop it, and collect local reports.
 The agent remains the orchestrator and decision maker.
 
-The bundled roles are **worker** and **reviewer**. Additional roles are trusted
-Markdown files, not new execution engines.
+No roles are bundled. The agent writes each role: inline per task, or as a
+trusted Markdown template it saves and reuses (global or project). Templates are
+role text plus defaults, not new execution engines. The capability mode, not the
+role text, decides the tools. The package ships a starter guide and a skill, not roles.
 
 ## The boundary is the product
 
@@ -62,7 +64,7 @@ sequences ordinary batches. Existing Git worktrees can be passed as working
 directories; the package does not allocate, merge, stage, or delete them.
 
 Use one small tool contract and one human control command, backed by the same
-run manager. Keep configuration and Markdown profiles explicit. Do not add a
+run manager. Keep configuration and Markdown templates explicit. Do not add a
 second path when a normal Pi action or a task brief already expresses the need.
 
 ## Stay small

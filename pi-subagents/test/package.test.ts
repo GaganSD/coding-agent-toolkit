@@ -15,7 +15,8 @@ test("packed package is public, contains no retired runtime, and loads with host
   assert(pack);
   assert(pack.size < 100000);
   const files = pack.files.map(file => file.path);
-  assert.deepEqual(files.filter(file => file.startsWith("agents/")).sort(), ["agents/reviewer.md", "agents/worker.md"]);
+  assert(!files.some(file => file.startsWith("agents/")), "no fixed roles ship");
+  assert.deepEqual(files.filter(file => file.startsWith("skills/")).sort(), ["skills/pi-subagents/SKILL.md", "skills/pi-subagents/template.md"]);
   assert(!files.some(file => file.startsWith("node_modules/") || file.startsWith("docs/") || file.endsWith(".html")));
   execFileSync("tar", ["-xzf", path.join(root, pack.filename), "-C", root]);
   const packaged = path.join(root, "package");
