@@ -97,7 +97,8 @@ export async function loadMachineRecords(dir, { disabled = [] } = {}) {
     machine: entry.machine,
     fetchedAt: entry.fetchedAt ?? null,
     attemptedAt: entry.attemptedAt ?? null,
-    error: entry.error ?? null,
+    // Readers can see newly published rows before the corresponding state file.
+    error: Date.parse(entry.fetchedAt) > Date.parse(entry.attemptedAt) ? null : entry.error ?? null,
     snapshot: entry.snapshot ?? null,
   }));
   return { records, warnings };

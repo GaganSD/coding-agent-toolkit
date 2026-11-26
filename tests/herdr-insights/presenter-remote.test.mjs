@@ -32,11 +32,11 @@ async function context(t) {
   const machinesRoot = path.join(root, "data/machines");
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const machines = path.join(machinesRoot, timeZoneStoreKey(timeZone));
-  const save = async (name, rows, { error = null, dir = machines, details = {} } = {}) => {
+  const save = async (name, rows, { error = null, dir = machines, details = {}, attemptedAt = "2026-11-13T01:00:00.000Z" } = {}) => {
     await mkdir(dir, { recursive: true });
     await Promise.all([
       writeFile(path.join(dir, `${name}.rows.json`), rowsFileText({ machine: name, envelope: { ...envelope(rows), ...details }, fetchedAt: "2026-11-13T01:00:00.000Z" })),
-      writeFile(path.join(dir, `${name}.state.json`), stateFileText({ machine: name, attemptedAt: "2026-11-13T01:00:00.000Z", error })),
+      writeFile(path.join(dir, `${name}.state.json`), stateFileText({ machine: name, attemptedAt, error })),
     ]);
   };
   return { root, store, machines, machinesRoot, timeZone, save, home: path.join(root, "home") };
@@ -97,6 +97,19 @@ test("prepare gives the dashboard a warning count for the affected remote machin
   assert.equal(payload.dashboard.machines.find((machine) => machine.name === "box").warningCount, 2);
   assert.equal(payload.dashboard.machines.find((machine) => machine.name === "vps").warningCount, 0);
   assert.doesNotMatch(JSON.stringify(payload), /\/private\/remote/);
+});
+
+test("a newly published rows file supersedes a failure from an older sync", async (t) => {
+  const ctx = await context(t);
+  await ctx.save("box", [row("2026-11-13", "a", 7)], {
+    attemptedAt: "2026-11-13T00:59:00.000Z",
+    error: "Previously unreachable",
+  });
+  const { dashboard } = await prepare(ctx);
+  const machine = dashboard.machines.find((candidate) => candidate.name === "box");
+  assert.equal(dashboard.lifetime.total, 7);
+  assert.equal(machine.status, "ok");
+  assert.equal(machine.error, null);
 });
 
 test("disabled machines in remote.json are left out", async (t) => {
