@@ -91,25 +91,26 @@ const record: RunRecord = {
 
 test("action views are allowlisted and match the closed output schema", () => {
   const enriched = { ...record, futureInternalField: "Must not leak", usage: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, cost: 1 } };
+  const accounting = { usage: enriched.usage, elapsedMs: 0 };
   const receipt = presentLaunch([enriched]);
   assert.deepEqual(receipt, { runs: [{ id: "id", cwd: "/wt-a", workspace: "/wt-a", model: "fixture/test", thinking: "off" }] });
-  assert.deepEqual(presentRun(enriched), { id: "id", state: "starting", metadataPath: "/run.json", model: "fixture/test", thinking: "off" });
+  assert.deepEqual(presentRun(enriched), { ...accounting, id: "id", state: "starting", metadataPath: "/run.json", model: "fixture/test", thinking: "off" });
   const finished = presentFinished({ ...enriched, state: "completed", reportPath: "/report.md" });
-  assert.deepEqual(finished, { id: "id", state: "completed", agent: "worker", taskPreview: "Add feature A", reportPath: "/report.md" });
+  assert.deepEqual(finished, { ...accounting, id: "id", state: "completed", agent: "worker", taskPreview: "Add feature A", reportPath: "/report.md" });
   const failed = { ...enriched, state: "failed" as const, resume: { eligible: true, attempts: 0, maxAttempts: 3, kind: "transient_provider" as const } };
-  assert.deepEqual(presentSummary(failed), { id: "id", agent: "worker", state: "failed", taskPreview: "Add feature A",
+  assert.deepEqual(presentSummary(failed), { ...accounting, id: "id", agent: "worker", state: "failed", taskPreview: "Add feature A",
     resume: { eligible: true, attempts: 0, maxAttempts: 3 } });
-  assert.deepEqual(presentNotice(failed), { id: "id", state: "failed", agent: "worker", taskPreview: "Add feature A", metadataPath: "/run.json",
+  assert.deepEqual(presentNotice(failed), { ...accounting, id: "id", state: "failed", agent: "worker", taskPreview: "Add feature A", metadataPath: "/run.json",
     resume: { eligible: true, attempts: 0, maxAttempts: 3 } });
-  assert.deepEqual(presentSummary({ ...failed, resume: { ...failed.resume, eligible: false } }), { id: "id", agent: "worker", state: "failed", taskPreview: "Add feature A" });
+  assert.deepEqual(presentSummary({ ...failed, resume: { ...failed.resume, eligible: false } }), { ...accounting, id: "id", agent: "worker", state: "failed", taskPreview: "Add feature A" });
   for (const result of [receipt, presentRun(enriched), finished, { runs: [presentSummary(record)] }, { runs: [presentSummary(failed)] }, { ok: true }]) {
     assert(Check(OutputSchema, result));
     assert(!resultPreview(result).includes("futureInternalField"));
-    assert(resultPreview(result).length < 300);
+    assert(resultPreview(result).length < 500);
   }
   assert(!Check(OutputSchema, { ...finished, owner: "p" }));
   assert(DESCRIPTION.length < 1200);
-  assert(JSON.stringify(OutputSchema).length < 3000);
+  assert(JSON.stringify(OutputSchema).length < 4000);
 });
 
 test("batch wake messages retain every allowlisted notice without sub-agent free text", () => {
@@ -178,7 +179,7 @@ test("large fields disclose truncation without corrupting JSON or losing run IDs
   assert.deepEqual(JSON.parse(encoded), unsafe, "display escaping must preserve exact string values");
 });
 
-test("draw rebinds Down after the host editor remounts", async t => {
+test("no other extension is asked to lend its editor or chat workspace", async t => {
   const root = await temp(t);
   const before = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");
@@ -186,22 +187,15 @@ test("draw rebinds Down after the host editor remounts", async t => {
   await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
   await writeFile(path.join(process.env.PI_CODING_AGENT_DIR, "settings.json"), "{}");
   const tools: ToolDefinition[] = [];
-  let active = true, binds = 0;
+  const emitted: string[] = [];
   register({
     registerTool: (tool: ToolDefinition) => tools.push(tool),
     registerCommand() {},
     on() { return () => {}; },
     getThinkingLevel: () => "off", appendEntry() {}, sendMessage() {},
     events: {
-      emit(name: string, request: { version: number; accept: (host: unknown) => void }) {
-        if (name !== "subagent:ui-host-request") return;
-        request.accept({
-          version: 1,
-          isActive: () => active,
-          focusEditor() {},
-          bindDown() { binds++; return () => {}; },
-        });
-      },
+      emit(name: string) { emitted.push(name); },
+      on() { return () => {}; },
     },
   } as unknown as ExtensionAPI);
   const ctx = {
@@ -209,9 +203,8 @@ test("draw rebinds Down after the host editor remounts", async t => {
     sessionManager: SessionManager.create(root, path.join(root, "sessions")),
     ui: { setWidget() {}, notify() {} },
   } as unknown as ExtensionToolContext;
-  await tools[0]!.execute("rebind-1", { action: "list" }, undefined, undefined, ctx);
-  assert.equal(binds, 1);
-  active = false;
-  await tools[0]!.execute("rebind-2", { action: "list" }, undefined, undefined, ctx);
-  assert.ok(binds >= 2, "draw must rebind after the previous host goes inactive");
+  await tools[0]!.execute("list-1", { action: "list" }, undefined, undefined, ctx);
+  await tools[0]!.execute("list-2", { action: "list" }, undefined, undefined, ctx);
+  assert(!emitted.includes("subagent:ui-host-request"), "the cooperative UI-host handshake is removed");
+  assert.deepEqual([...new Set(emitted)], ["pi:background-tasks"], "only the generic, display-only dashboard event is published");
 });

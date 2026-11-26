@@ -9,6 +9,7 @@ import { DEFAULT_CONFIG } from "../src/config.ts";
 import { loadProfiles } from "../src/agents.ts";
 import { RunManager } from "../src/runs.ts";
 import { prepareNative, type NativeOptions } from "../src/session.ts";
+import { usageTotals } from "../src/usage.ts";
 import { presentNotice, presentSummary } from "../src/tool.ts";
 import { MemoryStore, plan, temp, waitForAbort } from "./helpers.ts";
 import type { PreparedTask } from "../src/types.ts";
@@ -232,11 +233,11 @@ test("10 notice/list hide exhausted resume; a new manager cannot revive artifact
 });
 
 const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-function response(model: Model<Api>, content: AssistantMessage["content"], stopReason: Exclude<AssistantMessage["stopReason"], "pending"> = "stop", errorMessage = "503 Service Unavailable"): AssistantMessageEventStream {
+function response(model: Model<Api>, content: AssistantMessage["content"], stopReason: Exclude<AssistantMessage["stopReason"], "pending"> = "stop", errorMessage = "503 Service Unavailable", cost = 0): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream();
   const message: AssistantMessage = {
     role: "assistant", api: model.api, provider: model.provider, model: model.id,
-    content, usage: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 8, cost: { ...zero } },
+    content, usage: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 8, cost: { ...zero, total: cost } },
     stopReason, timestamp: Date.now(), ...(stopReason === "error" ? { errorMessage } : {}),
   };
   queueMicrotask(() => {
@@ -260,7 +261,7 @@ test("bonus: deleting the native transcript cannot complete a resume", async t =
     models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], cost: zero, contextWindow: 64000, maxTokens: 2048 }],
     streamSimple: model => {
       calls++;
-      if (calls === 1) return response(model, [], "error", "503 Service Unavailable");
+      if (calls === 1) return response(model, [], "error", "503 Service Unavailable", 0.09);
       return response(model, [{ type: "text", text: "should not complete after a missing transcript" }]);
     },
   });
@@ -284,6 +285,8 @@ test("bonus: deleting the native transcript cannot complete a resume", async t =
   assert.match(after.error ?? "", /saved transcript; it is missing/);
   assert.equal(after.resume?.eligible, false);
   assert.equal(calls, 1, "missing transcript must not prompt the model");
+  assert.deepEqual(after.usage, failed.usage, "failed resume startup preserves measured spend");
+  assert.deepEqual(usageTotals(manager.list()), usageTotals([failed]));
 });
 
 async function nativeFailed(t: Parameters<typeof temp>[0], onCall?: (n: number, model: Model<Api>) => AssistantMessageEventStream) {
@@ -355,13 +358,19 @@ test("13 garbage transcript cannot complete a resume", async t => {
 });
 
 test("14 swapping another run's transcript cannot complete a resume", async t => {
-  const a = await nativeFailed(t);
-  const b = await nativeFailed(t);
+  const a = await nativeFailed(t, (_n, model) => response(model, [], "error", "503 Service Unavailable", 0.09));
+  const b = await nativeFailed(t, (_n, model) => response(model, [], "error", "503 Service Unavailable", 0.82));
+  assert.equal(a.failed.usage!.cost, 0.09);
+  assert.equal(b.failed.usage!.cost, 0.82);
   await copyFile(b.failed.sessionPath!, a.failed.sessionPath!);
   const after = await resumeSettled(a.manager, a.id);
   assert.equal(after.state, "failed", after.error ?? after.state);
   assert.match(after.error ?? "", /session identity changed/);
   assert.equal(a.calls(), 1);
+  assert.equal(after.sessionId, a.failed.sessionId, "rejected identity never reaches telemetry");
+  assert.equal(after.usage!.cost, 0.09, "cleanup cannot charge the foreign session");
+  assert.equal(after.usagePartial, undefined, "rejected startup leaves the prior final accounting intact");
+  assert.equal(usageTotals(a.manager.list()).usage!.cost, 0.09);
 });
 
 test("15 resume without a native session id cannot open a replacement transcript", async t => {
