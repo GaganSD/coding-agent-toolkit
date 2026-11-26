@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, ProjectTrustStore, SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import register from "../index.ts";
 import { Check } from "typebox/value";
 import { DESCRIPTION, OutputSchema, Parameters, presentFinished, presentLaunch, presentNotice, presentWake, presentRun, presentSummary, resultPreview } from "../src/tool.ts";
@@ -45,15 +45,24 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
   await assert.rejects(run({ action: "list" }, { ...ctx, mode: "print" }), /interactive npm Pi/);
   await assert.rejects(run({ action: "list" }, { ...ctx, mode: "rpc" }), /interactive npm Pi/);
   const result = await run({ action: "list" });
-  assert.deepEqual((result.details as { name: string }[]).map(profile => profile.name), ["reviewer", "worker"]);
+  const listed = result.details as { templates: { name: string }[]; folders: { global: string; project?: string }; starter: string };
+  assert.deepEqual(listed.templates, [], "no fixed roles ship");
+  assert.equal(listed.folders.global, path.join(getAgentDir(), "subagent-templates"));
+  assert.match(listed.starter, /skills\/pi-subagents\/template\.md$/);
   assert.deepEqual(result.structuredContent, result.details);
   assert(Check(OutputSchema, result.structuredContent));
   const target = path.join(root, "target");
-  await mkdir(path.join(target, ".pi", "agents"), { recursive: true });
-  await writeFile(path.join(target, ".pi", "agents", "reviewer.md"), "---\nname: reviewer\ndescription: Target-specific role\nmode: edit\n---\nTarget role\n");
-  const targetList = await run({ action: "list", cwd: target });
-  assert.equal((targetList.structuredContent as { name: string; mode: string }[]).find(role => role.name === "reviewer")!.mode, "edit");
-  await assert.rejects(run({ action: "run", tasks: [{ agent: "worker", task: "Do work" }] }, { ...ctx, isProjectTrusted: () => false }), /Trust the agent/);
+  await mkdir(path.join(target, ".pi", "subagent-templates"), { recursive: true });
+  await writeFile(path.join(target, ".pi", "subagent-templates", "code-reviewer.md"), "---\nname: code-reviewer\ndescription: Target-specific role\nmode: edit\n---\nTarget role\n");
+  await writeFile(path.join(target, ".pi", "subagent-templates", "broken.md"), "---\nname: other\ndescription: x\nmode: edit\n---\nx\n");
+  const untrusted = (await run({ action: "list", cwd: target })).structuredContent as { templates: unknown[]; folders: { project?: string } };
+  assert.deepEqual(untrusted.templates, [], "a session-trusted owner does not make an arbitrary target's templates trusted");
+  assert.equal(untrusted.folders.project, undefined);
+  new ProjectTrustStore(getAgentDir()).set(target, true);
+  const targetList = (await run({ action: "list", cwd: target })).structuredContent as { templates: { name: string; mode: string }[]; skipped: { source: string; error: string }[] };
+  assert.equal(targetList.templates.find(role => role.name === "code-reviewer")!.mode, "edit");
+  assert.match(targetList.skipped[0]!.error, /must match filename/);
+  await assert.rejects(run({ action: "run", tasks: [{ mode: "edit", task: "Do work" }] }, { ...ctx, isProjectTrusted: () => false }), /Trust the agent/);
   await assert.rejects(run({ action: "status", id: "foreign-id" }), /Unknown run ID/);
   await assert.rejects(run({ action: "list" }, { ...ctx, sessionManager: SessionManager.create(root) }), /ownership/);
   await hooks.get("session_shutdown")!();
@@ -76,7 +85,7 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
     const reloaded = await tools[1]!.execute("test-reload", { action: "status" }, undefined, undefined, ctx);
     assert.deepEqual(reloaded.structuredContent, { runs: [], blocked: cause });
     assert(Check(OutputSchema, reloaded.structuredContent));
-    await assert.rejects(tools[1]!.execute("test-block", { action: "run", tasks: [{ agent: "worker", task: "Must not start" }] }, undefined, undefined, ctx), /old-run\/run.json/);
+    await assert.rejects(tools[1]!.execute("test-block", { action: "run", tasks: [{ mode: "edit", task: "Must not start" }] }, undefined, undefined, ctx), /old-run\/run.json/);
     await hooks.get("session_shutdown")!();
   } finally {
     if (beforeHealth === undefined) delete processHealth[key]; else processHealth[key] = beforeHealth;
@@ -110,7 +119,7 @@ test("action views are allowlisted and match the closed output schema", () => {
   }
   assert(!Check(OutputSchema, { ...finished, owner: "p" }));
   assert(DESCRIPTION.length < 1200);
-  assert(JSON.stringify(OutputSchema).length < 4000);
+  assert(JSON.stringify(OutputSchema).length < 4400, "usage fields and the template list shape are bounded");
 });
 
 test("batch wake messages retain every allowlisted notice without sub-agent free text", () => {
@@ -157,6 +166,19 @@ test("collapsed multi-result messages show batch counts, including sibling failu
   const question = render({ ...message, details: { ...message.details, kind: "question" } },
     { expanded: false, outputPad: 0 }, theme)!.render(120).join("\n");
   assert.match(question, /Worker 3 · Needs reply · 3 results · 2 finished · 1 failed/);
+});
+
+test("an oversized template list keeps folders, the starter and a skipped count", () => {
+  const preview = JSON.parse(resultPreview({
+    templates: Array.from({ length: 150 }, (_, i) => ({ name: `t${i}`, description: "x".repeat(200), mode: "inspect", source: "/s" })),
+    folders: { global: "/g" }, starter: "/starter.md", skipped: Array.from({ length: 40 }, () => ({ source: "/b.md", error: "e".repeat(400) })),
+  }));
+  assert.equal(preview.truncated, true);
+  assert.equal(preview.templates.length, 100);
+  assert.equal(preview.omitted, 50);
+  assert.deepEqual(preview.folders, { global: "/g" });
+  assert.equal(preview.starter, "/starter.md");
+  assert.equal(preview.skippedCount, 40);
 });
 
 test("large fields disclose truncation without corrupting JSON or losing run IDs", () => {

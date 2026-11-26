@@ -2,10 +2,17 @@
 
 ## Unreleased
 
-- Preserve cumulative accounting across transient telemetry errors and failed resume startup; validate reopened identity before exposing accounting. Mark retained final-read failures partial, publish late evidence updates, and avoid duplicate stats scans and clock-only dashboard publication. Generic v1 snapshot fields are available to any dashboard consumer; no particular dashboard is assumed.
-- Report host-measured run tokens, cost and elapsed time in finish notices/status and conversation headers; refresh live accounting at finalized SDK boundaries. Add display-only v1 snapshot totals including settled spend and measured-run coverage.
+### Breaking
+
+- Remove the bundled `worker` and `reviewer` roles and the `agent` task field. Each task now gives `mode` plus inline `role` instructions and/or a saved `template`, and an optional roster `name`. Templates load from `~/.pi/agent/subagent-templates/` and `.pi/subagent-templates/` (only for targets with an explicit saved trust decision; a broken override makes that name unavailable); the old `agents/` folders are no longer read (move and rename files to migrate).
+- `list` returns `{ templates, folders, starter, skipped? }` instead of a profile array. Broken template files are reported with their reason instead of silently dropped.
 
 ### Added
+
+- Preserve cumulative accounting across transient telemetry errors and failed resume startup; validate reopened identity before exposing accounting. Mark retained final-read failures partial, publish late evidence updates, and avoid duplicate stats scans and clock-only dashboard publication. Generic v1 snapshot fields are available to any dashboard consumer; no particular dashboard is assumed.
+- Report host-measured run tokens, cost and elapsed time in finish notices/status and conversation headers; refresh live accounting at finalized SDK boundaries. Add display-only v1 snapshot totals including settled spend and measured-run coverage.
+- A bundled starter guide (`skills/pi-subagents/template.md`) with worker and reviewer archetypes, exact verification metrics, and a skeleton to copy into either folder.
+- A bundled `pi-subagents` skill: when to split work, briefs, git worktrees for parallel writers, one-batch dispatch, and verifying results.
 
 - Allow explicit run deadlines up to six hours through `minimalSubagents.timeoutMs`; retain the thirty-minute default and session-bound cancellation.
 

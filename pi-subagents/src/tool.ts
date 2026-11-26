@@ -4,9 +4,13 @@ import { measuredUsage } from "./usage.ts";
 import { keys, modelName, object, text, thinkingLevel } from "./validation.ts";
 
 const ThinkingSchema = Type.String({ enum: [...THINKING_LEVELS] });
+const NameSchema = Type.String({ minLength: 1, maxLength: 64, pattern: "^[a-z][a-z0-9-]*$" });
 const TaskSchema = Type.Object({
-  agent: Type.String({ minLength: 1, maxLength: 64 }),
   task: Type.String({ minLength: 1, maxLength: 32768 }),
+  mode: Type.Optional(Type.String({ enum: ["inspect", "edit"], description: "Required unless the template sets it" })),
+  role: Type.Optional(Type.String({ minLength: 1, maxLength: 16384, description: "Inline role instructions" })),
+  template: Type.Optional(NameSchema),
+  name: Type.Optional(NameSchema),
   cwd: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
   model: Type.Optional(Type.String({ minLength: 3, maxLength: 512 })),
   thinking: Type.Optional(ThinkingSchema),
@@ -14,7 +18,7 @@ const TaskSchema = Type.Object({
 /** Object-root tool input with seven closed per-action branches; no cross-action field mixes. */
 export const Parameters = Type.Union([
   Type.Object({ action: Type.Literal("run"), tasks: Type.Array(TaskSchema, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
-  Type.Object({ action: Type.Literal("list"), cwd: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Profile discovery directory for list" })) }, { additionalProperties: false }),
+  Type.Object({ action: Type.Literal("list"), cwd: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Project directory for template discovery" })) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("status"), id: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("stop"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("resume"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
@@ -42,9 +46,16 @@ export function parseRequest(input: unknown): Request {
       if (!Array.isArray(value.tasks) || value.tasks.length < 1 || value.tasks.length > 4) throw new Error("run requires 1–4 tasks");
       const tasks = value.tasks.map((input): Task => {
         const task = object(input, "task");
-        keys(task, ["agent", "task", "cwd", "model", "thinking"], "task");
+        keys(task, ["task", "mode", "role", "template", "name", "cwd", "model", "thinking"], "task");
+        // Fail before any model/directory discovery; the JSON schema stays a flat object to keep tool tokens small.
+        if (task.mode === undefined && task.template === undefined) throw new Error("Each task needs mode (inspect or edit) or a template that sets it");
+        if (task.mode !== undefined && task.mode !== "inspect" && task.mode !== "edit") throw new Error("mode must be inspect or edit");
         return {
-          agent: text(task.agent, "agent", 64), task: text(task.task, "task"),
+          task: text(task.task, "task"),
+          ...(task.mode === undefined ? {} : { mode: task.mode }),
+          ...(task.role === undefined ? {} : { role: text(task.role, "role", 16384) }),
+          ...(task.template === undefined ? {} : { template: roleName(task.template, "template") }),
+          ...(task.name === undefined ? {} : { name: roleName(task.name, "name") }),
           ...(task.cwd === undefined ? {} : { cwd: text(task.cwd, "cwd", 4096) }),
           ...(task.model === undefined ? {} : { model: modelName(task.model) }),
           ...(task.thinking === undefined ? {} : { thinking: thinkingLevel(task.thinking) }),
@@ -75,6 +86,11 @@ export function parseRequest(input: unknown): Request {
   }
 }
 
+function roleName(value: unknown, label: string): string {
+  const result = text(value, label, 64);
+  if (!/^[a-z][a-z0-9-]*$/.test(result)) throw new Error(`${label} must be lowercase letters, digits and hyphens, starting with a letter`);
+  return result;
+}
 const clip = (value: string, max: number) => value.length > max ? value.slice(0, max) + "…" : value;
 
 function accounting(record: RunRecord) {
@@ -149,14 +165,15 @@ export function resultPreview(result: unknown): string {
     input !== null && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined;
   const field = (input: unknown): string | undefined => typeof input === "string" ? input : undefined;
   let summary: Record<string, unknown>;
-  if (Array.isArray(result)) {
-    const profiles = result.slice(0, 100).flatMap(item => {
+  const value = asRecord(result) ?? {};
+  if (Array.isArray(value.templates)) {
+    const templates = value.templates.slice(0, 100).flatMap(item => {
       const row = asRecord(item);
       return row ? [{ name: field(row.name), mode: field(row.mode) }] : [];
     });
-    summary = { profiles, omitted: Math.max(0, result.length - 100) };
+    summary = { templates, omitted: Math.max(0, value.templates.length - 100), folders: value.folders, starter: field(value.starter),
+      ...(Array.isArray(value.skipped) && value.skipped.length ? { skippedCount: value.skipped.length } : {}) };
   } else {
-    const value = asRecord(result) ?? {};
     if (Array.isArray(value.runs)) {
       const runs = value.runs.slice(0, 32).flatMap(item => {
         const row = asRecord(item);
@@ -215,10 +232,15 @@ export const OutputSchema = Type.Union([
     ])),
     blocked: Type.Optional(Type.Union([Type.Literal(true), Type.Object({ id: Type.String(), metadataPath: Type.String() }, closed)])),
   }, closed),
-  Type.Array(Type.Object({
-    name: Type.String(), description: Type.String(), mode: ModeSchema,
-    model: Type.Optional(Type.String()), thinking: Type.Optional(Type.String()),
-  }, closed)),
+  Type.Object({
+    templates: Type.Array(Type.Object({
+      name: Type.String(), description: Type.String(), mode: ModeSchema, source: Type.String(),
+      model: Type.Optional(Type.String()), thinking: Type.Optional(Type.String()),
+    }, closed)),
+    folders: Type.Object({ global: Type.String(), project: Type.Optional(Type.String()) }, closed),
+    starter: Type.String(),
+    skipped: Type.Optional(Type.Array(Type.Object({ source: Type.String(), error: Type.String() }, closed))),
+  }, closed),
   RunSchema,
   Type.Object({ ok: Type.Literal(true) }, closed),
 ]);
@@ -236,10 +258,10 @@ export const DESCRIPTION = `Delegate only when requested by the operator or appl
 run launches 1–4 fresh, session-bound native Pi sub-agents; ordered receipts are NOT results or a join.
 Sub-agents have fixed tools and applicable instruction files, but no agent history, extensions, hooks, MCP or skills.
 Do not launch tasks needing unavailable capabilities or policies. Modes are inspect (read-only) and edit (shell/write), not OS sandboxes.
-Use list with cwd to inspect profiles. Reserve workspaces until settled; writers need disjoint roots (whole Git worktrees).
+Roles: per task, mode plus inline role and/or saved template; list gives templates, folders, a starter; write new ones there. Reserve workspaces until settled; writers need disjoint roots (whole Git worktrees).
 Questions wake now; batch results once. Yield, don't poll. Use exact run/question IDs.
-status lists live/recent runs; status(id) gives state, model/thinking, context, current tool, evidence paths. /subagents gives human control.
+status lists runs; status(id) gives state, model, context, tool, evidence paths. /subagents gives human control.
 steer enters after the current turn; followUp queues after pending work.
 Control receipts mean accepted, not compliance. Completed means settled and saved, not verified; read the report and validate.
 resume <id> restarts a resumable failed run from its saved transcript.
-Committed-range review needs a supplied diff. No automatic retry, model fallback, recursive delegation, or workflow runner.`;
+No automatic retry, model fallback, recursive delegation, or workflow runner.`;

@@ -5,7 +5,7 @@ import {
   getAgentDir, SettingsManager, VERSION,
   type ExtensionAPI, type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { loadProfiles } from "./src/agents.ts";
+import { loadTemplates, projectTrusted, resolveRole, STARTER } from "./src/templates.ts";
 import { FileArtifacts } from "./src/artifacts.ts";
 import { parseConfig } from "./src/config.ts";
 import { RunManager } from "./src/runs.ts";
@@ -228,20 +228,20 @@ export default function subagents(pi: ExtensionAPI): void {
     name: "subagent", label: "Sub-agent", description: DESCRIPTION, parameters: Parameters,
     outputSchema: OutputSchema, executionMode: "sequential", exposure: "direct",
     renderCall(input, theme) {
-      const request = input as { action?: string; tasks?: { agent: string }[] };
+      const request = input as { action?: string; tasks?: unknown[] };
       return new Text(theme.fg("accent", `Sub-agents · ${plain(request.action ?? "action")} ${request.tasks ? `(${request.tasks.length})` : ""}`), 0, 0);
     },
     renderResult(result, { expanded, isPartial }, theme, renderContext) {
       if (isPartial) return new Text(theme.fg("dim", "Sub-agent action in progress…"), 0, 0);
       if (renderContext?.isError) return new Text(theme.fg("error", plain(result.content.filter(block => block.type === "text").map(block => block.text).join(" "), 600)), 0, 0);
       if (expanded) return new Text(plain(JSON.stringify(result.details), 8192), 0, 0);
-      const data = result.details as { runs?: { id: string }[]; id?: string; name?: string } | { name: string }[] | undefined;
-      const refs = Array.isArray(data) ? [] : data?.runs ?? (data?.id ? [{ id: data.id }] : []);
+      const data = result.details as { runs?: { id: string }[]; id?: string; templates?: { name: string }[] } | undefined;
+      const refs = data?.templates ? [] : data?.runs ?? (data?.id ? [{ id: data.id }] : []);
       const labels = refs.map(ref => {
         try { const record = host!.manager.status(ref.id); return `${host!.widget.state!.title(record)} · ${stateLabel(record)}`; }
         catch { return "Sub-agent · saved evidence (open expanded details for exact IDs)"; }
       });
-      return new Text(theme.fg("accent", labels.join("\n") || (Array.isArray(data) ? data.map(profile => plain(profile.name)).join(" · ") : "Sub-agent action acknowledged")), 0, 0);
+      return new Text(theme.fg("accent", labels.join("\n") || (data?.templates ? `Templates: ${data.templates.map(template => plain(template.name)).join(" · ") || "none saved"}` : "Sub-agent action acknowledged")), 0, 0);
     },
     async execute(_id, input, signal, _onUpdate, ctx) {
       const request = parseRequest(input);
@@ -252,10 +252,13 @@ export default function subagents(pi: ExtensionAPI): void {
       switch (request.action) {
         case "list": {
           const cwd = await canonicalDirectory(path.resolve(ctx.cwd, request.cwd ?? "."));
-          const profiles = await loadProfiles(agentDir, cwd, ctx.isProjectTrusted());
-          result = [...profiles.values()].map(({ name, description, mode, model, thinking }) => ({
-            name, description, mode, ...(model ? { model } : {}), ...(thinking ? { thinking } : {}),
-          }));
+          const { templates, skipped, folders } = await loadTemplates(agentDir, cwd, projectTrusted(agentDir, cwd));
+          result = {
+            templates: [...templates.values()].map(({ name, description, mode, model, thinking, source }) => ({
+              name, description, mode, source, ...(model ? { model } : {}), ...(thinking ? { thinking } : {}),
+            })),
+            folders, starter: STARTER, ...(skipped.length ? { skipped } : {}),
+          };
           break;
         }
         case "status": {
@@ -289,23 +292,21 @@ export default function subagents(pi: ExtensionAPI): void {
             return state.ctx.modelRegistry;
           }).catch(error => { models = undefined; throw error; });
           const bridge = await models;
-          const trusted = ctx.isProjectTrusted();
           const agentThinking = pi.getThinkingLevel();
           const scopedModels = () => state.ctx.scopedModels.map(({ model }) => `${model.provider}/${model.id}`);
           signal?.throwIfAborted();
           // Share target discovery only within this batch; no stale cross-call cache.
-          const targets = new Map<string, Promise<{ workspace: string; profiles: Map<string, Profile> }>>();
+          const targets = new Map<string, Promise<{ workspace: string; templates: Map<string, Profile>; broken: Map<string, string>; unreadable?: string }>>();
           const plans: PreparedTask[] = await Promise.all(request.tasks.map(async task => {
             const cwd = await canonicalDirectory(path.resolve(ctx.cwd, task.cwd ?? "."));
             let target = targets.get(cwd);
             if (!target) {
-              target = Promise.all([workspaceRoot(cwd, signal), loadProfiles(agentDir, cwd, trusted)])
-                .then(([workspace, profiles]) => ({ workspace, profiles }));
+              target = Promise.all([workspaceRoot(cwd, signal), loadTemplates(agentDir, cwd, projectTrusted(agentDir, cwd))])
+                .then(([workspace, { templates, broken, unreadable }]) => ({ workspace, templates, broken, unreadable }));
               targets.set(cwd, target);
             }
-            const { workspace, profiles } = await target;
-            const profile = profiles.get(task.agent);
-            if (!profile) throw new Error(`Unknown agent '${task.agent}'. Use list; only worker and reviewer are bundled.`);
+            const { workspace, templates, broken, unreadable } = await target;
+            const profile = resolveRole(task, templates, broken, unreadable);
             const name = task.model ?? profile.model ?? modelLabel(ctx);
             if (name?.includes("/")) bridge.ensure(name.slice(0, name.indexOf("/")));
             return prepareNative({

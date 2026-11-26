@@ -24,10 +24,12 @@ test("accounting is additive, closed and host-only across all run presentations"
   assert(!Check(OutputSchema, { ...notice, elapsedMs: -1 }));
 });
 
-const task = { agent: "worker", task: "Implement the approved change" };
+const task = { mode: "edit", task: "Implement the approved change" };
 const valid = [
   { action: "run", tasks: [task] },
   { action: "run", tasks: Array(4).fill(task) },
+  { action: "run", tasks: [{ task: "Review", template: "security-reviewer" }] },
+  { action: "run", tasks: [{ task: "Review", mode: "inspect", role: "Check auth paths", name: "auth-reviewer" }] },
   ...THINKING_LEVELS.map(thinking => ({ action: "run", tasks: [{ ...task, cwd: "../worktree", model: "fixture/test", thinking }] })),
   { action: "list" }, { action: "list", cwd: "../target" },
   { action: "status" }, { action: "status", id: "run-id" },
@@ -41,12 +43,14 @@ const invalid: unknown[] = [
   null, [], "list", 1, {}, { action: "unknown" },
   { action: "run" }, { action: "run", tasks: [] }, { action: "run", tasks: Array(5).fill(task) },
   { action: "run", tasks: [null] }, { action: "run", tasks: [{}] },
-  { action: "run", tasks: [{ agent: "worker" }] }, { action: "run", tasks: [{ task: "Implement" }] },
-  ...["agent", "task", "cwd", "model"].flatMap(field => [
+  { action: "run", tasks: [{ mode: "edit" }] }, { action: "run", tasks: [{ agent: "worker", task: "Implement" }] },
+  { action: "run", tasks: [{ ...task, mode: "write" }] },
+  { action: "run", tasks: [{ ...task, template: "Security Reviewer" }] }, { action: "run", tasks: [{ ...task, name: "../x" }] },
+  ...["task", "role", "template", "name", "cwd", "model"].flatMap(field => [
     { action: "run", tasks: [{ ...task, [field]: "" }] },
     { action: "run", tasks: [{ ...task, [field]: 123 }] },
   ]),
-  ...Object.entries({ agent: 64, task: 32768, cwd: 4096, model: 512 }).map(([field, max]) =>
+  ...Object.entries({ task: 32768, role: 16384, template: 64, name: 64, cwd: 4096, model: 512 }).map(([field, max]) =>
     ({ action: "run", tasks: [{ ...task, [field]: "x".repeat(max + 1) }] })),
   { action: "run", tasks: [{ ...task, thinking: "highest" }] },
   { action: "run", tasks: [{ ...task, extra: true }] },
@@ -84,7 +88,8 @@ test("input parameters retain an object root and eight closed action branches; o
   assert(schema.anyOf.every((branch: { type: string; additionalProperties: boolean }) => branch.type === "object" && branch.additionalProperties === false));
   assert.equal(schema.anyOf[0].properties.tasks.items.additionalProperties, false);
   assert.equal(JSON.parse(JSON.stringify(OutputSchema)).type, undefined);
-  assert(Check(OutputSchema, []), "profile-list output must still allow arrays");
+  assert(Check(OutputSchema, { templates: [], folders: { global: "/g" }, starter: "/s.md" }), "template list output");
+  assert(!Check(OutputSchema, []), "the retired profile array is not an output shape");
   assert(Check(OutputSchema, { id: "r", state: "waiting_for_agent" }));
 });
 
@@ -93,7 +98,7 @@ test("schema and runtime guards agree on all actions, optional fields, bounds an
     assert(Check(Parameters, input), JSON.stringify(input));
     assert.deepEqual(parseRequest(input), input);
   }
-  const boundary = { action: "run", tasks: [{ agent: "a".repeat(64), task: "x".repeat(32768), cwd: "x".repeat(4096), model: "p/" + "x".repeat(510) }] };
+  const boundary = { action: "run", tasks: [{ mode: "inspect", name: "a".repeat(64), role: "r".repeat(16384), task: "x".repeat(32768), cwd: "x".repeat(4096), model: "p/" + "x".repeat(510) }] };
   assert(Check(Parameters, boundary));
   assert.deepEqual(parseRequest(boundary), boundary);
   for (const input of invalid) {
@@ -101,7 +106,7 @@ test("schema and runtime guards agree on all actions, optional fields, bounds an
     assert.throws(() => parseRequest(input));
   }
   // Existing runtime text/model policy is deliberately stricter than JSON string lengths.
-  for (const field of ["agent", "task", "cwd", "model"]) {
+  for (const field of ["task", "role", "cwd", "model"]) {
     for (const value of ["   ", "a\0b"]) {
       const input = { action: "run", tasks: [{ ...task, [field]: value }] };
       assert(Check(Parameters, input));
@@ -109,6 +114,9 @@ test("schema and runtime guards agree on all actions, optional fields, bounds an
     }
   }
   assert.throws(() => parseRequest({ action: "run", tasks: [{ ...task, model: "alias" }] }));
+  // The flat schema keeps tool tokens small; the runtime guard requires mode or a template.
+  assert(Check(Parameters, { action: "run", tasks: [{ task: "x" }] }));
+  assert.throws(() => parseRequest({ action: "run", tasks: [{ task: "x" }] }), /needs mode/);
   assert.throws(() => parseRequest({ action: "run", tasks: [{ ...task, model: "fixture/test:high" }] }));
   assert.deepEqual(parseRequest({ action: "list", cwd: " ../target " }), { action: "list", cwd: "../target" });
 });
@@ -120,7 +128,7 @@ test("actual OpenAI-completions serialization preserves object-root union in onP
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 64000, maxTokens: 128,
   };
   const context = normalizeContext({
-    messages: [{ role: "user", content: "List profiles", timestamp: 0 }],
+    messages: [{ role: "user", content: "List templates", timestamp: 0 }],
     tools: [{ name: "subagent", description: DESCRIPTION, parameters: Parameters,
       constrainedSampling: { type: "json_schema", strict: "prefer" } }],
   });

@@ -70,7 +70,7 @@ test("public tool: native launch/question/reply/completion stay compact while ex
       sessionManager: SessionManager.inMemory(cwd), ui: { setWidget() {} },
     } as unknown as ExtensionToolContext;
     const execute = (input: unknown) => tool.execute("public-call", input, undefined, undefined, ctx);
-    const launch = await execute({ action: "run", tasks: [{ agent: "reviewer", task: "PRIVATE_TASK_BRIEF" }] });
+    const launch = await execute({ action: "run", tasks: [{ mode: "inspect", name: "reviewer", task: "PRIVATE_TASK_BRIEF" }] });
     assert(Check(OutputSchema, launch.structuredContent));
     const { runs: [receipt] } = launch.structuredContent as { runs: { id: string; cwd: string; workspace: string; model: string; thinking: string }[] };
     assert.deepEqual(Object.keys(receipt!).sort(), ["cwd", "id", "model", "thinking", "workspace"]);
@@ -162,7 +162,7 @@ test("public tool: a transient native failure resumes through the tool on the sa
       sessionManager: SessionManager.inMemory(cwd), ui: { setWidget() {} },
     } as unknown as ExtensionToolContext;
     const execute = (input: unknown) => tool.execute("public-call", input, undefined, undefined, ctx);
-    const launch = await execute({ action: "run", tasks: [{ agent: "reviewer", task: "Resume fixture", model: "fixture/test" }] });
+    const launch = await execute({ action: "run", tasks: [{ mode: "inspect", name: "reviewer", task: "Resume fixture", model: "fixture/test" }] });
     const { runs: [receipt] } = launch.structuredContent as { runs: { id: string }[] };
     await until(() => notices.some(message => message.includes('"state":"failed"')));
     const failed = await execute({ action: "status", id: receipt!.id });

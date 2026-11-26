@@ -101,7 +101,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
     cacheWarming: "off", enableSkillCommands: false,
   }, { projectTrusted: true });
   return {
-    ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode, validate: async signal => { await validate(signal); },
+    agent: profile.name, task: task.task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode, validate: async signal => { await validate(signal); },
     async start(context, resumeFrom?: ResumeFrom) {
       context.signal.throwIfAborted();
       if (!resumeFrom) publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, resolve().contextWindow) });
@@ -119,7 +119,8 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       const loader = new DefaultResourceLoader({
         cwd: options.cwd, agentDir: options.agentDir, settingsManager: settings,
         noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
-        appendSystemPromptOverride: inherited => [...inherited, BOUNDARY, profile.prompt],
+        // Role text first; the host boundary keeps the last word.
+        appendSystemPromptOverride: inherited => [...inherited, ...(profile.prompt ? [profile.prompt] : []), BOUNDARY],
       });
       await loader.reload();
       context.signal.throwIfAborted();

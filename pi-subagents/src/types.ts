@@ -10,7 +10,18 @@ export interface Profile {
   prompt: string;
   source: string;
 }
-export interface Task { agent: string; task: string; cwd?: string; model?: string; thinking?: Thinking }
+/** Tool input. Roles are not fixed: inline `role` instructions, a saved `template`, or both. */
+export interface Task {
+  task: string;
+  mode?: Mode;
+  role?: string;
+  template?: string;
+  /** Human label such as "security-reviewer"; defaults to the template name or worker/inspector. */
+  name?: string;
+  cwd?: string;
+  model?: string;
+  thinking?: Thinking;
+}
 export interface Config { maxConcurrent: number; maxRuns: number; timeoutMs: number }
 export type State = "starting" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
@@ -87,7 +98,10 @@ export interface RunContext {
   ask(message: string, signal?: AbortSignal): Promise<string>;
 }
 export interface ResumeFrom { sessionPath: string; launchHead?: string; sessionId?: string }
-export interface PreparedTask extends Task {
+export interface PreparedTask {
+  /** Resolved human role label; the record keeps this as `agent`. */
+  agent: string;
+  task: string;
   mode: Mode;
   cwd: string;
   workspace: string;

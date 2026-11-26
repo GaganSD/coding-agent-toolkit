@@ -35,16 +35,61 @@ and print/RPC/standalone hosts are not supported.
 
 ## Features
 
-- Delegate bounded work from one agent session to worker and reviewer sub-agents
+- Delegate bounded work from one agent session to sub-agents whose roles the agent writes
 - Fresh native Pi sessions, session-bound, no nested delegation
 - `subagent` tool: run (1–4 tasks), list, status, resume, steer, followUp, stop, reply
 - `/subagents` to attach, resume, steer, followUp, reply, or stop
 - Focusable worker roster and dedicated conversations; settled runs leave the roster
-- Supports Markdown agent profiles
+- No fixed roles: inline role instructions per task, or reusable Markdown templates
+- A bundled `pi-subagents` skill: parallel dispatch, worktrees for parallel writers, templates, verification
 - Local reports and transcripts
 - One parent wake-up per `run` batch, not per finished task. Questions wake immediately
   and include buffered results; results also flush while a sibling awaits an answer.
   Resumes notify independently. Pending notices are dropped on shutdown/reload.
+
+### Roles and templates
+
+The package ships no roles. Each task in a `run` gives a `mode` (`inspect`, which is
+read-only, or `edit`, which adds shell and write) and its role, as either:
+
+- **inline** `role` instructions for a one-off role, or
+- a saved **`template`**, plus optional inline `role` text that is appended after it.
+
+```json
+{ "action": "run", "tasks": [
+  { "template": "security-reviewer", "task": "Review src/auth for the token refresh change" },
+  { "mode": "edit", "name": "test-writer", "role": "Write tests only; never change src/.", "task": "Cover src/parser/escape.ts" }
+] }
+```
+
+Templates are Markdown files with `name`, `description`, `mode`, and optional
+`model`/`thinking` frontmatter. The agent saves them with its ordinary `write` tool:
+
+- **Global**: `~/.pi/agent/subagent-templates/<name>.md`
+- **Project**: `<project>/.pi/subagent-templates/<name>.md`. Project templates become
+  sub-agent system-prompt text, so they're read only when Pi's trust store holds an
+  explicit *Trust* decision for that directory or a parent of it. Session-only trust,
+  and Pi's automatic trust for projects with no trust-requiring resources, don't count.
+  Project templates override a global template with the same name. If a project
+  override fails to load, that name is unavailable rather than silently falling back.
+
+`subagent list` returns the folders it reads (the project folder only when trusted), the loaded templates, any files it `skipped`
+with the reason, and the path of the bundled [starter](skills/pi-subagents/template.md).
+The starter offers worker archetypes (implementer, bug-fixer, test-writer, refactorer,
+migrator, verifier) and reviewer archetypes (code, security, performance, test, api,
+researcher), each with exact verification metrics, plus a skeleton to copy.
+
+The task's `mode` wins over a template's. Mode is never implicit: a task with neither
+`mode` nor a template is rejected. The roster labels a run by `name`, then the
+template name, then `worker`/`inspector`.
+
+### Skill
+
+The package bundles a `pi-subagents` skill for the owning agent. It covers when to
+split work, writing briefs, isolating parallel writers in git worktrees (the package
+itself never creates them), dispatching one batch, and verifying results before
+accepting them. It replaces general "dispatching parallel agents" and "git worktree"
+skills for this package.
 
 ### Run deadline
 
@@ -64,10 +109,10 @@ Changing the setting does not extend a run that has already started.
 
 ### Model and thinking selection
 
-Model and thinking resolve from the task, then the profile, then the owning agent.
+Model and thinking resolve from the task, then the template, then the owning agent.
 Models can support different thinking levels. If a selected level is unsupported,
 the batch is rejected before any sub-agent launches and the error lists the valid
-levels. Set `tasks[].thinking` or the profile's `thinking` explicitly; the package
+levels. Set `tasks[].thinking` or the template's `thinking` explicitly; the package
 never silently falls back to a different model or thinking level.
 
 Built-in, `models.json`, and extension-provided physical chat models use the
@@ -78,8 +123,8 @@ models and aliases remain unsupported. Launch and resume recheck the exact model
 scope, authentication, and thinking level. Model metadata is pinned per attempt;
 a catalog change during an active attempt fails explicitly rather than mixing old
 metadata with new provider configuration. A resume uses current metadata for the
-same exact model and thinking level. Resume preserves the original profile prompt
-and capability mode; start a new run to apply profile changes. Stopping during
+same exact model and thinking level. Resume preserves the original role text
+and capability mode; start a new run to apply template changes. Stopping during
 resume validation cancels that admission without spending a resume attempt.
 Provider code is trusted; parent tools, hooks, skills, and conversation are not inherited.
 

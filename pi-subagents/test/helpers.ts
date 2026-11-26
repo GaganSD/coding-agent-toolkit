@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import type { ArtifactStore } from "../src/artifacts.ts";
-import type { SubAgentResult, PreparedTask, RunContext, RunRecord } from "../src/types.ts";
+import type { Profile, SubAgentResult, PreparedTask, RunContext, RunRecord } from "../src/types.ts";
 
 export async function temp(t: TestContext): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "minimal-subagents-test-"));
@@ -65,4 +65,11 @@ export function waitForAbort(context: RunContext): Promise<SubAgentResult> {
     if (context.signal.aborted) reject(context.signal.reason);
     else context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
   });
+}
+/** Fixture roles for native tests; the package ships no fixed roles. */
+export function testProfiles(): Map<string, Profile> {
+  return new Map<string, Profile>([
+    ["reviewer", { name: "reviewer", description: "Fixture reviewer", mode: "inspect", prompt: "Inspect and report findings.", source: "inline" }],
+    ["worker", { name: "worker", description: "Fixture worker", mode: "edit", prompt: "Implement the task and report.", source: "inline" }],
+  ]);
 }
