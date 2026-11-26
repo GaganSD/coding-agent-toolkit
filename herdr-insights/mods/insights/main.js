@@ -19,6 +19,7 @@ import {
   initials,
   isDay,
   isPresentation,
+  machineFilterValue,
   machineLabel,
   normalizeConfig,
   periodRange,
@@ -1947,7 +1948,11 @@ export default class Insights extends View {
           options: [
             { value: "all", label: machineLabel("all") },
             { value: THIS_COMPUTER, label: machineLabel(THIS_COMPUTER) },
-            ...remotes.map((machine) => ({ value: machine.name, label: machine.name, detail: machineStatusText(machine, this.remoteView(machine.name)) })),
+            ...remotes.map((machine) => ({
+              value: machineFilterValue(machine.name),
+              label: machine.name,
+              detail: machineStatusText(machine, this.remoteView(machine.name)),
+            })),
           ],
         } : null;
         changeCx.notify();

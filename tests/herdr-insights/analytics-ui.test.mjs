@@ -127,6 +127,7 @@ const Popover = {
       get openState() { return node.openState; },
       get contentEl() { return node.contentEl; },
       get triggerEl() { return node.triggerEl; },
+      get onOpenChange() { return node.onOpenChange; },
       trigger(element) { node.triggerEl = element; return builder; },
       open(value) { node.openState = value; return builder; },
       on_open_change(handler) { node.onOpenChange = handler; return builder; },
@@ -1825,6 +1826,23 @@ test("the machine filter and remote revisions reach the presenter options and th
   instance.remoteRevision = 3;
   assert.equal(instance.dashboardOptions().remoteRevision, 3);
   assert.notEqual(presentationKey(savedSnapshot(), instance.dashboardOptions()), before);
+});
+
+test("a remote named all is selectable separately from All machines", () => {
+  const instance = blankInstance();
+  instance.dashboard = { machines: [{ name: null }, { name: "all" }] };
+  const machineBar = instance.machineBar(ui.tokens({}));
+  machineBar.childNodes[0].onOpenChange(true, fakeCx());
+  const option = instance.openOptions.options.find((candidate) => candidate.label === "all");
+  const snapshot = {
+    rows: [
+      { machine: null, session: "local", day: "2026-11-13", tokens: { input: 3 } },
+      { machine: "all", session: "remote", day: "2026-11-13", tokens: { input: 7 } },
+    ],
+  };
+  const report = compactDashboard(deriveDashboard(snapshot, { filters: { machine: option.value } }));
+  assert.equal(report.lifetime.total, 7, "selecting the remote must exclude local usage");
+  assert.match(analytics.dashboardMarkdown(report), /^- Machine: all$/m);
 });
 
 test("machine status text covers syncing, indexing, synced, offline and never synced", async () => {

@@ -7,6 +7,11 @@ export const PRESENTATION_VERSION = 1;
 // Machine filter value for rows from this computer. Remote machine names never
 // contain "/", so this cannot collide with one.
 export const THIS_COMPUTER = "/this-computer";
+const REMOTE_NAMED_ALL = "/machine/all";
+
+export function machineFilterValue(name) {
+  return name === "all" ? REMOTE_NAMED_ALL : name;
+}
 export const DEFAULT_SOURCES = [
   {
     id: "pi",
@@ -387,7 +392,8 @@ function filterRowsByMachine(rows, machine) {
   const selected = cleanFilter(machine);
   if (!selected) return rows;
   if (selected === THIS_COMPUTER) return rows.filter((row) => row?.machine === null || row?.machine === undefined);
-  return rows.filter((row) => row?.machine === selected);
+  const name = selected === REMOTE_NAMED_ALL ? "all" : selected;
+  return rows.filter((row) => row?.machine === name);
 }
 
 export function filterRows(rows, filters = {}) {
@@ -1164,7 +1170,7 @@ function markdownChange(entry) {
 export function machineLabel(value) {
   if (!value || value === "all") return "All machines";
   if (value === THIS_COMPUTER) return "This computer";
-  return value;
+  return value === REMOTE_NAMED_ALL ? "all" : value;
 }
 
 /**
