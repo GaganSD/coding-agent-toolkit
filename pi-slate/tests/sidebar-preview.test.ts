@@ -373,7 +373,10 @@ test("foldable MCP and Skills sections persist independently and keep counts vis
   assert(plain(sidebar.render(40)).some(line => line.includes("server-0")));
   sidebar.handleMouse(mouse(row(sidebar, "Skills")));
   assert.equal(sidebar.getFolds().skills, true);
-  assert.deepEqual(saved, [{ mcp: true, skills: false, prompts: false }, { mcp: true, skills: true, prompts: false }]);
+  assert.deepEqual(saved, [
+    { subagents: false, mcp: true, skills: false, prompts: false },
+    { subagents: false, mcp: true, skills: true, prompts: false },
+  ]);
   sidebar.handleMouse(mouse(row(sidebar, "MCP")));
   assert(!plain(sidebar.render(40)).some(line => line.includes("server-0")));
   assert(plain(sidebar.render(40)).some(line => line.includes("6 Enabled")));
@@ -405,6 +408,25 @@ test("prompts section folds, scrolls, inspects and shows none when empty", () =>
   assert(plain(sidebar.render(40)).some(line => line.trim() === "none"));
 });
 
+test("subagents section shows active public rows and opens snapshot details", () => {
+  const { sidebar } = fixture();
+  const details: string[] = [];
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  sidebar.setSubagents([
+    { id: "run-a", label: "reviewer: inspect parser", state: "running", pid: 42, detail: "model · medium" },
+    { id: "run-b", label: "tester: cover parser", state: "waiting" },
+  ]);
+  assert(plain(sidebar.render(40)).some(line => line.includes("Subagents · 2 Active")));
+  sidebar.handleMouse(mouse(row(sidebar, "Subagents")));
+  assert.equal(sidebar.getFolds().subagents, true);
+  sidebar.handleMouse(mouse(row(sidebar, "reviewer: inspect parser")));
+  assert.match(details[0]!, /State: running\nRun: run-a\nPID: 42/);
+  assert.match(details[0]!, /model · medium/);
+  sidebar.setSubagents([]);
+  assert(!plain(sidebar.render(40)).some(line => line.includes("reviewer: inspect parser")));
+  assert(plain(sidebar.render(40)).some(line => line.trim() === "none"));
+});
+
 test("a failed preference save cannot change the visible fold state", () => {
   const { sidebar } = fixture();
   sidebar.setActions({ copy() {}, openFile() {}, persistFold: () => undefined });
@@ -420,7 +442,7 @@ test("resource status glyphs distinguish unknown MCP state without color or redu
     { name: "disabled-server", enabled: false, source: "global" },
     { name: "unknown-server", enabled: null, source: "extension" },
   ] });
-  sidebar.setFolds({ mcp: true, skills: true, prompts: false });
+  sidebar.setFolds({ subagents: false, mcp: true, skills: true, prompts: false });
   const lines = plain(sidebar.render(80));
   for (const expected of ["● enabled-server", "○ disabled-server", "— unknown-server", "● skill-0", "○ skill-1"])
     assert(lines.some(line => line.trim() === expected), expected);
@@ -429,7 +451,7 @@ test("resource status glyphs distinguish unknown MCP state without color or redu
 });
 
 test("MCP is limited to five rows; list wheel scroll does not move the session header", () => {
-  const { sidebar } = fixture(); sidebar.setFolds({ mcp: true, skills: true, prompts: false });
+  const { sidebar } = fixture(); sidebar.setFolds({ subagents: false, mcp: true, skills: true, prompts: false });
   const before = plain(sidebar.render(40));
   assert.equal(before.filter(line => /server-\d/.test(line)).length, 5);
   assert(!before.some(line => line.includes("server-5")));
@@ -442,7 +464,7 @@ test("MCP is limited to five rows; list wheel scroll does not move the session h
 });
 
 test("skill lists scroll and clamp; the rail does not list commands", () => {
-  const { sidebar } = fixture(); sidebar.setFolds({ mcp: false, skills: true, prompts: false });
+  const { sidebar } = fixture(); sidebar.setFolds({ subagents: false, mcp: false, skills: true, prompts: false });
   sidebar.handleMouse(mouse(row(sidebar, "skill-0"), { type: "wheel", wheelDelta: -2 }));
   assert(plain(sidebar.render(40)).some(line => line.includes("skill-4")));
   assert(!plain(sidebar.render(40)).some(line => line.includes("/run-0")));
@@ -491,7 +513,7 @@ test("image double-click uses native clickCount or the fallback timer", () => {
 
 test("the compact rail keeps the image while the middle scrolls", () => {
   const { sidebar } = fixture(30); sidebar.setView(image());
-  sidebar.setFolds({ mcp: true, skills: true, prompts: false });
+  sidebar.setFolds({ subagents: false, mcp: true, skills: true, prompts: false });
   const lines = plain(sidebar.render(40));
   assert.equal(sidebar.currentViewId(), "image:a");
   assert(lines.some(line => line.includes("IMAGE")));
@@ -538,7 +560,7 @@ test("unknown MCP declarations are neutral when folded or expanded and inspectio
   const folded = plain(sidebar.render(80));
   assert(folded.some(line => line.includes("› MCP · —")));
   assert(!folded.some(line => /Error|Warning|0 Enabled/.test(line)));
-  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  sidebar.setFolds({ subagents: false, mcp: true, skills: false, prompts: false });
   const expanded = plain(sidebar.render(80));
   assert(expanded.some(line => line.includes("⌄ MCP · —")));
   assert(expanded.some(line => line.trim() === "— unknown-server"));
@@ -570,12 +592,12 @@ test("reset discards old titles, images and hit targets without changing fold pr
   const copied: string[] = [];
   sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
   sidebar.setSession({ ...session, name: "Old title" });
-  sidebar.setFolds({ mcp: true, skills: false, prompts: true }); sidebar.setView(image());
+  sidebar.setFolds({ subagents: false, mcp: true, skills: false, prompts: true }); sidebar.setView(image());
   const titleRow = row(sidebar, "Old title");
   sidebar.reset();
   assert.equal(sidebar.handleMouse(mouse(titleRow)), undefined, "reset clears the old title hit before another paint");
   assert.deepEqual(copied, []);
-  assert.equal(sidebar.currentViewId(), undefined); assert.deepEqual(sidebar.getFolds(), { mcp: true, skills: false, prompts: true });
+  assert.equal(sidebar.currentViewId(), undefined); assert.deepEqual(sidebar.getFolds(), { subagents: false, mcp: true, skills: false, prompts: true });
   assert(!plain(sidebar.render(40)).some(line => line.includes("Old title") || line.includes("server-0")));
   sidebar.dispose(); sidebar.dispose();
 });

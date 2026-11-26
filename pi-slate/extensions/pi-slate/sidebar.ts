@@ -10,9 +10,10 @@ import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, t
 import { contextRows, formatCacheHit, formatCountdown, formatRate, perfRows, type PerfInput } from "./perf-graphics.ts";
 import { EMPTY_PERF } from "./perf-stats.ts";
 import { sameLines } from "./render-lines.ts";
+import { subagentTaskDetails, type SubagentTask } from "./background-tasks.ts";
 
 export const DOUBLE_CLICK_MS = 400;
-type ListName = "mcp" | "skills" | "prompts";
+type ListName = "subagents" | "mcp" | "skills" | "prompts";
 type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
 type PaneFrame = {
@@ -56,8 +57,9 @@ export class Sidebar implements Component {
   get splitActive(): boolean { return this.splitDispose?.active() === true; }
   private session: SidebarSession = EMPTY_SESSION;
   private resources: SidebarResources = EMPTY_RESOURCES;
+  private subagents: SubagentTask[] = [];
   private folds: SidebarFolds = { ...DEFAULT_SIDEBAR_FOLDS };
-  private offsets: Record<ListName, number> = { mcp: 0, skills: 0, prompts: 0 };
+  private offsets: Record<ListName, number> = { subagents: 0, mcp: 0, skills: 0, prompts: 0 };
   private middleOffset = 0;
   private painted?: PaneFrame;
   private image?: WorkspaceView;
@@ -113,6 +115,10 @@ export class Sidebar implements Component {
     this.resources = { ...resources, mcp: resources.mcp.map(x => ({ ...x })), skills: resources.skills.map(x => ({ ...x })), commands: resources.commands.map(x => ({ ...x })), prompts: resources.prompts.map(x => ({ ...x })) };
     this.changed();
   }
+  setSubagents(tasks: readonly SubagentTask[]): void {
+    this.subagents = tasks.map(task => ({ ...task, ...(task.usage ? { usage: { ...task.usage } } : {}) }));
+    this.changed();
+  }
   setFolds(folds: SidebarFolds): void { this.folds = { ...folds }; this.changed(); }
   getFolds(): SidebarFolds { return { ...this.folds }; }
   toggleSection(section: keyof SidebarFolds): void {
@@ -124,7 +130,7 @@ export class Sidebar implements Component {
   /** A new session cannot inherit scroll positions, selected images, or old hit targets. */
   reset(): void {
     this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES;
-    this.offsets = { mcp: 0, skills: 0, prompts: 0 }; this.middleOffset = 0;
+    this.subagents = []; this.offsets = { subagents: 0, mcp: 0, skills: 0, prompts: 0 }; this.middleOffset = 0;
     this.image = undefined;
     this.painted = undefined; this.lastClick = undefined; this.changed();
   }
@@ -316,10 +322,16 @@ export class Sidebar implements Component {
     const resourceHeading = (label: string, count: string, failed = 0): string =>
       this.heading(label) + this.paint("muted", ` · ${count}`)
       + (failed ? this.paint("error", ` · ${failed} ${failed === 1 ? "Error" : "Errors"}`) : "");
+    const active = this.subagents.length;
     const rows: Row[] = [{ text: "" }, {
+      text: resourceHeading(`${this.folds.subagents ? "⌄" : "›"} Subagents`, `${active} Active`),
+      action: () => this.toggleSection("subagents"),
+    }];
+    if (this.folds.subagents) rows.push(...this.subagentRows());
+    rows.push({ text: "" }, {
       text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors),
       action: () => this.toggleSection("mcp"),
-    }];
+    });
     if (this.folds.mcp) rows.push(...this.resourceRows("mcp"));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} Loaded`), action: () => this.toggleSection("skills") });
     if (this.folds.skills) rows.push(...this.resourceRows("skills"));
@@ -327,7 +339,20 @@ export class Sidebar implements Component {
     if (this.folds.prompts) rows.push(...this.resourceRows("prompts"));
     return rows;
   }
+  private subagentRows(): Row[] {
+    const visible = 5;
+    this.offsets.subagents = sidebarListOffset(this.offsets.subagents, this.subagents.length, visible);
+    if (!this.subagents.length) return [{ text: this.paint("dim", "none"), list: "subagents" }];
+    const rows: Row[] = [];
+    for (let i = this.offsets.subagents; i < Math.min(this.subagents.length, this.offsets.subagents + visible); i++) {
+      const task = this.subagents[i]!;
+      rows.push({ text: this.paint("muted", sidebarText(task.label, 160)), list: "subagents", item: i,
+        action: () => this.actions?.inspect?.(task.label, subagentTaskDetails(task)) });
+    }
+    return rows;
+  }
   private resourceRows(list: ListName): Row[] {
+    if (list === "subagents") return this.subagentRows();
     const items = this.resources[list];
     const visible = list === "mcp" ? 5 : 3;
     this.offsets[list] = sidebarListOffset(this.offsets[list], items.length, visible);
@@ -375,8 +400,9 @@ export class Sidebar implements Component {
     return lines.slice(0, height);
   }
   private scrollList(list: ListName, delta: number): boolean {
-    const visible = list === "mcp" ? 5 : 3;
-    const next = sidebarListOffset(this.offsets[list] + delta, this.resources[list].length, visible);
+    const visible = list === "mcp" || list === "subagents" ? 5 : 3;
+    const count = list === "subagents" ? this.subagents.length : this.resources[list].length;
+    const next = sidebarListOffset(this.offsets[list] + delta, count, visible);
     if (next === this.offsets[list]) return false;
     this.offsets[list] = next; this.changed(); return true;
   }

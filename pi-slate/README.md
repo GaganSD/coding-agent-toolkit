@@ -72,7 +72,9 @@ Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 
 ### Session Dashboard
 
-The sidebar keeps session facts visible without sending them to a model: a live session title at the top in bold theme accent color (click to copy its full text), with the short session id beside it (click to copy the full id; the PID is in the details and, with `/slate pid on`, on the composer), model, context meter with cost and rate, foldable MCP/Skills/Prompts lists, plus an image preview while the caret is on an image token. Long titles use a width-aware ellipsis; unnamed sessions leave that row blank. Set a name with Pi's `/name <title>` or a naming extension; Slate displays it and follows renames without generating titles. Click the usage rows for the full title and accounting; focused and compact modes move the facts onto the prompt frame.
+The sidebar keeps session facts visible without sending them to a model: a live session title at the top in bold theme accent color (click to copy its full text), with the short session id beside it (click to copy the full id; the PID is in the details and, with `/slate pid on`, on the composer), model, context meter with cost and rate, foldable Subagents/MCP/Skills/Prompts lists, plus an image preview while the caret is on an image token. Long titles use a width-aware ellipsis; unnamed sessions leave that row blank. Set a name with Pi's `/name <title>` or a naming extension; Slate displays it and follows renames without generating titles. Click the usage rows for the full title and accounting; focused and compact modes move the facts onto the prompt frame.
+
+The Subagents shelf reads the public `pi:background-tasks` v1 snapshots published by `@gagansd/pi-subagents`. Slate requests the current session with `pi:background-tasks:request`, shows live rows and public click details, and clears them on session replacement or reload. Finished, failed and cancelled work leaves the shelf as defined by the protocol. Slate does not infer outcomes or provide worker controls; use `/subagents` for authoritative inspection and control. In focused mode, the active count appears on the composer's top edge.
 
 ![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
 
@@ -172,6 +174,7 @@ Run `/slate diagnostics` for feature-level `active` / `fallback` details. Adapte
 Compatibility boundaries:
 
 - Production imports only public Pi package entrypoints; an architecture test rejects private/computed host imports.
+- Subagent status uses only the public `pi:background-tasks` v1 event protocol. Slate does not inspect another extension's tool events, native sessions or quota files.
 - MCP is a read-only configuration projection. Pi owns server validation, authentication, and connections.
 - Sidebar layout uses root-identity leases, not intercepted setters or function-identity assumptions.
 - One chat-surface owner copies the visible message list and paints grouped or native rows without removing host components. Active work stays visible; grouping faults retain the window in the same frame. Unknown render/mouse owners are preserved, and cleanup is not dependent on wrapper order.

@@ -124,9 +124,9 @@ test("MCP data re-exports remain configuration-only and independent of host modu
 });
 
 test("fold config defaults safely and display strings neutralize terminal escape/control data", () => {
-  assert.deepEqual(parseSidebarFolds(undefined), { mcp: false, skills: false, prompts: false });
-  assert.deepEqual(parseSidebarFolds({ mcp: true, skills: "true" }), { mcp: true, skills: false, prompts: false });
-  assert.deepEqual(parseSidebarFolds({ prompts: true, future: "keep" }), { mcp: false, skills: false, prompts: true });
+  assert.deepEqual(parseSidebarFolds(undefined), { subagents: false, mcp: false, skills: false, prompts: false });
+  assert.deepEqual(parseSidebarFolds({ mcp: true, skills: "true" }), { subagents: false, mcp: true, skills: false, prompts: false });
+  assert.deepEqual(parseSidebarFolds({ subagents: true, prompts: true, future: "keep" }), { subagents: true, mcp: false, skills: false, prompts: true });
   const text = sidebarText("bad\x1b[2J\n\x1b]52;c;evil\x07server");
   assert(!/[\x00-\x1f\x7f-\x9f]/.test(text)); assert(!text.includes("\x1b[2J"));
   assert.equal(sidebarText("长名字", 2), "长名");

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Added a read-only Subagents shelf backed by `pi-subagents` public `pi:background-tasks` v1 snapshots. It requests current session state, bounds untrusted rows and text, clears across session and extension lifecycles, opens public snapshot details on click, and shows the active count on the focused composer edge. Settled tasks leave the shelf; Slate adds no outcome or control semantics.
+
 ## 0.4.1
 
 * Smoother scrolling while Pi is working.

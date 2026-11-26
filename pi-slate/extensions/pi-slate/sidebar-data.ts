@@ -29,12 +29,12 @@ export type SidebarSession = {
   usingOAuth?: boolean;
   perf: SidebarPerf;
 };
-export type SidebarFolds = { mcp: boolean; skills: boolean; prompts: boolean };
-export const DEFAULT_SIDEBAR_FOLDS: SidebarFolds = { mcp: false, skills: false, prompts: false };
+export type SidebarFolds = { subagents: boolean; mcp: boolean; skills: boolean; prompts: boolean };
+export const DEFAULT_SIDEBAR_FOLDS: SidebarFolds = { subagents: false, mcp: false, skills: false, prompts: false };
 
 export function parseSidebarFolds(value: unknown): SidebarFolds {
   const raw = record(value);
-  return { mcp: raw?.mcp === true, skills: raw?.skills === true, prompts: raw?.prompts === true };
+  return { subagents: raw?.subagents === true, mcp: raw?.mcp === true, skills: raw?.skills === true, prompts: raw?.prompts === true };
 }
 export function nonnegative(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
