@@ -39,6 +39,7 @@ test("ownership covers test-only, mixed, tooling, and documentation changes", ()
     [["docs/herdr-insights-development.md"], { insights: true }],
     [["README.md", "docs/ci-cd.md", ".github/CODEOWNERS"], {}],
     [["scripts/tests/release.test.mjs", ".gitleaks.toml"], { tooling: true }],
+    [["scripts/npm-downloads-badge.mjs"], { tooling: true }],
     [["scripts/quickstart-ci.mjs"], { tooling: true, quickstart: true }],
     [["package-lock.json", "eslint.config.mjs", "scripts/test-package.mjs"],
       { packages: Object.keys(packages), tooling: true, quickstart: true }],

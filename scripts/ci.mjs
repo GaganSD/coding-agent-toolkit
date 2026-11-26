@@ -43,7 +43,7 @@ export function affectedChecks(files, { releasePackages } = {}) {
     } else if (file === "scripts/quickstart-ci.mjs" || file === "scripts/tests/quickstart-ci.test.mjs") {
       tooling = quickstart = true;
     } else if (file.startsWith("scripts/tests/") || [
-      "scripts/dependency-check.mjs", "scripts/tokens.mjs", "scripts/install-gitleaks.sh",
+      "scripts/dependency-check.mjs", "scripts/npm-downloads-badge.mjs", "scripts/tokens.mjs", "scripts/install-gitleaks.sh",
       "scripts/secret-scan.sh", "scripts/install-hooks.sh", ".gitleaks.toml", ".githooks/pre-commit",
     ].includes(file)) {
       tooling = true;
