@@ -86,6 +86,7 @@ function compactSnapshot(snapshot, rowCount = 0) {
     machines = [],
     remoteDisabled = [],
     remoteTimeZone = null,
+    remoteWarnings = [],
   } = snapshot ?? {};
   return {
     version,
@@ -106,6 +107,7 @@ function compactSnapshot(snapshot, rowCount = 0) {
     machines: Array.isArray(machines) ? machines : [],
     remoteDisabled: Array.isArray(remoteDisabled) ? remoteDisabled : [],
     remoteTimeZone,
+    remoteWarnings,
   };
 }
 
@@ -145,6 +147,7 @@ async function withMachines(snapshot, storePath) {
     warnings.push(`remote machines: ${error.message}; ignored.`);
   }
   const merged = mergeSnapshots(snapshot, records);
+  merged.remoteWarnings = [...merged.warnings.slice(snapshot?.warnings?.length ?? 0), ...warnings];
   merged.warnings.push(...warnings);
   merged.remoteDisabled = disabled;
   merged.remoteTimeZone = timeZone;

@@ -545,6 +545,7 @@ export default class Insights extends View {
     this.remote = new Map();
     this.remoteRevision = 0;
     this.remoteDisabled = [];
+    this.remoteWarnings = [];
     this.remoteSettingsGeneration = 0;
     this.remoteRequest = 0;
     this.remoteAppliedRequest = 0;
@@ -1392,6 +1393,7 @@ export default class Insights extends View {
     const sameTimeZone = (this.remoteTimeZone ?? null) === timeZone;
     if (request < this.remoteAppliedRequest) return sameTimeZone;
     this.remoteAppliedRequest = request;
+    this.remoteWarnings = Array.isArray(snapshot.remoteWarnings) ? snapshot.remoteWarnings : [];
     if (sameTimeZone) return true;
     // Old work may finish writing to its own timezone's directory.
     for (const entry of this.remote.values()) {
@@ -2331,7 +2333,9 @@ export default class Insights extends View {
   statusCard(c, snapshot, config) {
     const stats = snapshot.stats && typeof snapshot.stats === "object" ? snapshot.stats : null;
     const errors = stats && Number.isFinite(Number(stats.errors)) ? Number(stats.errors) : null;
-    const warnings = Array.isArray(snapshot.warnings) ? snapshot.warnings.map(warningText).filter(Boolean) : [];
+    const snapshotWarnings = Array.isArray(snapshot.warnings) ? snapshot.warnings : [];
+    const localCount = Math.max(0, snapshotWarnings.length - (snapshot.remoteWarnings?.length ?? 0));
+    const warnings = [...snapshotWarnings.slice(0, localCount), ...(this.remoteWarnings ?? [])].map(warningText).filter(Boolean);
     const sources = config.sources ?? [];
     return card(c).gap(G.md)
       .child(h_flex().w_full().flex_wrap().gap(G.sm).items_center().justify_between()

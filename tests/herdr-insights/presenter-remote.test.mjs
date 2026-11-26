@@ -132,6 +132,7 @@ test("a corrupt machine file or remote.json never breaks the dashboard", async (
   assert.equal(payload.error, null);
   assert.equal(payload.dashboard.lifetime.total, 7);
   assert.ok(payload.snapshot.warnings.some((w) => w.includes("bad.rows.json")));
+  assert.ok(payload.snapshot.remoteWarnings.some((w) => w.includes("bad.rows.json")));
 });
 
 test("snapshot also merges remote machines", async (t) => {

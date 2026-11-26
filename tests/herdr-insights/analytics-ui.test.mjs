@@ -1806,6 +1806,32 @@ test("an older refresh cannot restore a timezone superseded by dashboard prepara
   instance.close();
 });
 
+test("dashboard preparation updates remote warnings while retaining local scan warnings", async () => {
+  const state = remoteHerdr();
+  const { cx, calls } = liveCx();
+  const exec = state.herdr.exec;
+  state.herdr.exec = async (...args) => {
+    const result = await exec(...args);
+    const command = args[1][1];
+    if (command !== "snapshot" && command !== "prepare") return result;
+    const payload = JSON.parse(result.stdout);
+    payload.snapshot.remoteWarnings = command === "snapshot" ? ["Old remote warning"] : ["New remote warning"];
+    payload.snapshot.warnings = [...(command === "snapshot" ? ["Local scan warning"] : []), ...payload.snapshot.remoteWarnings];
+    return { ...result, stdout: JSON.stringify(payload) };
+  };
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  instance.scheduleDashboard(cx, { force: true });
+  await calls.runAfter();
+
+  const card = instance.statusCard(ui.tokens({}), instance.snapshot, instance.snapshot.config);
+  const warningRows = card.childNodes.at(-1).childNodes.slice(1);
+  const warnings = warningRows.map((warning) => warning.childNodes[1].childNodes[0]);
+  assert.deepEqual(warnings, ["Local scan warning", "New remote warning"]);
+  instance.close();
+});
+
 test("machines disabled in Settings are never synced, not even on the first pass", async () => {
   const state = remoteHerdr({ rows: "ok", disabled: ["box"], machines: [{ name: "box", layout: "ready" }] });
   const { cx } = liveCx();
