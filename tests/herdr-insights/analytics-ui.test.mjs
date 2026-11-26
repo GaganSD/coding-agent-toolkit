@@ -1853,6 +1853,33 @@ test("disabling a machine cancels its pending continuation", async () => {
   instance.close();
 });
 
+test("older refresh and configure results cannot undo a new machine toggle", async () => {
+  for (const command of ["snapshot", "configure"]) {
+    const state = remoteHerdr({ rows: "ok", machines: [{ name: "box", layout: "ready" }] });
+    const { cx } = liveCx();
+    const instance = new Insights();
+    instance.init({}, cx);
+    await settle();
+    const exec = state.herdr.exec;
+    const delayed = Promise.withResolvers();
+    state.herdr.exec = async (...args) => {
+      const result = await exec(...args);
+      if (args[1][1] === command) await delayed.promise;
+      return result;
+    };
+    if (command === "snapshot") instance.refresh(cx);
+    else instance.saveConfig(cx);
+    await flush();
+    assert.equal(state.execCalls.at(-1).args[1], command);
+    instance.setMachineEnabled("box", false, cx);
+    await settle();
+    delayed.resolve();
+    await settle();
+    assert.deepEqual(instance.remoteDisabled, ["box"], `${command} must preserve the newer toggle`);
+    instance.close();
+  }
+});
+
 test("each Settings write resyncs enabled machines even when it replaces an earlier write", async () => {
   const state = remoteHerdr({ rows: "ok", disabled: ["a", "b"], machines: [{ name: "a", layout: "ready" }, { name: "b", layout: "ready" }] });
   const { cx } = liveCx();

@@ -546,6 +546,7 @@ export default class Insights extends View {
     this.remote = new Map();
     this.remoteRevision = 0;
     this.remoteDisabled = [];
+    this.remoteSettingsGeneration = 0;
     this.bundlePromise = null;
     this.period = "all";
     this.year = Number(todayKey().slice(0, 4));
@@ -980,6 +981,8 @@ export default class Insights extends View {
     else current.add(name);
     const disabled = [...current].sort();
     this.remoteDisabled = disabled;
+    const generation = ++this.remoteSettingsGeneration;
+    this.remoteRevision += 1;
     if (!enabled) {
       const entry = this.remote?.get(name);
       try { entry?.timer?.cancel(); } catch { /* already gone */ }
@@ -991,10 +994,13 @@ export default class Insights extends View {
         await mkdir(`${appHome()}/data/insights`, { recursive: true });
         await this.writeRemoteFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
       } catch (error) {
-        this.saveError = sanitizeError(error);
+        if (generation === this.remoteSettingsGeneration) this.saveError = sanitizeError(error);
       }
-      if (this.closed) return;
-      this.remoteRevision = (this.remoteRevision ?? 0) + 1;
+      if (this.closed || generation !== this.remoteSettingsGeneration) return;
+      this.remoteSettingsTask = null;
+      // Invalidate results from requests that began while the write was pending.
+      this.remoteSettingsGeneration += 1;
+      this.remoteRevision += 1;
       this.scheduleDashboard(writeCx, { force: true });
       // A newer toggle may have cancelled an earlier write that enabled a
       // machine; syncing every enabled machine covers both.
@@ -1193,7 +1199,7 @@ export default class Insights extends View {
   }
 
   scheduleDashboard(cx, { force = false } = {}) {
-    if (!this.snapshot || !this.nodeBinary || this.runtimeError) return;
+    if (!this.snapshot || !this.nodeBinary || this.runtimeError || this.remoteSettingsTask) return;
     const options = this.dashboardOptions();
     const key = presentationKey(this.snapshot, options);
     if (!force && this.dashboard && this.dashboardKey === key) return;
@@ -1297,6 +1303,7 @@ export default class Insights extends View {
     const presenter = this.presenterPath();
     const store = this.storePath();
     const options = this.dashboardOptions();
+    const remoteSettingsGeneration = this.remoteSettingsGeneration;
     this.activityTask = cx.spawn(async (refreshCx) => {
       let payload = null;
       let failure = null;
@@ -1330,7 +1337,7 @@ export default class Insights extends View {
       if (!payload || generation !== this.activityGeneration) return;
       this.error = null;
       try {
-        this.applySnapshot(payload, refreshCx);
+        this.applySnapshot(payload, refreshCx, remoteSettingsGeneration);
       } catch (error) {
         this.error = sanitizeError(error);
         refreshCx.notify();
@@ -1382,12 +1389,13 @@ export default class Insights extends View {
     this.syncRemotes(cx);
   }
 
-  applySnapshot(payload, cx) {
+  applySnapshot(payload, cx, remoteSettingsGeneration = this.remoteSettingsGeneration) {
     if (!isPresentation(payload)) throw new Error("The presentation helper returned an unexpected dashboard payload.");
     const snapshot = payload.snapshot;
     this.cancelDashboardWork();
     this.snapshot = snapshot;
-    if (Array.isArray(snapshot.remoteDisabled)) this.remoteDisabled = snapshot.remoteDisabled;
+    const currentRemoteSettings = !this.remoteSettingsTask && remoteSettingsGeneration === this.remoteSettingsGeneration;
+    if (currentRemoteSettings && Array.isArray(snapshot.remoteDisabled)) this.remoteDisabled = snapshot.remoteDisabled;
     this.applyRemoteContext(snapshot, cx);
     const savedConfig = normalizeConfig(snapshot.config);
     const today = todayKey();
@@ -1402,7 +1410,7 @@ export default class Insights extends View {
     // interruption there can never bring back a permanent Preparing screen.
     const optionsNow = this.dashboardOptions();
     const key = presentationKey(snapshot, optionsNow);
-    if (payload.dashboard && sameOptions(payload.options, optionsNow)) {
+    if (currentRemoteSettings && payload.dashboard && sameOptions(payload.options, optionsNow)) {
       this.dashboard = payload.dashboard;
       this.dashboardKey = key;
       this.dashboardError = payload.error ? sanitizeError(payload.error) : null;
@@ -1613,6 +1621,7 @@ export default class Insights extends View {
     const presenter = this.presenterPath();
     const store = this.storePath();
     const options = this.dashboardOptions();
+    const remoteSettingsGeneration = this.remoteSettingsGeneration;
     this.activityTask = cx.spawn(async (saveCx) => {
       let payload = null;
       let failure = null;
@@ -1655,7 +1664,7 @@ export default class Insights extends View {
       this.error = null;
       this.saveError = null;
       try {
-        this.applySnapshot(payload, saveCx);
+        this.applySnapshot(payload, saveCx, remoteSettingsGeneration);
         this.saveMessage = draftUnchanged ? "Configuration saved." : "Saved. Newer edits are still unsaved.";
       } catch (error) {
         this.saveError = sanitizeError(error);
