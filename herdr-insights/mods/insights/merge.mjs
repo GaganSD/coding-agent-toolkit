@@ -4,6 +4,7 @@
 // allowlist; a bad record is skipped with a warning and never breaks the
 // dashboard. Rows from this computer carry `machine: null`.
 import { isPlainObject, toNonNegInt, tokenTotal } from "./core/util.mjs";
+import { hasScanFailure } from "./remote.mjs";
 
 export const REMOTE_RECORD_VERSION = 1;
 
@@ -114,6 +115,8 @@ export function mergeSnapshots(local, records) {
       name: record.machine,
       status,
       rowCount,
+      warningCount: toNonNegInt(record.snapshot?.warningCount),
+      scanFailed: hasScanFailure(record.snapshot?.scan),
       fetchedAt: typeof record.fetchedAt === "string" ? record.fetchedAt : null,
       lastCompletedScanAt: typeof record.snapshot?.lastCompletedScanAt === "string"
         ? record.snapshot.lastCompletedScanAt

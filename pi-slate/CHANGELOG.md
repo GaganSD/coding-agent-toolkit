@@ -3,6 +3,7 @@
 ## Unreleased
 
 * Added an optional `shortcuts.sidebar` binding for the saved `/slate focused` toggle.
+* Focused mode now shows the thinking level beside the model on the composer's bottom edge, leaving context and MCP status on top.
 
 ## 0.4.1
 

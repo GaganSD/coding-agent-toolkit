@@ -191,7 +191,7 @@ export function toggleSwitch(id, checked, onChange, c, options = {}) {
     .cursor_pointer().pressed(checked)
     .accessibility_label(options.label ?? "Toggle")
     .on_change((next, cx) => {
-      onChange(next);
+      onChange(next, cx);
       cx.notify();
     })
     .hover((style) => style.border_color(checked ? c.primary : c.input))

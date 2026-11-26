@@ -7,6 +7,11 @@ export const PRESENTATION_VERSION = 1;
 // Machine filter value for rows from this computer. Remote machine names never
 // contain "/", so this cannot collide with one.
 export const THIS_COMPUTER = "/this-computer";
+const REMOTE_NAMED_ALL = "/machine/all";
+
+export function machineFilterValue(name) {
+  return name === "all" ? REMOTE_NAMED_ALL : name;
+}
 export const DEFAULT_SOURCES = [
   {
     id: "pi",
@@ -387,7 +392,8 @@ function filterRowsByMachine(rows, machine) {
   const selected = cleanFilter(machine);
   if (!selected) return rows;
   if (selected === THIS_COMPUTER) return rows.filter((row) => row?.machine === null || row?.machine === undefined);
-  return rows.filter((row) => row?.machine === selected);
+  const name = selected === REMOTE_NAMED_ALL ? "all" : selected;
+  return rows.filter((row) => row?.machine === name);
 }
 
 export function filterRows(rows, filters = {}) {
@@ -1102,6 +1108,7 @@ export function compactDashboard(derived) {
   return {
     config: derived?.config ?? {},
     machines: Array.isArray(derived?.snapshot?.machines) ? derived.snapshot.machines : [],
+    remoteTimeZone: derived?.snapshot?.remoteTimeZone ?? null,
     years: derived?.years ?? [],
     filters: derived?.filters ?? {},
     period: derived?.period,
@@ -1160,6 +1167,12 @@ function markdownChange(entry) {
     : String(change.label ?? "—");
 }
 
+export function machineLabel(value) {
+  if (!value || value === "all") return "All machines";
+  if (value === THIS_COMPUTER) return "This computer";
+  return value === REMOTE_NAMED_ALL ? "all" : value;
+}
+
 /**
  * A portable Markdown report of one prepared dashboard. Pure: it reads only the
  * compact presentation already held by the view, so exporting never rescans,
@@ -1179,6 +1192,9 @@ export function dashboardMarkdown(dashboard, options = {}) {
   const filters = dashboard.filters ?? {};
   const rangeLabel = range.label ?? (dashboard.period === "all" ? "All time" : "Selected period");
   const filterLabel = (value) => (!value || value === "all" ? "All" : markdownCell(value));
+  const lifetimeScope = !filters.machine || filters.machine === "all"
+    ? "every session on the included machines"
+    : "sessions from the selected machine";
   const dataThrough = dashboard.today ?? range.end ?? "";
   const selectedDay = isDay(dashboard.selectedDay) ? dashboard.selectedDay : dataThrough;
   const lines = [];
@@ -1187,9 +1203,14 @@ export function dashboardMarkdown(dashboard, options = {}) {
   lines.push(`- Generated: ${generated || "unknown"} (local)`);
   lines.push(`- Data through: ${dayLabel(dataThrough) || "unknown"}`);
   lines.push(`- Period: ${rangeLabel}${range.start && range.end ? ` (${range.start} to ${range.end})` : ""}`);
+  lines.push(`- Machine: ${markdownCell(machineLabel(filters.machine))}`);
+  const hasRemote = (dashboard.machines ?? []).some((machine) => machine?.name != null);
+  if (hasRemote && dashboard.remoteTimeZone && filters.machine !== THIS_COMPUTER) {
+    lines.push(`- Remote usage timezone: ${markdownCell(dashboard.remoteTimeZone)}`);
+  }
   lines.push(`- Filters: Provider: ${filterLabel(filters.provider)} · Model: ${filterLabel(filters.model)}`);
   lines.push(`- Tokens: input + output${includeCache ? " + cache reads + cache writes" : " (cache excluded)"}`);
-  lines.push("", "Lifetime and token history cover every session. Model usage follows the selected period and filters.", "");
+  lines.push("", `Lifetime and token history cover ${lifetimeScope}. Model usage follows the selected period and filters.`, "");
 
   lines.push("## Lifetime", "");
   lines.push("| Metric | Value |", "| --- | ---: |");
