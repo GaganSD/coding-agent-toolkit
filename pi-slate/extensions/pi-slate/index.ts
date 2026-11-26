@@ -30,7 +30,7 @@ import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
 import { Sidebar } from "./sidebar.ts";
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
-import { inspectSidebarText } from "./sidebar-inspector.ts";
+import { inspectSidebarText, type SidebarInspectorText } from "./sidebar-inspector.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
 import { ContextUsageCache } from "./context-usage.ts";
@@ -83,7 +83,7 @@ import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
-import { SubagentShelf, type SubagentTask } from "./background-tasks.ts";
+import { BackgroundTaskShelf, type BackgroundTask } from "./background-tasks.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
   waves: "Waves",
@@ -239,7 +239,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
   let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage>; perf: ReturnType<typeof branchPerf> } | undefined;
   let inspectingSidebar = false;
-  let subagentTasks: SubagentTask[] = [];
+  let subagentTasks: BackgroundTask[] = [];
   let sidebarYielded = false;
   let sessionEpoch = 0;
   let currentContext: ExtensionContext | undefined;
@@ -307,7 +307,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (editorActive()) contextRepaintPending = activeEditor.needsContextRepaint() && !requestNecessaryRender(activeTui);
     } catch { /* Keep the check pending if the host is temporarily unavailable. */ }
   };
-  const subagentShelf = new SubagentShelf(tasks => {
+  const subagentShelf = new BackgroundTaskShelf(tasks => {
     subagentTasks = [...tasks];
     if (owns("sidebar") && !sidebarYielded) sidebar.setSubagents(subagentTasks);
     updateContextEdge(contextEdge);
@@ -436,7 +436,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   const stopDashboard = (): void => {
     clearInterval(dashboardClock); dashboardClock = undefined;
   };
-  const inspect = (ctx: ExtensionContext, title: string, text: string): void => {
+  const inspect = (ctx: ExtensionContext, title: string, text: SidebarInspectorText): void => {
     if (inspectingSidebar || ctx.mode !== "tui") return;
     inspectingSidebar = true;
     void inspectSidebarText(ctx, sidebarText(title), text).catch(() => { try { ctx.ui.notify("Sidebar details unavailable", "warning"); } catch { /* Session UI may be gone. */ } })

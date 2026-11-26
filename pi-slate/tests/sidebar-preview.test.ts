@@ -12,10 +12,12 @@ import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
 import { sidebarUsage, SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
+import type { SidebarInspectorText } from "../extensions/pi-slate/sidebar-inspector.ts";
 
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
+const inspectorText = (text: SidebarInspectorText): string => typeof text === "function" ? text() : text;
 const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12, saved: null }, perf: perfFixture(1000) };
 const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null, saved: null };
 const resources: SidebarResources = {
@@ -91,7 +93,7 @@ for (const method of ["view", "legacy", "throwing"] as const) {
     sidebar.setResources({ ...resources, mcp: resources.mcp.map(server => ({ ...server, source: "project" })) });
     assert.deepEqual([view, full, forced], counts);
     let detail = "";
-    sidebar.setActions({ copy() {}, openFile() {}, inspect(_title, text) { detail = text; } });
+    sidebar.setActions({ copy() {}, openFile() {}, inspect(_title, text) { detail = inspectorText(text); } });
     pane().handleMouse?.(mouse(serverRow));
     assert.match(detail, /Source: project/, "unchanged rows still get current details and hit regions");
     const wheel = mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 });
@@ -383,8 +385,8 @@ test("foldable MCP and Skills sections persist independently and keep counts vis
 });
 
 test("prompts section folds, scrolls, inspects and shows none when empty", () => {
-  const { sidebar } = fixture(); const inspected: string[] = []; const texts: string[] = [];
-  sidebar.setActions({ copy() {}, openFile() {}, inspect: (title, text) => { inspected.push(title); texts.push(text); } });
+  const { sidebar } = fixture(); const inspected: string[] = []; const texts: string[] = []; const textTypes: string[] = [];
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (title, text) => { inspected.push(title); textTypes.push(typeof text); texts.push(inspectorText(text)); } });
   const collapsed = plain(sidebar.render(40));
   assert(collapsed.some(line => line.includes("› Prompts · 6")), "collapsed heading keeps the count");
   assert(!collapsed.some(line => line.includes("prompt-0")));
@@ -399,6 +401,7 @@ test("prompts section folds, scrolls, inspects and shows none when empty", () =>
   assert(!expanded.some(line => line.includes("1–3 / 6")), "scroll range indicator removed");
   sidebar.handleMouse(mouse(row(sidebar, "prompt-0")));
   assert.deepEqual(inspected, ["prompt-0"]);
+  assert.deepEqual(textTypes, ["string"], "ordinary inspectors keep their static string input");
   assert(texts[0]!.includes("Prompt 0 description") && texts[0]!.includes("Source: prompt"));
   sidebar.handleMouse(mouse(row(sidebar, "prompt-0"), { type: "wheel", wheelDelta: -2 }));
   const scrolled = plain(sidebar.render(40));
@@ -408,22 +411,40 @@ test("prompts section folds, scrolls, inspects and shows none when empty", () =>
   assert(plain(sidebar.render(40)).some(line => line.trim() === "none"));
 });
 
-test("subagents section shows active public rows and opens snapshot details", () => {
+test("an open subagent inspector follows source and id updates with snapshot fallback", () => {
   const { sidebar } = fixture();
-  const details: string[] = [];
-  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  let inspectedTitle = ""; let details: SidebarInspectorText | undefined;
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (title, text) => { inspectedTitle = title; details = text; } });
   sidebar.setSubagents([
-    { id: "run-a", label: "reviewer: inspect parser", state: "running", pid: 42, detail: "model · medium" },
-    { id: "run-b", label: "tester: cover parser", state: "waiting" },
+    { source: "pi-subagents", id: "run-a", label: "reviewer: inspect parser", name: "reviewer", task: "inspect parser", transcript: "first transcript", state: "running", pid: 42, detail: "model · medium" },
+    { source: "compatible-publisher", id: "run-b", label: "tester: cover parser", state: "waiting" },
   ]);
   assert(plain(sidebar.render(40)).some(line => line.includes("Subagents · 2 Active")));
   sidebar.handleMouse(mouse(row(sidebar, "Subagents")));
   assert.equal(sidebar.getFolds().subagents, true);
-  sidebar.handleMouse(mouse(row(sidebar, "reviewer: inspect parser")));
-  assert.match(details[0]!, /State: running\nRun: run-a\nPID: 42/);
-  assert.match(details[0]!, /model · medium/);
+  assert(plain(sidebar.render(40)).some(line => line.includes("reviewer · active")));
+  assert(plain(sidebar.render(40)).some(line => line.includes("tester: cover parser · wait")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("inspect parser · active")));
+  sidebar.handleMouse(mouse(row(sidebar, "reviewer · active")));
+  assert.equal(inspectedTitle, "reviewer");
+  assert.equal(typeof details, "function");
+  assert.match(inspectorText(details!), /Source: pi-subagents\nState: active\nRun: run-a\nPID: 42/);
+  assert.match(inspectorText(details!), /model · medium[\s\S]*Transcript:\nfirst transcript/);
+
+  sidebar.setSubagents([
+    { source: "pi-subagents", id: "run-a", label: "reviewer: inspect parser", name: "renamed", task: "inspect parser", transcript: "updated transcript", state: "waiting" },
+  ]);
+  assert.match(inspectorText(details!), /State: wait[\s\S]*Transcript:\nupdated transcript/);
+  assert.equal(inspectedTitle, "reviewer", "the open inspector keeps its clicked title");
+
+  sidebar.setSubagents([
+    { source: "compatible-publisher", id: "run-a", label: "same id, other source", transcript: "wrong transcript", state: "running" },
+  ]);
+  const fallback = inspectorText(details!);
+  assert.match(fallback, /State: active[\s\S]*Transcript:\nfirst transcript/);
+  assert(!fallback.includes("wrong transcript"), "lookup is keyed by source and id");
   sidebar.setSubagents([]);
-  assert(!plain(sidebar.render(40)).some(line => line.includes("reviewer: inspect parser")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("reviewer · active")));
   assert(plain(sidebar.render(40)).some(line => line.trim() === "none"));
 });
 
@@ -436,7 +457,7 @@ test("a failed preference save cannot change the visible fold state", () => {
 
 test("resource status glyphs distinguish unknown MCP state without color or redundant labels", () => {
   const { sidebar } = fixture(); const details: string[] = [];
-  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(inspectorText(text)) });
   sidebar.setResources({ ...resources, mcp: [
     { name: "enabled-server", enabled: true, source: "global" },
     { name: "disabled-server", enabled: false, source: "global" },
@@ -555,7 +576,7 @@ test("unknown values and invalid MCP config remain explicit even when folded", (
 test("unknown MCP declarations are neutral when folded or expanded and inspection explains the boundary", () => {
   const { sidebar } = fixture();
   const details: string[] = [];
-  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(inspectorText(text)) });
   sidebar.setResources({ ...resources, mcp: [{ name: "unknown-server", enabled: null, source: "global" }] });
   const folded = plain(sidebar.render(80));
   assert(folded.some(line => line.includes("› MCP · —")));

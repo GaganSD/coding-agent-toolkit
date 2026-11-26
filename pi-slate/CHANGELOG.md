@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added a read-only Subagents shelf backed by `pi-subagents` public `pi:background-tasks` v1 snapshots. It requests current session state, bounds untrusted rows and text, clears across session and extension lifecycles, opens public snapshot details on click, and shows the active count on the focused composer edge. Settled tasks leave the shelf; Slate adds no outcome or control semantics.
+- Added a read-only Subagents shelf for compatible publishers of public `pi:background-tasks` v1 snapshots, with tested support for `pi-subagents`. Slate keeps the latest snapshot for each bounded source, separates matching task IDs by source, combines rows under a global display limit, and lets an empty snapshot clear only its publisher. Rows use the optional bounded `name` instead of the task prompt and map states to `idle`, `active`, or `wait`. The inspector retains `label`/`detail` compatibility and appends optional bounded `task` and `transcript` content. Transcript retention is capped at 256 lines or 32,768 characters per task and 524,288 characters across publishers. Slate requests current session state with the generic request event, clears every source across session and extension lifecycles, identifies the source in click details, and shows the combined active count on the focused composer edge. Settled tasks leave the shelf; Slate adds no outcome or control semantics.
 
 ## 0.4.1
 

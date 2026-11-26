@@ -240,11 +240,20 @@ test("background task snapshots request current state, stay session scoped, and 
   const owner = f.manager.getSessionId();
   assert(f.eventEmissions.some(event => event.name === "pi:background-tasks:request"
     && (event.value as { version?: number; sessionId?: string }).version === 1
-    && (event.value as { sessionId?: string }).sessionId === owner));
+    && (event.value as { sessionId?: string }).sessionId === owner
+    && !("source" in (event.value as object))));
   const publication = { version: 1, source: "pi-subagents", sessionId: owner, tasks: [
     { id: "run-a", kind: "subagent", label: "reviewer: inspect parser", state: "running", detail: "public detail" },
   ] };
   f.publishEvent("pi:background-tasks", publication);
+  assert.match(f.composer!.render(100)[0]!, /1 subagent/);
+  assert.match(railOf(f).render(40).join("\n"), /Subagents.*1 Active/);
+
+  f.publishEvent("pi:background-tasks", { ...publication, source: "compatible-publisher" });
+  assert.match(f.composer!.render(100)[0]!, /2 subagents/);
+  assert.match(railOf(f).render(40).join("\n"), /Subagents.*2 Active/);
+
+  f.publishEvent("pi:background-tasks", { ...publication, tasks: [] });
   assert.match(f.composer!.render(100)[0]!, /1 subagent/);
   assert.match(railOf(f).render(40).join("\n"), /Subagents.*1 Active/);
 

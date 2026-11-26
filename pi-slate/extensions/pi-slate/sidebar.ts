@@ -10,7 +10,8 @@ import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, t
 import { contextRows, formatCacheHit, formatCountdown, formatRate, perfRows, type PerfInput } from "./perf-graphics.ts";
 import { EMPTY_PERF } from "./perf-stats.ts";
 import { sameLines } from "./render-lines.ts";
-import { subagentTaskDetails, type SubagentTask } from "./background-tasks.ts";
+import { backgroundTaskDetails, backgroundTaskStatus, backgroundTaskTitle, type BackgroundTask } from "./background-tasks.ts";
+import type { SidebarInspectorText } from "./sidebar-inspector.ts";
 
 export const DOUBLE_CLICK_MS = 400;
 type ListName = "subagents" | "mcp" | "skills" | "prompts";
@@ -28,7 +29,7 @@ const HEADER_GAP: Row = { text: "" };
 export type SidebarActions = {
   copy(text: string): void;
   openFile(filePath: string): void;
-  inspect?(title: string, text: string): void;
+  inspect?(title: string, text: SidebarInspectorText): void;
   persistWidth?(percent: number | undefined): void;
   persistFold?(section: keyof SidebarFolds, expanded: boolean): SidebarFolds | undefined;
 };
@@ -57,7 +58,7 @@ export class Sidebar implements Component {
   get splitActive(): boolean { return this.splitDispose?.active() === true; }
   private session: SidebarSession = EMPTY_SESSION;
   private resources: SidebarResources = EMPTY_RESOURCES;
-  private subagents: SubagentTask[] = [];
+  private subagents: BackgroundTask[] = [];
   private folds: SidebarFolds = { ...DEFAULT_SIDEBAR_FOLDS };
   private offsets: Record<ListName, number> = { subagents: 0, mcp: 0, skills: 0, prompts: 0 };
   private middleOffset = 0;
@@ -115,7 +116,7 @@ export class Sidebar implements Component {
     this.resources = { ...resources, mcp: resources.mcp.map(x => ({ ...x })), skills: resources.skills.map(x => ({ ...x })), commands: resources.commands.map(x => ({ ...x })), prompts: resources.prompts.map(x => ({ ...x })) };
     this.changed();
   }
-  setSubagents(tasks: readonly SubagentTask[]): void {
+  setSubagents(tasks: readonly BackgroundTask[]): void {
     this.subagents = tasks.map(task => ({ ...task, ...(task.usage ? { usage: { ...task.usage } } : {}) }));
     this.changed();
   }
@@ -346,8 +347,11 @@ export class Sidebar implements Component {
     const rows: Row[] = [];
     for (let i = this.offsets.subagents; i < Math.min(this.subagents.length, this.offsets.subagents + visible); i++) {
       const task = this.subagents[i]!;
-      rows.push({ text: this.paint("muted", sidebarText(task.label, 160)), list: "subagents", item: i,
-        action: () => this.actions?.inspect?.(task.label, subagentTaskDetails(task)) });
+      const title = backgroundTaskTitle(task);
+      const source = task.source; const id = task.id;
+      rows.push({ text: this.paint("muted", sidebarText(`${title} · ${backgroundTaskStatus(task.state)}`, 180)), list: "subagents", item: i,
+        action: () => this.actions?.inspect?.(title, () => backgroundTaskDetails(
+          this.subagents.find(candidate => candidate.source === source && candidate.id === id) ?? task)) });
     }
     return rows;
   }

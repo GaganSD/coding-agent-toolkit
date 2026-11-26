@@ -12,6 +12,9 @@ test("display snapshots preserve exact owner/id and state without exporting auth
   assert.equal(snapshot.version, 1); assert.equal(snapshot.source, "pi-subagents"); assert.equal(snapshot.sessionId, "owner");
   assert.deepEqual(snapshot.tasks.map(task => task.state), ["running", "waiting", "cleanup_unknown"]);
   assert.equal(snapshot.tasks[0]!.id, "running"); assert.equal(snapshot.tasks[0]!.pid, 42);
+  assert.equal(snapshot.tasks[0]!.name, "reviewer"); assert.equal(snapshot.tasks[0]!.task, "Review the changes");
+  assert.equal(snapshot.tasks[0]!.label, "reviewer: Review the changes", "legacy display consumers keep label compatibility");
+  assert(!("transcript" in snapshot.tasks[0]!), "the publisher does not read native session transcripts for display snapshots");
   assert.equal(snapshot.tasks[0]!.startedAt, Date.parse("2026-10-09T12:00:00.000Z"));
   assert.deepEqual(backgroundTaskSnapshot("owner", [run("failed")]).tasks, []);
   assert.match(snapshot.tasks[0]!.detail, /PID is shared/);
@@ -38,8 +41,10 @@ test("usage totals include settled spend, exclude unknown accounting, and do not
 });
 
 test("task labels are bounded, a blank snapshot clears only this owner's source", () => {
-  const snapshot = backgroundTaskSnapshot("owner", [{ ...run("starting"), task: "x ".repeat(10000) }]);
+  const snapshot = backgroundTaskSnapshot("owner", [{ ...run("starting"), agent: "n".repeat(1000), task: "x ".repeat(10000) }]);
   assert(snapshot.tasks[0]!.label.length < 200);
+  assert.equal(snapshot.tasks[0]!.name.length, 160);
+  assert.equal(snapshot.tasks[0]!.task.length, 8192);
   assert.deepEqual(backgroundTaskSnapshot("owner", []), { version: 1, source: "pi-subagents", sessionId: "owner", totals: { runs: 0, measuredRuns: 0 }, tasks: [] });
 });
 
