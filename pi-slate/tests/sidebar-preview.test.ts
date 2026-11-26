@@ -16,8 +16,8 @@ import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
-const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12, saved: null }, perf: perfFixture(1000) };
-const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null, saved: null };
+const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cacheSeen: true, cost: 0.12 }, perf: perfFixture(1000) };
+const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cacheSeen: false, cost: null };
 const resources: SidebarResources = {
   mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
   skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
@@ -301,7 +301,7 @@ test("speed and cache replace the usage lane; full accounting stays in details",
 test("header height follows the terminal tier and its divider closes the header", () => {
   const { sidebar, terminal } = fixture();
   sidebar.setSession({ ...session, name: "Slate session title" });
-  for (const [rows, header] of [[60, 15], [44, 15], [43, 14], [30, 14]] as const) {
+  for (const [rows, header] of [[60, 14], [44, 14], [43, 14], [30, 14]] as const) {
     terminal.rows = rows;
     assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), header, `rows ${rows}`);
   }
@@ -681,7 +681,7 @@ test("the first reply fills the performance charts without shifting the resource
 });
 
 const perfPreviewSession: SidebarSession = { ...session, working: false, lastTurnMs: 95_000, turns: 1,
-  usage: { input: 118_378, output: 1700, total: 120_078, cacheRead: 87_600, cacheWrite: 578, uncached: 30_200, cacheSeen: true, cost: 0.09, saved: null },
+  usage: { input: 118_378, output: 1700, total: 120_078, cacheRead: 87_600, cacheWrite: 578, uncached: 30_200, cacheSeen: true, cost: 0.09 },
   perf: { timedReplies: 10, rates: [9, 16, 12, 20, 21, 17, 24, 20, 27.2, 22.4], peak: 27.2,
     turn: { output: 1700, rate: 20.9 }, cache: { lastHit: 0.74 } } };
 
@@ -724,16 +724,15 @@ test("performance cards switch at 28 inner columns and align within the painted 
   }
 });
 
-test("full-tier performance previews retain cache savings", () => {
+test("full-tier performance previews show no cache savings estimate", () => {
   const { sidebar } = fixture(60);
-  sidebar.setSession({ ...perfPreviewSession, usage: { ...perfPreviewSession.usage, input: 117_800, total: 119_500, cacheWrite: 0, saved: 12.34 } });
+  sidebar.setSession({ ...perfPreviewSession, usage: { ...perfPreviewSession.usage, input: 117_800, total: 119_500, cacheWrite: 0 } });
   for (const inner of [24, 30, 47, 49, 52]) {
     const painted = sidebar.render(inner + 4);
     const lines = plain(painted);
     const speed = lines.findIndex(line => line.startsWith("SPEED"));
     const divider = lines.findIndex(line => line.startsWith("├"));
-    const perf = lines.slice(speed, divider).join("\n");
-    assert.match(perf, /saved ~\$12\.34/);
+    assert.doesNotMatch(lines.slice(speed, divider).join("\n"), /\bsaved\b/);
     assert(painted.every(line => visibleWidth(line) === inner + 4));
   }
 });

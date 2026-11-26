@@ -6,7 +6,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatCompactTokenCount } from "./layout.ts";
 import { sidebarCacheHit, type SidebarUsage } from "./sidebar-data.ts";
-import { sidebarCost, sidebarPerfColumns, type SidebarTier } from "./sidebar-layout.ts";
+import { sidebarPerfColumns, type SidebarTier } from "./sidebar-layout.ts";
 import type { SidebarPerf } from "./perf-stats.ts";
 
 export type Tone = "text" | "muted" | "dim" | "accent" | "success" | "warning" | "error" | "mdHeading";
@@ -205,7 +205,6 @@ export function formatCacheHit(rate: number | null): string {
 }
 
 const CACHE_TOKEN_WIDTHS = ["read 87.6k", "new 30.2k"].map(visibleWidth);
-const CACHE_SAVED_WIDTH = visibleWidth("saved ~$12.34");
 const CACHE_HIT_WIDTH = visibleWidth("99.99% hit");
 
 /** Headline uses the same branch totals as the bar. */
@@ -222,25 +221,19 @@ function cacheBar(i: PerfInput): string {
   return r || other ? paint("accent", "━".repeat(r)) + paint("muted", "━".repeat(other)) : baseline(i);
 }
 
-function cacheSection(i: PerfInput): { rows: string[]; footerSlot: boolean } {
+function cacheSection(i: PerfInput): string[] {
   const { usage } = i;
   const tone = usage.total === 0 ? "muted" : undefined;
   const bar = cacheBar(i);
   const tokens = [detailStat("read", formatCompactTokenCount(usage.cacheRead), tone),
     detailStat("new", formatCompactTokenCount(usage.uncached), tone)];
   const heading = statRows(i, [cacheHit(i)], DOT, "CACHE", CACHE_HIT_WIDTH);
-  const saved = i.tier === "full" && nonneg(usage.saved) ? detailStat("saved", `~${sidebarCost(usage.saved)}`) : null;
-  const splitSaved = i.tier === "full" && rowBudget(i, [...CACHE_TOKEN_WIDTHS, CACHE_SAVED_WIDTH]) > 1;
-  const details = shapedRows(i, saved && !splitSaved ? [...tokens, saved] : tokens, [...CACHE_TOKEN_WIDTHS, CACHE_SAVED_WIDTH]);
-  // A wrapped savings stat gets a reserved row so its first appearance cannot move the rail.
-  const footer = splitSaved ? padRows(saved ? statRows(i, [saved]) : [], 1) : [];
-  return { rows: [...heading, bar, ...details, ...footer], footerSlot: splitSaved };
+  return [...heading, bar, ...shapedRows(i, tokens, CACHE_TOKEN_WIDTHS)];
 }
 
 /** The narrow-rail layout: SPEED above CACHE, each a full-width section. */
 export function stackedPerfRows(i: PerfInput): Array<Array<string | null>> {
-  const cache = cacheSection(i);
-  return [[...speedRows(i), null], cache.footerSlot ? cache.rows : [...cache.rows, null]];
+  return [[...speedRows(i), null], [...cacheSection(i), null]];
 }
 
 // ---- side-by-side cards -----------------------------------------------------------------------
@@ -266,11 +259,9 @@ function speedCard(i: PerfInput): string[] {
 function cacheCard(i: PerfInput): string[] {
   const { usage } = i;
   const tone = usage.total === 0 ? "muted" : undefined;
-  const rows = [i.heading("CACHE"), paintSegs(i, cacheHit(i)), cacheBar(i),
+  return [i.heading("CACHE"), paintSegs(i, cacheHit(i)), cacheBar(i),
     cardStat(i, "read", 6, formatCompactTokenCount(usage.cacheRead), tone),
     cardStat(i, "new", 6, formatCompactTokenCount(usage.uncached), tone)];
-  if (i.tier === "full") rows.push(nonneg(usage.saved) ? cardStat(i, "saved", 6, `~${sidebarCost(usage.saved)}`) : "");
-  return rows;
 }
 
 /** Null is a droppable separator; empty strings are reserved content rows. */
