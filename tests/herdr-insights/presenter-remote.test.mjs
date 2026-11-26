@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { THIS_COMPUTER } from "../../herdr-insights/mods/insights/analytics.js";
+import { dashboardMarkdown, THIS_COMPUTER } from "../../herdr-insights/mods/insights/analytics.js";
 import { run } from "../../herdr-insights/mods/insights/presenter.mjs";
 import { rowsFileText, stateFileText, timeZoneStoreKey } from "../../herdr-insights/mods/insights/remote.mjs";
 
@@ -58,6 +58,19 @@ test("prepare loads only remote snapshots for its own timezone", async (t) => {
   const payload = await prepare(ctx);
   assert.equal(payload.snapshot.remoteTimeZone, ctx.timeZone);
   assert.equal(payload.dashboard.lifetime.total, 3);
+});
+
+test("export names the timezone used to group remote usage by day", async (t) => {
+  const ctx = await context(t);
+  await ctx.save("box", [row("2026-11-13", "a", 3)]);
+  const { dashboard } = await prepare(ctx, { filters: { machine: "box" } });
+  assert.ok(dashboardMarkdown(dashboard).includes(`- Remote usage timezone: ${ctx.timeZone}\n`));
+});
+
+test("export omits the remote timezone when no remote machine exists", async (t) => {
+  const ctx = await context(t);
+  const { dashboard } = await prepare(ctx, {});
+  assert.ok(!dashboardMarkdown(dashboard).includes("Remote usage timezone"));
 });
 
 test("prepare merges saved remote machines next to the store", async (t) => {

@@ -1102,6 +1102,7 @@ export function compactDashboard(derived) {
   return {
     config: derived?.config ?? {},
     machines: Array.isArray(derived?.snapshot?.machines) ? derived.snapshot.machines : [],
+    remoteTimeZone: derived?.snapshot?.remoteTimeZone ?? null,
     years: derived?.years ?? [],
     filters: derived?.filters ?? {},
     period: derived?.period,
@@ -1197,6 +1198,10 @@ export function dashboardMarkdown(dashboard, options = {}) {
   lines.push(`- Data through: ${dayLabel(dataThrough) || "unknown"}`);
   lines.push(`- Period: ${rangeLabel}${range.start && range.end ? ` (${range.start} to ${range.end})` : ""}`);
   lines.push(`- Machine: ${markdownCell(machineLabel(filters.machine))}`);
+  const hasRemote = (dashboard.machines ?? []).some((machine) => machine?.name != null);
+  if (hasRemote && dashboard.remoteTimeZone && filters.machine !== THIS_COMPUTER) {
+    lines.push(`- Remote usage timezone: ${markdownCell(dashboard.remoteTimeZone)}`);
+  }
   lines.push(`- Filters: Provider: ${filterLabel(filters.provider)} · Model: ${filterLabel(filters.model)}`);
   lines.push(`- Tokens: input + output${includeCache ? " + cache reads + cache writes" : " (cache excluded)"}`);
   lines.push("", `Lifetime and token history cover ${lifetimeScope}. Model usage follows the selected period and filters.`, "");
