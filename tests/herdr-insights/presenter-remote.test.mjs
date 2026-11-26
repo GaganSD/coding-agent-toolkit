@@ -89,12 +89,13 @@ test("prepare merges saved remote machines next to the store", async (t) => {
 test("prepare gives the dashboard a warning count for the affected remote machine", async (t) => {
   const ctx = await context(t);
   await ctx.save("box", [row("2026-11-12", "a", 7)], {
-    details: { warningCount: 2, warnings: ["Could not read /private/remote/session.jsonl"] },
+    details: { warningCount: 2, warnings: ["Could not read /private/remote/session.jsonl"], scan: { status: "partial", failed: true } },
   });
   await ctx.save("vps", [row("2026-11-13", "a", 3)]);
   const payload = await prepare(ctx);
   assert.equal(payload.dashboard.lifetime.total, 10);
   assert.equal(payload.dashboard.machines.find((machine) => machine.name === "box").warningCount, 2);
+  assert.equal(payload.dashboard.machines.find((machine) => machine.name === "box").scanFailed, true);
   assert.equal(payload.dashboard.machines.find((machine) => machine.name === "vps").warningCount, 0);
   assert.doesNotMatch(JSON.stringify(payload), /\/private\/remote/);
 });

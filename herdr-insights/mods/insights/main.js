@@ -50,7 +50,7 @@ import {
   toggleSwitch,
   tokens,
 } from "./ui.js";
-import { isTimeZoneId, machineFileStem, rowsFileText, stateFileText, syncMachine, timeZoneStoreKey } from "./remote.mjs";
+import { hasScanFailure, isTimeZoneId, machineFileStem, rowsFileText, stateFileText, syncMachine, timeZoneStoreKey } from "./remote.mjs";
 
 const MIN_CELL = 12;
 const MAX_CELL = 20;
@@ -219,11 +219,14 @@ export function machineStatusText(machine, live = {}) {
   const count = machine?.warningCount ?? 0;
   const warnings = count > 0 ? ` · ${formatInt(count)} scan warning${count === 1 ? "" : "s"}` : "";
   const scan = live.error ? null : live.scan;
+  const error = live.error ?? machine?.error ?? null;
+  if (!error && (scan ? hasScanFailure(scan) : machine?.scanFailed)) {
+    return "Indexing failed · usage may be incomplete" + warnings;
+  }
   if (scan && REMOTE_CONTINUE_MS[scan.status]) {
     const status = scan.total > 0 ? `Indexing ${formatInt(scan.processed)} of ${formatInt(scan.total)} files` : "Indexing…";
     return status + warnings;
   }
-  const error = live.error ?? machine?.error ?? null;
   if (!machine?.fetchedAt) return error ? `Unavailable: ${error}` : "Waiting for first sync";
   const synced = formatTimestamp(machine.fetchedAt);
   return (error ? `Offline · last synced ${synced}` : `Synced ${synced}`) + warnings;

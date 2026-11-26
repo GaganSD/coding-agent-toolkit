@@ -51,6 +51,7 @@ async function rows(argv) {
     rows: encoded,
     scan: {
       status: typeof scan.status === "string" ? scan.status : "idle",
+      failed: scan.status === "failed" || Boolean(scan.error),
       processed: Number.isInteger(scan.processed) ? scan.processed : 0,
       total: Number.isInteger(scan.total) ? scan.total : 0,
       live: scan.live ? {

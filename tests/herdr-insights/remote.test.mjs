@@ -174,6 +174,28 @@ async function exists(file) {
   }
 }
 
+test("the remote worker flags a failed scan without disclosing its error path", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "insights-remote-failed-scan-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await Promise.all([
+    copyFile(path.join(modDir, "remote-entry.mjs"), path.join(root, "remote-entry.mjs")),
+    copyFile(path.join(modDir, "remote.mjs"), path.join(root, "remote.mjs")),
+    writeFile(path.join(root, "collector.mjs"), `
+      export async function collectSnapshot() {
+        return { rows: [], scan: { status: "partial", error: "Read failed at /private/transcript.jsonl" } };
+      }
+    `),
+  ]);
+  const result = await run({
+    command: process.execPath,
+    args: [path.join(root, "remote-entry.mjs"), "rows", "--home", root, "--store", path.join(root, "insights.json")],
+    timeout: 5_000,
+  }, { ...process.env, TZ: "UTC" });
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /\/private\/transcript/);
+  assert.equal(parseRows(result.stdout).scan.failed, true);
+});
+
 test("end to end: install, collect, and merge on this machine through the shell commands", { timeout: 120_000 }, async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "insights-remote-"));
   t.after(() => rm(root, { recursive: true, force: true }));

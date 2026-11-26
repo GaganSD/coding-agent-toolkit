@@ -165,12 +165,17 @@ export function parseRows(stdout) {
 
 const finiteCount = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
 
+export function hasScanFailure(scan) {
+  return scan?.status === "failed" || scan?.failed === true;
+}
+
 // Only counters cross to the Mac: the live file a remote scanner has open is
 // a path on that machine and is not shown or stored.
 function progressCounters(scan) {
   const live = scan.live && typeof scan.live === "object" ? scan.live : null;
   return {
     status: scan.status,
+    ...(hasScanFailure(scan) ? { failed: true } : {}),
     processed: finiteCount(scan.processed),
     total: finiteCount(scan.total),
     live: live && {
