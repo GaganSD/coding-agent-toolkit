@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "ce4c779a37aa39f08b3e1293adccc343601c5f5f",
-  "notes": "* Smoother scrolling while Pi is working.\n* Sidebar: SPEED and CACHE side by side, default width capped at 40 columns, spend in the status row.\n* Removed: the Tasks section, `/slate session` (use `/mcp`, `/skill:` and `/`), the details row and image pinning.\n* `/slate bug` opens GitHub issues.",
+  "sourceSha": "f12b20b0bd3120a006bafe909744eace1dc556cf",
+  "notes": "Automode 0.2.1\n\n- Add command and path permission rules with exact, glob, and restricted regex matching.\n- Add optional model review, locally confirmed reusable permissions, and inline settings.\n- Verify the extension and launcher against Pi 1.6.1.",
   "packages": [
     {
-      "path": "pi-slate",
-      "name": "pi-slate",
-      "from": "0.4.0",
-      "to": "0.4.1",
+      "path": "pi-automode",
+      "name": "@gagansd/pi-automode",
+      "from": "0.2.0",
+      "to": "0.2.1",
       "bump": "patch"
     }
   ]

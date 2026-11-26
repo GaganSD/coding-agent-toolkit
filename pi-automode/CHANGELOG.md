@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.2.1
+
+Automode 0.2.1
+
+- Add command and path permission rules with exact, glob, and restricted regex matching.
+- Add optional model review, locally confirmed reusable permissions, and inline settings.
+- Verify the extension and launcher against Pi 1.6.1.
+
 - Replace Details with a clean Settings editor: seven numeric tuning values,
   contextual help, seconds/percent inputs, validation, draft Save/Cancel, and a
   reset-to-defaults action that preserves models, consent, rules, and on/off state.
