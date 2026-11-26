@@ -42,6 +42,9 @@ and print/RPC/standalone hosts are not supported.
 - Focusable worker roster and dedicated conversations; settled runs leave the roster
 - Supports Markdown agent profiles
 - Local reports and transcripts
+- One parent wake-up per `run` batch, not per finished task. Questions wake immediately
+  and include buffered results; results also flush while a sibling awaits an answer.
+  Resumes notify independently. Pending notices are dropped on shutdown/reload.
 
 ### Run deadline
 

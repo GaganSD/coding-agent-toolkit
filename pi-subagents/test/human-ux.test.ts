@@ -81,6 +81,21 @@ test("stable human identities drop settled completions from the roster", () => {
   assert.match(state.title(b), /^Worker 2/, "settling a sibling never renumbers the remaining worker");
 });
 
+test("lazy notify/draw registration keeps ordinals stable without per-progress remember calls", () => {
+  const state = new HumanState();
+  const a = record("a"), b = record("b"), c = { ...record("c"), state: "completed" as const };
+  // A fast result can notify before the throttled first draw. notify remembers the whole registry.
+  state.remember([a, b, c]);
+  assert.match(state.title(c), /^Worker 3/);
+  assert.match(state.title(a), /^Worker 1/);
+  assert.match(state.title(b), /^Worker 2/);
+  // A subsequent draw excludes c from the roster but never renumbers its siblings.
+  assert.deepEqual(state.visible([a, b, c]).map(run => state.name(run)), ["Worker 1", "Worker 2"]);
+  assert.match(state.title(c), /^Worker 3/);
+  const fresh = new HumanState();
+  assert.match(fresh.name(a), /^Worker 1$/, "name alone can register an ordinal");
+});
+
 test("settling the selected live row moves selection to a remaining worker", () => {
   const opened: string[] = [];
   const a = record("a"), b = record("b");
