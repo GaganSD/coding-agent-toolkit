@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadShortcuts, parseKeyChord, parsePromptShortcut, promptShortcutKey } from "../extensions/pi-slate/shortcuts.ts";
+import { loadShortcuts, parseKeyChord, parsePromptShortcut, promptShortcutKey, sidebarShortcutKey } from "../extensions/pi-slate/shortcuts.ts";
 
 test("parseKeyChord accepts Pi chords and rejects bare letters", () => {
   assert.equal(parseKeyChord("ctrl+alt+."), "ctrl+alt+.");
@@ -26,12 +26,17 @@ test("parsePromptShortcut treats unset and opt-out as no chord", () => {
   assert.equal(parsePromptShortcut(1), undefined);
 });
 
-test("loadShortcuts only keeps a parsed prompts binding", () => {
+test("loadShortcuts keeps parsed prompt and sidebar bindings", () => {
   assert.equal(loadShortcuts(undefined), undefined);
   assert.equal(loadShortcuts("ctrl+alt+."), undefined);
   assert.deepEqual(loadShortcuts({ prompts: "none" }), { prompts: false });
   assert.deepEqual(loadShortcuts({ prompts: "Ctrl+Alt+." }), { prompts: "ctrl+alt+." });
+  assert.deepEqual(loadShortcuts({ sidebar: "Ctrl+Shift+B" }), { sidebar: "ctrl+shift+b" });
+  assert.deepEqual(loadShortcuts({ prompts: "nope", sidebar: "Alt+S" }), { sidebar: "alt+s" });
+  assert.deepEqual(loadShortcuts({ prompts: "Ctrl+Alt+.", sidebar: false }), { prompts: "ctrl+alt+.", sidebar: false });
   assert.equal(loadShortcuts({ prompts: "nope" }), undefined);
   assert.equal(promptShortcutKey({ prompts: false }), undefined);
   assert.equal(promptShortcutKey({ prompts: "ctrl+alt+." }), "ctrl+alt+.");
+  assert.equal(sidebarShortcutKey({ sidebar: false }), undefined);
+  assert.equal(sidebarShortcutKey({ sidebar: "ctrl+shift+b" }), "ctrl+shift+b");
 });

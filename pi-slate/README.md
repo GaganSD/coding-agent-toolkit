@@ -104,13 +104,13 @@ With `/slate effort-border on`, bundled themes use a restrained effort ramp from
 
 ### Prompt Templates
 
-With `editor` selected, `/prompts` opens a searchable picker of Pi's prompt templates; Enter inserts at the composer cursor. There is no default shortcut. Optional bind in `~/.pi/agent/pi-slate.json`, then `/reload`:
+With `editor` selected, `/prompts` opens a searchable picker of Pi's prompt templates; Enter inserts at the composer cursor. There are no default shortcuts for the picker or the sidebar toggle. Add either binding to `~/.pi/agent/pi-slate.json`, then run `/reload`:
 
 ```json
-{ "shortcuts": { "prompts": "" } }
+{ "shortcuts": { "prompts": "ctrl+alt+.", "sidebar": "f8" } }
 ```
 
-`false` or `"none"` also mean none.
+`shortcuts.sidebar` runs the same saved focused-mode toggle as `/slate focused`. `false`, `"none"`, or an empty string leaves a shortcut unbound.
 
 ![Slate prompt template picker](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-prompts.png)
 

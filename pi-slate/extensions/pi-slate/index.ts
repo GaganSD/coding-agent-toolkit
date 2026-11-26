@@ -12,6 +12,7 @@ import {
 import {
   type Component,
   type EditorTheme,
+  type KeyId,
   type TUI,
 } from "@earendil-works/pi-tui";
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
@@ -81,7 +82,7 @@ import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
-import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
+import { loadShortcuts, promptShortcutKey, sidebarShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
@@ -990,6 +991,14 @@ export default function piSlate(pi: ExtensionAPI): void {
     const on = value ?? !config.focused;
     apply({ ...config, focused: on }, on ? "Focused mode on" : "Focused mode off", ctx);
   };
+
+  const sidebarShortcut = sidebarShortcutKey(config.shortcuts);
+  if (sidebarShortcut) {
+    pi.registerShortcut(sidebarShortcut as KeyId, {
+      description: "Toggle Slate sidebar",
+      handler: ctx => applyFocused(ctx),
+    });
+  }
 
   // Pi 1.4 has no built-in /theme command; core theme selection lives in /settings.
   pi.registerCommand("theme", {

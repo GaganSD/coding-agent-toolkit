@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Added an optional `shortcuts.sidebar` binding for the saved `/slate focused` toggle.
+
 ## 0.4.1
 
 * Smoother scrolling while Pi is working.

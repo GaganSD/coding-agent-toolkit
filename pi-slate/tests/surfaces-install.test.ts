@@ -51,12 +51,15 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const extraCommands: Array<{ name: string; source: string; sourceInfo: { path: string; scope: string } }> = [];
   let draft = "existing draft";
   const shortcuts: string[] = [];
+  const shortcutHandlers = new Map<string, (ctx: ExtensionContext) => Promise<void> | void>();
   t.mock.method(GitStatusPoller.prototype, "start", () => { calls.push("files-start"); });
   t.mock.method(GitStatusPoller.prototype, "refresh", async () => { calls.push("files-refresh"); });
   const pi = {
     on(event: string, handler: Handler) { handlers.set(event, [...handlers.get(event) ?? [], handler]); },
     registerCommand(name: string, command: typeof commands extends Map<string, infer V> ? V : never) { commands.set(name, command); },
-    registerShortcut(key: string) { shortcuts.push(key); },
+    registerShortcut(key: string, options: { handler: (ctx: ExtensionContext) => Promise<void> | void }) {
+      shortcuts.push(key); shortcutHandlers.set(key, options.handler);
+    },
     registerTool(tool: ToolDefinition) { tools.push(tool); },
     registerToolRenderer() { calls.push("tool-renderer"); },
     getCommands: () => extraCommands,
@@ -147,7 +150,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, shortcutHandlers, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {
@@ -574,6 +577,22 @@ test("prompt shortcut stays unset unless shortcuts.prompts is a valid chord", as
   const saved = JSON.parse(await readFile(bound.path, "utf8"));
   assert.deepEqual(saved.shortcuts, { prompts: "ctrl+alt+." });
   assert.equal(saved.showPid, true);
+});
+
+test("sidebar shortcut uses the saved focused-mode toggle", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: true, shortcuts: { sidebar: "Ctrl+Shift+B" } }));
+  assert.deepEqual(f.shortcuts, ["ctrl+shift+b"]);
+
+  await f.shortcutHandlers.get("ctrl+shift+b")!(f.ctx);
+  let saved = JSON.parse(await readFile(f.path, "utf8"));
+  assert.equal(saved.focused, false);
+  assert.deepEqual(saved.shortcuts, { sidebar: "ctrl+shift+b" });
+  assert.equal(f.notices.at(-1), "Focused mode off");
+
+  await f.commands.get("slate")!.handler("focused", f.ctx);
+  saved = JSON.parse(await readFile(f.path, "utf8"));
+  assert.equal(saved.focused, true);
+  assert.equal(f.notices.at(-1), "Focused mode on");
 });
 
 test("rail omits the command catalog", async t => {

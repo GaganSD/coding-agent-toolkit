@@ -10,8 +10,9 @@ const SPECIAL = new Map<string, string>([
 ]);
 const SYMBOL = new Set(["`", "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|", "~", "{", "}", ":", "<", ">", "?"]);
 
-export type PromptShortcut = string | false;
-export type SlateShortcuts = { prompts?: PromptShortcut };
+export type SlateShortcut = string | false;
+export type PromptShortcut = SlateShortcut;
+export type SlateShortcuts = { prompts?: PromptShortcut; sidebar?: SlateShortcut };
 
 const baseKey = (part: string): { key: string; needsModifier: boolean } | undefined => {
   if (part.length === 1) {
@@ -35,18 +36,31 @@ export function parseKeyChord(value: string): string | undefined {
   return [...MODIFIERS.filter((mod) => mods.includes(mod)), base.key].join("+");
 }
 
-export function parsePromptShortcut(value: unknown): PromptShortcut | undefined {
+function parseShortcut(value: unknown): SlateShortcut | undefined {
   if (value === undefined) return undefined;
   if (value === false || value === "none" || value === "") return false;
   return typeof value === "string" ? parseKeyChord(value) : undefined;
 }
 
+export function parsePromptShortcut(value: unknown): PromptShortcut | undefined {
+  return parseShortcut(value);
+}
+
 export function loadShortcuts(value: unknown): SlateShortcuts | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const prompts = parsePromptShortcut((value as { prompts?: unknown }).prompts);
-  return prompts === undefined ? undefined : { prompts };
+  const sidebar = parseShortcut((value as { sidebar?: unknown }).sidebar);
+  if (prompts === undefined && sidebar === undefined) return undefined;
+  return {
+    ...(prompts === undefined ? {} : { prompts }),
+    ...(sidebar === undefined ? {} : { sidebar }),
+  };
 }
 
 export function promptShortcutKey(shortcuts: SlateShortcuts | undefined): string | undefined {
   return typeof shortcuts?.prompts === "string" ? shortcuts.prompts : undefined;
+}
+
+export function sidebarShortcutKey(shortcuts: SlateShortcuts | undefined): string | undefined {
+  return typeof shortcuts?.sidebar === "string" ? shortcuts.sidebar : undefined;
 }
