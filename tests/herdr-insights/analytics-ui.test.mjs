@@ -155,8 +155,9 @@ const spaces = () => globalThis.__insightsTestHerdr.spaces();
 const machines = () => globalThis.__insightsTestHerdr.machines?.() ?? [];`,
   )
   .replace(
-    /^import \{ mkdir, writeFile \} from "fs\/promises";$/m,
+    /^import \{ mkdir, unlink, writeFile \} from "fs\/promises";$/m,
     `const mkdir = (...args) => globalThis.__insightsTestHerdr.mkdir(...args);
+const unlink = (...args) => globalThis.__insightsTestHerdr.unlink(...args);
 const writeFile = (...args) => globalThis.__insightsTestHerdr.writeFile(...args);`,
   )
   .replace(
@@ -212,6 +213,7 @@ function useHerdr({ readTextFile, execResult } = {}) {
     spaces: () => state.spaces,
     machines: () => state.machines ?? [],
     mkdir: async (dir) => { (state.mkdirs ??= []).push(dir); },
+    unlink: async (file) => { delete state.files?.[file]; },
     writeFile: async (file, text) => { (state.files ??= {})[file] = String(text); },
     readTextFile: async (path) => {
       state.runtimeReads.push(path);
@@ -228,6 +230,13 @@ function useHerdr({ readTextFile, execResult } = {}) {
     },
     exec: async (command, args, execOptions) => {
       state.execCalls.push({ command, args, options: execOptions });
+      if (args[0] === "-e") {
+        const [, , source, destination] = args;
+        assert.ok(source.startsWith(`${destination}.tmp-`), "publish from a temporary sibling");
+        state.files[destination] = state.files[source];
+        delete state.files[source];
+        return { code: 0, stdout: "", stderr: "" };
+      }
       if (execResult) return execResult(command, args, state);
       const options = optionArgument(args);
       const payload = presentationFor(savedSnapshot(), options, args[1] ?? "snapshot");
@@ -374,7 +383,7 @@ test("native mod keeps timers and shell use inside the Herdr contract", () => {
   assert.doesNotMatch(mainSource, /--rebuild/);
   assert.match(mainSource, /readTextFile\(this\.runtimePath\(\)\)/);
   assert.match(mainSource, /mods\/insights\/runtime\.json/);
-  assert.equal((mainSource.match(/exec\(this\.nodeBinary, \[/g) ?? []).length, 4);
+  assert.equal((mainSource.match(/exec\(this\.nodeBinary, \[/g) ?? []).length, 5);
   assert.match(mainSource, /exec\(this\.nodeBinary, \[this\.presenterPath\(\), "bundle"\]\)/);
   assert.match(mainSource, /presenter\.mjs/);
   assert.match(mainSource, /"prepare"/);
@@ -1715,6 +1724,37 @@ test("a failed remote keeps its last rows and records the error for the machine"
   assert.equal(state.files[`${remoteFilesDir}/box.rows.json`], undefined);
   assert.match(JSON.parse(state.files[`${remoteFilesDir}/box.state.json`]).error, /disk full/);
   assert.match(instance.remoteView("box").error, /disk full/);
+  instance.close();
+});
+
+test("remote rows and settings survive an interrupted write to any published file", async () => {
+  const state = remoteHerdr({ rows: "ok", machines: [{ name: "box", layout: "ready" }] });
+  const { cx } = liveCx();
+  const instance = new Insights();
+  instance.init({}, cx);
+  await settle();
+  instance.setMachineEnabled("old-box", false, cx);
+  await settle();
+  const rowsPath = `${remoteFilesDir}/box.rows.json`;
+  const syncPath = `${remoteFilesDir}/box.state.json`;
+  const settingsPath = "/app/data/insights/remote.json";
+  const previous = { ...state.files };
+  const write = state.herdr.writeFile;
+  let fail = true;
+  state.herdr.writeFile = async (file, contents) => {
+    if (!fail) return write(file, contents);
+    await write(file, contents.slice(0, 1));
+    throw new Error("Interrupted write");
+  };
+  await assert.rejects(instance.fetchMachine("box", false, remoteTimeZone), /Interrupted write/);
+  instance.setMachineEnabled("another-box", false, cx);
+  await settle();
+  assert.equal(state.files[rowsPath], previous[rowsPath], "last rows must survive a partial write");
+  assert.equal(state.files[syncPath], previous[syncPath], "last sync state must survive a partial write");
+  assert.equal(state.files[settingsPath], previous[settingsPath], "settings must survive a partial write");
+  assert.deepEqual(Object.keys(state.files).sort(), Object.keys(previous).sort(), "temporary files are cleaned up");
+  fail = false;
+  await instance.fetchMachine("box", false, remoteTimeZone);
   instance.close();
 });
 

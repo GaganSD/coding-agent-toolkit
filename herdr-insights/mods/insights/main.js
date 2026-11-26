@@ -2,7 +2,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Button, Input, InputState, Editor, EditorState, Popover } from "gpui-base";
 import { exec, appHome, home, theme, settings, nextCommand, panes, props, run, readTextFile, writeTextFile, pickFolder, notify, spaces, machines } from "herdr";
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, unlink, writeFile } from "fs/promises";
 import {
   PALETTES,
   THIS_COMPUTER,
@@ -847,6 +847,21 @@ export default class Insights extends View {
     return `${appHome()}/data/insights/remote.json`;
   }
 
+  async writeRemoteFile(file, text) {
+    const temp = `${file}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try {
+      await writeFile(temp, text);
+      // Herdr's fs module has no rename. Pass only the paths to local Node.
+      const result = await exec(this.nodeBinary, [
+        "-e", 'require("node:fs").renameSync(process.argv[1], process.argv[2])', temp, file,
+      ]);
+      if (result.code !== 0) throw new Error(resultError(result));
+    } catch (error) {
+      await unlink(temp).catch(() => {});
+      throw error;
+    }
+  }
+
   remoteView(name) {
     const entry = this.remote?.get(name);
     return { syncing: Boolean(entry?.task), error: entry?.error ?? null, scan: entry?.scan ?? null };
@@ -950,11 +965,11 @@ export default class Insights extends View {
         bundle: () => this.loadBundle(),
         timeZone,
       });
-      await writeFile(`${dir}/${stem}.rows.json`, rowsFileText({ machine: name, envelope, fetchedAt: attemptedAt }));
-      await writeFile(`${dir}/${stem}.state.json`, stateFileText({ machine: name, attemptedAt, error: null }));
+      await this.writeRemoteFile(`${dir}/${stem}.rows.json`, rowsFileText({ machine: name, envelope, fetchedAt: attemptedAt }));
+      await this.writeRemoteFile(`${dir}/${stem}.state.json`, stateFileText({ machine: name, attemptedAt, error: null }));
       return envelope;
     } catch (error) {
-      await writeFile(`${dir}/${stem}.state.json`, stateFileText({ machine: name, attemptedAt, error: sanitizeError(error) }));
+      await this.writeRemoteFile(`${dir}/${stem}.state.json`, stateFileText({ machine: name, attemptedAt, error: sanitizeError(error) }));
       throw error;
     }
   }
@@ -974,7 +989,7 @@ export default class Insights extends View {
     this.remoteSettingsTask = cx.spawn(async (writeCx) => {
       try {
         await mkdir(`${appHome()}/data/insights`, { recursive: true });
-        await writeFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
+        await this.writeRemoteFile(this.remoteSettingsPath(), `${JSON.stringify({ disabled }, null, 2)}\n`);
       } catch (error) {
         this.saveError = sanitizeError(error);
       }
