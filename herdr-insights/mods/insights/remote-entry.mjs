@@ -63,7 +63,7 @@ async function rows(argv) {
     },
     // Warning text names remote files; only the count leaves the machine.
     warnings: [],
-    warningCount: Array.isArray(snapshot.warnings) ? snapshot.warnings.length : 0,
+    warningCount: snapshot.warningCount ?? (Array.isArray(snapshot.warnings) ? snapshot.warnings.length : 0),
   };
 }
 

@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { deriveDashboard } from "../../herdr-insights/mods/insights/analytics.js";
 import { mergeSnapshots } from "../../herdr-insights/mods/insights/merge.mjs";
+import { normalizeConfig } from "../../herdr-insights/mods/insights/core/config.mjs";
 import { buildRemoteBundle, loadMachineRecords } from "../../herdr-insights/mods/insights/core/machines.mjs";
+import { emptyStore, saveStore } from "../../herdr-insights/mods/insights/core/store.mjs";
 import {
   installCommand,
   machineFileStem,
@@ -194,6 +196,27 @@ test("the remote worker flags a failed scan without disclosing its error path", 
   assert.equal(result.code, 0, result.stderr);
   assert.doesNotMatch(result.stdout, /\/private\/transcript/);
   assert.equal(parseRows(result.stdout).scan.failed, true);
+});
+
+test("the remote worker counts warnings beyond the local display limit", async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "insights-remote-warning-count-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const sessions = path.join(home, ".codex/sessions");
+  const store = path.join(home, "insights.json");
+  const config = normalizeConfig({
+    sources: [{ id: "codex", label: "Codex", adapter: "codex", enabled: true, roots: [sessions] }],
+  });
+  await saveStore(store, emptyStore(config));
+  await mkdir(sessions, { recursive: true });
+  await Promise.all(Array.from({ length: 60 }, (_, index) =>
+    writeFile(path.join(sessions, `bad-${index}.jsonl.zst`), "invalid compressed data")));
+  const result = await run({
+    command: process.execPath,
+    args: [path.join(modDir, "remote-entry.mjs"), "rows", "--home", home, "--store", store],
+    timeout: 10_000,
+  }, { ...process.env, TZ: "UTC" });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(parseRows(result.stdout).warningCount, 60);
 });
 
 test("end to end: install, collect, and merge on this machine through the shell commands", { timeout: 120_000 }, async (t) => {
