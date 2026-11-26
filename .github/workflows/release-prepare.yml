@@ -57,7 +57,7 @@ jobs:
           for selection in "${selections[@]}"; do args+=(--package "$selection"); done
           npm run release:apply -- --source-sha "$SOURCE" --notes "$NOTES" "${args[@]}"
       # An App token makes the bot's PR trigger ordinary pull_request CI.
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: app
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
@@ -75,7 +75,7 @@ jobs:
           id="$(gh api "users/${SLUG}%5Bbot%5D" --jq .id)"
           [[ "$id" =~ ^[0-9]+$ ]]
           echo "identity=${SLUG}[bot] <${id}+${SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+      - uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           token: ${{ steps.app.outputs.token }}
           author: ${{ steps.bot.outputs.identity }}
