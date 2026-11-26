@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* Focused mode now shows the thinking level beside the model on the composer's bottom edge, leaving context and MCP status on top.
+
 ## 0.4.1
 
 * Smoother scrolling while Pi is working.
