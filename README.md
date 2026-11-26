@@ -29,7 +29,7 @@
   <br />
   <a href="https://pi.dev"><img src="https://img.shields.io/badge/pi-%3E%3D1.0.0-27272a?style=flat-square&labelColor=18181b" alt="Pi >= 1.0.0" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-27272a?style=flat-square&labelColor=18181b" alt="License: MIT" /></a>
-  <a href="#pi-extensions"><img src="https://gagansd.github.io/coding-agent-toolkit/npm-downloads.svg" alt="Combined npm downloads per month for all Pi extensions" /></a>
+  <a href="#pi-extensions"><img src="https://gagansd.github.io/coding-agent-toolkit/badges/npm-downloads.svg" alt="Combined npm downloads per month for all Pi extensions" /></a>
 </p>
 
 ---
