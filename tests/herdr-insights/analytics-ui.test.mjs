@@ -2026,3 +2026,20 @@ test("settings changes from two dashboard copies preserve both machine toggles",
   first.close();
   second.close();
 });
+
+test("dashboard preparation picks up machine settings saved by another copy", async () => {
+  remoteHerdr();
+  const { cx, calls } = liveCx();
+  const first = new Insights();
+  const second = new Insights();
+  first.init({}, cx);
+  second.init({}, cx);
+  await settle();
+  first.setMachineEnabled("box", false, cx);
+  await settle();
+  second.scheduleDashboard(cx, { force: true });
+  await calls.runAfter();
+  assert.deepEqual(second.remoteDisabled, ["box"]);
+  first.close();
+  second.close();
+});

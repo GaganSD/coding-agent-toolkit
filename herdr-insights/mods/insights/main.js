@@ -1282,7 +1282,7 @@ export default class Insights extends View {
         if (payload.error && !payload.dashboard) throw new Error(payload.error);
         if (!payload.dashboard) throw new Error("The presentation helper returned no dashboard.");
         if (!this.snapshot || presentationKey(this.snapshot, this.dashboardOptions()) !== key) return;
-        if (!this.applyRemoteContext(payload.snapshot, prepareCx, remoteRequest)) return;
+        if (!this.applyRemoteContext(payload.snapshot, prepareCx, remoteRequest, true)) return;
         this.dashboard = payload.dashboard;
         this.dashboardKey = key;
         if (Array.isArray(payload.dashboard.years) && payload.dashboard.years.length) this.years = payload.dashboard.years;
@@ -1402,13 +1402,15 @@ export default class Insights extends View {
     });
   }
 
-  applyRemoteContext(snapshot, cx, request) {
-    const timeZone = isTimeZoneId(snapshot.remoteTimeZone) ? snapshot.remoteTimeZone : null;
-    const sameTimeZone = (this.remoteTimeZone ?? null) === timeZone;
-    if (request < this.remoteAppliedRequest) return sameTimeZone;
+  applyRemoteContext(snapshot, cx, request, currentSettings) {
+    if (request < this.remoteAppliedRequest) return false;
     this.remoteAppliedRequest = request;
-    this.remoteWarnings = Array.isArray(snapshot.remoteWarnings) ? snapshot.remoteWarnings : [];
-    if (sameTimeZone) return true;
+    if (currentSettings) {
+      if (Array.isArray(snapshot.remoteDisabled)) this.remoteDisabled = snapshot.remoteDisabled;
+      this.remoteWarnings = Array.isArray(snapshot.remoteWarnings) ? snapshot.remoteWarnings : [];
+    }
+    const timeZone = isTimeZoneId(snapshot.remoteTimeZone) ? snapshot.remoteTimeZone : null;
+    if ((this.remoteTimeZone ?? null) === timeZone) return true;
     // Old work may finish writing to its own timezone's directory.
     for (const entry of this.remote.values()) {
       try { entry.timer?.cancel(); } catch { /* already gone */ }
@@ -1427,8 +1429,7 @@ export default class Insights extends View {
     this.cancelDashboardWork();
     this.snapshot = snapshot;
     const currentRemoteSettings = !this.remoteSettingsTask && remoteSettingsGeneration === this.remoteSettingsGeneration;
-    if (currentRemoteSettings && Array.isArray(snapshot.remoteDisabled)) this.remoteDisabled = snapshot.remoteDisabled;
-    const currentRemoteContext = this.applyRemoteContext(snapshot, cx, remoteRequest);
+    const currentRemoteContext = this.applyRemoteContext(snapshot, cx, remoteRequest, currentRemoteSettings);
     const savedConfig = normalizeConfig(snapshot.config);
     const today = todayKey();
     const years = Array.isArray(payload.dashboard?.years) && payload.dashboard.years.length
