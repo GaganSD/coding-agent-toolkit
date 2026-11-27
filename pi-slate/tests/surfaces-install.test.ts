@@ -1121,7 +1121,7 @@ test("live MCP activity drives the sidebar spinner and warning, then stops its t
   }, context);
 
   await start("a");
-  assert.match(rows(), /● docs [▁▂▃▄▅▆▇█]{3}/);
+  assert.match(rows(), /● [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] docs/);
   let count = ticks.mock.callCount();
   t.mock.timers.tick(WAVE_STEP_MS);
   assert.equal(ticks.mock.callCount(), count + 1, "the active MCP timer ticks the sidebar");
@@ -1134,7 +1134,7 @@ test("live MCP activity drives the sidebar spinner and warning, then stops its t
   t.mock.timers.tick(WAVE_STEP_MS);
   assert.equal(ticks.mock.callCount(), count + 1, "expanding restarts the timer while the call is active");
   await end("a", { durationMs: 5 });
-  assert.doesNotMatch(rows(), /● docs (?:[▁▂▃▄▅▆▇█]{3}|!)/, "a success leaves the config row");
+  assert.doesNotMatch(rows(), /● (?:[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|!) docs/, "a success leaves the config row");
   count = ticks.mock.callCount();
   t.mock.timers.tick(WAVE_STEP_MS);
   assert.equal(ticks.mock.callCount(), count, "the timer stops when no calls are active");
@@ -1142,14 +1142,14 @@ test("live MCP activity drives the sidebar spinner and warning, then stops its t
   const aborted = { ...f.ctx, signal: AbortSignal.abort() };
   await start("b", aborted);
   await end("b", { durationMs: 5, isError: true }, aborted);
-  assert.doesNotMatch(rows(), /● docs !/, "an abort is not a failure");
+  assert.doesNotMatch(rows(), /● ! docs/, "an abort is not a failure");
 
   await start("c");
   await end("c", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "server failed" }] } });
-  assert.match(rows(), /● docs !/, "a real failure warns");
+  assert.match(rows(), /● ! docs/, "a real failure warns");
   await start("d");
   await end("d", { durationMs: 5 });
-  assert.doesNotMatch(rows(), /● docs !/, "the next success clears the warning");
+  assert.doesNotMatch(rows(), /● ! docs/, "the next success clears the warning");
 
   await start("f");
   await f.emit("session_shutdown");

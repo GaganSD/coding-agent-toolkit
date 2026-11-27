@@ -10,7 +10,7 @@ import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
 import { perfFixture } from "./perf-fixture.ts";
 import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
 import { sidebarUsage, SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
-import { setProgressStyle, WAVE_STEP_MS } from "../extensions/pi-slate/working-wave.ts";
+import { WAVE_STEP_MS } from "../extensions/pi-slate/working-wave.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
 
@@ -461,10 +461,9 @@ test("resource status glyphs distinguish unknown MCP state without color or redu
   assert.match(details[0]!, /^— \(configuration, not connection status\)/);
 });
 
-test("MCP activity keeps the config glyph and adds only an accent spinner or warning", () => {
+test("MCP activity keeps the config glyph and puts a spinner or warning in the status slot", () => {
   const { sidebar, advance } = fixture();
   sidebar.setThemeProvider(() => toneTheme());
-  setProgressStyle("waves");
   sidebar.setResources({ ...resources, mcp: [{ name: "enabled-server", enabled: true, source: "global" }] });
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
   const painted = () => sidebar.render(80).find(line => stripAnsi(line).includes("enabled-server"))!;
@@ -474,20 +473,20 @@ test("MCP activity keeps the config glyph and adds only an accent spinner or war
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33|36)m/);
 
   mcpStarted(sidebar, "a", "enabled-server");
-  assert.match(text(), /^● enabled-server [▁▂▃▄▅▆▇█]{3}$/);
-  assert.match(painted(), /\x1b\[36m [▁▂▃▄▅▆▇█]{3}\x1b\[0m/);
+  assert.match(text(), /^● [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] enabled-server$/);
+  assert.match(painted(), /\x1b\[36m[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\x1b\[0m/);
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33)m/);
 
   sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
   advance(1_500);
   mcpStarted(sidebar, "b", "enabled-server");
   sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "lookup failed" }] } }), false);
-  assert.match(text(), /^● enabled-server !$/);
-  assert.match(painted(), /\x1b\[33m !\x1b\[0m/);
+  assert.match(text(), /^● ! enabled-server$/);
+  assert.match(painted(), /\x1b\[33m!\x1b\[0m/);
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|36)m/);
 
   advance(59_999);
-  assert.match(text(), /^● enabled-server !$/);
+  assert.match(text(), /^● ! enabled-server$/);
   advance(1);
   assert.match(text(), /^● enabled-server$/);
 });
@@ -531,7 +530,6 @@ test("clicking an MCP row shows a used hint for three seconds and still opens ac
 test("narrow MCP rows keep the spinner and warning and truncate only the name", t => {
   const { sidebar } = fixture();
   t.after(() => sidebar.dispose());
-  setProgressStyle("waves");
   const name = "a".repeat(30);
   sidebar.setResources({ ...resources, mcp: [{ name, enabled: true, source: "global" }] });
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
@@ -539,20 +537,19 @@ test("narrow MCP rows keep the spinner and warning and truncate only the name", 
   mcpStarted(sidebar, "a", name);
   const active = plain(sidebar.render(28)).find(line => line.includes("…"))!;
   assert.equal(visibleWidth(active), 24, "the row uses the 24 inner columns of a 28-column rail");
-  assert.match(active, /^● a+… [▁▂▃▄▅▆▇█]{3}$/);
+  assert.match(active, /^● [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] a+…$/);
 
   sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
   mcpStarted(sidebar, "b", name);
   sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "boom" }] } }), false);
   const warning = plain(sidebar.render(28)).find(line => line.includes("…"))!;
   assert.equal(visibleWidth(warning), 24);
-  assert.match(warning, /^● a+… !$/);
+  assert.match(warning, /^● ! a+…$/);
 });
 
 test("only an active MCP row that is painted advances the 120 ms frame phase", t => {
   const { sidebar, advance } = fixture();
   t.after(() => sidebar.dispose());
-  setProgressStyle("waves");
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
   sidebar.render(40);
   sidebar.handleMouse(mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 }));
@@ -589,7 +586,6 @@ test("the painted MCP spinner advances on its wake-up", t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { sidebar, advance } = liveFixture();
   t.after(() => { sidebar.dispose(); t.mock.timers.reset(); });
-  setProgressStyle("waves");
   sidebar.setResources({ ...resources, mcp: [{ name: "server-0", enabled: true, source: "global" }] });
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
   const spinner = () => plain(sidebar.render(80)).find(line => line.includes("server-0"))!;

@@ -76,7 +76,7 @@ The sidebar keeps session facts visible without sending them to a model: a live 
 
 ![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
 
-MCP indicators show **requested configuration**, not schema validity or connection health. Slate reads enabled flags without importing Pi's MCP internals, validating transports/authentication, running credential commands, or connecting to servers. Unreadable/malformed files remain visible; unknown enabled state is a neutral `—`. Rows add session-scoped activity without changing that configuration glyph: a compact accent spinner while calls are in flight, and a warning `!` for 60 seconds after a call that ran and failed. Click a row for last used, call count, and last error. Use `/mcp` for authoritative validation and live status.
+MCP indicators show **requested configuration**, not schema validity or connection health. Slate reads enabled flags without importing Pi's MCP internals, validating transports/authentication, running credential commands, or connecting to servers. Unreadable/malformed files remain visible; unknown enabled state is a neutral `—`. Rows add session-scoped activity without changing that configuration glyph: an accent braille spinner between the glyph and the name while calls are in flight, and a warning `!` in that same slot for 60 seconds after a call that ran and failed. Click a row for last used, call count, and last error. Use `/mcp` for authoritative validation and live status.
 
 ### Subagents
 

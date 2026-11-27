@@ -56,13 +56,6 @@ export function progressFrame(tick: number, width?: number): string {
   return waveFrame(tick);
 }
 
-/** The same style in the three columns a sidebar row can spare. */
-export function compactProgressFrame(tick: number): string {
-  // The cylon's brackets are its widest part; drop them and keep the inner eye.
-  if (style === "cylon-scanner") return cylonFrame(tick, 5).slice(1, -1);
-  return progressFrame(tick, 3).slice(0, 3);
-}
-
 export const WAVE_STEP_MS = 120;
 let startedAt: number | undefined;
 

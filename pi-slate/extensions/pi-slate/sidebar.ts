@@ -4,7 +4,7 @@ import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isS
 import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
 import { mcpAge, mcpDetails } from "./sidebar-mcp.ts";
 import { McpActivity, mcpServer } from "./mcp-activity.ts";
-import { compactProgressFrame, WAVE_STEP_MS } from "./working-wave.ts";
+import { WAVE_STEP_MS } from "./working-wave.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, sidebarUsage, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
@@ -15,6 +15,7 @@ import { sameLines } from "./render-lines.ts";
 
 export const DOUBLE_CLICK_MS = 400;
 const MCP_HINT_MS = 3_000;
+const MCP_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 type ListName = "mcp" | "skills" | "prompts";
 type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; wakeAt?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
@@ -381,13 +382,15 @@ export class Sidebar implements Component {
       const hintUntil = this.mcpHint?.server === server.name ? this.mcpHint.at + MCP_HINT_MS : undefined;
       const hint = hintUntil !== undefined && now < hintUntil
         ? activity.lastUsed === null ? "not used yet" : `used ${mcpAge(now - activity.lastUsed)} ago` : "";
-      const marker = activity.active
-        ? this.paint("accent", ` ${compactProgressFrame(Math.floor(now / WAVE_STEP_MS))}`)
-        : activity.warning ? this.paint("warning", " !") : "";
+      // Activity shares one status column between the config glyph and the name.
+      const status = activity.active
+        ? `${this.paint("accent", MCP_SPINNER[Math.floor(now / WAVE_STEP_MS) % MCP_SPINNER.length]!)} `
+        : activity.warning ? `${this.paint("warning", "!")} ` : "";
       const glyph = server.enabled === null ? "—" : server.enabled ? "●" : "○";
-      const reserved = visibleWidth(glyph) + 1 + visibleWidth(marker) + (hint ? visibleWidth(hint) + 1 : 0);
+      const reserved = visibleWidth(glyph) + 1 + visibleWidth(status) + (hint ? visibleWidth(hint) + 1 : 0);
       const name = truncateToWidth(sidebarText(server.name), Math.max(0, width - reserved), "…");
-      const left = this.paint(server.enabled === true ? "muted" : "dim", `${glyph} ${name}`) + marker;
+      const tone = server.enabled === true ? "muted" : "dim";
+      const left = `${this.paint(tone, `${glyph} `)}${status}${this.paint(tone, name)}`;
       const wakes: number[] = [];
       if (activity.active) wakes.push((Math.floor(now / WAVE_STEP_MS) + 1) * WAVE_STEP_MS);
       if (activity.warning && activity.warnUntil !== null) wakes.push(activity.warnUntil);
