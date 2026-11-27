@@ -10,8 +10,10 @@ import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-ag
 import { getThemeByName, initTheme, loadThemeFromPath } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text, style: (text: string) => text } as unknown as Theme;
+const warningDot = "\x1b[33m●\x1b[39m";
 const markerTheme = {
-  fg: (token: string, text: string) => `<${token}>${text}</${token}>`,
+  // Use a zero-width token marker for the dot so the right-aligned cell doesn't clip it.
+  fg: (token: string, text: string) => token === "warning" && text === "●" ? warningDot : `<${token}>${text}</${token}>`,
   bold: (text: string) => `<bold>${text}</bold>`,
   style: (text: string, { fg, bg, bold }: Parameters<Theme["style"]>[1]) => {
     const marker = [fg, bg, bold && "bold"].filter(Boolean).join(" ");
@@ -66,12 +68,17 @@ test("muted section headers are skipped and navigation wraps both ways", () => {
 });
 
 test("details show one themed state, with the command and selected-row contrast", () => {
-  const f = themed({ sidebar: "f8", prompts: "f2" });
+  const rowTheme = { ...markerTheme, style: (text: string, options: Parameters<Theme["style"]>[1]) =>
+    options.bg === "selectedBg" ? text : markerTheme.style(text, options) } as unknown as Theme;
+  const f = fixture({ sidebar: "f8", prompts: "f2" }, true, undefined, () => rowTheme);
   const render = () => f.render(160);
   for (const part of ["<border>╭", "<bold>Slate shortcuts</bold>", "<accent bold>Toggle sidebar", "<text>Shows or hides the sidebar</text>",
     "<dim>/slate focused</dim>", "<success>● Ready</success>", "<accent userMessageBg> [ F8 ] "]) assert(render().includes(part), part);
-  const selected = render().split("\n").find(line => line.includes("<text selectedBg bold>› Toggle sidebar"))!;
-  assert(!selected.includes("<accent userMessageBg>"));
+  const selected = () => render().split("\n").find(line => line.includes("› Toggle sidebar"))!;
+  const recordingChip = "<warning userMessageBg> [ ● Press a key… ] ";
+  assert(!selected().includes("<accent userMessageBg>"));
+  assert(!selected().includes(warningDot));
+  assert(!render().includes(recordingChip));
   assert(themed().render(160).includes("<muted>Not set</muted>"));
   assert.doesNotMatch(themed().render(160), /free|Ready/);
   assert(themed({ sidebar: "ctrl+b" }, false).render(160).includes("<warning>▲ Also bound in Pi:"));
@@ -82,12 +89,16 @@ test("details show one themed state, with the command and selected-row contrast"
   assert(!render().includes("● Ready"));
   f.input("\r");
   assert(render().includes("<borderAccent>╭"));
-  assert(render().includes("<accent userMessageBg> [ Press a key… ] "));
+  assert(render().includes(recordingChip));
+  assert(selected().includes(warningDot));
+  assert(!selected().includes("F8"));
   assert(render().includes(`<dim>Esc cancels${process.platform === "darwin" ? " · F-keys may need fn" : ""}</dim>`));
   assert.doesNotMatch(render(), /● Ready|Press Del again/);
   f.input(f2);
   assert(render().includes("<accent>↺ Moved from Prompt picker</accent>"));
   assert(render().includes("<success>✓ Saved — applies when you close</success>"));
+  assert(!selected().includes(warningDot));
+  assert(!render().includes(recordingChip));
 });
 
 test("live Latte and system palettes retain legible keycaps and exact ANSI geometry", () => {
@@ -110,6 +121,11 @@ test("live Latte and system palettes retain legible keycaps and exact ANSI geome
       check();
       f.input(del); check();
       f.input("\r"); check();
+      assert(stripVTControlCharacters(f.render(width)).includes("[ ● Press a key… ]"));
+      if (width === 88 && rows === 40) {
+        assert(f.render(width).includes(current.fg("warning", "●")));
+        assert(f.render(width).includes(current.style(" [ ● Press a key… ] ", { fg: "warning", bg: "userMessageBg" })));
+      }
       f.input(esc);
     }
     f.terminal.rows = 40;
@@ -274,21 +290,23 @@ test("six-row terminals prioritize errors, saved messages and pending removal ov
   assert.match(f.render(), /✓ Saved — applies when you close/);
 });
 
-test("bound keycaps and unbound dashes end in the same list column", () => {
+test("keycaps, unbound dashes and recording dots end in the same list column", () => {
   const f = fixture({ sidebar: "f8", prompts: "ctrl+alt+." });
-  const lines = f.panel.render(88);
   const keyColumn = (label: string, suffix: string) => {
-    const row = lines.map(line => line.split("│")[1]).find(cell => cell?.includes(label))!;
+    const row = f.panel.render(88).map(line => line.split("│")[1]).find(cell => cell?.includes(label))!;
     const end = row.trimEnd();
     assert(end.endsWith(suffix), row);
     return visibleWidth(end);
   };
-  const column = keyColumn("Toggle sidebar", "F8");
+  const column = keyColumn("› Toggle sidebar", "F8");
   assert.equal(keyColumn("Prompt picker", "Ctrl+Alt+."), column);
   assert.equal(keyColumn("Theme picker", "—"), column);
-  f.input(down, down);
-  const selected = f.panel.render(88).find(line => line.includes("› Theme picker"))!.split("│")[1]!;
-  assert.equal(visibleWidth(selected.trimEnd()), column);
+  f.input("\r");
+  assert.equal(keyColumn("› Toggle sidebar", "●"), column);
+  f.input(esc, down, down);
+  assert.equal(keyColumn("› Theme picker", "—"), column);
+  f.input("\r");
+  assert.equal(keyColumn("› Theme picker", "●"), column);
 });
 
 test("failed records and unbinds retain the previous binding and show an error", () => {

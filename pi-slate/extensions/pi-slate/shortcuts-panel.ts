@@ -123,7 +123,9 @@ export class ShortcutsPanel implements Component {
       : !result ? "" : result.kind === "free" ? th.fg("success", "● Ready")
       : result.kind === "pi" ? th.fg("warning", `▲ ${shortcutStatus(result)}`)
       : result.kind === "moved" ? th.fg("accent", `↺ ${shortcutStatus(result)}`) : th.fg("error", `✕ ${shortcutStatus(result)}`));
-    const binding = this.recording ? chip("[ Press a key… ]") : key ? chip(`[ ${shortcutLabel(key)} ]`) : th.fg("muted", "Not set");
+    const recordingLabel = "[ ● Press a key… ]";
+    const binding = this.recording ? th.style(width >= visibleWidth(recordingLabel) + 2 ? ` ${recordingLabel} ` : recordingLabel,
+      { fg: "warning", bg: "userMessageBg" }) : key ? chip(`[ ${shortcutLabel(key)} ]`) : th.fg("muted", "Not set");
     const message = this.message ? th.fg(this.message.token, this.message.text) : "";
     if (tiny) {
       const summary = `${name} · ${binding}`, priority = pending || message;
@@ -137,9 +139,11 @@ export class ShortcutsPanel implements Component {
         const row = ACTION_ROWS[i]!;
         if ("section" in row) return sectionRow(th, row.section);
         const action = SHORTCUT_ACTIONS[row.index]!, selected = row.index === this.selected;
-        const bound = shortcutKey(this.bindings, action.id), text = bound ? shortcutLabel(bound) : "";
+        const recording = selected && this.recording;
+        const bound = recording ? undefined : shortcutKey(this.bindings, action.id), text = bound ? shortcutLabel(bound) : "";
         const keyWidth = bound ? Math.min(visibleWidth(text) + 2, columns - 4) : 2;
-        const cap = bound ? chip(fit(text, keyWidth - 2), selected) : (selected ? "—" : th.fg("dim", "—")) + " ";
+        const cap = bound ? chip(fit(text, keyWidth - 2), selected)
+          : `${recording ? th.fg("warning", "●") : selected ? "—" : th.fg("dim", "—")} `;
         return selectedRow(th, fit(action.label, columns - 3 - keyWidth) + " " + cap, selected, columns);
       });
     const details = (columns: number, rows: number) => {
