@@ -106,13 +106,7 @@ With `/slate effort-border on`, bundled themes use a restrained effort ramp from
 
 ### Prompt Templates
 
-With `editor` selected, `/prompts` opens a searchable picker of Pi's prompt templates; Enter inserts at the composer cursor. There is no default shortcut. Optional bind in `~/.pi/agent/pi-slate.json`, then `/reload`:
-
-```json
-{ "shortcuts": { "prompts": "" } }
-```
-
-`false` or `"none"` also mean none.
+With `editor` selected, `/prompts` opens a searchable picker of Pi's prompt templates; Enter inserts at the composer cursor. To bind a key to the picker, see [Shortcuts](#shortcuts).
 
 ![Slate prompt template picker](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-prompts.png)
 
@@ -148,7 +142,26 @@ These work when `editor` is selected. No terminal configuration.
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. When the dashboard is hidden, context/MCP stays on the top edge, while the model and thinking level sit together below. Not footer-slot ownership. |
 | Header logo | `/logo [original\|minimal]` | Toggle the stock brand mark and the white monochrome mark, or set a style explicitly. |
 | Theme | `/theme` (or `/slate theme`) | Opens the Light/Dark picker: Latte and Frappé under Light, Macchiato, Mocha, Tokyo Night, and Black Metal under Dark. 15 palettes per Catppuccin flavor, live preview, no arguments. |
+| Shortcuts | `/shortcuts` | Assign keys to Slate actions. Also available in the `/slate` menu. |
 | Bugs | `/slate bug` | Open the GitHub issue tracker. |
+
+### Shortcuts
+
+Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del twice (or Backspace twice) to remove it. A different key cancels removal. Each accepted change saves immediately. If a save conflicts with another session, the panel keeps the previous binding and shows the reason. Esc or the remapped cancel key cancels recording or closes the panel; Ctrl+C closes from anywhere. If you saved any changes, Pi reloads once after the panel closes and Pi is idle.
+
+Pi-reserved keys, viewport keys, and Slate editor keys (when the editor surface is selected) are blocked. The panel labels other shared keys “Also bound in Pi”; those bindings may only apply in another view. Printable, navigation, and editing keys require Ctrl, Alt, or Cmd/Win; Shift alone isn't enough. There are no default Slate shortcut keys.
+
+F1–F12 work without a modifier on Pi 1.4 and 1.6. Ctrl/Alt+F-keys require Pi 1.6 or later. On a Mac, you may need to hold `fn` or enable “Use F1, F2, etc. keys as standard function keys”.
+
+Add this fragment to an existing `~/.pi/agent/pi-slate.json` and run `/reload`:
+
+```json
+{ "shortcuts": { "sidebar": "f8", "prompts": "ctrl+alt+." } }
+```
+
+If you're creating the file, include `"surfaces": ["editor", "sidebar", "tool-cards"]` to keep the fresh-install surfaces; omitting it enables all surfaces for legacy compatibility. Hand-edited keys are validated with a US layout, so record keys through `/shortcuts` on other layouts. Cmd/Win is stored as `super` for Pi; hand-edited keys also accept `cmd`, `command`, `win`, and `windows`.
+
+Action IDs: `sidebar` (focused mode), `prompts` (requires the editor surface), `theme`, `pid`, `effort-border`, `density`, and `footer` (composer metadata). Use `false`, `"none"`, or `""` to leave an action unbound. If hand-edited bindings overlap, the first action in the order above wins.
 
 ## Independent Surfaces
 

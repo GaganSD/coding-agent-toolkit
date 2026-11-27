@@ -5,6 +5,7 @@ import {
   getAgentDir,
   VERSION,
   type ExtensionAPI,
+  type ExtensionCommandContext,
   type ExtensionContext,
   type KeybindingsManager,
   type Theme,
@@ -12,6 +13,7 @@ import {
 import {
   type Component,
   type EditorTheme,
+  type KeyId,
   type TUI,
 } from "@earendil-works/pi-tui";
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
@@ -82,7 +84,8 @@ import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
-import { loadShortcuts, promptShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
+import { classifyKey, loadShortcutKeys, loadShortcuts, mergeShortcuts, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
+import { openShortcutsPanel } from "./shortcuts-panel.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
@@ -138,13 +141,14 @@ function loadModelDisplay(value: unknown): ModelDisplay | undefined {
   return Object.keys(display).length > 0 ? display : undefined;
 }
 
-function loadConfig(configPath: string): { config: SlateConfig; raw: Record<string, unknown>; error?: string } {
+function loadConfig(configPath: string) {
   let text: string | undefined;
-  try {
-    text = readFileSync(configPath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") text = "";
-  }
+  try { text = readFileSync(configPath, "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") text = ""; }
+  return parseConfig(text);
+}
+
+function parseConfig(text: string | undefined): { config: SlateConfig; raw: Record<string, unknown>; error?: string } {
   const parsed = parseSurfaceConfig(text);
   const value = parsed.value as Record<string, unknown> & SurfaceConfig;
   const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
@@ -174,26 +178,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
   };
 }
 
-function withMessageLength(current: SlateConfig, messageLength: number | "all" | undefined): SlateConfig {
-  const next = { ...current };
-  if (messageLength === undefined) delete next.messageLength;
-  else next.messageLength = messageLength;
-  return next;
-}
-
-
-function writeConfig(configPath: string, config: Record<string, unknown>): void {
-  const temporaryPath = `${configPath}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, configPath);
-}
-
-function withSidebarPercent(current: SlateConfig, percent: number | undefined): SlateConfig {
-  const next = { ...current };
-  if (percent === undefined) delete next.sidebarPercent;
-  else next.sidebarPercent = percent;
-  return next;
-}
+type ConfigPatch = Partial<SlateConfig> | ((raw: Record<string, unknown>) => Record<string, unknown> | string);
 
 function widthMessage(percent: number | undefined): string {
   if (percent === undefined) return "Sidebar width reset to default";
@@ -207,10 +192,26 @@ class SlateFooter implements Component {
 }
 
 export default function piSlate(pi: ExtensionAPI): void {
-  const configPath = join(getAgentDir(), "pi-slate.json");
+  const agentDir = getAgentDir();
+  const configPath = join(agentDir, "pi-slate.json");
   const loaded = loadConfig(configPath);
-  const saveConfig = (next: SlateConfig): void => writeConfig(configPath, { ...next, footer: next.composerMetadata });
   let config = loaded.config;
+  const saveConfig = (patch: ConfigPatch): string | undefined => {
+    const latest = loadConfig(configPath);
+    if (latest.error) return latest.error;
+    const changes = typeof patch === "function" ? patch(latest.raw) : patch;
+    if (typeof changes === "string") return changes;
+    const raw: Record<string, unknown> = { ...latest.raw, ...changes };
+    // Preserve the legacy footer mirror without copying stale metadata from memory.
+    const metadata = raw.composerMetadata ?? raw.footer;
+    if (metadata !== undefined) raw.composerMetadata = raw.footer = metadata === "minimal" ? "minimal" : "standard";
+    const text = `${JSON.stringify(raw, null, 2)}\n`;
+    const temporaryPath = `${configPath}.${process.pid}.tmp`;
+    // Synchronous read/rename narrows but does not eliminate races between Pi processes.
+    writeFileSync(temporaryPath, text, "utf8");
+    renameSync(temporaryPath, configPath);
+    config = parseConfig(text).config;
+  };
   setProgressStyle(config.progress ?? "waves");
   // Runtime ownership is fixed until /reload, even when a command saves a new set.
   const selected = [...config.surfaces];
@@ -225,7 +226,16 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     if (!claudeTools) installRead(pi);
   }
-  if (owns("editor")) installPromptPicker(pi, promptShortcutKey(config.shortcuts));
+  const shortcutWarnings: string[] = [];
+  const shortcutKeys = config.shortcuts ? loadShortcutKeys(agentDir) : undefined;
+  const configuredShortcut = (id: ShortcutActionId): KeyId | undefined => {
+    const key = shortcutKey(config.shortcuts, id);
+    if (!key || !shortcutKeys) return;
+    const result = classifyKey(key, { keys: shortcutKeys, ownsEditor: owns("editor") });
+    if ("key" in result) return result.key;
+    shortcutWarnings.push(`Skipped Slate shortcut ${id} (${shortcutLabel(key)}): ${shortcutStatus(result)}`);
+  };
+  if (owns("editor")) installPromptPicker(pi, configuredShortcut("prompts"));
   installExitCommand(pi);
   const sidebar = new Sidebar();
   const images = owns("editor") ? installImagePlaceholders(pi, owns("sidebar") ? sidebar : undefined, () => editorActive()) : undefined;
@@ -242,6 +252,21 @@ export default function piSlate(pi: ExtensionAPI): void {
   let inspectingSidebar = false;
   let sidebarYielded = false;
   let sessionEpoch = 0;
+  let pendingShortcutReload: Promise<void> | undefined;
+  const openShortcutPanels = new Set<AbortController>();
+  let panelsClosed: (() => void) | undefined;
+  const wakeShortcutReload = () => {
+    const wake = panelsClosed;
+    panelsClosed = undefined;
+    wake?.();
+  };
+  const invalidateSession = () => {
+    sessionEpoch += 1;
+    pendingShortcutReload = undefined;
+    for (const panel of openShortcutPanels) panel.abort();
+    openShortcutPanels.clear();
+    wakeShortcutReload();
+  };
   let currentContext: ExtensionContext | undefined;
   let cachedTheme: Theme | undefined;
   // Every ctx accessor throws once the host replaces or reloads the session. Render
@@ -446,7 +471,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (claudeTools) diagnostics.active("tool-style", "Public tool renderer hook installed.");
       else diagnostics.fallback("tool-style", "Slate default cards retained; the optional renderer hook is unavailable.");
     }
-    sessionEpoch += 1; sidebarYielded = false;
+    invalidateSession(); sidebarYielded = false;
     const mountedEpoch = sessionEpoch;
     currentContext = ctx;
     if (ctx.mode === "tui") cachedTheme = ctx.ui.theme;
@@ -507,18 +532,15 @@ export default function piSlate(pi: ExtensionAPI): void {
       sidebar.setActions({
         persistFold: (section, expanded) => {
           if (!mountedContext()) return undefined;
-          if (loaded.error) { notify(loaded.error, "warning"); return undefined; }
           try {
-            const latest = loadConfig(configPath);
-            if (latest.error) { notify(latest.error, "warning"); return undefined; }
-            const previous = latest.raw.sidebarSections;
-            const sections = previous && typeof previous === "object" && !Array.isArray(previous) ? previous : {};
-            const raw = { ...latest.raw, sidebarSections: { ...sections, [section]: expanded } };
-            writeConfig(configPath, raw);
-            const folds = parseSidebarFolds(raw.sidebarSections);
-            config = { ...config, sidebarSections: folds }; return folds;
-          }
-          catch { notify("Could not save sidebar sections", "error"); return undefined; }
+            const warning = saveConfig(raw => {
+              const previous = raw.sidebarSections;
+              const sections = previous && typeof previous === "object" && !Array.isArray(previous) ? previous : {};
+              return { sidebarSections: { ...sections, [section]: expanded } };
+            });
+            if (warning) { notify(warning, "warning"); return undefined; }
+            return config.sidebarSections;
+          } catch { notify("Could not save sidebar sections", "error"); return undefined; }
         },
         inspect: (title, text) => {
           const target = mountedContext();
@@ -527,9 +549,8 @@ export default function piSlate(pi: ExtensionAPI): void {
         persistWidth: (percent) => {
           if (!mountedContext()) return;
           try {
-            const next = withSidebarPercent(config, percent);
-            saveConfig(next);
-            config = next;
+            const warning = saveConfig({ sidebarPercent: percent });
+            if (warning) notify(warning, "warning");
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             notify(`Could not save sidebar width: ${message}`, "error");
@@ -682,7 +703,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
   };
 
-  pi.on("session_start", (_event, ctx) => { install(ctx); });
+  pi.on("session_start", (_event, ctx) => {
+    install(ctx);
+    if (ctx.mode === "tui") for (const warning of shortcutWarnings.splice(0)) ctx.ui.notify(warning, "warning");
+  });
   pi.on("agent_start", (_event, ctx) => {
     currentContext = ctx;
     if (ctx.mode === "tui" && (owns("sidebar") || editorActive() || owns("transcript"))) {
@@ -806,7 +830,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     syncVisibleMessages();
   });
   pi.on("session_shutdown", (_event, ctx) => {
-    sessionEpoch += 1;
+    invalidateSession();
     mcpRuntime.reset();
     resources = { ...resources, mcp: resources.mcp.map(server => ({ ...server, runtime: "idle" })) };
     workingWord = undefined;
@@ -839,12 +863,11 @@ export default function piSlate(pi: ExtensionAPI): void {
     requestRender = () => {};
   });
 
-  const apply = (next: SlateConfig, message: string, ctx: ExtensionContext): void => {
-    if (loaded.error) { ctx.ui.notify(loaded.error, "warning"); return; }
+  const apply = (patch: Partial<SlateConfig>, message: string, ctx: ExtensionContext): void => {
     try {
-      saveConfig(next);
-      config = next;
-      setProgressStyle(next.progress ?? "waves");
+      const warning = saveConfig(patch);
+      if (warning) { ctx.ui.notify(warning, "warning"); return; }
+      setProgressStyle(config.progress ?? "waves");
       if (owns("sidebar")) {
         sidebar.setPreferredWidth(config.sidebarPercent);
         sidebar.setHidden(config.focused === true);
@@ -999,8 +1022,67 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const applyFocused = (ctx: ExtensionContext, value?: boolean): void => {
     const on = value ?? !config.focused;
-    apply({ ...config, focused: on }, on ? "Focused mode on" : "Focused mode off", ctx);
+    apply({ focused: on }, on ? "Focused mode on" : "Focused mode off", ctx);
   };
+
+  const applyPid = (ctx: ExtensionContext, on = !config.showPid): void => {
+    apply({ showPid: on }, on ? "PID display on" : "PID display off", ctx);
+  };
+  const applyEffortBorder = (ctx: ExtensionContext, on = !config.effortBorderColor): void => {
+    apply({ effortBorderColor: on }, on ? "Effort border color on" : "Effort border color off", ctx);
+  };
+  const applyDensity = (ctx: ExtensionContext, density: SlateConfig["density"] = config.density === "compact" ? "comfortable" : "compact"): void => {
+    apply({ density }, `Density set to ${density}`, ctx);
+  };
+  const applyFooter = (ctx: ExtensionContext, footer: SlateConfig["composerMetadata"] = config.composerMetadata === "minimal" ? "standard" : "minimal"): void => {
+    apply({ composerMetadata: footer }, `Composer metadata set to ${footer}`, ctx);
+  };
+  const shortcutHandlers = {
+    sidebar: applyFocused, theme: pickTheme, pid: applyPid, "effort-border": applyEffortBorder, density: applyDensity, footer: applyFooter,
+  };
+  for (const { id, label } of SHORTCUT_ACTIONS) {
+    if (id === "prompts") continue;
+    const key = configuredShortcut(id);
+    if (key) pi.registerShortcut(key, { description: label, handler: shortcutHandlers[id] });
+  }
+
+  const pickShortcuts = async (ctx: ExtensionCommandContext): Promise<void> => {
+    const owner = sessionEpoch, initial = loadConfig(configPath).config.shortcuts;
+    const panel = new AbortController();
+    openShortcutPanels.add(panel);
+    let saved: boolean;
+    try {
+      saved = await openShortcutsPanel(ctx, initial, { ownsEditor: owns("editor") }, (previous, next, recorded) => {
+        if (owner !== sessionEpoch) return "The session changed. Reopen /shortcuts.";
+        try {
+          return saveConfig(raw => {
+            const merged = mergeShortcuts(raw.shortcuts, previous, next, recorded);
+            return "error" in merged ? merged.error : { shortcuts: merged.raw };
+          });
+        } catch (error) {
+          return `Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }, panel.signal);
+    } finally {
+      openShortcutPanels.delete(panel);
+      if (!openShortcutPanels.size) wakeShortcutReload();
+    }
+    if (!saved || owner !== sessionEpoch) return;
+    if (pendingShortcutReload) return pendingShortcutReload;
+    const pending = pendingShortcutReload = (async () => {
+      await ctx.waitForIdle();
+      while (owner === sessionEpoch && openShortcutPanels.size) {
+        await new Promise<void>(resolve => { panelsClosed = resolve; });
+      }
+      if (owner === sessionEpoch) await ctx.reload();
+    })();
+    try { await pending; }
+    finally { if (pendingShortcutReload === pending) pendingShortcutReload = undefined; }
+  };
+  pi.registerCommand("shortcuts", {
+    description: "Assign keyboard shortcuts to Slate actions",
+    handler: async (_args, ctx) => pickShortcuts(ctx),
+  });
 
   // Pi 1.4 has no built-in /theme command; core theme selection lives in /settings.
   pi.registerCommand("theme", {
@@ -1021,12 +1103,12 @@ export default function piSlate(pi: ExtensionAPI): void {
         return;
       }
       const logo = parsed.value ?? ((config.logo ?? "minimal") === "minimal" ? "original" : "minimal");
-      apply({ ...config, logo }, logo === "minimal" ? "Header logo set to minimal (classic white Pi)" : "Header logo set to original", ctx);
+      apply({ logo }, logo === "minimal" ? "Header logo set to minimal (classic white Pi)" : "Header logo set to original", ctx);
     },
   });
 
   pi.registerCommand("slate", {
-    description: "Diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or report a bug",
+    description: "Diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, shortcuts, or report a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1037,13 +1119,14 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Diagnostics", "Report a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Shortcuts", "Diagnostics", "Report a bug"]);
+        if (setting === "Shortcuts") { await pickShortcuts(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
           if (!names) return;
           const choice = parseSlateArgs(`surfaces ${names === "full" || names === "none" ? names : `set ${names}`}`);
           if (!choice.ok || choice.kind !== "surfaces" || choice.value === undefined) { ctx.ui.notify(SLATE_USAGE, "error"); return; }
-          apply({ ...config, surfaces: choice.value }, `Slate surfaces saved: ${formatSurfaces(choice.value)}. Run /reload (reload required).`, ctx);
+          apply({ surfaces: choice.value }, `Slate surfaces saved: ${formatSurfaces(choice.value)}. Run /reload (reload required).`, ctx);
           return;
         }
         if (setting === "Effort border color") kind = "effort-border";
@@ -1071,7 +1154,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         if (parsed.value === undefined) {
           ctx.ui.notify(`Slate surfaces: ${formatSurfaces(config.surfaces)}. Active: ${formatSurfaces(selected)}. Use /slate surfaces set <names>, full, or none; changes require /reload.`, "info");
         } else {
-          apply({ ...config, surfaces: parsed.value }, `Slate surfaces saved: ${formatSurfaces(parsed.value)}. Run /reload (reload required).`, ctx);
+          apply({ surfaces: parsed.value }, `Slate surfaces saved: ${formatSurfaces(parsed.value)}. Run /reload (reload required).`, ctx);
         }
         return;
       }
@@ -1079,21 +1162,21 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (kind === "density") {
         const density = (parsed.kind === "density" ? parsed.value : undefined) ?? await pickDensity(ctx);
         if (!density) return;
-        apply({ ...config, density }, `Density set to ${density}`, ctx);
+        applyDensity(ctx, density);
         return;
       }
 
       if (kind === "footer") {
         const footer = (parsed.kind === "footer" ? parsed.value : undefined) ?? await pickFooter(ctx);
         if (!footer) return;
-        apply({ ...config, composerMetadata: footer }, `Composer metadata set to ${footer}`, ctx);
+        applyFooter(ctx, footer);
         return;
       }
 
       if (kind === "progress") {
         const progress = (parsed.kind === "progress" ? parsed.value : undefined) ?? await pickProgress(ctx);
         if (!progress) return;
-        apply({ ...config, progress }, `Progress indicator set to ${PROGRESS_LABELS[progress]}`, ctx);
+        apply({ progress }, `Progress indicator set to ${PROGRESS_LABELS[progress]}`, ctx);
         return;
       }
 
@@ -1103,35 +1186,29 @@ export default function piSlate(pi: ExtensionAPI): void {
       }
 
       if (kind === "pid") {
-        const on = parsed.kind === "pid" && parsed.value !== undefined ? parsed.value : !config.showPid;
-        apply({ ...config, showPid: on }, on ? "PID display on" : "PID display off", ctx);
+        applyPid(ctx, parsed.kind === "pid" ? parsed.value : undefined);
         return;
       }
 
       if (kind === "effort-border") {
-        const on = parsed.kind === "effort-border" && parsed.value !== undefined ? parsed.value : config.effortBorderColor !== true;
-        apply(
-          { ...config, effortBorderColor: on },
-          on ? "Effort border color on" : "Effort border color off",
-          ctx,
-        );
+        applyEffortBorder(ctx, parsed.kind === "effort-border" ? parsed.value : undefined);
         return;
       }
 
       if (parsed.kind === "width") {
-        apply(withSidebarPercent({ ...config, focused: false }, parsed.width), widthMessage(parsed.width), ctx);
+        apply({ sidebarPercent: parsed.width, focused: false }, widthMessage(parsed.width), ctx);
         return;
       }
 
       if (parsed.kind === "message-length") {
-        apply(withMessageLength(config, parsed.value), messageLengthMessage(parsed.value), ctx);
+        apply({ messageLength: parsed.value }, messageLengthMessage(parsed.value), ctx);
         return;
       }
 
       if (kind === "message-length" || kind === "message-length-menu") {
         const picked = await pickMessageLength(ctx);
         if (!picked) return;
-        apply(withMessageLength(config, picked.value), messageLengthMessage(picked.value), ctx);
+        apply({ messageLength: picked.value }, messageLengthMessage(picked.value), ctx);
         return;
       }
 
@@ -1147,7 +1224,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       const picked = await pickWidth(ctx);
       if (!picked) return;
-      apply(withSidebarPercent({ ...config, focused: false }, picked.width), widthMessage(picked.width), ctx);
+      apply({ sidebarPercent: picked.width, focused: false }, widthMessage(picked.width), ctx);
     },
   });
 }
