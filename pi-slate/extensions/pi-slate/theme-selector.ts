@@ -1,5 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, parseColor, truncateToWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
+import { matchesKey, parseColor, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
+import { compactPicker, pickerBody, pickerFrame, pickerGeometry, PICKER_OVERLAY, selectedRow, viewport } from "./picker-frame.ts";
 import {
   buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTION,
   FLAVORS, STYLE_LABELS, stylesFor,
@@ -111,12 +112,11 @@ export class ThemeSelector implements Component {
     const th = this.theme();
     const current = this.current();
     const choice = this.choices[this.selected];
-    const height = Math.min(22, Math.max(1, this.tui.terminal.rows - 2));
-    const fit = (text: string, columns: number) => truncateToWidth(text, Math.max(0, columns), "…", true);
+    const { height, tiny, inner, bodyHeight } = pickerGeometry(width, this.tui.terminal.rows);
     const status = this.error || (!choice ? "No themes available" : !current ? "No palettes available" : "");
     // Tiny screens trade the frame and list for identity and controls. Geometry
     // still depends only on terminal size, never on names, counts, or errors.
-    if (height < 13 || width < 24) {
+    if (tiny) {
       const lines = [
         th.fg("accent", choice?.label ?? "No themes available"),
         current ? `${(this.variants[this.selected] ?? 0) + 1}/${choice!.variants.length} · ${current.label}` : "No palettes available",
@@ -124,61 +124,30 @@ export class ThemeSelector implements Component {
         status ? th.fg("error", status) : th.fg("dim", "↑↓ theme ←→ color"),
         status ? th.fg("dim", "↑↓ theme ←→ color") : "",
       ];
-      return Array.from({ length: height }, (_, i) => fit(lines[i] ?? "", width));
+      return compactPicker(lines, width, height);
     }
-    const inner = width - 4;
-    const bodyHeight = height - 7;
-    const border = (text: string) => th.fg("border", text);
-    // Body text, not the accent, paints selected rows: accent on selectedBg drops
-    // below 3:1 on light flavors (Latte rosewater/yellow are ~1.45:1).
-    const selectedRow = (text: string, selected: boolean, columns: number) => {
-      const row = fit(`${selected ? "›" : " "} ${text}`, columns);
-      return selected ? th.style(row, { fg: "text", bg: "selectedBg", bold: true }) : row;
-    };
-    // Both viewports are bounded and center their selected row, including on
-    // resize. Headers carry position and hidden-row counts instead of wrapping.
-    const viewport = (title: string, position: number, total: number, selectedRowIndex: number,
-      rowCount: number, columns: number, rows: number, row: (index: number) => string): string[] => {
-      const slots = Math.max(1, rows - 1);
-      const start = Math.max(0, Math.min(selectedRowIndex - Math.floor(slots / 2), rowCount - slots));
-      const end = Math.min(rowCount, start + slots);
-      const overflow = `${start ? ` ↑${start}` : ""}${end < rowCount ? ` ↓${rowCount - end}` : ""}`;
-      return [th.fg("muted", fit(`${title} ${total ? position + 1 : 0}/${total}${overflow}`, columns)),
-        ...Array.from({ length: rows - 1 }, (_, i) => start + i < end ? fit(row(start + i), columns) : fit("", columns))];
-    };
     const themeRowsViewport = (columns: number, rows: number) => {
       const selectedRowIndex = Math.max(0, this.rows.findIndex(row => row.kind === "choice" && row.index === this.selected));
-      return viewport("Themes", this.selected, this.choices.length, selectedRowIndex, this.rows.length, columns, rows,
+      return viewport(th, "Themes", this.selected, this.choices.length, selectedRowIndex, this.rows.length, columns, rows,
         (i) => {
           const row = this.rows[i]!;
           if (row.kind === "header") return th.fg("muted", `── ${row.label}`);
-          return selectedRow(this.choices[row.index]!.label, row.index === this.selected, columns);
+          return selectedRow(th, this.choices[row.index]!.label, row.index === this.selected, columns);
         });
     };
     const paletteRows = (columns: number, rows: number) => {
       const index = this.variants[this.selected] ?? 0;
       const variants = choice?.variants ?? [];
-      return viewport("Palettes", index, variants.length, index, variants.length, columns, rows, i => {
+      return viewport(th, "Palettes", index, variants.length, index, variants.length, columns, rows, i => {
         const variant = variants[i]!;
         const swatch = variant.color ? th.style("████", { fg: parseColor(variant.color) }) : th.fg("muted", "▒▒▒▒");
         const label = `${swatch} ${variant.label}${columns >= 34 && variant.color ? `  ${th.fg("dim", variant.color)}` : ""}`;
-        return selectedRow(label, i === index, columns);
+        return selectedRow(th, label, i === index, columns);
       });
     };
-    let body: string[];
-    if (width >= 68) {
-      const left = Math.floor((inner - 3) * 0.48), right = inner - 3 - left;
-      const themes = themeRowsViewport(left, bodyHeight), palettes = paletteRows(right, bodyHeight);
-      body = themes.map((line, i) => line + border(" │ ") + palettes[i]!);
-    } else {
-      const top = Math.ceil(bodyHeight / 2);
-      body = [...themeRowsViewport(inner, top), ...paletteRows(inner, bodyHeight - top)];
-    }
-    const content = [th.bold("Slate themes"), "", ...body, th.fg("error", status),
-      th.fg("dim", "↑↓ theme ←→ palette"), th.fg("dim", width < 44 ? "Enter save/Esc undo" : "Enter save · Esc restore · Ctrl+C cancel")];
-    return [border(`╭${"─".repeat(width - 2)}╮`),
-      ...content.map(line => border("│ ") + fit(line, inner) + border(" │")),
-      border(`╰${"─".repeat(width - 2)}╯`)];
+    const body = pickerBody(th, width, inner, bodyHeight, themeRowsViewport, paletteRows);
+    return pickerFrame(th, width, "Slate themes", body, status,
+      ["↑↓ theme ←→ palette", width < 44 ? "Enter save/Esc undo" : "Enter save · Esc restore · Ctrl+C cancel"]);
   }
 
   invalidate(): void {} // Render uses the live theme and current terminal size; no styled cache.
@@ -209,7 +178,7 @@ export async function selectSlateTheme(ctx: ExtensionContext, save: (name: strin
         const result = ctx.ui.setTheme(theme);
         return result.success ? undefined : result.error ?? `Could not preview ${name}`;
       }, done,
-    ), { overlay: true, overlayOptions: { anchor: "center", width: 88, maxHeight: "100%", margin: 1 } });
+    ), PICKER_OVERLAY);
     if (selected) confirmed = save(selected);
   } finally {
     if (!confirmed && previewed) {

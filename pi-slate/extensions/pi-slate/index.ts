@@ -5,6 +5,7 @@ import {
   getAgentDir,
   VERSION,
   type ExtensionAPI,
+  type ExtensionCommandContext,
   type ExtensionContext,
   type KeybindingsManager,
   type Theme,
@@ -82,7 +83,8 @@ import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
-import { loadShortcuts, promptShortcutKey, sidebarShortcutKey, type SlateShortcuts } from "./shortcuts.ts";
+import { loadShortcuts, promptShortcutKey, SHORTCUT_ACTIONS, shortcutKey, type SlateShortcuts } from "./shortcuts.ts";
+import { openShortcutsPanel } from "./shortcuts-panel.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
@@ -992,13 +994,37 @@ export default function piSlate(pi: ExtensionAPI): void {
     apply({ ...config, focused: on }, on ? "Focused mode on" : "Focused mode off", ctx);
   };
 
-  const sidebarShortcut = sidebarShortcutKey(config.shortcuts);
-  if (sidebarShortcut) {
-    pi.registerShortcut(sidebarShortcut as KeyId, {
-      description: "Toggle Slate sidebar",
-      handler: ctx => applyFocused(ctx),
-    });
+  const applyPid = (ctx: ExtensionContext, on = !config.showPid): void => {
+    apply({ ...config, showPid: on }, on ? "PID display on" : "PID display off", ctx);
+  };
+  const applyEffortBorder = (ctx: ExtensionContext, on = !config.effortBorderColor): void => {
+    apply({ ...config, effortBorderColor: on }, on ? "Effort border color on" : "Effort border color off", ctx);
+  };
+  const applyDensity = (ctx: ExtensionContext, density: SlateConfig["density"] = config.density === "compact" ? "comfortable" : "compact"): void => {
+    apply({ ...config, density }, `Density set to ${density}`, ctx);
+  };
+  const applyFooter = (ctx: ExtensionContext, footer: SlateConfig["composerMetadata"] = config.composerMetadata === "minimal" ? "standard" : "minimal"): void => {
+    apply({ ...config, composerMetadata: footer }, `Composer metadata set to ${footer}`, ctx);
+  };
+  const shortcutHandlers = {
+    sidebar: applyFocused, theme: pickTheme, pid: applyPid, "effort-border": applyEffortBorder, density: applyDensity, footer: applyFooter,
+  };
+  for (const { id, label } of SHORTCUT_ACTIONS) {
+    if (id === "prompts") continue;
+    const key = shortcutKey(config.shortcuts, id);
+    if (key) pi.registerShortcut(key as KeyId, { description: label, handler: shortcutHandlers[id] });
   }
+
+  const pickShortcuts = async (ctx: ExtensionCommandContext): Promise<void> => {
+    const shortcuts = await openShortcutsPanel(ctx, config.shortcuts, { ownsEditor: owns("editor") });
+    if (!shortcuts) return;
+    apply({ ...config, shortcuts }, "Shortcuts saved", ctx);
+    if (config.shortcuts === shortcuts) await ctx.reload();
+  };
+  pi.registerCommand("shortcuts", {
+    description: "Assign keyboard shortcuts to Slate actions",
+    handler: async (_args, ctx) => pickShortcuts(ctx),
+  });
 
   // Pi 1.4 has no built-in /theme command; core theme selection lives in /settings.
   pi.registerCommand("theme", {
@@ -1024,7 +1050,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("slate", {
-    description: "Diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, or report a bug",
+    description: "Diagnostics, surfaces, density, composer metadata, sidebar, focused mode, PID display, effort border color, progress indicator, message length, theme, shortcuts, or report a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -1035,7 +1061,8 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Diagnostics", "Report a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Progress indicator", "Message length", "Theme", "Shortcuts", "Diagnostics", "Report a bug"]);
+        if (setting === "Shortcuts") { await pickShortcuts(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
           if (!names) return;
@@ -1077,14 +1104,14 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (kind === "density") {
         const density = (parsed.kind === "density" ? parsed.value : undefined) ?? await pickDensity(ctx);
         if (!density) return;
-        apply({ ...config, density }, `Density set to ${density}`, ctx);
+        applyDensity(ctx, density);
         return;
       }
 
       if (kind === "footer") {
         const footer = (parsed.kind === "footer" ? parsed.value : undefined) ?? await pickFooter(ctx);
         if (!footer) return;
-        apply({ ...config, composerMetadata: footer }, `Composer metadata set to ${footer}`, ctx);
+        applyFooter(ctx, footer);
         return;
       }
 
@@ -1101,18 +1128,12 @@ export default function piSlate(pi: ExtensionAPI): void {
       }
 
       if (kind === "pid") {
-        const on = parsed.kind === "pid" && parsed.value !== undefined ? parsed.value : !config.showPid;
-        apply({ ...config, showPid: on }, on ? "PID display on" : "PID display off", ctx);
+        applyPid(ctx, parsed.kind === "pid" ? parsed.value : undefined);
         return;
       }
 
       if (kind === "effort-border") {
-        const on = parsed.kind === "effort-border" && parsed.value !== undefined ? parsed.value : config.effortBorderColor !== true;
-        apply(
-          { ...config, effortBorderColor: on },
-          on ? "Effort border color on" : "Effort border color off",
-          ctx,
-        );
+        applyEffortBorder(ctx, parsed.kind === "effort-border" ? parsed.value : undefined);
         return;
       }
 

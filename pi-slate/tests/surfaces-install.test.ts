@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { ExtensionRunner, SessionManager, type ExtensionAPI, type ExtensionContext, type ExtensionEvent, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { ExtensionRunner, SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type ExtensionEvent, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Container, Editor, ScrollView, Text, TuiAltScreen, type Component, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
 import piSlate from "../extensions/pi-slate/index.ts";
 import { ComposerEditor } from "../extensions/pi-slate/composer.ts";
@@ -21,7 +21,7 @@ class NullTerminal implements Terminal {
   clearLine() {} clearFromCursor() {} clearScreen() {} setTitle() {} setProgress() {} setProgramStatus() {}
 }
 
-const theme = { name: "dark", fg: (_color: string, text: string) => text, bold: (text: string) => text, italic: (text: string) => text } as Theme;
+const theme = { name: "dark", fg: (_color: string, text: string) => text, bold: (text: string) => text, italic: (text: string) => text, style: (text: string) => text } as unknown as Theme;
 const editorTheme = { borderColor: (text: string) => text } as EditorTheme;
 
 type Handler = (event: ExtensionEvent, ctx: ExtensionContext) => unknown;
@@ -43,7 +43,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const calls: string[] = [];
   const notices: string[] = [];
   const notifications: Array<{ message: string; kind: string }> = [];
-  const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
+  const commands = new Map<string, { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }>();
   const tools: ToolDefinition[] = [];
   const handlers = new Map<string, Handler[]>();
   const choices: string[] = [];
@@ -131,7 +131,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   };
   const manager = SessionManager.inMemory(cwd);
   let stale = false;
-  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, modelRegistry: { find: () => undefined }, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false } as unknown as ExtensionContext, {
+  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, modelRegistry: { find: () => undefined }, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false, reload: async () => { calls.push("reload"); } } as unknown as ExtensionCommandContext, {
     get(target, key, receiver) {
       if (stale) throw new Error("This extension ctx is stale after session replacement or reload.");
       return Reflect.get(target, key, receiver);
@@ -139,7 +139,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   });
   configure?.(pi, ui as unknown as ExtensionContext["ui"]);
   piSlate(pi);
-  const emit = async (type: string, extra: Record<string, unknown> = {}, context = ctx) => {
+  const emit = async (type: string, extra: Record<string, unknown> = {}, context: ExtensionContext = ctx) => {
     let result: unknown;
     for (const handler of handlers.get(type) ?? []) result = await handler({ type, ...extra } as ExtensionEvent, context);
     return result;
@@ -593,6 +593,69 @@ test("sidebar shortcut uses the saved focused-mode toggle", async t => {
   saved = JSON.parse(await readFile(f.path, "utf8"));
   assert.equal(saved.focused, true);
   assert.equal(f.notices.at(-1), "Focused mode on");
+});
+
+test("all bound actions register, and setting shortcuts share the command setters", async t => {
+  const shortcuts = { sidebar: "f8", prompts: "f2", theme: "f3", pid: "f4", "effort-border": "f5", density: "f6", footer: "f7" };
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], shortcuts }));
+  assert.deepEqual([...f.shortcuts].sort(), Object.values(shortcuts).sort());
+  const read = async () => JSON.parse(await readFile(f.path, "utf8"));
+  for (const [key, field, toggled, command, restored] of [
+    ["f8", "focused", false, "focused", true],
+    ["f4", "showPid", true, "pid", false],
+    ["f5", "effortBorderColor", true, "effort-border", false],
+    ["f6", "density", "compact", "density comfortable", "comfortable"],
+    ["f7", "composerMetadata", "minimal", "footer standard", "standard"],
+  ] as const) {
+    await f.shortcutHandlers.get(key)!(f.ctx);
+    assert.equal((await read())[field], toggled);
+    await f.commands.get("slate")!.handler(command, f.ctx);
+    assert.equal((await read())[field], restored);
+  }
+  assert.deepEqual((await read()).shortcuts, shortcuts);
+});
+
+test("/shortcuts saves a changed draft and reloads exactly once", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } }));
+  const draft = { sidebar: false, pid: "f8" };
+  t.mock.method(f.ctx.ui, "custom", async () => draft);
+  const reload = t.mock.method(f.ctx, "reload", async () => {
+    assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, draft);
+  });
+  await f.commands.get("shortcuts")!.handler("", f.ctx);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, draft);
+  assert.equal(reload.mock.callCount(), 1);
+  assert.equal(f.notices.at(-1), "Shortcuts saved");
+});
+
+test("cancelled or unchanged shortcut drafts do not save or reload", async t => {
+  const text = JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } });
+  const f = await fixture(t, text);
+  let draft: { sidebar: string } | undefined;
+  t.mock.method(f.ctx.ui, "custom", async () => draft);
+  for (const value of [undefined, { sidebar: "f8" }]) {
+    draft = value;
+    await f.commands.get("shortcuts")!.handler("", f.ctx);
+    assert.equal(await readFile(f.path, "utf8"), text);
+    assert(!f.calls.includes("reload"));
+  }
+});
+
+test("a failed shortcut save does not reload", async t => {
+  const f = await fixture(t, "invalid JSON");
+  t.mock.method(f.ctx.ui, "custom", async () => ({ sidebar: "f8" }));
+  await f.commands.get("shortcuts")!.handler("", f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), "invalid JSON");
+  assert(!f.calls.includes("reload"));
+  assert(!f.notices.includes("Shortcuts saved"));
+});
+
+test("the Slate menu opens the same shortcuts panel", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  f.choices.push("Shortcuts");
+  await f.commands.get("slate")!.handler("", f.ctx);
+  assert.match(f.inspected.at(-1)!, /Slate shortcuts/);
+  assert(!f.calls.includes("reload"));
 });
 
 test("rail omits the command catalog", async t => {
