@@ -1,6 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, parseColor, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { compactPicker, pickerBody, pickerFrame, pickerGeometry, PICKER_OVERLAY, sectionRow, selectedRow, viewport } from "./picker-frame.ts";
+import { compactPicker, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY, sectionRow, selectedRow, viewport } from "./picker-frame.ts";
 import {
   buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTION,
   FLAVORS, STYLE_LABELS, stylesFor,
@@ -146,8 +146,8 @@ export class ThemeSelector implements Component {
       });
     };
     const body = pickerBody(th, width, inner, bodyHeight, themeRowsViewport, paletteRows);
-    return pickerFrame(th, width, "Slate themes", body, status,
-      ["↑↓ theme ←→ palette", width < 44 ? "Enter save/Esc undo" : "Enter save · Esc restore · Ctrl+C cancel"]);
+    return framedPicker(th, width, "Slate themes", body, [th.fg("error", status), th.fg("dim", "↑↓ theme ←→ palette"),
+      th.fg("dim", width < 44 ? "Enter save/Esc undo" : "Enter save · Esc restore · Ctrl+C cancel")]);
   }
 
   invalidate(): void {} // Render uses the live theme and current terminal size; no styled cache.
