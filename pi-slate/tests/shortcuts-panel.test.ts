@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { openShortcutsPanel, ShortcutsPanel } from "../extensions/pi-slate/shortcuts-panel.ts";
 import type { SlateShortcuts } from "../extensions/pi-slate/shortcuts.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import { getThemeByName, initTheme, loadThemeFromPath } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text, style: (text: string) => text } as unknown as Theme;
 const up = "\x1b[A", down = "\x1b[B", esc = "\x1b", f2 = "\x1bOQ";
 
-function fixture(initial?: SlateShortcuts, ownsEditor = true, keys = new KeybindingsManager()) {
+function fixture(initial?: SlateShortcuts, ownsEditor = true, keys = new KeybindingsManager(), getTheme = () => theme) {
   const done: Array<SlateShortcuts | undefined> = [];
   const terminal = { rows: 40 };
-  const panel = new ShortcutsPanel(initial, { terminal: terminal as TUI["terminal"], requestRender() {} }, theme,
+  const panel = new ShortcutsPanel(initial, { terminal: terminal as TUI["terminal"], requestRender() {} }, getTheme,
     keys, { ownsEditor }, value => done.push(value));
   const input = (...sequences: string[]) => sequences.forEach(seq => panel.handleInput(seq));
   const render = (width = 88) => panel.render(width).join("\n");
@@ -31,13 +34,86 @@ test("shortcuts uses the picker geometry at wide, stacked, and tiny sizes", () =
   }
   f.terminal.rows = 40;
   assert.match(f.render(), /Actions 1\/7\s+│ Toggle sidebar/);
-  assert.match(f.render(), /› Toggle sidebar\s+f8 │ Same as \/slate focused/);
+  assert.match(f.render(), /── Layout\s+│ Same as \/slate focused/);
+  assert.match(f.render(), /› Toggle sidebar\s+F8\s+│/);
   assert.match(f.render(58), /Actions 1\/7/);
-  assert.match(f.render(58), /Status\s+free/);
+  assert.match(f.render(58), /Status\s+● free/);
   f.terminal.rows = 15;
   assert.match(f.render(58), /Actions 1\/7 ↓\d/);
   assert.match(f.render(18), /Slate shortcuts/);
   assert.doesNotMatch(f.render(18), /╭/);
+});
+
+const markerTheme = {
+  fg: (token: string, text: string) => `<${token}>${text}</${token}>`,
+  bold: (text: string) => `<bold>${text}</bold>`,
+  style: (text: string, { fg, bg, bold }: Parameters<Theme["style"]>[1]) => {
+    const marker = [fg, bg, bold && "bold"].filter(Boolean).join(" ");
+    return `<${marker}>${text}</${marker}>`;
+  },
+} as unknown as Theme;
+
+const themed = (initial?: SlateShortcuts, ownsEditor = true) => fixture(initial, ownsEditor, undefined, () => markerTheme);
+
+test("section headers are muted and arrows select only actions in the original order", () => {
+  const f = themed();
+  const render = () => f.render(160);
+  for (const label of ["Layout", "Pickers", "Display"]) assert(render().includes(`<muted>── ${label}</muted>`));
+  for (const label of ["Prompt picker", "Theme picker", "PID display", "Effort border color", "Density", "Composer metadata", "Toggle sidebar"]) {
+    f.input(down);
+    assert(render().includes(`<text selectedBg bold>› ${label}`));
+  }
+});
+
+test("details, statuses, keycaps, and the recording state use distinct theme tokens", () => {
+  const f = themed({ sidebar: "f8", prompts: "f2" });
+  const render = () => f.render(160);
+  assert(render().includes("<border>╭"));
+  assert(render().includes("<bold>Slate shortcuts</bold>"));
+  assert(render().includes("<accent bold>Toggle sidebar"));
+  assert(render().includes("<muted>Same as /slate focused</muted>"));
+  assert(render().includes("<success>● free</success>"));
+  assert(render().includes("<accent userMessageBg> F8 "));
+  const selected = render().split("\n").find(line => line.includes("<text selectedBg bold>› Toggle sidebar"))!;
+  assert(!selected.includes("<accent userMessageBg>"), "the selected row never paints an accent keycap");
+  assert(themed().render(160).includes("<dim>—</dim>"));
+  assert(themed({ sidebar: "ctrl+b" }, false).render(160).includes("<warning>▲ Also bound in Pi:"));
+  assert(themed({ sidebar: "ctrl+t" }).render(160).includes("<error>✕ Reserved by Pi:"));
+  assert(themed({ sidebar: "left" }).render(160).includes("<error>✕ Used for editing"));
+  assert(themed({ sidebar: "shift+f2" }).render(160).includes("<error>✕ Not supported by Pi"));
+  f.input("\r");
+  assert(render().includes("<borderAccent>╭"));
+  assert.match(render(), /<accent>● Recording<\/accent>[^\n]*\n[^\n]*Press a key…/);
+  f.input(f2);
+  assert(render().includes("<accent>↺ Moved from Prompt picker</accent>"));
+  assert(render().includes("<bold>Slate shortcuts</bold><warning> · 2 unsaved</warning>"));
+  assert(render().includes("<border>╭"));
+});
+
+test("live Latte and system palettes retain legible keycaps and exact ANSI geometry", () => {
+  initTheme("system");
+  const system = getThemeByName("system")!;
+  const latte = loadThemeFromPath(fileURLToPath(new URL("../themes/catppuccin-latte-mauve.json", import.meta.url)), "truecolor");
+  let active = latte;
+  const f = fixture({ sidebar: "f8", prompts: "ctrl+alt+." }, true, undefined, () => active);
+  const light = f.render();
+  assert(light.includes(latte.style(`${"› Toggle sidebar".padEnd(34)} F8 `, { fg: "text", bg: "selectedBg", bold: true })));
+  assert(light.includes(latte.style(" Ctrl+Alt+. ", { fg: "accent", bg: "userMessageBg" })));
+  assert.notEqual(light, stripVTControlCharacters(light), "Latte emits ANSI styling");
+  for (const current of [latte, system]) {
+    active = current;
+    if (current === system) assert.notEqual(f.render(), light, "the open panel picks up the new palette");
+    assert.match(stripVTControlCharacters(f.render()), /› Toggle sidebar\s+F8/);
+    assert.match(stripVTControlCharacters(f.render()), /Prompt picker\s+Ctrl\+Alt\+\./);
+    for (const width of [88, 58, 18]) for (const rows of [40, 15, 8]) {
+      f.terminal.rows = rows;
+      const check = () => assert(f.panel.render(width).every(line => visibleWidth(line) === width), `${current.name} ${width}x${rows}`);
+      check();
+      f.input("\r"); check();
+      f.input(esc);
+    }
+    f.terminal.rows = 40;
+  }
 });
 
 test("selection wraps both ways", () => {
@@ -54,10 +130,10 @@ test("records a function key and a normalized Kitty chord, then saves the draft"
   f.input("\r");
   assert.match(f.render(), /Press a key…/);
   f.input(f2);
-  assert.match(f.render(), /Key\s+f2/);
+  assert.match(f.render(), /Key\s+F2/);
   assert.doesNotMatch(f.render(), /Press a key…/);
   f.input(down, "\r", "\x1b[98;6u");
-  assert.match(f.render(), /Key\s+ctrl\+shift\+b/);
+  assert.match(f.render(), /Key\s+Ctrl\+Shift\+B/);
   assert.match(f.render(), /Slate shortcuts · 2 unsaved/);
   f.input("\r", "\x13"); // Save takes precedence over recording.
   assert.deepEqual(f.done, [{ sidebar: "f2", prompts: "ctrl+shift+b" }]);
@@ -133,7 +209,7 @@ test("recording rejects printable keys in both encodings and accepts only round-
 test("non-reserved keys show their other Pi bindings", () => {
   const f = fixture(undefined, false);
   f.input("\r", "\x02");
-  assert.match(f.render(), /Key\s+ctrl\+b/);
+  assert.match(f.render(), /Key\s+Ctrl\+B/);
   assert.match(f.render(), /Also bound in Pi:/);
 });
 
@@ -215,7 +291,7 @@ test("recording prompts requires the editor surface", () => {
   const f = fixture(undefined, false);
   f.input(down, "\r", f2);
   assert.match(f.render(), /Needs the editor surface/);
-  assert.doesNotMatch(f.render(), /f2|unsaved|Press a key…/);
+  assert.doesNotMatch(f.render(), /F2|unsaved|Press a key…/);
 });
 
 test("Delete or Backspace unbinds a saved key; unbinding a new key restores the initial draft", () => {

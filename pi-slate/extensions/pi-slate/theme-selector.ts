@@ -1,6 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, parseColor, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { compactPicker, pickerBody, pickerFrame, pickerGeometry, PICKER_OVERLAY, selectedRow, viewport } from "./picker-frame.ts";
+import { compactPicker, pickerBody, pickerFrame, pickerGeometry, PICKER_OVERLAY, sectionRow, selectedRow, viewport } from "./picker-frame.ts";
 import {
   buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTION,
   FLAVORS, STYLE_LABELS, stylesFor,
@@ -131,7 +131,7 @@ export class ThemeSelector implements Component {
       return viewport(th, "Themes", this.selected, this.choices.length, selectedRowIndex, this.rows.length, columns, rows,
         (i) => {
           const row = this.rows[i]!;
-          if (row.kind === "header") return th.fg("muted", `── ${row.label}`);
+          if (row.kind === "header") return sectionRow(th, row.label);
           return selectedRow(th, this.choices[row.index]!.label, row.index === this.selected, columns);
         });
     };

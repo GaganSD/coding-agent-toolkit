@@ -710,7 +710,7 @@ test("unbinding a duplicate winner does not resurrect hidden owners on reload", 
   assert.deepEqual(f.shortcuts, ["f2"]);
   driveShortcuts(t, f, panel => {
     const rows = panel.render(88).join("\n");
-    assert.match(rows, /Toggle sidebar\s+f2/);
+    assert.match(rows, /Toggle sidebar\s+F2/);
     for (const label of [/Theme picker\s+—/, /Prompt picker\s+—/]) assert.match(rows, label);
     panel.handleInput!("\x1b[3~");
     panel.handleInput!("\x13");
@@ -730,7 +730,7 @@ test("a concurrent assignment that would win against the panel draft aborts the 
     panel.handleInput!("\x1b[A");
     panel.handleInput!("\r");
     panel.handleInput!("\x1bOQ");
-    assert.match(panel.render(88).join("\n"), /Composer metadata\s+f2/);
+    assert.match(panel.render(88).join("\n"), /Composer metadata\s+F2/);
     await writeFile(f.path, concurrent);
     panel.handleInput!("\x13");
   });
@@ -740,7 +740,7 @@ test("a concurrent assignment that would win against the panel draft aborts the 
   assert.equal(f.notices.at(-1), "Shortcuts not saved: f2 is now used by Toggle sidebar. Reopen /shortcuts.");
   assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
   driveShortcuts(t, f, panel => {
-    assert.match(panel.render(88).join("\n"), /Toggle sidebar\s+f2/);
+    assert.match(panel.render(88).join("\n"), /Toggle sidebar\s+F2/);
     panel.handleInput!("\x1b");
   });
   await f.commands.get("shortcuts")!.handler("", f.ctx);
