@@ -325,7 +325,7 @@ test("a refreshed Codex machine replaces its v9 overcount in the same timezone s
   assert.ok(probe.dir.endsWith(bundle.hash));
   assert.equal(corrected.scan.status, "complete");
   const refreshedStore = JSON.parse(await readFile(storePath, "utf8"));
-  assert.equal(Object.values(refreshedStore.files)[0].state.codexParserVersion, 10);
+  assert.equal(Object.values(refreshedStore.files)[0].state.codexParserVersion, 11);
   const rows = JSON.parse(gunzipSync(Buffer.from(corrected.rows, "base64")));
   assert.deepEqual(rows.map((row) => [row.tokens.input, row.tokens.output, row.messages]), [[600, 60, 3]]);
   await writeFile(rowsPath, rowsFileText({ machine: "box", envelope: corrected, fetchedAt }));

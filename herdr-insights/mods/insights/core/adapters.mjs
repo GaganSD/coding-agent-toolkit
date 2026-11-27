@@ -1,5 +1,5 @@
 import { antigravityConversation } from "./antigravity.mjs";
-import { matchCodexSnapshot, observeCodexResponse, rememberCodexSnapshot } from "./codex-spend.mjs";
+import { advanceCodexEcho, codexSpendScope, matchCodexSnapshot, observeCodexResponse, rememberCodexSnapshot } from "./codex-spend.mjs";
 import {
   MAX_TURN_MS,
   asString,
@@ -486,17 +486,13 @@ function codexContext(state, turnId) {
     model: state.model,
     provider: state.provider,
     project: state.project,
-    lastUsageKey: state.lastUsageKey ?? null,
+    lastUsageKey: null,
   };
 }
 
-function codexSetUsageTarget(state, turnId, context, key) {
-  if (turnId) {
-    const entry = state.turns[turnId] ?? context;
-    entry.lastUsageKey = key;
-    state.turns[turnId] = entry;
-  }
-  state.lastUsageKey = key;
+function codexSetUsageTarget(state, scope, turnId, context, key, latest = true) {
+  if (turnId) (state.turns[turnId] = context).lastUsageKey = key;
+  if (latest) scope.lastUsageKey = key;
 }
 
 function codexNormalized(raw) {
@@ -550,25 +546,27 @@ function codexCloseInTime(left, right) {
   return Math.abs(left - right) <= CODEX_TWIN_WINDOW_MS;
 }
 
-function codexPendingTokens(state) {
-  if (!isPlainObject(state.modernPending)) state.modernPending = codexZeroTokens();
-  for (const field of CODEX_TOKEN_FIELDS) {
-    state.modernPending[field] = toNonNegInt(state.modernPending[field]);
-  }
-  return state.modernPending;
+// Coverage is a watermark, not a reset. An echo for an earlier response
+// may cover its prefix without canceling more recent unacknowledged usage.
+function codexPendingTokens(scope) {
+  return codexSubtract(scope.pendingTotal ?? codexZeroTokens(), scope.pendingCovered ?? {});
 }
 
-function codexAddPending(state, tokens) {
-  const pending = codexPendingTokens(state);
-  for (const field of CODEX_TOKEN_FIELDS) {
-    pending[field] = toNonNegInt(pending[field] + tokens[field]);
-  }
+function codexAddPending(scope, tokens) {
+  const total = scope.pendingTotal ?? codexZeroTokens();
+  scope.pendingTotal = Object.fromEntries(CODEX_TOKEN_FIELDS.map((field) => [field, total[field] + tokens[field]]));
+}
+
+function codexCoverPending(scope, through = scope.pendingTotal) {
+  if (!through) return;
+  const covered = scope.pendingCovered ?? codexZeroTokens();
+  scope.pendingCovered = Object.fromEntries(CODEX_TOKEN_FIELDS.map((field) => [field, Math.max(covered[field], through[field])]));
 }
 
 // Local per-file request state. Global dedup only reports the delta a copy adds
 // to the store, which is zero for a copied file; the legacy cumulative counter
 // in that file still has to subtract everything the file itself observed.
-function codexObserveModern(state, key, tokens) {
+function codexObserveModern(state, key, tokens, covered) {
   if (!isPlainObject(state.modernObserved)) state.modernObserved = {};
   const previous = Array.isArray(state.modernObserved[key])
     ? state.modernObserved[key]
@@ -579,7 +577,8 @@ function codexObserveModern(state, key, tokens) {
   );
   const added = codexZeroTokens();
   for (let index = 0; index < CODEX_TOKEN_FIELDS.length; index += 1) {
-    added[CODEX_TOKEN_FIELDS[index]] = toNonNegInt(next[index] - toNonNegInt(previous[index]));
+    const field = CODEX_TOKEN_FIELDS[index];
+    added[field] = toNonNegInt(next[index] - Math.max(toNonNegInt(previous[index]), toNonNegInt(covered?.[field])));
   }
   state.modernObserved[key] = next;
   return added;
@@ -625,7 +624,7 @@ function codexPendingTwinKey(
 ) {
   if (
     !isPlainObject(pending) ||
-    pending.session !== session ||
+    (pending.session !== session && !(state.forkReplay && responseId && responseId === pending.responseId)) ||
     typeof pending.key !== "string" ||
     !codexSameTokens(pending.tokens, codexTokenVector(tokens)) ||
     !codexCloseInTime(pending.timestamp, timestamp)
@@ -668,12 +667,13 @@ function codexRememberModern(state, key, tokens, timestamp, identity, delta) {
     responseId: identity.responseId,
     turnId: identity.turnId,
     session: identity.session,
+    through: state.pendingTotal ?? codexZeroTokens(),
   });
   if (state.modernRecent.length > 8) state.modernRecent.shift();
 }
 
 function codexTakeModernTwin(
-  state,
+  scope,
   tokens,
   timestamp,
   cumulative,
@@ -681,12 +681,14 @@ function codexTakeModernTwin(
   turnId,
   session,
   perResponse,
+  state,
 ) {
-  if (!Array.isArray(state.modernRecent)) return null;
+  if (!Array.isArray(scope.modernRecent)) return null;
   const vector = codexTokenVector(tokens);
-  for (let index = state.modernRecent.length - 1; index >= 0; index -= 1) {
-    const candidate = state.modernRecent[index];
-    if (!isPlainObject(candidate) || candidate.session !== session) continue;
+  for (let index = scope.modernRecent.length - 1; index >= 0; index -= 1) {
+    const candidate = scope.modernRecent[index];
+    if (!isPlainObject(candidate) || (candidate.session !== session
+      && !(state.forkReplay && responseId && responseId === candidate.responseId))) continue;
     // A legacy snapshot may report only the increment of a revised modern
     // response. Require matching cumulative counters for that weaker match.
     const sameDelta = perResponse && codexSameTokens(candidate.delta, vector)
@@ -699,9 +701,9 @@ function codexTakeModernTwin(
       (!responseId || !candidate.responseId || responseId === candidate.responseId) &&
       (!turnId || !candidate.turnId || turnId === candidate.turnId)
     ) {
-      state.modernRecent.splice(index, 1);
+      scope.modernRecent.splice(index, 1);
       codexNoteReplayTwin(state, candidate, timestamp, responseId);
-      return candidate.key;
+      return candidate;
     }
   }
   return null;
@@ -717,9 +719,15 @@ function parseCodex(record, ctx) {
   const twinTimestamp = state.forkReplay ? parseTimestamp(record.timestamp) : timestamp;
   if (state.forkReplay && codexEndsForkReplay(state, record, payload)) {
     state.forkReplay = false;
-    // Copied twins must never absorb an equal-sized child response.
-    state.pendingTwin = null;
-    state.modernRecent = [];
+    // Seed only the copied arithmetic baseline, never the parent's identity
+    // evidence. An equal-sized child response is still a new response.
+    const copied = state.codexReplaySpend;
+    if (copied) {
+      Object.assign(codexSpendScope(state, codexSession(state, ctx)), {
+        legacyTotals: copied.legacyTotals, pendingTotal: copied.pendingTotal, pendingCovered: copied.pendingCovered,
+      });
+      delete state.codexReplaySpend;
+    }
   }
 
   if (record.type === "session_meta") {
@@ -774,10 +782,12 @@ function parseCodex(record, ctx) {
   }
 
   if (record.type === "token_usage_record") {
+    const session = codexRecordSession(state, ctx, payload);
+    const scope = codexSpendScope(state, session);
     // A raw copied baseline does not require an emit-ready per-turn record.
     if (state.forkReplay && isPlainObject(payload.thread_token_usage)) {
-      state.legacyTotals = codexRawTotals(payload.thread_token_usage);
-      state.modernPending = codexZeroTokens();
+      scope.legacyTotals = codexRawTotals(payload.thread_token_usage);
+      codexCoverPending(scope);
     }
     if (timestamp === null) {
       if (state.forkReplay && !isPlainObject(payload.thread_token_usage)) state.forkUsageAmbiguous = true;
@@ -786,7 +796,6 @@ function parseCodex(record, ctx) {
     }
     const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
     const context = codexContext(state, turnId);
-    const session = codexRecordSession(state, ctx, payload);
     const usage = isPlainObject(payload.usage) ? payload.usage : null;
     if (!usage) return;
     const tokens = codexNormalized(usage);
@@ -794,105 +803,70 @@ function parseCodex(record, ctx) {
     const responseId = asString(payload.response_id, "");
     const thread = codexCumulativeVector(payload.thread_token_usage);
     const turn = codexCumulativeVector(payload.turn_token_usage);
-    const cumulative = thread ?? turn;
-    const identity = responseId
-      ? ["response", responseId]
-      : [
-          "turn",
-          session,
-          turnId,
-          record.timestamp ?? ctx.lineHash,
-          tokens.input,
-          tokens.output,
-          tokens.cacheRead,
-          tokens.cacheWrite,
-          tokens.reasoning,
-        ];
-    let dedupKey = makeDedupKey("codex", ...identity);
-    const twinKey = codexPendingTwinKey(
-      state.pendingTwin,
-      tokens,
-      twinTimestamp,
-      cumulative,
-      responseId,
-      turnId,
-      session,
-      state,
-    );
-    if (
-      state.forkReplay &&
-      responseId &&
-      isPlainObject(state.responseKeys) &&
-      typeof state.responseKeys[responseId] === "string"
-    ) {
-      dedupKey = state.responseKeys[responseId];
-    } else if (twinKey && (state.forkReplay || !responseId)) {
-      // Old carriers without a canonical response key retain the existing
-      // local compatibility pairing.
-      dedupKey = twinKey;
-      if (responseId) {
-        if (!isPlainObject(state.responseKeys)) state.responseKeys = {};
-        state.responseKeys[responseId] = dedupKey;
-      }
-    }
+    const identity = { thread, turn, responseId, turnId, session };
+    const responseKey = responseId ? makeDedupKey("codex", "response", responseId)
+      : makeDedupKey("codex", "turn", session, turnId, record.timestamp ?? ctx.lineHash, ...codexTokenVector(tokens));
+    const pending = scope.pendingTwin;
+    const twinKey = codexPendingTwinKey(pending, tokens, twinTimestamp, thread ?? turn, responseId, turnId, session, state);
+    scope.pendingTwin = null;
+
     if (state.forkReplay) {
-      const observed = codexObserveModern(state, dedupKey, tokens);
+      const key = scope.responseKeys?.[`:${responseId}`] ?? twinKey ?? responseKey;
+      if (responseId && twinKey) (scope.responseKeys ??= {})[`:${responseId}`] = key;
+      const observed = codexObserveModern(scope, key, tokens);
       // Thread baselines already cover the observation; turn counters do not.
-      if (!isPlainObject(payload.thread_token_usage) && !twinKey) codexAddPending(state, observed);
-      state.pendingTwin = null;
-      codexRememberModern(state, dedupKey, tokens, twinTimestamp, { thread, turn, responseId, turnId, session });
+      if (!isPlainObject(payload.thread_token_usage) && !twinKey) codexAddPending(scope, observed);
+      codexRememberModern(scope, key, tokens, twinTimestamp, identity);
       return;
     }
-    const snapshotKey = observeCodexResponse(state, session, payload.thread_token_usage, usage, { responseId, turnId }) ?? twinKey;
+    const { candidate, snapshot: earlier, checkpoint, inferred } = observeCodexResponse(
+      scope, payload.thread_token_usage, usage, { responseId, turnId, key: responseKey },
+    );
+    const snapshot = earlier ?? (twinKey && pending.perResponse
+      ? { key: twinKey, tokens: pending.amount } : null);
     const meta = metaFor("codex", session, timestamp, context.project, context.provider, context.model);
     if (responseId) {
-      ctx.addCodexResponse(meta, tokens, dedupKey, snapshotKey);
-      if (snapshotKey && snapshotKey !== dedupKey) {
-        if (!isPlainObject(state.promotedSnapshots)) state.promotedSnapshots = {};
-        state.promotedSnapshots[snapshotKey] = dedupKey;
-      }
+      ctx.addCodexResponse(meta, tokens, responseKey);
+      if (snapshot) ctx.linkCodexSnapshot(snapshot.key, responseKey);
     } else {
-      ctx.addUsage(meta, tokens, dedupKey);
+      ctx.addUsage(meta, tokens, snapshot?.key ?? responseKey);
     }
-    const observed = codexObserveModern(state, dedupKey, tokens);
-    if (!snapshotKey) codexAddPending(state, observed);
-    state.pendingTwin = null;
-    codexRememberModern(state, dedupKey, tokens, timestamp, {
-      thread,
-      turn,
-      responseId,
-      turnId,
-      session,
-    }, observed);
-    codexSetUsageTarget(state, turnId, context, dedupKey);
+    const covered = checkpoint
+      ? Object.fromEntries(CODEX_TOKEN_FIELDS.map((field) => [field, Math.min(tokens[field], checkpoint.tokens[field])]))
+      : snapshot?.tokens;
+    if (checkpoint) ctx.linkCodexSnapshot(checkpoint.key, responseKey, covered);
+    const key = !responseId && snapshot ? snapshot.key : responseKey;
+    const observed = codexObserveModern(scope, key, tokens, covered);
+    codexAddPending(scope, observed);
+    if (candidate) candidate.through = scope.pendingTotal;
+    if (snapshot?.total) advanceCodexEcho(scope, candidate, snapshot.total, snapshot.usage);
+    if (inferred) state.codexInferredEcho = true;
+    codexRememberModern(scope, key, tokens, timestamp, identity, observed);
+    codexSetUsageTarget(state, scope, turnId, context, key);
     return;
   }
 
-  if (
-    record.type === "event_msg" &&
-    payload.type === "token_count"
-  ) {
+  if (record.type === "event_msg" && payload.type === "token_count") {
     const info = isPlainObject(payload.info) ? payload.info : {};
-    const totals = isPlainObject(info.total_token_usage)
-      ? info.total_token_usage
-      : null;
+    const rawTotal = isPlainObject(info.total_token_usage) ? info.total_token_usage : null;
+    const totals = rawTotal ? codexRawTotals(rawTotal) : null;
     const last = isPlainObject(info.last_token_usage) ? info.last_token_usage : null;
     const responseId = asString(payload.response_id, "");
     const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
     const session = codexRecordSession(state, ctx, payload);
+    const scope = codexSpendScope(state, session);
+    const responseKey = responseId ? makeDedupKey("codex", "response", responseId) : null;
     if (state.forkReplay && totals) {
       // Baselines need neither a usable timestamp nor per-response usage.
-      state.legacyTotals = codexRawTotals(totals);
-      state.modernPending = codexZeroTokens();
-      state.pendingTwin = null;
+      scope.legacyTotals = totals;
+      codexCoverPending(scope);
+      scope.pendingTwin = null;
       if (last) {
         const tokens = codexNormalized(last);
-        const key = makeDedupKey("codex", session, "legacy", record.timestamp ?? ctx.lineHash,
-          ...Object.values(state.legacyTotals));
-        const identity = { thread: codexCumulativeVector(totals), turn: null, responseId, turnId, session };
-        codexRememberModern(state, key, tokens, twinTimestamp, identity);
-        state.pendingTwin = { key, tokens: codexTokenVector(tokens), timestamp: twinTimestamp,
-          cumulative: identity.thread, responseId: identity.responseId, turnId: identity.turnId, session };
+        const key = responseKey ?? makeDedupKey("codex", session, "legacy", record.timestamp ?? ctx.lineHash, ...Object.values(totals));
+        const thread = codexCumulativeVector(totals);
+        codexRememberModern(scope, key, tokens, twinTimestamp, { thread, responseId, turnId, session });
+        scope.pendingTwin = { key, tokens: codexTokenVector(tokens), timestamp: twinTimestamp, cumulative: thread, responseId, turnId, session };
       }
       return;
     }
@@ -900,162 +874,91 @@ function parseCodex(record, ctx) {
       if (state.forkReplay && last) state.forkUsageAmbiguous = true;
       return;
     }
-    if (!state.forkReplay && last) {
-      // Context estimates report only a scalar total, not provider spending.
-      if (toNonNegInt(last.total_tokens) && !codexNormalized(last).nonzero) return;
-      const echo = matchCodexSnapshot(state, session, totals, last, { responseId, turnId });
-      if (echo) {
-        // A delayed snapshot is not a new baseline. In particular, it
-        // cannot consume pending modern usage that is newer than itself.
-        if (echo.baseline) {
-          state.legacyTotals = codexRawTotals(totals);
-          state.modernPending = codexZeroTokens();
-        }
-        return;
-      }
-    }
-    state.pendingTwin = null;
+    // A scalar context estimate is not spend or a spending baseline.
+    if (!state.forkReplay && last && toNonNegInt(last.total_tokens) && !codexNormalized(last).nonzero) return;
+    if (!last && !totals) return;
+
     const context = codexContext(state, turnId);
-    const perResponse = Boolean(totals && last);
-    let raw;
-    let identityTail;
-    let reset = false;
+    const previous = scope.legacyTotals;
+    const reset = Boolean(totals && previous && Object.keys(totals).some((key) => totals[key] < previous[key]));
+    const perResponse = Boolean(last && totals);
+    const signature = perResponse
+      ? makeDedupKey("codex", session, "legacy-response", turnId, ...Object.values(totals), ...Object.values(codexRawTotals(last)))
+      : makeDedupKey("codex", session, last ? "legacy-last" : "legacy", record.timestamp ?? ctx.lineHash,
+        ...Object.values(last ? codexRawTotals(last) : totals));
+    const key = last && responseKey
+      ? (state.forkReplay ? responseKey : makeDedupKey("codex", "snapshot-response", session, responseId))
+      : signature;
+    const seenKey = last && responseId ? `${key}:${signature}` : signature;
+    const seen = !state.forkReplay && scope.snapshotTargets?.[seenKey];
+    if (seen) {
+      codexSetUsageTarget(state, scope, turnId, context, seen, false);
+      return; // Never let a re-emission rewind the baseline or consume pending usage.
+    }
 
-    if (totals && last) {
-      // Concurrent chains can interleave, and paginated forks can inherit a
-      // cumulative baseline. Account for just this response. Without a response
-      // ID, use the available turn ID and both counters. Identical snapshots
-      // with no distinguishing metadata are treated as re-emissions.
-      const current = codexRawTotals(totals);
-      raw = last;
-      identityTail = [
-        "legacy-response",
-        turnId,
-        ...Object.values(current),
-        ...Object.values(codexRawTotals(last)),
-      ];
-    } else if (totals) {
-      const current = codexRawTotals(totals);
-      const previous = isPlainObject(state.legacyTotals)
-        ? state.legacyTotals
-        : null;
-      // A reset belongs to the whole counter vector, not just the fields that
-      // decreased. Other fields may already exceed their old values on restart.
-      reset = Boolean(previous && Object.keys(current).some((key) => current[key] < toNonNegInt(previous[key])));
-      raw = {};
-      for (const key of Object.keys(current)) {
-        raw[key] = !previous || reset ? current[key] : current[key] - toNonNegInt(previous[key]);
-      }
-      identityTail = [
-        "legacy",
-        record.timestamp ?? ctx.lineHash,
-        current.input_tokens,
-        current.cached_input_tokens,
-        current.cache_write_input_tokens,
-        current.output_tokens,
-        current.reasoning_output_tokens,
-      ];
-    } else if (last) {
-      raw = last;
-      identityTail = [
-        "legacy-last",
-        record.timestamp ?? ctx.lineHash,
-        raw.input_tokens,
-        raw.cached_input_tokens,
-        raw.cache_write_input_tokens,
-        raw.output_tokens,
-        raw.reasoning_output_tokens,
-      ];
+    scope.pendingTwin = null;
+    let tokens;
+    if (last) {
+      tokens = codexNormalized(last);
     } else {
-      return;
+      const raw = Object.fromEntries(Object.keys(totals).map((field) => [
+        field, (!previous || reset) ? totals[field] : totals[field] - previous[field],
+      ]));
+      // No cumulative progress: in particular, retain any newer modern spend.
+      if (!Object.values(raw).some(Boolean) && previous && !reset) return;
+      tokens = codexNormalized(raw);
+      if (!reset) tokens = codexSubtract(tokens, codexPendingTokens(scope));
     }
 
-    const observationKey = responseId && (perResponse || last || state.forkReplay)
-      ? makeDedupKey("codex", "snapshot-response", session, responseId)
-      : makeDedupKey("codex", session, ...identityTail);
-    // A replayed echo of a provisional snapshot already replaced by its
-    // modern response must not recreate the old contribution.
-    if (state.promotedSnapshots?.[observationKey]) return;
-    const sharedTarget = !state.forkReplay && ctx.codexSnapshotTarget(observationKey);
-    if (sharedTarget) {
-      if (!Object.values(codexPendingTokens(state)).some(Boolean) && totals) {
-        state.legacyTotals = codexRawTotals(totals);
-      }
-      codexSetUsageTarget(state, turnId, context, sharedTarget);
-      return;
-    }
-
-    let tokens = codexNormalized(raw);
     const cumulative = codexCumulativeVector(totals);
+    const match = !state.forkReplay && last ? matchCodexSnapshot(scope, rawTotal, last, { responseId, turnId }) : null;
+    const compat = !match && (state.forkReplay || last) && (!reset || perResponse)
+      ? codexTakeModernTwin(scope, tokens, twinTimestamp, cumulative, responseId, turnId, session, perResponse, state)
+      : null;
+    const echo = match?.candidate ?? compat;
     if (totals) {
-      state.legacyTotals = codexRawTotals(totals);
-      if (!reset && !perResponse) tokens = codexSubtract(tokens, codexPendingTokens(state));
-      state.modernPending = codexZeroTokens();
+      if (!echo) {
+        scope.legacyTotals = totals;
+        codexCoverPending(scope);
+        if (reset && !last) {
+          delete scope.anchor;
+          delete scope.provisional;
+        }
+      } else if (!reset && (echo.total
+        ? advanceCodexEcho(scope, echo, rawTotal, last)
+        : !echo.seq || echo.seq >= (scope.anchor?.seq ?? 0))) {
+        scope.legacyTotals = totals;
+        codexCoverPending(scope, echo.through ?? codexZeroTokens());
+      }
     }
     if (!tokens.nonzero) return;
-
-    let modernKey = null;
-    if (perResponse) {
-      const rememberedKey = state.legacyTwinKeys?.[observationKey]
-        ?? (responseId && state.responseKeys?.[responseId]);
-      if (typeof rememberedKey === "string") modernKey = rememberedKey;
-    }
-    if (!modernKey && !reset) {
-      modernKey = codexTakeModernTwin(
-        state, tokens, twinTimestamp, cumulative, responseId, turnId, session, perResponse,
-      );
-    }
-    const dedupKey = modernKey || observationKey;
-    const usedModernTwin = Boolean(modernKey);
-    // Keep aliases after the recent-match window expires and across appends.
-    if (perResponse && dedupKey !== observationKey) {
-      if (!isPlainObject(state.legacyTwinKeys)) state.legacyTwinKeys = {};
-      state.legacyTwinKeys[observationKey] = dedupKey;
-      if (responseId) {
-        if (!isPlainObject(state.responseKeys)) state.responseKeys = {};
-        state.responseKeys[responseId] = dedupKey;
-      }
-    }
     if (state.forkReplay) {
-      const observed = codexObserveModern(state, dedupKey, tokens);
-      // Remember the exact legacy identity too, so repeated echoes remain
-      // observed after the consumable cross-carrier twin has been taken.
-      if (usedModernTwin && observationKey !== dedupKey) codexObserveModern(state, observationKey, tokens);
-      if (!usedModernTwin && CODEX_TOKEN_FIELDS.some((field) => observed[field] > 0)) {
-        if (isPlainObject(state.legacyTotals)) {
-          // Without a matching last/response identity this may already be in
-          // the copied total. Preserve that baseline, do not subtract twice.
-          state.forkUsageAmbiguous = true;
-        } else {
-          codexAddPending(state, observed);
-        }
+      const dedupKey = echo?.key ?? key;
+      const observed = codexObserveModern(scope, dedupKey, tokens);
+      if (echo && dedupKey !== key) codexObserveModern(scope, key, tokens);
+      if (!echo && CODEX_TOKEN_FIELDS.some((field) => observed[field] > 0)) {
+        if (scope.legacyTotals) state.forkUsageAmbiguous = true;
+        else codexAddPending(scope, observed);
       }
-      // Keep a consumed copied twin available for a later modern echo too.
-      state.pendingTwin = { key: dedupKey, tokens: codexTokenVector(tokens), timestamp: twinTimestamp,
-        cumulative, responseId, turnId, session };
+      if (responseId && echo) (scope.responseKeys ??= {})[`:${responseId}`] = dedupKey;
+      scope.pendingTwin = { key: dedupKey, tokens: codexTokenVector(tokens), timestamp: twinTimestamp, cumulative, responseId, turnId, session };
       return;
     }
-    ctx.addUsage(
-      metaFor("codex", session, timestamp, context.project, context.provider, context.model),
-      tokens,
-      dedupKey,
-    );
-    codexSetUsageTarget(state, turnId, context, dedupKey);
-    if (!usedModernTwin) {
-      if (perResponse || responseId) rememberCodexSnapshot(state, session, totals, last, { key: dedupKey, responseId, turnId });
-      // Keep this contribution available if the matching token_usage_record
-      // appears immediately after the token_count record.
-      state.pendingTwin = {
-        key: dedupKey,
-        tokens: codexTokenVector(tokens),
-        timestamp,
-        cumulative,
-        responseId,
-        turnId,
-        session,
-      };
-    } else {
-      state.pendingTwin = null;
+
+    if (match?.inferred) state.codexInferredEcho = true;
+    // A stale history-last vector is not another observation of the response
+    // that just advanced the counter.
+    const target = match?.staleLast ? echo.key : key;
+    if (!match?.staleLast) {
+      ctx.addUsage(metaFor("codex", session, timestamp, context.project, context.provider, context.model), tokens, key);
+      if (last && (responseKey || echo)) ctx.linkCodexSnapshot(key, responseKey ?? echo.key);
+    }
+    (scope.snapshotTargets ??= {})[seenKey] = target;
+    codexSetUsageTarget(state, scope, turnId, context, target, !echo || !scope.lastUsageKey);
+    if (!echo) {
+      rememberCodexSnapshot(scope, rawTotal, last, { key, tokens, responseId, turnId }, previous);
+      scope.pendingTwin = { key, tokens: codexTokenVector(tokens), amount: tokens, perResponse: Boolean(last),
+        timestamp, cumulative, responseId, turnId, session };
     }
     return;
   }
@@ -1074,11 +977,11 @@ function parseCodex(record, ctx) {
       }
     }
     if (duration <= 0) return;
-    const target = context.lastUsageKey ?? state.lastUsageKey;
-    if (!target) return;
     const session = codexRecordSession(state, ctx, payload);
+    const target = context.lastUsageKey ?? codexSpendScope(state, session).lastUsageKey;
+    if (!target || state.forkReplay) return;
     ctx.addCodexTask(
-      state.promotedSnapshots?.[target] ?? ctx.codexSnapshotTarget(target) ?? target,
+      target,
       taskKeyFor(
         "codex",
         "task",

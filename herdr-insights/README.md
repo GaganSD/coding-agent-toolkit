@@ -45,12 +45,13 @@ click-state rules. Set `HERDR_APP_HOME` to use a different app home.
 Insights counts recorded response usage, not provider billing. A
 `token_usage_record` with a response ID is authoritative for that response.
 Codex also emits `token_count` history snapshots, which can repeat, lag behind
-the response counter, or arrive out of order. Insights reconciles these using
-response identity and progress in the raw counters, not the file's CLI version
-or a fixed time limit. Legacy-only rollouts still use their own usage snapshots;
-copied history and standalone legacy responses are not assumed to be echoes.
+the response counter, or arrive out of order. Identified responses and matches
+with sufficient counter evidence do not depend on timestamps. Older records
+without adequate identity or counters can still use a short compatibility
+window. A matched snapshot is suppressed while the response is present; a
+surviving snapshot copy can still provide legacy usage on its own.
 
-A bounded scan note marks inferred matches without response IDs. Anonymous
+A bounded scan note marks inferred matches between the separate counters. Anonymous
 events cannot always distinguish a repeated snapshot from another response with
 the same usage. Readable Codex logs are automatically rescanned once for parser
 upgrades. Missing source logs cannot be reconstructed; if a previously indexed

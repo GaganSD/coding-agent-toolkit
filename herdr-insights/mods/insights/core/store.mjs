@@ -106,6 +106,10 @@ export function prepareStore(store) {
     writable: true,
     configurable: true,
   });
+  Object.defineProperty(store, "_codexEchoes", {
+    value: new Set(codexEchoKeys(store)),
+    configurable: true,
+  });
   return store;
 }
 
@@ -144,8 +148,7 @@ function cloneAux(value, index) {
   if (!isPlainObject(aux)) return value;
   const copy = { ...aux };
   if (Array.isArray(aux.copies)) copy.copies = [...aux.copies];
-  if (Array.isArray(aux.taskKeys)) copy.taskKeys = [...aux.taskKeys];
-  if (Array.isArray(aux.snapshotKeys)) copy.snapshotKeys = [...aux.snapshotKeys];
+  if (isPlainObject(aux.copyTargets)) copy.copyTargets = { ...aux.copyTargets };
   if (isPlainObject(aux.meta)) copy.meta = { ...aux.meta };
   value[index] = copy;
   return value;
@@ -187,8 +190,6 @@ export function beginStoreTransaction(store, { fileId } = {}) {
     savedFiles: new Map(),
     savedDedup: new Map(),
     savedTasks: new Map(),
-    savedCodexAliases: new Map(),
-    hadCodexAliases: Object.hasOwn(store, "codexAliases"),
     createdFileKeys: new Set(),
     createdFileIds: new Set(),
     deletedFiles: new Map(),
@@ -228,10 +229,6 @@ export function beginStoreTransaction(store, { fileId } = {}) {
       if (tx.savedTasks.has(key)) return;
       const value = Object.hasOwn(store.tasks, key) ? store.tasks[key] : TX_MISSING;
       tx.savedTasks.set(key, value === TX_MISSING ? TX_MISSING : cloneRecord(value, TASK_AUX_INDEX));
-    },
-    touchCodexAlias(key) {
-      if (tx.savedCodexAliases.has(key)) return;
-      tx.savedCodexAliases.set(key, store.codexAliases?.[key] ?? TX_MISSING);
     },
     deleteFileEntry(key, entry) {
       tx.trackFile(entry);
@@ -291,14 +288,6 @@ export function rollbackStoreTransaction(tx) {
     if (value === TX_MISSING) delete store.tasks[key];
     else store.tasks[key] = value;
   }
-  if (!tx.hadCodexAliases) {
-    delete store.codexAliases;
-  } else {
-    for (const [key, value] of tx.savedCodexAliases) {
-      if (value === TX_MISSING) delete store.codexAliases[key];
-      else store.codexAliases[key] = value;
-    }
-  }
   for (const key of tx.createdFileKeys) {
     const entry = store.files[key];
     if (entry && tx.createdFileIds.has(entry.id)) {
@@ -353,15 +342,18 @@ export function removeOwnedMetadata(store, fileId) {
     if (value[0] !== fileId) continue;
     tx?.touchDedup(key);
     if (transferDedupOwnership(store, value)) continue;
-    clearCodexAliases(store, key, value);
+    store._codexEchoes.delete(key);
     delete store.dedup[key];
   }
   for (const [key, value] of Object.entries(store.tasks)) {
     if (!Array.isArray(value)) continue;
     const aux = value[TASK_AUX_INDEX];
     const hasCopy = isPlainObject(aux) && Array.isArray(aux.copies) && aux.copies.includes(fileId);
-    if (hasCopy) tx?.touchTask(key);
-    if (hasCopy) dropCopyCandidate(value, TASK_AUX_INDEX, fileId);
+    if (hasCopy) {
+      tx?.touchTask(key);
+      dropCopyCandidate(value, TASK_AUX_INDEX, fileId);
+      if (aux.copyTargets) delete aux.copyTargets[fileId];
+    }
     if (value[0] !== fileId) continue;
     tx?.touchTask(key);
     if (transferTaskOwnership(store, value)) continue;
@@ -545,9 +537,18 @@ function transferTaskOwnership(store, entry) {
   const candidate = takeCandidate(store, aux);
   if (!candidate) return false;
   store._tx?.trackFile(candidate);
-  const rowIdx = getOrCreateRow(candidate, aux.meta);
+  if (aux.usageKey) {
+    const previous = aux.usageKey;
+    aux.usageKey = aux.copyTargets?.[candidate.id] ?? previous;
+    if (aux.copyTargets) {
+      delete aux.copyTargets[candidate.id];
+      for (const id of aux.copies) aux.copyTargets[id] ??= previous;
+    }
+    entry[1] = -1;
+  } else {
+    entry[1] = getOrCreateRow(candidate, aux.meta);
+  }
   entry[0] = candidate.id;
-  entry[1] = rowIdx;
   return true;
 }
 
@@ -596,7 +597,7 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
     // Save the stale entry before removing it so a rollback restores the
     // exact committed dedup map, including an owner that no longer exists.
     tx?.touchDedup(dedupKey);
-    clearCodexAliases(store, dedupKey, entry);
+    store._codexEchoes.delete(dedupKey);
     delete store.dedup[dedupKey];
   }
 
@@ -677,114 +678,87 @@ export function addTask(
   return true;
 }
 
-function clearCodexAliases(store, key, entry) {
-  for (const alias of entry[DEDUP_AUX_INDEX]?.snapshotKeys ?? []) {
-    if (store.codexAliases?.[alias] !== key) continue;
-    store._tx?.touchCodexAlias(alias);
-    delete store.codexAliases[alias];
-  }
+function codexEchoKeys(store) {
+  return Object.keys(store.dedup ?? {}).filter((key) => store.dedup[key]?.[DEDUP_AUX_INDEX]?.echo);
 }
 
-export function codexSnapshotTarget(store, snapshotKey) {
-  const key = store.codexAliases?.[snapshotKey];
-  return typeof key === "string" && Array.isArray(store.dedup[key]) ? key : null;
+function codexUsageRow(store, entry) {
+  return Array.isArray(entry) ? findFileById(store, entry[0])?.rows?.[entry[1]] : null;
 }
 
-function linkCodexSnapshot(store, key, row, snapshotKey) {
-  store._tx?.touchCodexAlias(snapshotKey);
-  (store.codexAliases ??= {})[snapshotKey] = key;
-  store._tx?.touchDedup(key);
-  const aux = auxFor(store.dedup[key], DEDUP_AUX_INDEX, row);
-  const snapshotKeys = aux.snapshotKeys ??= [];
-  if (!snapshotKeys.includes(snapshotKey)) snapshotKeys.push(snapshotKey);
+// Keep the snapshot's contribution and its real copy owners. It is only
+// suppressed while the authoritative response still exists in the store.
+export function linkCodexSnapshot(store, snapshotKey, responseKey, covered) {
+  const entry = store.dedup[snapshotKey];
+  const row = codexUsageRow(store, entry);
+  if (!row || snapshotKey === responseKey || entry[DEDUP_AUX_INDEX]?.echo) return;
+  store._tx?.touchDedup(snapshotKey);
+  auxFor(entry, DEDUP_AUX_INDEX, row).echo = covered
+    ? { key: responseKey, covered: TOKEN_FIELDS.map((field) => covered[field]) }
+    : { key: responseKey };
+  store._codexEchoes.add(snapshotKey);
 }
 
-// Codex snapshots can be published before the authoritative response arrives.
-// Keep the replacement local to its contribution, not the whole row/turn.
+function codexTaskRow(store, key) {
+  const usage = store.dedup[key];
+  const echo = usage?.[DEDUP_AUX_INDEX]?.echo;
+  const response = echo && !echo.covered && codexUsageRow(store, store.dedup[echo.key]);
+  return response || codexUsageRow(store, usage);
+}
+
+// Drop a stale parser's inherited maxima without deleting unrelated rows.
 function detachCodexUsage(store, key) {
   const entry = store.dedup[key];
-  const owner = Array.isArray(entry) && findFileById(store, entry[0]);
-  const row = owner?.rows?.[entry[1]];
+  const row = codexUsageRow(store, entry);
   if (row?.harness !== "codex") return null;
-  store._tx?.trackRow(owner, entry[1]);
+  store._tx?.trackRow(findFileById(store, entry[0]), entry[1]);
   store._tx?.touchDedup(key);
   for (let i = 0; i < TOKEN_FIELDS.length; i += 1) {
     row[TOKEN_FIELDS[i]] = toNonNegInt(row[TOKEN_FIELDS[i]] - entry[2 + i]);
   }
   row.messages = toNonNegInt(row.messages - 1);
-  clearCodexAliases(store, key, entry);
+  store._codexEchoes.delete(key);
   delete store.dedup[key];
   return entry;
 }
 
-function linkCodexTask(store, usageKey, usage, row, taskKey) {
-  store._tx?.touchDedup(usageKey);
-  const aux = auxFor(usage, DEDUP_AUX_INDEX, row);
-  const taskKeys = aux.taskKeys ??= [];
-  if (!taskKeys.includes(taskKey)) taskKeys.push(taskKey);
-}
-
-function moveCodexTask(store, taskKey, task, usageKey, usage, row) {
-  const former = findFileById(store, task[0]);
-  const next = findFileById(store, usage[0]);
-  store._tx?.trackFile(former);
-  store._tx?.trackFile(next);
-  store._tx?.touchTask(taskKey);
-  const aux = auxFor(task, TASK_AUX_INDEX, row);
-  aux.meta = rowMeta(row);
-  aux.usageKey = usageKey;
-  if (former !== next) {
-    if (former) former.tasks = former.tasks.filter((key) => key !== taskKey);
-    if (!next.tasks.includes(taskKey)) next.tasks.push(taskKey);
-    task[0] = next.id;
-  }
-  task[1] = usage[1];
-  linkCodexTask(store, usageKey, usage, row, taskKey);
-}
-
-export function addCodexTask(store, file, usageKey, taskKey, durationMs, session, parserVersion) {
-  const usage = store.dedup[usageKey];
-  if (!Array.isArray(usage)) return false;
-  const owner = findFileById(store, usage[0]);
-  const row = owner?.rows?.[usage[1]];
+export function addCodexTask(store, file, usageKey, taskKey, durationMs, session) {
+  const row = codexTaskRow(store, usageKey);
   if (!row) return false;
+  const tx = store._tx;
   const task = store.tasks[taskKey];
-  const oldOwner = Array.isArray(task) && findFileById(store, task[0]);
-  if (oldOwner && oldOwner.state.codexParserVersion !== parserVersion && !task[TASK_AUX_INDEX]?.usageKey) {
-    moveCodexTask(store, taskKey, task, usageKey, usage, row);
+  const previous = task?.[TASK_AUX_INDEX];
+  tx?.touchTask(taskKey);
+  if (previous?.usageKey && task[1] === -1) {
+    if (task[0] !== file.id) {
+      recordCopyCandidate(task, TASK_AUX_INDEX, row, file.id);
+      if (previous.usageKey !== usageKey) (previous.copyTargets ??= {})[file.id] = usageKey;
+    }
+    return false;
   }
-  const added = addTask(store, usage[0], usage[1], taskKey, durationMs, session, true, file.id);
-  const current = store.tasks[taskKey];
-  if (current && current[0] === usage[0] && current[1] === usage[1]) {
-    store._tx?.touchTask(taskKey);
-    auxFor(current, TASK_AUX_INDEX, row).usageKey = usageKey;
-    linkCodexTask(store, usageKey, usage, row, taskKey);
+  // An older entry's row pointer is not reliable after reconciliation. Keep
+  // legitimate task copies, but tie the new task to the recording file.
+  const oldOwner = task && findFileById(store, task[0]);
+  if (oldOwner && oldOwner !== file) {
+    tx?.trackFile(oldOwner);
+    oldOwner.tasks = oldOwner.tasks.filter((key) => key !== taskKey);
   }
-  return added;
+  const copies = task ? [...new Set([task[0], ...(previous?.copies ?? [])])].filter((id) => id !== file.id) : [];
+  tx?.trackFile(file);
+  if (!file.tasks.includes(taskKey)) file.tasks.push(taskKey);
+  store.tasks[taskKey] = [file.id, -1, toNonNegInt(durationMs), 1, sessionHash(session), { meta: rowMeta(row), copies, usageKey }];
+  return true;
 }
 
-export function addCodexResponse(store, file, meta, tokens, key, snapshotKey, parserVersion) {
+export function addCodexResponse(store, file, meta, tokens, key, parserVersion) {
   const prior = store.dedup[key];
   const owner = Array.isArray(prior) && findFileById(store, prior[0]);
-  // While migrating copies one at a time, don't inherit an old parser's
-  // inflated maxima or first-seen snapshot attribution through a sibling.
+  // During migration, don't inherit old parser maxima through a sibling.
   const stale = owner && owner !== file && owner.state.codexParserVersion !== parserVersion
     ? detachCodexUsage(store, key) : null;
   const result = addUsage(store, file, meta, tokens, key);
-  if (stale) {
-    for (const id of [stale[0], ...(stale[DEDUP_AUX_INDEX]?.copies ?? [])]) {
-      if (id !== result.fileId) recordCopyCandidate(store.dedup[key], DEDUP_AUX_INDEX, result.row, id);
-    }
-  }
-  if (snapshotKey && snapshotKey !== key) {
-    const snapshot = detachCodexUsage(store, snapshotKey);
-    linkCodexSnapshot(store, key, result.row, snapshotKey);
-    for (const taskKey of snapshot?.[DEDUP_AUX_INDEX]?.taskKeys ?? []) {
-      const task = store.tasks[taskKey];
-      if (task?.[TASK_AUX_INDEX]?.usageKey === snapshotKey) {
-        moveCodexTask(store, taskKey, task, key, store.dedup[key], result.row);
-      }
-    }
+  for (const id of stale ? [stale[0], ...(stale[DEDUP_AUX_INDEX]?.copies ?? [])] : []) {
+    if (id !== result.fileId) recordCopyCandidate(store.dedup[key], DEDUP_AUX_INDEX, result.row, id);
   }
   return result;
 }
@@ -855,10 +829,26 @@ export function snapshotRows(store) {
     }
   }
 
+  for (const key of store._codexEchoes ?? codexEchoKeys(store)) {
+    const snapshot = store.dedup[key];
+    const echo = snapshot?.[DEDUP_AUX_INDEX]?.echo;
+    if (!echo || !codexUsageRow(store, store.dedup[echo.key])) continue;
+    const row = codexUsageRow(store, snapshot);
+    if (!row) continue;
+    const aggregate = rows.get(rowKey(row));
+    let fullyCovered = true;
+    for (let i = 0; i < TOKEN_FIELDS.length; i += 1) {
+      const amount = Math.min(snapshot[i + 2], echo.covered?.[i] ?? snapshot[i + 2]);
+      aggregate.tokens[TOKEN_FIELDS[i]] -= amount;
+      fullyCovered &&= amount === snapshot[i + 2];
+    }
+    if (fullyCovered) aggregate.messages -= 1;
+  }
+
   for (const entry of Object.values(store.tasks)) {
     if (!Array.isArray(entry)) continue;
-    const file = findFileById(store, entry[0]);
-    const row = file?.rows?.[entry[1]];
+    const usageKey = entry[TASK_AUX_INDEX]?.usageKey;
+    const row = usageKey ? codexTaskRow(store, usageKey) : codexUsageRow(store, entry);
     if (!row) continue;
     const aggregate = rows.get(rowKey(row));
     if (!aggregate) continue;
@@ -978,21 +968,23 @@ function validateLoadedStore(store) {
           Array.isArray(value[7].copies) &&
           value[7].copies.every((id) => Number.isInteger(id)) &&
           validAuxMeta(value[7].meta)));
+    const echo = value?.[DEDUP_AUX_INDEX]?.echo;
     if (
       !Array.isArray(value) ||
       !validAux ||
       !Number.isInteger(value[0]) ||
       !Number.isInteger(value[1]) ||
-      !value.slice(2, 7).every((number) => Number.isFinite(number) && number >= 0)
+      !value.slice(2, 7).every((number) => Number.isFinite(number) && number >= 0) ||
+      (echo !== undefined && (!isPlainObject(echo) || typeof echo.key !== "string" || echo.key === key ||
+        (echo.covered !== undefined && (!Array.isArray(echo.covered) || echo.covered.length !== TOKEN_FIELDS.length ||
+          !echo.covered.every((number) => Number.isFinite(number) && number >= 0)))))
     ) {
       throw new Error(`dedup entry ${key} is malformed`);
     }
   }
-  if (store.codexAliases !== undefined && (!isPlainObject(store.codexAliases)
-    || Object.entries(store.codexAliases).some(([alias, target]) =>
-      typeof target !== "string" || !store.dedup[target]?.[DEDUP_AUX_INDEX]?.snapshotKeys?.includes(alias)))) {
-    throw new Error("Codex snapshot aliases are malformed");
-  }
+  // The draft v10 stored aliases on their modern target. Its readable files
+  // are reindexed; don't treat old, unavailable history as a corrupt store.
+  delete store.codexAliases;
   for (const [key, value] of Object.entries(store.tasks)) {
     const validAux =
       Array.isArray(value) &&

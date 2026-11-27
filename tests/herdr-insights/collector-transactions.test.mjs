@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, readFile, mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, chmod, readFile, mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -209,13 +209,45 @@ test("Codex v9 migration replaces shared inflated attribution, preserves unreada
   assert.equal(snapshotRows(store).filter((row) => row.session === before.session).length, 1, "no stale bucket remains");
   assert.deepEqual(snapshotRows(store).filter((row) => row.session.endsWith("jsonl") || row.session.endsWith("zst"))
     .map((row) => [row.session, row.tokens.total]), [["c.jsonl.zst", 220], ["missing.jsonl", 220]]);
-  assert.deepEqual(Object.values(store.files).map((entry) => entry.state.codexParserVersion), [10, 10, 9, 9]);
+  assert.deepEqual(Object.values(store.files).map((entry) => entry.state.codexParserVersion), [11, 11, 9, 9]);
   const stable = await scanSources(store, { home });
   assert.equal(stable.stats.bytesRead, 0);
   assert.match(stable.warnings.join("\n"), /older parser/);
 });
 
-test("a failed Codex archive rolls back snapshot promotion and its shared alias", async (t) => {
+test("Codex archive migration retries an unreadable file after permissions recover", {
+  skip: process.platform === "win32" || process.getuid?.() === 0,
+}, async (t) => {
+  const home = await mkdtemp(path.join(tmpdir(), "codex-permissions-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const sessions = path.join(home, ".codex", "sessions");
+  await mkdir(sessions, { recursive: true });
+  const file = path.join(sessions, "rollout.jsonl.zst");
+  const source = await readFile(path.join(here, "fixtures", "codex-concurrent-counters.jsonl"));
+  await writeFile(file, zstdCompressSync(source), { mode: 0o600 });
+  const store = emptyStore();
+  await scanSources(store, { home });
+  const entry = Object.values(store.files)[0];
+  const rows = snapshotRows(store);
+  entry.state.codexParserVersion = 9;
+  await chmod(file, 0o000);
+  try {
+    const unavailable = await scanSources(store, { home });
+    assert.equal(unavailable.stats.errors, 1);
+    assert.match(unavailable.warnings.join("\n"), /archive read failed; prior usage retained/);
+    assert.equal(entry.state.codexParserVersion, 9);
+    assert.deepEqual(snapshotRows(store), rows);
+  } finally {
+    await chmod(file, 0o600);
+  }
+  const recovered = await scanSources(store, { home });
+  assert.equal(recovered.stats.errors, 0);
+  assert.equal(recovered.stats.filesRead, 1);
+  assert.equal(entry.state.codexParserVersion, 11);
+  assert.deepEqual(snapshotRows(store), rows);
+});
+
+test("a failed Codex archive rolls back its response and snapshot echo link", async (t) => {
   const home = await mkdtemp(path.join(tmpdir(), "codex-promotion-rollback-"));
   t.after(() => rm(home, { recursive: true, force: true }));
   const dir = path.join(home, ".codex", "sessions");
@@ -235,12 +267,12 @@ test("a failed Codex archive rolls back snapshot promotion and its shared alias"
   assert.equal((await scanSources(store, { home })).stats.errors, 1);
   assert.deepEqual(snapshotRows(store), rows);
   assert.equal(JSON.stringify(store.dedup), beforeKeys);
-  assert.equal(store.codexAliases, undefined);
+  assert.equal(Object.values(store.dedup).filter((entry) => entry[7]?.echo).length, 0);
 
   await writeFile(b, Buffer.concat(frames));
   assert.equal((await scanSources(store, { home })).stats.errors, 0);
   assert.deepEqual(snapshotRows(store), rows);
-  assert.equal(Object.keys(store.codexAliases).length, 1);
+  assert.equal(Object.values(store.dedup).filter((entry) => entry[7]?.echo).length, 1);
   await appendFile(a, source[3] + "\n");
   assert.equal((await scanSources(store, { home })).stats.errors, 0);
   assert.deepEqual(snapshotRows(store), rows, "snapshot-only copy must not resurrect a promoted echo");

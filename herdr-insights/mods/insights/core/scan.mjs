@@ -21,11 +21,11 @@ import {
   addTask,
   addUsage,
   beginStoreTransaction,
-  codexSnapshotTarget,
   commitStoreTransaction,
   dedupKeyFor,
   deleteFileEntry,
   fileKey,
+  linkCodexSnapshot,
   newFileEntry,
   removeLatestFallbackTaskForSession,
   resetFileEntry,
@@ -525,14 +525,14 @@ function lineContext(store, entry, source, sink) {
     addUsage(meta, tokens, key) {
       return addUsage(store, entry, meta, tokens, key);
     },
-    addCodexResponse(meta, tokens, key, snapshotKey) {
-      return addCodexResponse(store, entry, meta, tokens, key, snapshotKey, CODEX_PARSER_VERSION);
+    addCodexResponse(meta, tokens, key) {
+      return addCodexResponse(store, entry, meta, tokens, key, CODEX_PARSER_VERSION);
     },
     addCodexTask(usageKey, taskKey, durationMs, session) {
-      return addCodexTask(store, entry, usageKey, taskKey, durationMs, session, CODEX_PARSER_VERSION);
+      return addCodexTask(store, entry, usageKey, taskKey, durationMs, session);
     },
-    codexSnapshotTarget(snapshotKey) {
-      return codexSnapshotTarget(store, snapshotKey);
+    linkCodexSnapshot(snapshotKey, responseKey, covered) {
+      linkCodexSnapshot(store, snapshotKey, responseKey, covered);
     },
     addTask(fileId, rowIdx, key, durationMs, session, exact) {
       return addTask(
@@ -680,6 +680,7 @@ async function scanCompressedFile(
   let decoderInput = null;
   let decoderDone = null;
   let consumer;
+  let readError;
   const now = nowFn(options);
   const delay = pausableDelay(options.streamDelayMs);
   let frameBoundaries = 0;
@@ -756,7 +757,9 @@ async function scanCompressedFile(
     consumer.offset = 0;
     consumer.lineNo = entry.lineNo ?? 0;
     let sawCompressedChunk = false;
-    for await (const chunk of createReadStream(filePath)) {
+    const input = createReadStream(filePath);
+    input.on("error", (error) => { readError = error; });
+    for await (const chunk of input) {
       if (sawCompressedChunk) enforceCompressedLimit();
       if (deliberateStop) break;
       await splitter.push(chunk);
@@ -780,7 +783,7 @@ async function scanCompressedFile(
     if (stop) {
       return { status: "stopped", reason: stop.reason, dirty: false };
     }
-    return { status: "corrupt", error, dirty: false };
+    return { status: error === readError || error?.syscall ? "read-failed" : "corrupt", error, dirty: false };
   }
   stats.bytesRead += fileStat.size;
   if (fileStat.size > 0) stats.filesRead += 1;
@@ -1016,13 +1019,9 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   const codexMigration = existing?.adapter === "codex" && !parserCurrent;
   const rejected = existing?.state.codexUpgradeRejected;
   const archiveFingerprint = `${dev}:${ino}:${fileStat.size}:${fileStat.mtimeMs}`;
-  if (codexMigration && rejected?.fingerprint === archiveFingerprint
-    && (rejected.reason !== "unsupported" || !hasZstdSupport())) {
-    stats.unchangedFiles += 1;
-    noteCodexForkReplay(existing, sourceSink);
-    return { dirty: false, aborted: false };
-  }
-  if (
+  const cachedRejection = codexMigration && rejected?.fingerprint === archiveFingerprint
+    && rejected.version === parserVersion && (rejected.reason !== "unsupported" || !hasZstdSupport());
+  if (cachedRejection || (
     existing
     && supersededKeys.length === 0
     && parserCurrent
@@ -1032,7 +1031,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     && existing.ino === ino
     && existing.size === fileStat.size
     && existing.mtimeMs === fileStat.mtimeMs
-  ) {
+  )) {
     stats.unchangedFiles += 1;
     noteCodexForkReplay(existing, sourceSink);
     return { dirty: false, aborted: false };
@@ -1067,7 +1066,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
     }
     if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
       if (codexMigration && filePath.endsWith(".jsonl.zst") && !hasZstdSupport()) {
-        entry.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "unsupported" };
+        entry.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "unsupported", version: parserVersion };
         commitStoreTransaction(tx);
         noteCodexForkReplay(entry, sourceSink);
         return { dirty: true, aborted: false };
@@ -1141,10 +1140,15 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
           },
         };
       }
+      if (compressed.status === "read-failed") {
+        rollbackStoreTransaction(tx);
+        sourceSink.warn(`${source.adapter} ${filePath}: archive read failed; prior usage retained: ${compressed.error.message}`);
+        return { dirty: false, aborted: false };
+      }
       if (compressed.status === "corrupt") {
         rollbackStoreTransaction(tx);
         if (codexMigration) {
-          existing.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "corrupt" };
+          existing.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "corrupt", version: parserVersion };
           sourceSink.warn(`codex ${existing.path}: archive upgrade failed; prior usage retained: ${compressed.error.message}`);
           return { dirty: true, aborted: false };
         }

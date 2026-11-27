@@ -967,7 +967,6 @@ test("old file-level Codex modern state is rescanned once to recover the prefix"
   entry.state = { modern: true };
   store.dedup = {};
   store.tasks = {};
-  delete store.codexAliases;
   await writeFile(context.store, JSON.stringify(store));
 
   const migrated = await snapshot(context);
