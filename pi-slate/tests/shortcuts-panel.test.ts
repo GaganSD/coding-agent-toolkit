@@ -215,6 +215,22 @@ test("footer chips honor remapped select controls and drop labels before chips",
   assert.doesNotMatch(f.render(160), /<muted>(Move|Record|Remove|Close)<\/muted>/);
 });
 
+test("remapped cancel closes or cancels recording, with Esc and Ctrl+C still available", () => {
+  const keys = new KeybindingsManager({ "tui.select.cancel": "f6" });
+  for (const close of ["\x1b[17~", esc, "\x03"]) {
+    const f = themed(undefined, true, keys);
+    assert.match(f.render(360), /<accent userMessageBg> F6 <\/accent userMessageBg> <muted>Close<\/muted>/);
+    f.input("\r");
+    assert.match(f.render(160), /<accent userMessageBg> F6 <\/accent userMessageBg> <muted>Cancel<\/muted>/);
+    assert.match(f.render(160), /<dim>F6 cancels/);
+    f.input("\x1b[17~");
+    assert.doesNotMatch(f.render(), /Press a key…/);
+    assert.deepEqual(f.done, []);
+    f.input(close);
+    assert.deepEqual(f.done, [false]);
+  }
+});
+
 test("recording prompts requires the editor surface", () => {
   const f = fixture(undefined, false);
   f.input(down, "\r", f2);
@@ -222,16 +238,57 @@ test("recording prompts requires the editor surface", () => {
   assert.doesNotMatch(f.render(), /F2|Press a key…/);
 });
 
-test("unbind requires two consecutive removal keys on a bound action", () => {
+test("unbind requires two matching presses and ignores Kitty repeats and releases", () => {
   const f = fixture({ sidebar: "f8", prompts: "f2" });
-  f.input(del, "a", del, down);
-  assert.doesNotMatch(f.render(), /Press Del again/);
-  f.input(bs);
-  assert.match(f.render(), /Press Del again to remove F2/);
+  f.input(del, "\x1b[3;1:2~", "\x1b[3;1:3~");
+  assert.match(f.render(), /Press Del again to remove F8/);
   assert.deepEqual(f.saved, []);
-  f.input(del, del, del);
+  f.input(bs);
+  assert.doesNotMatch(f.render(), /again to remove/);
+  assert.deepEqual(f.saved, []);
+  f.input(bs);
+  assert.match(f.render(), /Press Backspace again to remove F8/);
+  f.input(del);
+  assert.doesNotMatch(f.render(), /again to remove/);
+  assert.deepEqual(f.saved, []);
+  f.input(del, "a", del, down);
+  assert.doesNotMatch(f.render(), /again to remove/);
+  f.input(bs, bs, del, del);
   assert.deepEqual(f.saved, [{ sidebar: "f8", prompts: false }]);
   assert.match(f.render(), /Shortcut\s+Not set/);
+  f.input(up, del, "\x1b[3;1:2~", "\x1b[3;1:3~", del);
+  assert.deepEqual(f.saved.at(-1), { sidebar: false, prompts: false });
+});
+
+test("six-row terminals prioritize errors, saved messages and pending removal over status and hints", () => {
+  const f = fixture({ sidebar: "f8" });
+  f.terminal.rows = 6;
+  f.failures.push("Shortcuts not saved: F2 is now used by Prompt picker.");
+  f.input("\r", f2);
+  assert.match(f.render(), /Shortcuts not saved: F2 is now used by Prompt picker/);
+  assert.match(f.render(), /\[ F8 \]/);
+  assert.doesNotMatch(f.render(), /Move.*Record/);
+  f.input(del);
+  assert.match(f.render(), /Press Del again to remove F8/);
+  f.input(del);
+  assert.match(f.render(), /✓ Saved — applies when you close/);
+});
+
+test("bound keycaps and unbound dashes end in the same list column", () => {
+  const f = fixture({ sidebar: "f8", prompts: "ctrl+alt+." });
+  const lines = f.panel.render(88);
+  const keyColumn = (label: string, suffix: string) => {
+    const row = lines.map(line => line.split("│")[1]).find(cell => cell?.includes(label))!;
+    const end = row.trimEnd();
+    assert(end.endsWith(suffix), row);
+    return visibleWidth(end);
+  };
+  const column = keyColumn("Toggle sidebar", "F8");
+  assert.equal(keyColumn("Prompt picker", "Ctrl+Alt+."), column);
+  assert.equal(keyColumn("Theme picker", "—"), column);
+  f.input(down, down);
+  const selected = f.panel.render(88).find(line => line.includes("› Theme picker"))!.split("│")[1]!;
+  assert.equal(visibleWidth(selected.trimEnd()), column);
 });
 
 test("failed records and unbinds retain the previous binding and show an error", () => {
@@ -243,7 +300,7 @@ test("failed records and unbinds retain the previous binding and show an error",
   f.input(down);
   assert(f.render(160).includes("<accent userMessageBg> [ F2 ] "));
   f.input(up);
-  f.input(del, bs);
+  f.input(del, del);
   assert(f.render(160).includes("<error>Another session changed this binding</error>"));
   assert(f.render(160).includes("<accent userMessageBg> [ F8 ] "));
   f.input(esc);

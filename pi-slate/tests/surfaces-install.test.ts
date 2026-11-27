@@ -756,6 +756,35 @@ for (const [name, initial, disk, prepare, edit, reason] of [
   });
 }
 
+test("a concurrent Kitty physical alias is refused unless the panel intended to move it", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
+  const physical = "\x1b[45:43;6u";
+  assert(matchesKey(physical, "ctrl++") && matchesKey(physical, "ctrl+shift+-"));
+  const concurrent = JSON.stringify({ surfaces: ["editor"], shortcuts: { prompts: "ctrl+shift+-" } });
+  driveShortcuts(t, f, async panel => {
+    sendShortcut(panel, shortcutEnter);
+    await writeFile(f.path, concurrent);
+    sendShortcut(panel, physical);
+    const rows = panel.render(88).join("\n");
+    assert.match(rows, /Shortcuts not saved: Ctrl\+\+ is now used by Prompt picker/);
+    assert.match(rows, /Shortcut\s+Not set/);
+    sendShortcut(panel, shortcutEsc);
+  });
+  const pick = f.commands.get("shortcuts")!.handler;
+  await pick("", f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), concurrent);
+  assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+
+  driveShortcuts(t, f, panel => {
+    sendShortcut(panel, shortcutEnter, physical);
+    assert.match(panel.render(88).join("\n"), /Moved from Prompt picker/);
+    sendShortcut(panel, shortcutEsc);
+  });
+  await pick("", f.ctx);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: "ctrl++", prompts: false });
+  assert(f.calls.includes("reload"));
+});
+
 test("/shortcuts merges each auto-save into fresh settings and waits for idle only on close", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } }));
   const latest = { version: 1, surfaces: ["editor"], unknown: { future: true }, shortcuts: { sidebar: "f8", footer: "F7", density: "f8", future: 42 } };
@@ -811,6 +840,67 @@ test("two panels closed while Pi is busy share a single wait and reload", async 
   idle();
   await Promise.all([first, second]);
   assert.equal(reload.mock.callCount(), 1);
+});
+
+// Model Pi 1.4: only done settles custom(), not a host UI reset.
+function mountShortcuts(t: TestContext, f: Awaited<ReturnType<typeof fixture>>) {
+  const panels: Component[] = [];
+  t.mock.method(f.ctx.ui, "custom", (factory: Parameters<ExtensionContext["ui"]["custom"]>[0]) => new Promise(resolve => {
+    const panel = factory(f.tui, theme, new KeybindingsManager(), resolve);
+    assert(!(panel instanceof Promise));
+    panels.push(panel);
+  }));
+  return panels;
+}
+
+test("idle arriving while a second shortcuts panel is open defers reload until it closes", { timeout: 3000 }, async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const panels = mountShortcuts(t, f);
+  let idle!: () => void;
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  const wait = t.mock.method(f.ctx, "waitForIdle", () => resume);
+  const reload = t.mock.method(f.ctx, "reload", async () => {});
+  const pick = f.commands.get("shortcuts")!.handler;
+  const first = pick("", f.ctx);
+  sendShortcut(panels[0]!, shortcutEnter, f2Input, shortcutEsc);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(wait.mock.callCount(), 1);
+  const second = pick("", f.ctx);
+  idle();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reload.mock.callCount(), 0);
+  sendShortcut(panels[1]!, "\x1b[A", shortcutEnter, f8Input, shortcutEsc);
+  await Promise.all([first, second]);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: "f2", footer: "f8" });
+  assert.equal(wait.mock.callCount(), 1);
+  assert.equal(reload.mock.callCount(), 1);
+});
+
+for (const event of ["session_shutdown", "session_start"] as const) {
+  test(`an open shortcuts command settles on ${event} and ignores late input`, { timeout: 3000 }, async t => {
+    const original = JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } });
+    const f = await fixture(t, original);
+    const panels = mountShortcuts(t, f);
+    const command = f.commands.get("shortcuts")!.handler("", f.ctx);
+    const panel = panels[0]!;
+    sendShortcut(panel, shortcutEnter);
+    await f.emit(event, { reason: "reload" });
+    await command;
+    sendShortcut(panel, f2Input, shortcutEnter, f2Input, shortcutDel, shortcutDel, shortcutEsc);
+    assert.equal(await readFile(f.path, "utf8"), original);
+    assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+  });
+}
+
+test("shutdown closes a panel that has already saved without requesting reload", { timeout: 3000 }, async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const panels = mountShortcuts(t, f);
+  const command = f.commands.get("shortcuts")!.handler("", f.ctx);
+  sendShortcut(panels[0]!, shortcutEnter, f2Input);
+  await f.emit("session_shutdown", { reason: "reload" });
+  await command;
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: "f2" });
+  assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
 });
 
 test("a pending shortcut reload is dropped on session shutdown", async t => {

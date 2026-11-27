@@ -206,6 +206,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (metadata !== undefined) raw.composerMetadata = raw.footer = metadata === "minimal" ? "minimal" : "standard";
     const text = `${JSON.stringify(raw, null, 2)}\n`;
     const temporaryPath = `${configPath}.${process.pid}.tmp`;
+    // Synchronous read/rename narrows but does not eliminate races between Pi processes.
     writeFileSync(temporaryPath, text, "utf8");
     renameSync(temporaryPath, configPath);
     config = parseConfig(text).config;
@@ -250,6 +251,20 @@ export default function piSlate(pi: ExtensionAPI): void {
   let sidebarYielded = false;
   let sessionEpoch = 0;
   let pendingShortcutReload: Promise<void> | undefined;
+  const openShortcutPanels = new Set<AbortController>();
+  let panelsClosed: (() => void) | undefined;
+  const wakeShortcutReload = () => {
+    const wake = panelsClosed;
+    panelsClosed = undefined;
+    wake?.();
+  };
+  const invalidateSession = () => {
+    sessionEpoch += 1;
+    pendingShortcutReload = undefined;
+    for (const panel of openShortcutPanels) panel.abort();
+    openShortcutPanels.clear();
+    wakeShortcutReload();
+  };
   let currentContext: ExtensionContext | undefined;
   let cachedTheme: Theme | undefined;
   // Every ctx accessor throws once the host replaces or reloads the session. Render
@@ -452,7 +467,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (claudeTools) diagnostics.active("tool-style", "Public tool renderer hook installed.");
       else diagnostics.fallback("tool-style", "Slate default cards retained; the optional renderer hook is unavailable.");
     }
-    sessionEpoch += 1; sidebarYielded = false;
+    invalidateSession(); sidebarYielded = false;
     const mountedEpoch = sessionEpoch;
     currentContext = ctx;
     if (ctx.mode === "tui") cachedTheme = ctx.ui.theme;
@@ -806,8 +821,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     syncVisibleMessages();
   });
   pi.on("session_shutdown", (_event, ctx) => {
-    sessionEpoch += 1;
-    pendingShortcutReload = undefined;
+    invalidateSession();
     workingWord = undefined;
     try {
       setWaveActive(false);
@@ -1023,21 +1037,32 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const pickShortcuts = async (ctx: ExtensionCommandContext): Promise<void> => {
     const owner = sessionEpoch, initial = loadConfig(configPath).config.shortcuts;
-    const saved = await openShortcutsPanel(ctx, initial, { ownsEditor: owns("editor") }, (previous, next) => {
-      if (owner !== sessionEpoch) return "The session changed. Reopen /shortcuts.";
-      try {
-        return saveConfig(raw => {
-          const merged = mergeShortcuts(raw.shortcuts, previous, next);
-          return "error" in merged ? merged.error : { shortcuts: merged.raw };
-        });
-      } catch (error) {
-        return `Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    });
+    const panel = new AbortController();
+    openShortcutPanels.add(panel);
+    let saved: boolean;
+    try {
+      saved = await openShortcutsPanel(ctx, initial, { ownsEditor: owns("editor") }, (previous, next, recorded) => {
+        if (owner !== sessionEpoch) return "The session changed. Reopen /shortcuts.";
+        try {
+          return saveConfig(raw => {
+            const merged = mergeShortcuts(raw.shortcuts, previous, next, recorded);
+            return "error" in merged ? merged.error : { shortcuts: merged.raw };
+          });
+        } catch (error) {
+          return `Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }, panel.signal);
+    } finally {
+      openShortcutPanels.delete(panel);
+      if (!openShortcutPanels.size) wakeShortcutReload();
+    }
     if (!saved || owner !== sessionEpoch) return;
     if (pendingShortcutReload) return pendingShortcutReload;
     const pending = pendingShortcutReload = (async () => {
       await ctx.waitForIdle();
+      while (owner === sessionEpoch && openShortcutPanels.size) {
+        await new Promise<void>(resolve => { panelsClosed = resolve; });
+      }
       if (owner === sessionEpoch) await ctx.reload();
     })();
     try { await pending; }

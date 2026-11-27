@@ -120,7 +120,9 @@ function clearDuplicateShortcuts(raw: Record<string, unknown>): SlateShortcuts |
   return unique;
 }
 
-export function mergeShortcuts(value: unknown, initial: SlateShortcuts | undefined, draft: SlateShortcuts) {
+export type RecordedShortcut = { id: ShortcutActionId; key: string; data: string };
+
+export function mergeShortcuts(value: unknown, initial: SlateShortcuts | undefined, draft: SlateShortcuts, recorded?: RecordedShortcut) {
   const raw = { ...shortcutObject(value) }, changed = changedShortcuts(initial, draft);
   const disk = clearDuplicateShortcuts(raw); // Hidden duplicates must not inherit an unbound key.
   const refuse = (reason: string) => ({ error: `Shortcuts not saved: ${reason}. Reopen /shortcuts.` } as const);
@@ -145,6 +147,12 @@ export function mergeShortcuts(value: unknown, initial: SlateShortcuts | undefin
     const [owner] = wanted ? shortcutOwners(wanted, id, shortcuts ?? {}) : [];
     const holder = SHORTCUT_ACTIONS.find(action => action.id === owner)?.label;
     return refuse(holder ? `${shortcutLabel(wanted!)} is now used by ${holder}` : "the draft conflicts with current bindings");
+  }
+  if (recorded) {
+    // A Kitty physical alias may only be observable in the actual press.
+    const [owner] = shortcutOwners(recorded.key, recorded.id, shortcuts ?? {}, recorded.data);
+    const holder = SHORTCUT_ACTIONS.find(action => action.id === owner);
+    if (holder) return refuse(`${shortcutLabel(recorded.key)} is now used by ${holder.label}`);
   }
   return { raw } as const;
 }

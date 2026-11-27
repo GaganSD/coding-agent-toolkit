@@ -145,7 +145,7 @@ These work when `editor` is selected. No terminal configuration.
 
 ### Shortcuts
 
-Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del or Backspace twice to remove it. Each accepted change saves immediately. If a save conflicts with another session, the panel keeps the previous binding and shows the reason. Esc cancels recording or closes the panel; Ctrl+C closes from anywhere. If you saved any changes, Pi reloads once after the panel closes and Pi is idle.
+Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del twice (or Backspace twice) to remove it. A different key cancels removal. Each accepted change saves immediately. If a save conflicts with another session, the panel keeps the previous binding and shows the reason. Esc or the remapped cancel key cancels recording or closes the panel; Ctrl+C closes from anywhere. If you saved any changes, Pi reloads once after the panel closes and Pi is idle.
 
 Pi-reserved keys, viewport keys, and Slate editor keys (when the editor surface is selected) are blocked. The panel labels other shared keys “Also bound in Pi”; those bindings may only apply in another view. Printable, navigation, and editing keys require Ctrl, Alt, or Cmd/Win; Shift alone isn't enough. There are no default Slate shortcut keys.
 
