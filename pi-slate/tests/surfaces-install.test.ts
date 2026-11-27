@@ -647,11 +647,88 @@ test("load-time registration skips editing keys, unsupported chords, global keys
   }
 });
 
-test("only the first Slate action in catalog order registers a duplicate JSON binding", async t => {
+test("literal Tab cannot dispatch a hand-edited Ctrl+I shortcut", async t => {
+  const text = JSON.stringify({ surfaces: ["editor"], shortcuts: { pid: "ctrl+i" } });
+  const f = await fixture(t, text);
+  assert(matchesKey("\t", "ctrl+i"), "Pi treats legacy Tab as Ctrl+I");
+  for (const [key, handler] of f.shortcutHandlers) if (matchesKey("\t", key as KeyId)) await handler(f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), text);
+  assert.match(f.notices.at(-1)!, /\(ctrl\+i\): Used for editing/);
+});
+
+test("registration blocks remapped image-token editor actions only when Slate owns the editor", async t => {
+  const configure = async (_pi: ExtensionAPI, _ui: ExtensionContext["ui"], dir: string) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({
+      "tui.editor.deleteCharBackward": ["backspace", "f8"], deleteCharForward: "f7", cursorLeft: "f6", cursorRight: "f5",
+    }));
+  };
+  const shortcuts = { pid: "f8", footer: "f7", density: "f6", theme: "f5" };
+  const owned = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts }), "tui", true, false, configure);
+  assert.deepEqual(owned.shortcuts, []);
+  assert.equal(owned.notices.filter(notice => notice.endsWith("Used by Slate's editor")).length, 4);
+  const native = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts }), "tui", true, false, configure);
+  assert.deepEqual([...native.shortcuts].sort(), Object.values(shortcuts).sort());
+});
+
+test("registration rejects the same xterm shifted-symbol alias as the recorder", async t => {
+  const f = await fixture(t, JSON.stringify({ shortcuts: { pid: "ctrl+?" } }), "tui", true, false, async (_pi, _ui, dir) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({ "app.interrupt": "ctrl+shift+?" }));
+  });
+  assert.deepEqual(f.shortcuts, []);
+  assert.match(f.notices.at(-1)!, /\(ctrl\+\?\): Reserved by Pi/);
+});
+
+function driveShortcuts(t: TestContext, f: Awaited<ReturnType<typeof fixture>>, drive: (panel: Component) => void | Promise<void>) {
+  t.mock.method(f.ctx.ui, "custom", async (factory: Parameters<ExtensionContext["ui"]["custom"]>[0]) => {
+    let result: unknown;
+    const panel = await factory(f.tui, theme, new KeybindingsManager(), value => { result = value; });
+    await drive(panel);
+    return result;
+  });
+}
+
+test("unbinding a duplicate winner does not resurrect hidden owners on reload", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], shortcuts: { theme: "f2", prompts: "F2", sidebar: "f2" } }));
   assert.deepEqual(f.shortcuts, ["f2"]);
-  await f.shortcutHandlers.get("f2")!(f.ctx);
-  assert.equal(f.notices.at(-1), "Focused mode off");
+  driveShortcuts(t, f, panel => {
+    const rows = panel.render(88).join("\n");
+    assert.match(rows, /Toggle sidebar\s+f2/);
+    for (const label of [/Theme picker\s+—/, /Prompt picker\s+—/]) assert.match(rows, label);
+    panel.handleInput!("\x1b[3~");
+    panel.handleInput!("\x13");
+  });
+  await f.commands.get("shortcuts")!.handler("", f.ctx);
+  const saved = await readFile(f.path, "utf8");
+  assert.deepEqual(JSON.parse(saved).shortcuts, { sidebar: false, prompts: false, theme: false });
+  assert(f.calls.includes("reload"));
+  const reloaded = await fixture(t, saved);
+  assert.deepEqual(reloaded.shortcuts, []);
+});
+
+test("a concurrent assignment that would win against the panel draft aborts the save", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const concurrent = JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f2" } });
+  driveShortcuts(t, f, async panel => {
+    panel.handleInput!("\x1b[A");
+    panel.handleInput!("\r");
+    panel.handleInput!("\x1bOQ");
+    assert.match(panel.render(88).join("\n"), /Composer metadata\s+f2/);
+    await writeFile(f.path, concurrent);
+    panel.handleInput!("\x13");
+  });
+  await f.commands.get("shortcuts")!.handler("", f.ctx);
+  const saved = await readFile(f.path, "utf8");
+  assert.equal(saved, concurrent);
+  assert.equal(f.notices.at(-1), "Shortcuts not saved: f2 is now used by Toggle sidebar. Reopen /shortcuts.");
+  assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+  driveShortcuts(t, f, panel => {
+    assert.match(panel.render(88).join("\n"), /Toggle sidebar\s+f2/);
+    panel.handleInput!("\x1b");
+  });
+  await f.commands.get("shortcuts")!.handler("", f.ctx);
+  const reloaded = await fixture(t, saved);
+  await reloaded.shortcutHandlers.get("f2")!(reloaded.ctx);
+  assert.equal(reloaded.notices.at(-1), "Focused mode off");
 });
 
 test("/shortcuts merges fresh settings and waits for idle before reloading exactly once", async t => {
@@ -668,7 +745,7 @@ test("/shortcuts merges fresh settings and waits for idle before reloading exact
   await Promise.race([waiting, saving]);
   assert.equal(wait.mock.callCount(), 1);
   assert.equal(reload.mock.callCount(), 0);
-  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, shortcuts: { ...draft, footer: "F7", future: 42 } });
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, shortcuts: { ...draft, footer: "F7", density: false, future: 42 } });
   idle();
   await saving;
   assert.equal(reload.mock.callCount(), 1);

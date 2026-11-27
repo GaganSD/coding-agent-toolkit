@@ -1,10 +1,11 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, parseKey, visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
 import { compactPicker, fit, pickerBody, pickerFrame, pickerGeometry, PICKER_OVERLAY, selectedRow, viewport } from "./picker-frame.ts";
-import { changedShortcuts, classifyKey, hasPiBinding, SHORTCUT_ACTIONS, shortcutKey, shortcutStatus, type KeyClassification, type ShortcutActionId, type ShortcutKeys, type SlateShortcuts } from "./shortcuts.ts";
+import { changedShortcuts, classifyKey, SHORTCUT_ACTIONS, shortcutKey, shortcutSaveKey, shortcutStatus, type KeyClassification, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 
 type Options = { ownsEditor: boolean };
-type PanelKeys = ShortcutKeys & Pick<KeybindingsManager, "matches">;
+type PanelKeys = Pick<KeybindingsManager, "getDefinition" | "getKeys" | "getResolvedBindings" | "matches">;
+const keyLabel = (key: string) => key.replace(/(^|\+)[a-z]/g, part => part.toUpperCase());
 type MovedKey = Extract<KeyClassification, { kind: "moved" }>;
 
 export class ShortcutsPanel implements Component {
@@ -14,7 +15,7 @@ export class ShortcutsPanel implements Component {
   private error = "";
   private draft: SlateShortcuts;
   private moved: Partial<Record<ShortcutActionId, MovedKey>> = {};
-  private altSave: boolean;
+  private saveKey: ReturnType<typeof shortcutSaveKey>;
 
   private initial: SlateShortcuts | undefined;
   private tui: Pick<TUI, "requestRender" | "terminal">;
@@ -27,7 +28,7 @@ export class ShortcutsPanel implements Component {
     theme: Theme, keys: PanelKeys, opts: Options, done: (value: SlateShortcuts | undefined) => void) {
     this.initial = initial; this.tui = tui; this.theme = theme; this.keys = keys; this.opts = opts; this.done = done;
     this.draft = { ...initial };
-    this.altSave = hasPiBinding("ctrl+s", keys);
+    this.saveKey = shortcutSaveKey(keys);
   }
 
   private get action() { return SHORTCUT_ACTIONS[this.selected]!; }
@@ -44,7 +45,7 @@ export class ShortcutsPanel implements Component {
   handleInput(data: string): void {
     if (this.closed) return;
     if (matchesKey(data, "ctrl+c")) { this.finish(); return; }
-    if (matchesKey(data, "ctrl+s") || (this.altSave && matchesKey(data, "alt+s"))) { this.finish(this.draft); return; }
+    if (this.saveKey && matchesKey(data, this.saveKey)) { this.finish(this.draft); return; }
     const { id } = this.action;
     this.error = "";
     if (matchesKey(data, "escape")) {
@@ -79,13 +80,17 @@ export class ShortcutsPanel implements Component {
       ? shortcutStatus(this.moved[id] ?? classifyKey(key, { id, draft: this.draft, keys: this.keys, ownsEditor: this.opts.ownsEditor })) : "free";
     const unsaved = changedShortcuts(this.initial, this.draft).length;
     const title = `Slate shortcuts${unsaved ? ` · ${unsaved} unsaved` : ""}`;
-    const hint = this.recording ? "Press a key… (Esc to go back)" : "Press Enter, then the new key.";
-    const save = this.altSave ? "Alt+S" : "Ctrl+S";
-    const hints: [string, string] = ["↑↓ action · Enter record key · Del unbind", `${save} save · Esc back · Ctrl+C cancel`];
+    const control = (id: "up" | "down" | "confirm") => this.keys.getKeys(`tui.select.${id}`).map(keyLabel).join("/");
+    const up = control("up"), down = control("down"), confirm = control("confirm");
+    const nav = up === "Up" && down === "Down" ? "↑↓" : `${up || "—"}/${down || "—"}`;
+    const hint = this.recording ? "Press a key… (Esc to go back)" : confirm ? `Press ${confirm}, then the new key.` : "No record key assigned.";
+    const save = this.saveKey ? `${keyLabel(this.saveKey)} save` : "Save blocked";
+    const back = unsaved && !this.recording ? "Esc discard" : "Esc back";
+    const hints: [string, string] = [`${nav} action · ${confirm || "—"} record key · Del unbind`, `${save} · ${back} · Ctrl+C cancel`];
     if (tiny) return compactPicker([
       th.bold(title), th.fg("accent", `${label} · ${key ?? "—"}`),
-      this.error ? th.fg("error", this.error) : status, th.fg("dim", this.recording ? hint : "↑↓ · ↵ record · Del"),
-      th.fg("dim", width < 38 ? `${this.altSave ? save : "^S"} save Esc back ^C` : hints[1]),
+      this.error ? th.fg("error", this.error) : status, th.fg("dim", this.recording ? hint : `${nav} · ${confirm || "—"} record · Del`),
+      th.fg("dim", width < 38 ? `${save} · ${back}` : hints[1]),
     ], width, height);
     const actions = (columns: number, rows: number) => viewport(th, "Actions", this.selected, SHORTCUT_ACTIONS.length,
       this.selected, SHORTCUT_ACTIONS.length, columns, rows, i => {

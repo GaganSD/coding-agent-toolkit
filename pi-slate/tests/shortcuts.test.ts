@@ -1,52 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyKey, loadShortcuts, parseKeyChord, parsePromptShortcut, promptShortcutKey, SHORTCUT_ACTIONS, sidebarShortcutKey } from "../extensions/pi-slate/shortcuts.ts";
+import { classifyKey, loadShortcuts, parseShortcut, SHORTCUT_ACTIONS, shortcutKey } from "../extensions/pi-slate/shortcuts.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 
-test("parseKeyChord accepts Pi chords and requires more than Shift for printable keys", () => {
-  assert.equal(parseKeyChord("ctrl+alt+."), "ctrl+alt+.");
-  assert.equal(parseKeyChord("  Ctrl+Alt+.  "), "ctrl+alt+.");
-  assert.equal(parseKeyChord("alt+ctrl+."), "ctrl+alt+.");
-  assert.equal(parseKeyChord("ctrl+shift+alt+super+."), "ctrl+shift+alt+super+.");
-  assert.equal(parseKeyChord("f5"), "f5");
-  assert.equal(parseKeyChord("ctrl+pageUp"), "ctrl+pageUp");
-  for (const key of ["p", "shift+a", "Shift+1", "shift+.", "space", "shift+space", "+"]) assert.equal(parseKeyChord(key), undefined);
-  assert.equal(parseKeyChord("ctrl+space"), "ctrl+space");
-  assert.equal(parseKeyChord("super+a"), "super+a");
-  assert.equal(parseKeyChord("Ctrl++"), "ctrl++");
-  assert.equal(parseKeyChord("ctrl+"), undefined);
-  assert.equal(parseKeyChord("ctrl+alt+. extra"), undefined);
-  assert.equal(parseKeyChord("ctrl+ctrl+p"), undefined);
-  assert.equal(parseKeyChord("meta+p"), undefined);
+test("parseShortcut normalizes Pi chords without deciding which keys may be registered", () => {
+  assert.equal(parseShortcut("ctrl+alt+."), "ctrl+alt+.");
+  assert.equal(parseShortcut("  Ctrl+Alt+.  "), "ctrl+alt+.");
+  assert.equal(parseShortcut("alt+ctrl+."), "ctrl+alt+.");
+  assert.equal(parseShortcut("ctrl+shift+alt+super+."), "ctrl+shift+alt+super+.");
+  assert.equal(parseShortcut("ctrl+pageUp"), "ctrl+pageUp");
+  assert.equal(parseShortcut("Ctrl++"), "ctrl++");
+  for (const key of ["ctrl+", "ctrl+alt+. extra", "ctrl+ctrl+p", "meta+p"]) assert.equal(parseShortcut(key), undefined);
+  for (const key of ["p", "shift+a", "Shift+1", "shift+.", "+"]) assert.equal(classifyKey(key).kind, "needs-modifier");
+  for (const key of ["f5", "f12", "ctrl+space", "super+a", "alt+left", "ctrl+clear"]) assert.deepEqual(classifyKey(key), { kind: "free", key });
 });
 
 test("editing and navigation keys need a modifier other than Shift", () => {
   for (const key of ["up", "down", "left", "right", "home", "end", "pageUp", "pageDown", "insert", "delete", "backspace", "tab", "enter", "return", "escape", "space", "clear"]) {
     for (const chord of [key, `shift+${key}`]) {
       assert.equal(classifyKey(chord).kind, "editing", chord);
-      assert.equal(loadShortcuts({ sidebar: chord }), undefined);
     }
   }
-  assert.equal(parseKeyChord("alt+left"), "alt+left");
-  assert.equal(parseKeyChord("ctrl+clear"), "ctrl+clear");
-  assert.equal(parseKeyChord("f12"), "f12");
+  assert.equal(classifyKey("ctrl+i").kind, "editing");
 });
 
-test("load-time validation rejects dead and hard-wired Pi bindings", () => {
-  for (const [key, kind] of [["ctrl+escape", "unsupported"], ["shift+f2", "unsupported"], ["ctrl+shift+d", "global"]]) {
-    assert.equal(classifyKey(key!).kind, kind);
-    assert.equal(loadShortcuts({ sidebar: key }), undefined);
-  }
+test("load retains blocked keys so the panel can explain why they are disabled", () => {
+  for (const key of ["left", "ctrl+escape", "shift+f2", "ctrl+shift+d"]) assert.deepEqual(loadShortcuts({ sidebar: key }), { sidebar: key });
 });
 
-test("parsePromptShortcut treats unset and opt-out as no chord", () => {
-  assert.equal(parsePromptShortcut(undefined), undefined);
-  assert.equal(parsePromptShortcut(false), false);
-  assert.equal(parsePromptShortcut("none"), false);
-  assert.equal(parsePromptShortcut(""), false);
-  assert.equal(parsePromptShortcut("ctrl+alt+."), "ctrl+alt+.");
-  assert.equal(parsePromptShortcut(true), undefined);
-  assert.equal(parsePromptShortcut(1), undefined);
+test("parseShortcut treats unset and opt-out as no chord", () => {
+  for (const key of [false, "none", ""]) assert.equal(parseShortcut(key), false);
+  for (const key of [undefined, true, 1]) assert.equal(parseShortcut(key), undefined);
 });
 
 test("loadShortcuts keeps parsed prompt and sidebar bindings", () => {
@@ -58,10 +42,10 @@ test("loadShortcuts keeps parsed prompt and sidebar bindings", () => {
   assert.deepEqual(loadShortcuts({ prompts: "nope", sidebar: "Alt+S" }), { sidebar: "alt+s" });
   assert.deepEqual(loadShortcuts({ prompts: "Ctrl+Alt+.", sidebar: false }), { prompts: "ctrl+alt+.", sidebar: false });
   assert.equal(loadShortcuts({ prompts: "nope" }), undefined);
-  assert.equal(promptShortcutKey({ prompts: false }), undefined);
-  assert.equal(promptShortcutKey({ prompts: "ctrl+alt+." }), "ctrl+alt+.");
-  assert.equal(sidebarShortcutKey({ sidebar: false }), undefined);
-  assert.equal(sidebarShortcutKey({ sidebar: "ctrl+shift+b" }), "ctrl+shift+b");
+  assert.equal(shortcutKey({ prompts: false }, "prompts"), undefined);
+  assert.equal(shortcutKey({ prompts: "ctrl+alt+." }, "prompts"), "ctrl+alt+.");
+  assert.equal(shortcutKey({ sidebar: false }, "sidebar"), undefined);
+  assert.equal(shortcutKey({ sidebar: "ctrl+shift+b" }, "sidebar"), "ctrl+shift+b");
 });
 
 test("loadShortcuts parses every catalog action and drops unknown or invalid values", () => {
@@ -70,13 +54,14 @@ test("loadShortcuts parses every catalog action and drops unknown or invalid val
   assert.deepEqual(loadShortcuts({ ...saved, unknown: "f1" }), {
     sidebar: "f8", prompts: false, theme: "f2", pid: "alt+p", "effort-border": "alt+e", density: "f9", footer: "f10",
   });
-  assert.equal(loadShortcuts({ unknown: "f1", theme: "a" }), undefined);
+  assert.equal(loadShortcuts({ unknown: "f1", theme: "not a key" }), undefined);
 });
 
 test("loadShortcuts keeps the first effective chord in catalog order", () => {
   const raw = { theme: "f2", prompts: "F2", sidebar: "f2", pid: "ctrl+-", "effort-border": "ctrl+_", density: "shift+a", footer: "space" };
-  assert.deepEqual(loadShortcuts(raw), { sidebar: "f2", pid: "ctrl+-" });
-  assert.deepEqual(loadShortcuts({ theme: "ctrl++", sidebar: "ctrl+shift+=" }), { sidebar: "ctrl+shift+=" });
+  assert.deepEqual(loadShortcuts(raw), { sidebar: "f2", prompts: false, theme: false, pid: "ctrl+-", "effort-border": false, density: "shift+a", footer: "space" });
+  assert.deepEqual(loadShortcuts({ theme: "ctrl++", sidebar: "ctrl+shift+=" }), { sidebar: "ctrl+shift+=", theme: false });
+  assert.deepEqual(loadShortcuts({ theme: "ctrl+shift+?", sidebar: "ctrl+?" }), { sidebar: "ctrl+?", theme: false });
 });
 
 test("classification uses resolved Pi remaps and gives reserved bindings precedence", () => {

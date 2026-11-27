@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getKeybindings, isKittyProtocolActive, Key, matchesKey, setKittyProtocolActive, TUI_KEYBINDINGS, type Keybinding, type KeyId } from "@earendil-works/pi-tui";
 import { COMPOSER_SELECTION_KEYS } from "./composer-selection.ts";
+import { IMAGE_EDITOR_BINDINGS } from "./image-placeholders.ts";
 
 const MODIFIERS = ["ctrl", "shift", "alt", "super"] as const;
 const MODIFIER_SET = new Set<string>(MODIFIERS);
@@ -16,9 +17,10 @@ const SPECIAL = new Map<string, string>([
 const UNSHIFTED = "`1234567890-=[]\\;'.,/";
 const SHIFTED = '~!@#$%^&*()_+{}|:"<>?';
 const SYMBOL = new Set(UNSHIFTED + SHIFTED);
+const isFunctionKey = (key: string) => /^f\d+$/.test(key);
+const EDITING_KEYS = [...SPECIAL.values()].filter(key => !isFunctionKey(key));
 
 export type SlateShortcut = string | false;
-export type PromptShortcut = SlateShortcut;
 export const SHORTCUT_ACTIONS = [
   { id: "sidebar", label: "Toggle sidebar", detail: "Same as /slate focused" },
   { id: "prompts", label: "Prompt picker", detail: "Same as /prompts" },
@@ -50,21 +52,16 @@ const KITTY_KEYS: Record<string, number> = {
   home: 57423, end: 57424, insert: 57425, delete: 57426,
 };
 
-// A representative Pi input for hand-edited chords. Kitty can report a physical
-// key and its shifted US symbol in the same event; Pi matches both spellings.
-function chordInput({ base, mods }: Chord): string {
+// Probe Kitty physical/logical pairs and xterm modifyOtherKeys, which can
+// report a shifted symbol directly while still carrying the Shift modifier.
+function chordInputs({ base, mods }: Chord): string[] {
   const modifier = 1 + (mods.includes("shift") ? 1 : 0) + (mods.includes("alt") ? 2 : 0)
     + (mods.includes("ctrl") ? 4 : 0) + (mods.includes("super") ? 8 : 0);
-  if (/^f\d+$/.test(base)) return `\x1b[${FUNCTION_KEYS[Number(base.slice(1)) - 1]}${mods.length ? `;${modifier}` : ""}~`;
-  if (base === "clear") return modifier === 5 ? "\x1bOe" : "";
-  const shifted = mods.includes("shift") ? SHIFTED[UNSHIFTED.indexOf(base)] : undefined;
+  if (isFunctionKey(base)) return [`\x1b[${FUNCTION_KEYS[Number(base.slice(1)) - 1]}${mods.length ? `;${modifier}` : ""}~`];
+  if (base === "clear") return modifier === 5 ? ["\x1bOe"] : modifier === 2 ? ["\x1b[e"] : ["\x1b[E"];
+  const shifted = mods.includes("shift") ? SHIFTED[UNSHIFTED.indexOf(base)]?.charCodeAt(0) : undefined;
   const code = KITTY_KEYS[base] ?? base.charCodeAt(0);
-  return `\x1b[${code}${shifted ? `:${shifted.charCodeAt(0)}` : ""};${modifier}u`;
-}
-
-export function parseKeyChord(value: string): string | undefined {
-  const result = classifyKey(value);
-  return "key" in result ? result.key : undefined;
+  return [`\x1b[${code}${shifted ? `:${shifted}` : ""};${modifier}u`, `\x1b[27;${modifier};${shifted ?? code}~`];
 }
 
 // Ask Pi which raw legacy inputs it dispatches to each chord, including terminals
@@ -89,30 +86,24 @@ function sameChord(chord: Chord, value: string, data?: string): boolean {
   const other = chordParts(value);
   if (!other) return false;
   return chord.key === other.key || (data !== undefined && matchesKey(data, other.key))
-    || [chordInput(chord), chordInput(other)].some(raw => matchesKey(raw, chord.key) && matchesKey(raw, other.key))
+    || [...chordInputs(chord), ...chordInputs(other)].some(raw => matchesKey(raw, chord.key) && matchesKey(raw, other.key))
     || legacyInputs(chord.key).some((inputs, mode) => [...inputs].some(raw => legacyInputs(other.key)[mode]!.has(raw)));
 }
 
-function parseShortcut(value: unknown, showBlocked = false): SlateShortcut | undefined {
+export function parseShortcut(value: unknown): SlateShortcut | undefined {
   if (value === false || value === "none" || value === "") return false;
-  if (typeof value !== "string") return undefined;
-  return parseKeyChord(value) ?? (showBlocked ? chordParts(value)?.key : undefined);
-}
-
-export function parsePromptShortcut(value: unknown): PromptShortcut | undefined {
-  return parseShortcut(value);
+  return typeof value === "string" ? chordParts(value)?.key : undefined;
 }
 
 const shortcutObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
 // Keep recognizable but blocked bindings for the panel and startup diagnostics.
-export function loadShortcuts(value: unknown, showBlocked = false): SlateShortcuts | undefined {
+export function loadShortcuts(value: unknown): SlateShortcuts | undefined {
   const raw = shortcutObject(value), shortcuts: SlateShortcuts = {};
   for (const { id } of SHORTCUT_ACTIONS) {
-    const shortcut = parseShortcut(raw[id], showBlocked);
-    if (shortcut === false) shortcuts[id] = false;
-    else if (shortcut && !shortcutOwners(chordParts(shortcut)!, id, shortcuts).length) shortcuts[id] = shortcut;
+    const shortcut = parseShortcut(raw[id]);
+    if (shortcut !== undefined) shortcuts[id] = shortcut && shortcutOwners(shortcut, id, shortcuts).length ? false : shortcut;
   }
   return Object.keys(shortcuts).length ? shortcuts : undefined;
 }
@@ -120,31 +111,33 @@ export function loadShortcuts(value: unknown, showBlocked = false): SlateShortcu
 export const changedShortcuts = (initial: SlateShortcuts | undefined, draft: SlateShortcuts) =>
   SHORTCUT_ACTIONS.filter(({ id }) => shortcutKey(initial, id) !== shortcutKey(draft, id)).map(({ id }) => id);
 
-export function mergeShortcuts(value: unknown, initial: SlateShortcuts | undefined, draft: SlateShortcuts): Record<string, unknown> {
-  const merged = { ...shortcutObject(value) };
-  for (const id of changedShortcuts(initial, draft)) {
-    if (draft[id] === undefined) delete merged[id];
-    else merged[id] = draft[id];
+function clearDuplicateShortcuts(raw: Record<string, unknown>): SlateShortcuts | undefined {
+  const unique = loadShortcuts(raw);
+  for (const { id } of SHORTCUT_ACTIONS) if (unique?.[id] === false && raw[id] && raw[id] !== "none") raw[id] = false;
+  return unique;
+}
+
+export function mergeShortcuts(value: unknown, initial: SlateShortcuts | undefined, draft: SlateShortcuts) {
+  const raw = { ...shortcutObject(value) }, changed = changedShortcuts(initial, draft);
+  clearDuplicateShortcuts(raw); // A hidden duplicate must not inherit a key the panel unbound.
+  for (const id of changed) {
+    if (draft[id] === undefined) delete raw[id];
+    else raw[id] = draft[id];
   }
-  const unique = loadShortcuts(merged, true);
-  for (const { id } of SHORTCUT_ACTIONS) {
-    const value = merged[id];
-    if (unique?.[id] === undefined && typeof value === "string" && chordParts(value)) delete merged[id];
+  const shortcuts = clearDuplicateShortcuts(raw);
+  for (const id of changed) {
+    const wanted = parseShortcut(draft[id]) || undefined;
+    if (wanted === shortcutKey(shortcuts, id)) continue;
+    const [owner] = wanted ? shortcutOwners(wanted, id, shortcuts ?? {}) : [];
+    const label = SHORTCUT_ACTIONS.find(({ id }) => id === owner)?.label;
+    return { error: `Shortcuts not saved: ${label ? `${wanted} is now used by ${label}` : "the draft conflicts with current bindings"}. Reopen /shortcuts.` } as const;
   }
-  return merged;
+  return { raw, shortcuts } as const;
 }
 
 export function shortcutKey(shortcuts: SlateShortcuts | undefined, id: ShortcutActionId): string | undefined {
   const key = shortcuts?.[id];
   return typeof key === "string" ? key : undefined;
-}
-
-export function promptShortcutKey(shortcuts: SlateShortcuts | undefined): string | undefined {
-  return shortcutKey(shortcuts, "prompts");
-}
-
-export function sidebarShortcutKey(shortcuts: SlateShortcuts | undefined): string | undefined {
-  return shortcutKey(shortcuts, "sidebar");
 }
 
 // Mirrors Pi's runner's reserved app bindings. On cold load there may be no
@@ -167,6 +160,7 @@ const LEGACY_IDS: Record<string, string> = {
   "app.model.select": "selectModel", "app.tools.expand": "expandTools", "app.thinking.toggle": "toggleThinking",
   "app.editor.external": "externalEditor", "app.message.followUp": "followUp", "tui.input.submit": "submit",
   "tui.select.confirm": "selectConfirm", "tui.select.cancel": "selectCancel", "tui.input.copy": "copy", "tui.editor.deleteToLineEnd": "deleteToLineEnd",
+  ...Object.fromEntries(IMAGE_EDITOR_BINDINGS.map(id => [id, id.slice("tui.editor.".length)])),
 };
 const isViewport = (id: string) => id.startsWith("tui.altScreen.");
 
@@ -192,7 +186,7 @@ export function loadShortcutKeys(agentDir: string): ShortcutKeys {
   const viewport = Object.keys({ ...tui, ...host.getResolvedBindings() }).filter(isViewport);
   const hasHostApp = !!host.getDefinition("app.interrupt" as Keybinding);
   const bindings: Record<string, Binding> = {};
-  for (const id of [...RESERVED, ...viewport]) {
+  for (const id of [...RESERVED, ...viewport, ...IMAGE_EDITOR_BINDINGS]) {
     const fallback = id === "tui.altScreen.search" && WINDOWS_KEYS ? "ctrl+f"
       : id === "tui.altScreen.previousPrompt" && WINDOWS_KEYS ? "ctrl+up"
       : id === "tui.altScreen.nextPrompt" && WINDOWS_KEYS ? "ctrl+down"
@@ -227,7 +221,9 @@ export function shortcutStatus(result: KeyClassification): string {
   }
 }
 
-function shortcutOwners(chord: Chord, actionId: ShortcutActionId | undefined, draft: SlateShortcuts, data?: string): ShortcutActionId[] {
+function shortcutOwners(key: string, actionId: ShortcutActionId | undefined, draft: SlateShortcuts, data?: string): ShortcutActionId[] {
+  const chord = chordParts(key);
+  if (!chord) return [];
   return SHORTCUT_ACTIONS.map(({ id }) => id).filter(id => {
     const bound = shortcutKey(draft, id);
     return id !== actionId && bound !== undefined && sameChord(chord, bound, data);
@@ -239,29 +235,28 @@ function matchingPiBindings(chord: Chord, keys?: ShortcutKeys, data?: string): s
     binding !== undefined && (Array.isArray(binding) ? binding : [binding]).some(key => sameChord(chord, key, data))).map(([id]) => id);
 }
 
-export function hasPiBinding(key: string, keys: ShortcutKeys): boolean {
-  const chord = chordParts(key);
-  return !!chord && matchingPiBindings(chord, keys).length > 0;
-}
+export const shortcutSaveKey = (keys: ShortcutKeys) => (["ctrl+s", "alt+s", "ctrl+alt+s"] as const).find(key =>
+  !matchingPiBindings(chordParts(key)!, keys).some(isViewport));
 
 // Pi's InteractiveMode installs onDebug; TuiBase dispatches it before editor/overlays.
-const PI_GLOBAL_KEYS = ["shift+ctrl+d"];
 type KeyContext = { id?: ShortcutActionId; draft?: SlateShortcuts; keys?: ShortcutKeys; ownsEditor?: boolean; data?: string };
 export function classifyKey(value: string, { id, draft, keys, ownsEditor, data }: KeyContext = {}): KeyClassification {
   const chord = chordParts(value);
   if (!chord) return { kind: "unsupported" };
-  if (!chord.mods.some(mod => mod !== "shift") && !/^f\d+$/.test(chord.base)) {
+  if (!chord.mods.some(mod => mod !== "shift") && !isFunctionKey(chord.base)) {
     return { kind: chord.base.length > 1 ? "editing" : "needs-modifier" };
   }
-  if (!matchesKey(data ?? chordInput(chord), chord.key)) return { kind: "unsupported" };
-  if (PI_GLOBAL_KEYS.some(key => sameChord(chord, key, data))) return { kind: "global" };
+  if (!(data === undefined ? chordInputs(chord) : [data]).some(raw => matchesKey(raw, chord.key))) return { kind: "unsupported" };
+  if (sameChord(chord, "shift+ctrl+d", data)) return { kind: "global" };
   const bindings = matchingPiBindings(chord, keys, data);
   const description = (id: string) => keys?.getDefinition(id as Keybinding)?.description ?? id;
   const reserved = bindings.find(id => RESERVED.has(id));
   if (reserved) return { kind: "reserved", description: description(reserved) };
+  if (EDITING_KEYS.some(key => sameChord(chord, key, data))) return { kind: "editing" };
   if (bindings.some(isViewport)) return { kind: "viewport" };
-  if (ownsEditor && COMPOSER_SELECTION_KEYS.some(key => sameChord(chord, key, data))) return { kind: "editor" };
-  const owners = draft ? shortcutOwners(chord, id, draft, data) : [];
+  if (ownsEditor && (IMAGE_EDITOR_BINDINGS.some(id => bindings.includes(id))
+    || COMPOSER_SELECTION_KEYS.some(key => sameChord(chord, key, data)))) return { kind: "editor" };
+  const owners = draft ? shortcutOwners(chord.key, id, draft, data) : [];
   const key = chord.key;
   return owners.length ? { kind: "moved", key, owners } : bindings.length
     ? { kind: "pi", key, description: description(bindings[0]!) } : { kind: "free", key };

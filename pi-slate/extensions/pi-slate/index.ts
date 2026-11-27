@@ -152,7 +152,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
   const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
   const messageLength = loadMessageLength(value.messageLength);
   const modelDisplay = loadModelDisplay(value.modelDisplay);
-  const shortcuts = loadShortcuts(value.shortcuts, true);
+  const shortcuts = loadShortcuts(value.shortcuts);
   return {
     raw: parsed.ok && text !== undefined ? JSON.parse(text) as Record<string, unknown> : value,
     config: {
@@ -1031,15 +1031,16 @@ export default function piSlate(pi: ExtensionAPI): void {
   }
 
   const pickShortcuts = async (ctx: ExtensionCommandContext): Promise<void> => {
-    const owner = sessionEpoch, initial = config.shortcuts;
+    const owner = sessionEpoch, initial = loadConfig(configPath).config.shortcuts;
     const draft = await openShortcutsPanel(ctx, initial, { ownsEditor: owns("editor") });
     if (!draft || owner !== sessionEpoch) return;
     try {
       const latest = loadConfig(configPath);
       if (latest.error) { ctx.ui.notify(latest.error, "warning"); return; }
-      const shortcuts = mergeShortcuts(latest.raw.shortcuts, initial, draft);
-      writeConfig(configPath, { ...latest.raw, shortcuts });
-      config = { ...latest.config, shortcuts: loadShortcuts(shortcuts, true) };
+      const merged = mergeShortcuts(latest.raw.shortcuts, initial, draft);
+      if (merged.error) { ctx.ui.notify(merged.error, "warning"); return; }
+      writeConfig(configPath, { ...latest.raw, shortcuts: merged.raw });
+      config = { ...latest.config, shortcuts: merged.shortcuts };
     } catch (error) {
       ctx.ui.notify(`Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`, "error");
       return;

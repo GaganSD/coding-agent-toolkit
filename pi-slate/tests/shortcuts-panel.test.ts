@@ -118,7 +118,7 @@ test("recording rejects printable keys in both encodings and accepts only round-
     assert.match(f.render(), /Add ctrl, alt or super/);
     assert.match(f.render(), /Press a key…/);
   }
-  for (const input of [" ", "\x1b[32;2u", "\x1b[D", "\x1b[1;2D", "\x1b[5~"]) {
+  for (const input of [" ", "\x1b[32;2u", "\x1b[D", "\x1b[1;2D", "\x1b[5~", "\x1b[105;5u"]) {
     f.input(input);
     assert.match(f.render(), /Used for editing — add ctrl or alt/);
     assert.match(f.render(), /Press a key…/);
@@ -130,8 +130,8 @@ test("recording rejects printable keys in both encodings and accepts only round-
   assert.deepEqual(f.done, [{ sidebar: "ctrl++" }]);
 });
 
-test("non-reserved Pi keys can be replaced", () => {
-  const f = fixture();
+test("non-reserved Pi keys outside Slate's editor can be replaced", () => {
+  const f = fixture(undefined, false);
   f.input("\r", "\x02");
   assert.match(f.render(), /Key\s+ctrl\+b/);
   assert.match(f.render(), /Replaces Pi:/);
@@ -157,19 +157,45 @@ test("recording uses Kitty's raw physical and logical aliases for Pi and Slate b
   }
 });
 
-test("Alt+S saves when Ctrl+S is assigned to Pi; otherwise Ctrl+S is the default", () => {
-  const withoutCtrlS = { "app.thinking.save": [], "app.session.toggleSort": [], "app.models.save": [] };
-  const fallback = fixture(undefined, true, new KeybindingsManager({ ...withoutCtrlS, "tui.altScreen.search": "ctrl+s" }));
-  assert.match(fallback.render(), /Alt\+S save/);
-  assert.doesNotMatch(fallback.render(), /Ctrl\+S save/);
-  fallback.input("\r", f2, "\x1b[115;3u");
-  assert.deepEqual(fallback.done, [{ sidebar: "f2" }]);
-  const standard = fixture(undefined, true, new KeybindingsManager(withoutCtrlS));
-  assert.match(standard.render(), /Ctrl\+S save/);
-  standard.input("\x1b[115;3u");
-  assert.deepEqual(standard.done, []);
-  standard.input("\r", f2, "\x13");
-  assert.deepEqual(standard.done, [{ sidebar: "f2" }]);
+test("xterm modifyOtherKeys also sees the reserved shifted-symbol alias", () => {
+  const f = fixture(undefined, true, new KeybindingsManager({ "app.interrupt": "ctrl+shift+?" }));
+  f.input("\r", "\x1b[27;6;63~");
+  assert.match(f.render(), /Reserved by Pi: Cancel or abort/);
+  assert.match(f.render(), /Press a key…/);
+});
+
+test("save uses the first chord not consumed by Pi's viewport", () => {
+  for (const [bindings, label, data] of [
+    [{}, "Ctrl+S", "\x13"],
+    [{ "tui.altScreen.search": "ctrl+s" }, "Alt+S", "\x1b[115;3u"],
+    [{ "tui.altScreen.search": "alt+s", "tui.altScreen.searchNext": "ctrl+s" }, "Ctrl+Alt+S", "\x1b[115;7u"],
+  ] as const) {
+    const f = fixture(undefined, true, new KeybindingsManager(bindings));
+    assert(f.render().includes(`${label} save`));
+    f.input("\r", f2);
+    if (data !== "\x13") f.input("\x13");
+    if (label === "Ctrl+Alt+S") f.input("\x1b[115;3u");
+    assert.deepEqual(f.done, []);
+    f.input(data);
+    assert.deepEqual(f.done, [{ sidebar: "f2" }]);
+  }
+});
+
+test("remapped selection and recording controls are reflected in hints, including discard", () => {
+  const f = fixture(undefined, true, new KeybindingsManager({ "tui.select.up": "ctrl+p", "tui.select.down": "ctrl+n", "tui.select.confirm": "f6" }));
+  assert.match(f.render(), /Ctrl\+P\/Ctrl\+N action · F6 record/);
+  assert.match(f.render(), /Press F6, then the new key/);
+  assert.match(fixture().render(), /↑↓ action · Enter record/);
+  f.input("\x10");
+  assert.match(f.render(), /Actions 7\/7/);
+  f.input("\x0e", "\x1b[17~", f2);
+  assert.match(f.render(), /Actions 1\/7/);
+  assert.match(f.render(), /Esc discard/);
+  f.input("\x1b[17~");
+  assert.match(f.render(), /Esc back/);
+  assert.doesNotMatch(f.render(), /Esc discard/);
+  f.input(esc, esc);
+  assert.deepEqual(f.done, [undefined]);
 });
 
 test("assignment moves a duplicate key and clears every previous owner on save", () => {

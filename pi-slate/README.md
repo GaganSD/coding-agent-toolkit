@@ -145,7 +145,7 @@ These work when `editor` is selected. No terminal configuration.
 
 ### Shortcuts
 
-Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del to unbind it. Ctrl+S saves and reloads Slate once Pi is idle. If Pi has a Ctrl+S binding, the panel also offers Alt+S to save. Esc backs out of recording or closes the panel without saving; Ctrl+C cancels from anywhere.
+Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del to unbind it. Saving reloads Pi once it is idle. The panel shows the first save key not used by Pi's viewport: Ctrl+S, Alt+S, or Ctrl+Alt+S. Esc backs out of recording or closes the panel without saving; Ctrl+C cancels from anywhere.
 
 Pi-reserved keys, viewport keys, and Slate editor keys (when the editor surface is selected) are blocked. Other Pi bindings can be replaced; the panel shows what the key replaces. Printable, navigation, and editing keys require Ctrl, Alt, or Super; Shift alone isn't enough. F1–F12 can be bound without modifiers. There are no default Slate shortcut keys.
 
