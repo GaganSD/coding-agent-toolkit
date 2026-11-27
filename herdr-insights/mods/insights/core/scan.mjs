@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import * as zlib from "node:zlib";
 import { parseAdapterRecord } from "./adapters.mjs";
 import { antigravityConversation, scanAntigravityDb } from "./antigravity.mjs";
+import { CODEX_PARSER_VERSION } from "./codex-spend.mjs";
 import {
   MAX_LINE_BYTES,
   expandHome,
@@ -15,9 +16,12 @@ import {
   localDay,
 } from "./util.mjs";
 import {
+  addCodexResponse,
+  addCodexTask,
   addTask,
   addUsage,
   beginStoreTransaction,
+  codexSnapshotTarget,
   commitStoreTransaction,
   dedupKeyFor,
   deleteFileEntry,
@@ -32,7 +36,7 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 9, claude: 2, antigravity: 2 };
+const PARSER_VERSIONS = { pi: 3, codex: CODEX_PARSER_VERSION, claude: 2, antigravity: 2 };
 const PROGRESS_CHUNK_INTERVAL = 64;
 
 export class ScanStopError extends Error {
@@ -521,6 +525,15 @@ function lineContext(store, entry, source, sink) {
     addUsage(meta, tokens, key) {
       return addUsage(store, entry, meta, tokens, key);
     },
+    addCodexResponse(meta, tokens, key, snapshotKey) {
+      return addCodexResponse(store, entry, meta, tokens, key, snapshotKey, CODEX_PARSER_VERSION);
+    },
+    addCodexTask(usageKey, taskKey, durationMs, session) {
+      return addCodexTask(store, entry, usageKey, taskKey, durationMs, session, CODEX_PARSER_VERSION);
+    },
+    codexSnapshotTarget(snapshotKey) {
+      return codexSnapshotTarget(store, snapshotKey);
+    },
     addTask(fileId, rowIdx, key, durationMs, session, exact) {
       return addTask(
         store,
@@ -956,6 +969,12 @@ function noteCodexForkReplay(entry, sink, { pending = false } = {}) {
   if (entry.state.forkUsageAmbiguous) {
     sink.note(`codex ${entry.path}: copied usage carriers lack a reliable shared identity; fork accounting may be inaccurate.`);
   }
+  if (entry.state.codexInferredEcho) {
+    sink.note(`codex ${entry.path}: some response echoes were inferred from separate usage counters without response IDs.`);
+  }
+  if (entry.state.codexUpgradeRejected) {
+    sink.note(`codex ${entry.path}: prior usage preserved because the archive could not be reparsed; counts may still reflect an older parser.`);
+  }
 }
 
 async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
@@ -994,6 +1013,15 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   const parserKey = `${existing?.adapter ?? source.adapter}ParserVersion`;
   const parserCurrent = (!parserVersion || existing?.state[parserKey] === parserVersion)
     && !(existing?.state.unsupported === "zstd" && hasZstdSupport());
+  const codexMigration = existing?.adapter === "codex" && !parserCurrent;
+  const rejected = existing?.state.codexUpgradeRejected;
+  const archiveFingerprint = `${dev}:${ino}:${fileStat.size}:${fileStat.mtimeMs}`;
+  if (codexMigration && rejected?.fingerprint === archiveFingerprint
+    && (rejected.reason !== "unsupported" || !hasZstdSupport())) {
+    stats.unchangedFiles += 1;
+    noteCodexForkReplay(existing, sourceSink);
+    return { dirty: false, aborted: false };
+  }
   if (
     existing
     && supersededKeys.length === 0
@@ -1038,6 +1066,12 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       dirty = true;
     }
     if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
+      if (codexMigration && filePath.endsWith(".jsonl.zst") && !hasZstdSupport()) {
+        entry.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "unsupported" };
+        commitStoreTransaction(tx);
+        noteCodexForkReplay(entry, sourceSink);
+        return { dirty: true, aborted: false };
+      }
       // Migrate existing history once for accounting fixes. New files own no
       // metadata and must never trigger a global ownership cleanup scan.
       resetFileEntry(store, entry);
@@ -1109,6 +1143,11 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       }
       if (compressed.status === "corrupt") {
         rollbackStoreTransaction(tx);
+        if (codexMigration) {
+          existing.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "corrupt" };
+          sourceSink.warn(`codex ${existing.path}: archive upgrade failed; prior usage retained: ${compressed.error.message}`);
+          return { dirty: true, aborted: false };
+        }
         // A first-seen archive was detached by rollback. Persist a rowless
         // fingerprint stub so an unchanged corrupt file is not re-read and
         // re-warned on every refresh. A previously indexed archive keeps its
@@ -1160,6 +1199,10 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       stats,
       options,
     );
+    if (codexMigration && entry.state.readFailed) {
+      rollbackStoreTransaction(tx);
+      return { dirty: false, aborted: false };
+    }
     // A partial fallback must not replace the conversation's last complete snapshot.
     if (source.adapter === "antigravity" && plain.pending) {
       rollbackStoreTransaction(tx);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { appendFile, readFile, mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,6 +174,76 @@ test("a corrupt archive after shared revisions preserves sibling rows, dedup and
   assert.equal(repeated.stats.errors, 0);
   assert.equal(repeated.stats.filesRead, 0);
   assert.equal(JSON.stringify(snapshotRows(store)), beforeRows);
+});
+
+test("Codex v9 migration replaces shared inflated attribution, preserves unreadable and missing history", async (t) => {
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), "codex-v9-migration-")));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const sessions = path.join(home, ".codex", "sessions");
+  await mkdir(sessions, { recursive: true });
+  const source = await readFile(path.join(here, "fixtures", "codex-first-late-echo.jsonl"), "utf8");
+  await Promise.all(["a.jsonl", "b.jsonl"].map((name) => writeFile(path.join(sessions, name), source)));
+  const unreadable = path.join(sessions, "c.jsonl.zst");
+  await writeFile(unreadable, Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0]));
+  const store = emptyStore();
+  const id = JSON.parse(source.split("\n")[0]).payload.id;
+  const before = meta({ day: "2026-11-02", session: `codex:${id}`, model: "stale" });
+  const usage = { input: 200, output: 20, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
+  for (const name of ["a.jsonl", "b.jsonl", "c.jsonl.zst", "missing.jsonl"]) {
+    const entry = newFileEntry(store, {
+      sourceId: "codex", adapter: "codex", path: path.join(sessions, name), size: 1, mtimeMs: 0,
+    });
+    entry.state.codexParserVersion = 9;
+    if (["a.jsonl", "b.jsonl"].includes(name)) {
+      addUsage(store, entry, before, usage, dedupKeyFor("codex", "response", "resp_1"));
+      addUsage(store, entry, before, usage, dedupKeyFor("codex", "legacy-v9-duplicate"));
+    } else {
+      addUsage(store, entry, meta({ session: name }), usage, dedupKeyFor("codex", name));
+    }
+  }
+  const migrated = await scanSources(store, { home });
+  assert.equal(migrated.stats.errors, 1);
+  assert.match(migrated.warnings.join("\n"), /archive upgrade failed; prior usage retained/);
+  const corrected = snapshotRows(store).find((row) => row.session === before.session);
+  assert.deepEqual([corrected.day, corrected.model, corrected.tokens.total, corrected.messages], ["2026-11-01", "m", 110, 1]);
+  assert.equal(snapshotRows(store).filter((row) => row.session === before.session).length, 1, "no stale bucket remains");
+  assert.deepEqual(snapshotRows(store).filter((row) => row.session.endsWith("jsonl") || row.session.endsWith("zst"))
+    .map((row) => [row.session, row.tokens.total]), [["c.jsonl.zst", 220], ["missing.jsonl", 220]]);
+  assert.deepEqual(Object.values(store.files).map((entry) => entry.state.codexParserVersion), [10, 10, 9, 9]);
+  const stable = await scanSources(store, { home });
+  assert.equal(stable.stats.bytesRead, 0);
+  assert.match(stable.warnings.join("\n"), /older parser/);
+});
+
+test("a failed Codex archive rolls back snapshot promotion and its shared alias", async (t) => {
+  const home = await mkdtemp(path.join(tmpdir(), "codex-promotion-rollback-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const dir = path.join(home, ".codex", "sessions");
+  await mkdir(dir, { recursive: true });
+  const source = (await readFile(path.join(here, "fixtures", "codex-first-late-echo.jsonl"), "utf8")).trimEnd().split("\n");
+  const prefix = [source[0], source[1], source[3]].join("\n") + "\n";
+  const a = path.join(dir, "a.jsonl");
+  const b = path.join(dir, "b.jsonl.zst");
+  await writeFile(a, prefix);
+  const store = emptyStore();
+  await scanSources(store, { home });
+  const rows = snapshotRows(store);
+  assert.deepEqual(rows.map((row) => [row.tokens.total, row.messages]), [[110, 1]]);
+  const beforeKeys = JSON.stringify(store.dedup);
+  const frames = [zstdCompressSync(prefix), zstdCompressSync(source[2] + "\n")];
+  await writeFile(b, Buffer.concat([...frames, Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0])]));
+  assert.equal((await scanSources(store, { home })).stats.errors, 1);
+  assert.deepEqual(snapshotRows(store), rows);
+  assert.equal(JSON.stringify(store.dedup), beforeKeys);
+  assert.equal(store.codexAliases, undefined);
+
+  await writeFile(b, Buffer.concat(frames));
+  assert.equal((await scanSources(store, { home })).stats.errors, 0);
+  assert.deepEqual(snapshotRows(store), rows);
+  assert.equal(Object.keys(store.codexAliases).length, 1);
+  await appendFile(a, source[3] + "\n");
+  assert.equal((await scanSources(store, { home })).stats.errors, 0);
+  assert.deepEqual(snapshotRows(store), rows, "snapshot-only copy must not resurrect a promoted echo");
 });
 
 test("a first-seen corrupt archive persists a rowless fingerprint and recovers", async () => {

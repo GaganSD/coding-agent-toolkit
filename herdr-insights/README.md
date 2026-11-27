@@ -40,7 +40,23 @@ click-state rules. Set `HERDR_APP_HOME` to use a different app home.
   computer**, or one machine to scope the whole dashboard. Turn a machine off
   under **Settings > Remote machines**.
 
-### Codex fork accounting
+### Codex accounting
+
+Insights counts recorded response usage, not provider billing. A
+`token_usage_record` with a response ID is authoritative for that response.
+Codex also emits `token_count` history snapshots, which can repeat, lag behind
+the response counter, or arrive out of order. Insights reconciles these using
+response identity and progress in the raw counters, not the file's CLI version
+or a fixed time limit. Legacy-only rollouts still use their own usage snapshots;
+copied history and standalone legacy responses are not assumed to be echoes.
+
+A bounded scan note marks inferred matches without response IDs. Anonymous
+events cannot always distinguish a repeated snapshot from another response with
+the same usage. Readable Codex logs are automatically rescanned once for parser
+upgrades. Missing source logs cannot be reconstructed; if a previously indexed
+archive cannot be read, its last usable counts are retained and diagnosed.
+
+#### Fork accounting
 
 For fork headers with canonical UUIDv7 thread IDs, Insights excludes replayed
 usage until a turn ID has a strictly newer UUIDv7 millisecond. Equal-millisecond,
@@ -48,8 +64,7 @@ missing, malformed, or non-v7 turn IDs are ambiguous: child usage can be exclude
 with a bounded scan warning that remains visible even after a later boundary.
 Non-v7 initial thread IDs retain the previous accounting behavior. A healthy
 unfinished scan slice is not itself an ambiguous boundary; reaching EOF without
-a boundary is diagnosed. Existing available Codex files are automatically
-rescanned once for this parser update.
+a boundary is diagnosed.
 
 Current upstream Codex (`090be4df0724cdef5758e6a0934ba557af8b6bbe`) requires
 per-response, turn, and thread usage together, and pairs legacy total and last
@@ -62,7 +77,7 @@ may be inaccurate, preserves trustworthy copied cumulative baselines, and does
 not subtract an unidentified last-only echo from them twice. Exact repeated
 records are recognized; rewritten echoes without identity cannot be guaranteed.
 Production ordering of these historical/imported shapes remains unverified.
-Modern thread cumulative counters and legacy totals share the raw baseline;
+Thread-level counters use the same raw fields but can progress independently;
 turn-only counters are not treated as thread totals.
 
 ## Privacy

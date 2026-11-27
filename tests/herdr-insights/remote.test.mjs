@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import { deriveDashboard } from "../../herdr-insights/mods/insights/analytics.js
 import { mergeSnapshots } from "../../herdr-insights/mods/insights/merge.mjs";
 import { normalizeConfig } from "../../herdr-insights/mods/insights/core/config.mjs";
 import { buildRemoteBundle, loadMachineRecords } from "../../herdr-insights/mods/insights/core/machines.mjs";
-import { emptyStore, saveStore } from "../../herdr-insights/mods/insights/core/store.mjs";
+import { addUsage, dedupKeyFor, emptyStore, newFileEntry, saveStore, snapshotRows } from "../../herdr-insights/mods/insights/core/store.mjs";
 import {
   installCommand,
   machineFileStem,
@@ -21,6 +21,7 @@ import {
   rowsFileText,
   stateFileText,
   syncMachine,
+  timeZoneStoreKey,
 } from "../../herdr-insights/mods/insights/remote.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -281,6 +282,54 @@ test("end to end: install, collect, and merge on this machine through the shell 
   assert.ok(expected > 0);
   assert.equal(deriveDashboard(merged, { today }).lifetime.total, expected);
   assert.equal(deriveDashboard(merged, { today, filters: { machine: "box" } }).lifetime.total, expected);
+});
+
+test("a refreshed Codex machine replaces its v9 overcount in the same timezone store", { timeout: 120_000 }, async (t) => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "insights-remote-codex-v9-")));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const dir = path.join(home, ".codex", "sessions");
+  await mkdir(dir, { recursive: true });
+  const file = path.join(dir, "rollout-offset.jsonl");
+  const source = await readFile(path.join(fixtures, "codex-offset-echo.jsonl"), "utf8");
+  await writeFile(file, source);
+  const store = emptyStore();
+  const entry = newFileEntry(store, { sourceId: "codex", adapter: "codex", path: file, size: 1, mtimeMs: 0 });
+  entry.state.codexParserVersion = 9;
+  const session = `codex:${JSON.parse(source.split("\n")[0]).payload.id}`;
+  for (const [i, input] of [100, 200, 300, 200, 300].entries()) {
+    addUsage(store, entry, { day: "2026-11-01", session, harness: "codex", provider: "unknown", model: "m", project: "/tmp/p" },
+      { input, output: input / 10, cacheRead: 0, cacheWrite: 0, reasoning: 0 }, dedupKeyFor("codex", session, i));
+  }
+  const storePath = path.join(home, ".cache", "herdr-insights", "store", timeZoneStoreKey("UTC"), "insights.json");
+  await saveStore(storePath, store);
+  const machinesDir = path.join(root, "machines");
+  await mkdir(machinesDir);
+  const rowsPath = path.join(machinesDir, "box.rows.json");
+  const fetchedAt = "2026-11-13T01:00:00.000Z";
+  const dashboardTotal = async () => {
+    const { records } = await loadMachineRecords(machinesDir);
+    const snapshot = mergeSnapshots({ config: {}, rows: [] }, records);
+    return deriveDashboard(snapshot, { today: "2026-11-13", filters: { machine: "box" } }).lifetime.total;
+  };
+  await writeFile(rowsPath, rowsFileText({ machine: "box", envelope: envelope(snapshotRows(store)), fetchedAt }));
+  assert.equal(await dashboardTotal(), 1210);
+
+  const env = { ...process.env, HOME: home, TZ: "UTC" };
+  const bundle = await buildRemoteBundle(modDir);
+  const { probe, envelope: corrected } = await syncMachine({
+    bundle: async () => bundle,
+    exec: (command, args, { timeout }) => run({ command, args, timeout }, env),
+    timeZone: "UTC",
+  });
+  assert.ok(probe.dir.endsWith(bundle.hash));
+  assert.equal(corrected.scan.status, "complete");
+  const refreshedStore = JSON.parse(await readFile(storePath, "utf8"));
+  assert.equal(Object.values(refreshedStore.files)[0].state.codexParserVersion, 10);
+  const rows = JSON.parse(gunzipSync(Buffer.from(corrected.rows, "base64")));
+  assert.deepEqual(rows.map((row) => [row.tokens.input, row.tokens.output, row.messages]), [[600, 60, 3]]);
+  await writeFile(rowsPath, rowsFileText({ machine: "box", envelope: corrected, fetchedAt }));
+  assert.equal(await dashboardTotal(), 660);
 });
 
 test("loadMachineRecords pairs files, skips corrupt ones, and honors disabled machines", async (t) => {
