@@ -9,11 +9,11 @@ import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-ag
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text, style: (text: string) => text } as unknown as Theme;
 const up = "\x1b[A", down = "\x1b[B", esc = "\x1b", f2 = "\x1bOQ";
 
-function fixture(initial?: SlateShortcuts, ownsEditor = true) {
+function fixture(initial?: SlateShortcuts, ownsEditor = true, keys = new KeybindingsManager()) {
   const done: Array<SlateShortcuts | undefined> = [];
   const terminal = { rows: 40 };
   const panel = new ShortcutsPanel(initial, { terminal: terminal as TUI["terminal"], requestRender() {} }, theme,
-    new KeybindingsManager(), { ownsEditor }, value => done.push(value));
+    keys, { ownsEditor }, value => done.push(value));
   const input = (...sequences: string[]) => sequences.forEach(seq => panel.handleInput(seq));
   const render = (width = 88) => panel.render(width).join("\n");
   return { panel, input, render, terminal, done };
@@ -98,7 +98,7 @@ test("recording rejects legacy aliases of reserved keys, viewport keys, and edit
     f.input(input);
     assert.match(f.render(), /Reserved by Pi:/);
   }
-  f.input("\x1b[5~");
+  f.input("\x1b[1;5H");
   assert.match(f.render(), /Used by Pi's viewport/);
   f.input("\x01");
   assert.match(f.render(), /Used by Slate's editor/);
@@ -113,9 +113,14 @@ test("recording rejects legacy aliases of reserved keys, viewport keys, and edit
 test("recording rejects printable keys in both encodings and accepts only round-tripping chords", () => {
   const f = fixture();
   f.input("\r");
-  for (const input of ["A", "\x1b[97;2u", " ", "\x1b[32;2u"]) {
+  for (const input of ["A", "\x1b[97;2u"]) {
     f.input(input);
     assert.match(f.render(), /Add ctrl, alt or super/);
+    assert.match(f.render(), /Press a key…/);
+  }
+  for (const input of [" ", "\x1b[32;2u", "\x1b[D", "\x1b[1;2D", "\x1b[5~"]) {
+    f.input(input);
+    assert.match(f.render(), /Used for editing — add ctrl or alt/);
     assert.match(f.render(), /Press a key…/);
   }
   f.input("\x1b[27;5u"); // Kitty Ctrl+Esc parses, but Pi never matches that chord.
@@ -127,9 +132,44 @@ test("recording rejects printable keys in both encodings and accepts only round-
 
 test("non-reserved Pi keys can be replaced", () => {
   const f = fixture();
-  f.input("\r", up);
-  assert.match(f.render(), /Key\s+up/);
+  f.input("\r", "\x02");
+  assert.match(f.render(), /Key\s+ctrl\+b/);
   assert.match(f.render(), /Replaces Pi:/);
+});
+
+test("saved editing, unsupported, and global keys display their blocked status", () => {
+  for (const [key, status] of [["left", /Used for editing — add ctrl or alt/], ["ctrl+escape", /Not supported by Pi/],
+    ["shift+f2", /Not supported by Pi/], ["ctrl+shift+d", /Used by Pi/]] as const) {
+    assert.match(fixture({ sidebar: key }).render(), status);
+  }
+});
+
+test("recording uses Kitty's raw physical and logical aliases for Pi and Slate bindings", () => {
+  for (const [physical, data] of [["ctrl+shift+=", "\x1b[61:43;6u"], ["ctrl+shift+-", "\x1b[45:43;6u"]] as const) {
+    const keys = new KeybindingsManager({ "app.interrupt": physical });
+    const blocked = fixture(undefined, true, keys);
+    blocked.input("\r", data);
+    assert.match(blocked.render(), /Reserved by Pi: Cancel or abort/);
+    assert.match(blocked.render(), /Press a key…/);
+    const moved = fixture({ prompts: physical, theme: "ctrl++" });
+    moved.input("\r", data, "\x13");
+    assert.deepEqual(moved.done, [{ sidebar: "ctrl++", prompts: false, theme: false }]);
+  }
+});
+
+test("Alt+S saves when Ctrl+S is assigned to Pi; otherwise Ctrl+S is the default", () => {
+  const withoutCtrlS = { "app.thinking.save": [], "app.session.toggleSort": [], "app.models.save": [] };
+  const fallback = fixture(undefined, true, new KeybindingsManager({ ...withoutCtrlS, "tui.altScreen.search": "ctrl+s" }));
+  assert.match(fallback.render(), /Alt\+S save/);
+  assert.doesNotMatch(fallback.render(), /Ctrl\+S save/);
+  fallback.input("\r", f2, "\x1b[115;3u");
+  assert.deepEqual(fallback.done, [{ sidebar: "f2" }]);
+  const standard = fixture(undefined, true, new KeybindingsManager(withoutCtrlS));
+  assert.match(standard.render(), /Ctrl\+S save/);
+  standard.input("\x1b[115;3u");
+  assert.deepEqual(standard.done, []);
+  standard.input("\r", f2, "\x13");
+  assert.deepEqual(standard.done, [{ sidebar: "f2" }]);
 });
 
 test("assignment moves a duplicate key and clears every previous owner on save", () => {

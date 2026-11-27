@@ -623,15 +623,28 @@ test("all bound actions register; density and footer keys toggle immediately", a
 });
 
 test("registration skips reserved aliases, Pi remaps, viewport and Slate editor keys", async t => {
-  const shortcuts = { sidebar: "ctrl+[", prompts: "ctrl+m", theme: "ctrl+shift+p", pid: "f8", "effort-border": "pageUp", density: "ctrl+a", footer: "f2" };
+  const shortcuts = { sidebar: "ctrl+[", prompts: "ctrl+m", theme: "ctrl+shift+p", pid: "f8", "effort-border": "ctrl+home", density: "ctrl+a", footer: "f2" };
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts }), "tui", true, false, async (_pi, _ui, dir) => {
     await writeFile(join(dir, "keybindings.json"), JSON.stringify({ cycleModelBackward: "shift+ctrl+p", "app.thinking.toggle": ["f8"] }));
   });
   assert.deepEqual(f.shortcuts, ["f2"]);
   for (const raw of ["\r", "\x1b"]) assert(!f.shortcuts.some(key => matchesKey(raw, key as KeyId)), "reserved input must not trigger Slate");
   assert(f.notices.some(notice => notice.includes("prompts (ctrl+m): Reserved by Pi")));
-  assert(f.notices.some(notice => notice.includes("effort-border (pageUp): Used by Pi's viewport")));
+  assert(f.notices.some(notice => notice.includes("effort-border (ctrl+home): Used by Pi's viewport")));
   assert(f.notices.some(notice => notice.includes("density (ctrl+a): Used by Slate's editor")));
+});
+
+test("load-time registration skips editing keys, unsupported chords, global keys and Kitty symbol aliases", async t => {
+  const shortcuts = { sidebar: "left", prompts: "ctrl++", theme: "ctrl+escape", pid: "shift+f2", "effort-border": "ctrl+shift+d", footer: "f2" };
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts }), "tui", true, false, async (_pi, _ui, dir) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({ "app.interrupt": "ctrl+shift+=" }));
+  });
+  assert.deepEqual(f.shortcuts, ["f2"], "Left must stay available to Slate's caret movement adapter");
+  assert(!f.shortcuts.some(key => matchesKey("\x1b[D", key as KeyId)));
+  for (const message of ["(left): Used for editing — add ctrl or alt", "(ctrl++): Reserved by Pi", "(ctrl+escape): Not supported by Pi",
+    "(shift+f2): Not supported by Pi", "(ctrl+shift+d): Used by Pi"]) {
+    assert(f.notices.some(notice => notice.includes(message)), message);
+  }
 });
 
 test("only the first Slate action in catalog order registers a duplicate JSON binding", async t => {
@@ -644,7 +657,7 @@ test("only the first Slate action in catalog order registers a duplicate JSON bi
 test("/shortcuts merges fresh settings and waits for idle before reloading exactly once", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } }));
   const draft = { sidebar: false, pid: "f8" };
-  const latest = { version: 1, surfaces: ["editor"], unknown: { future: true }, shortcuts: { sidebar: "f8" } };
+  const latest = { version: 1, surfaces: ["editor"], unknown: { future: true }, shortcuts: { sidebar: "f8", footer: "F7", density: "f8", future: 42 } };
   t.mock.method(f.ctx.ui, "custom", async () => { await writeFile(f.path, JSON.stringify(latest)); return draft; });
   let entered!: () => void, idle!: () => void;
   const waiting = new Promise<void>(resolve => { entered = resolve; });
@@ -655,13 +668,55 @@ test("/shortcuts merges fresh settings and waits for idle before reloading exact
   await Promise.race([waiting, saving]);
   assert.equal(wait.mock.callCount(), 1);
   assert.equal(reload.mock.callCount(), 0);
-  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, shortcuts: draft });
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, shortcuts: { ...draft, footer: "F7", future: 42 } });
   idle();
   await saving;
   assert.equal(reload.mock.callCount(), 1);
   assert.equal(f.notices.at(-1), "Shortcuts saved");
   await f.commands.get("slate")!.handler("surfaces", f.ctx);
   assert.match(f.notices.at(-1)!, /Slate surfaces: editor\. Active: sidebar/);
+});
+
+test("two saves while Pi is busy share a single wait and reload", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  let idle!: () => void;
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  const wait = t.mock.method(f.ctx, "waitForIdle", () => resume);
+  const reload = t.mock.method(f.ctx, "reload", async () => {});
+  const pick = f.commands.get("shortcuts")!.handler;
+  let draft: Record<string, string> = { pid: "f2" };
+  t.mock.method(f.ctx.ui, "custom", async () => draft);
+  const first = pick("", f.ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  draft = { pid: "f2", footer: "f7" };
+  const second = pick("", f.ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, draft);
+  assert.equal(wait.mock.callCount(), 1);
+  assert.equal(reload.mock.callCount(), 0);
+  idle();
+  await Promise.all([first, second]);
+  assert.equal(reload.mock.callCount(), 1);
+});
+
+test("a pending shortcut reload is dropped on session shutdown", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  let idle!: () => void;
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  t.mock.method(f.ctx, "waitForIdle", () => resume);
+  const pick = f.commands.get("shortcuts")!.handler;
+  let draft: Record<string, string> = { pid: "f2" };
+  t.mock.method(f.ctx.ui, "custom", async () => draft);
+  const first = pick("", f.ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.emit("session_shutdown", { reason: "reload" });
+  await f.emit("session_start");
+  t.mock.method(f.ctx, "waitForIdle", async () => {});
+  draft = { pid: "f3" };
+  await pick("", f.ctx);
+  idle();
+  await first;
+  assert.equal(f.calls.filter(call => call === "reload").length, 1);
 });
 
 test("cancelled or unchanged shortcut drafts do not save or reload", async t => {

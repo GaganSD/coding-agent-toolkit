@@ -83,7 +83,7 @@ import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
-import { blockedShortcutText, classifyKey, loadShortcutKeys, loadShortcuts, SHORTCUT_ACTIONS, shortcutKey, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
+import { classifyKey, loadShortcutKeys, loadShortcuts, mergeShortcuts, SHORTCUT_ACTIONS, shortcutKey, shortcutStatus, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 import { openShortcutsPanel } from "./shortcuts-panel.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
 
@@ -152,7 +152,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
   const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
   const messageLength = loadMessageLength(value.messageLength);
   const modelDisplay = loadModelDisplay(value.modelDisplay);
-  const shortcuts = loadShortcuts(value.shortcuts);
+  const shortcuts = loadShortcuts(value.shortcuts, true);
   return {
     raw: parsed.ok && text !== undefined ? JSON.parse(text) as Record<string, unknown> : value,
     config: {
@@ -230,15 +230,12 @@ export default function piSlate(pi: ExtensionAPI): void {
   }
   const shortcutWarnings: string[] = [];
   const shortcutKeys = config.shortcuts ? loadShortcutKeys(agentDir) : undefined;
-  const configuredShortcut = (id: ShortcutActionId): string | undefined => {
+  const configuredShortcut = (id: ShortcutActionId): KeyId | undefined => {
     const key = shortcutKey(config.shortcuts, id);
     if (!key || !shortcutKeys) return;
-    const result = classifyKey(key, id, {}, shortcutKeys, owns("editor"));
-    if (result.kind === "reserved" || result.kind === "viewport" || result.kind === "editor") {
-      shortcutWarnings.push(`Skipped Slate shortcut ${id} (${key}): ${blockedShortcutText(result)}`);
-      return;
-    }
-    return key;
+    const result = classifyKey(key, { keys: shortcutKeys, ownsEditor: owns("editor") });
+    if ("key" in result) return result.key;
+    shortcutWarnings.push(`Skipped Slate shortcut ${id} (${key}): ${shortcutStatus(result)}`);
   };
   if (owns("editor")) installPromptPicker(pi, configuredShortcut("prompts"));
   installExitCommand(pi);
@@ -256,6 +253,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let inspectingSidebar = false;
   let sidebarYielded = false;
   let sessionEpoch = 0;
+  let pendingShortcutReload: Promise<void> | undefined;
   let currentContext: ExtensionContext | undefined;
   let cachedTheme: Theme | undefined;
   // Every ctx accessor throws once the host replaces or reloads the session. Render
@@ -817,6 +815,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("session_shutdown", (_event, ctx) => {
     sessionEpoch += 1;
+    pendingShortcutReload = undefined;
     workingWord = undefined;
     try {
       setWaveActive(false);
@@ -1028,24 +1027,31 @@ export default function piSlate(pi: ExtensionAPI): void {
   for (const { id, label } of SHORTCUT_ACTIONS) {
     if (id === "prompts") continue;
     const key = configuredShortcut(id);
-    if (key) pi.registerShortcut(key as KeyId, { description: label, handler: shortcutHandlers[id] });
+    if (key) pi.registerShortcut(key, { description: label, handler: shortcutHandlers[id] });
   }
 
   const pickShortcuts = async (ctx: ExtensionCommandContext): Promise<void> => {
-    const shortcuts = await openShortcutsPanel(ctx, config.shortcuts, { ownsEditor: owns("editor") });
-    if (!shortcuts) return;
+    const owner = sessionEpoch, initial = config.shortcuts;
+    const draft = await openShortcutsPanel(ctx, initial, { ownsEditor: owns("editor") });
+    if (!draft || owner !== sessionEpoch) return;
     try {
       const latest = loadConfig(configPath);
       if (latest.error) { ctx.ui.notify(latest.error, "warning"); return; }
+      const shortcuts = mergeShortcuts(latest.raw.shortcuts, initial, draft);
       writeConfig(configPath, { ...latest.raw, shortcuts });
-      config = { ...latest.config, shortcuts };
+      config = { ...latest.config, shortcuts: loadShortcuts(shortcuts, true) };
     } catch (error) {
       ctx.ui.notify(`Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`, "error");
       return;
     }
     ctx.ui.notify("Shortcuts saved", "info");
-    await ctx.waitForIdle();
-    await ctx.reload();
+    if (pendingShortcutReload) return pendingShortcutReload;
+    const pending = pendingShortcutReload = (async () => {
+      await ctx.waitForIdle();
+      if (owner === sessionEpoch) await ctx.reload();
+    })();
+    try { await pending; }
+    finally { if (pendingShortcutReload === pending) pendingShortcutReload = undefined; }
   };
   pi.registerCommand("shortcuts", {
     description: "Assign keyboard shortcuts to Slate actions",
