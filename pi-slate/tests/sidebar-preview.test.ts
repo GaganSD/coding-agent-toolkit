@@ -547,6 +547,20 @@ test("narrow MCP rows keep the spinner and warning and truncate only the name", 
   assert.match(warning, /^● ! a+…$/);
 });
 
+test("the click hint only uses spare columns and never truncates the server name", t => {
+  const { sidebar } = fixture();
+  t.after(() => sidebar.dispose());
+  sidebar.setActions({ copy() {}, openFile() {}, inspect() {} });
+  sidebar.setResources({ ...resources, mcp: [{ name: "pi_web_search_parallel", enabled: true, source: "global" }, { name: "docs", enabled: true, source: "global" }] });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  const line = (name: string) => plain(sidebar.render(32)).find(text => text.includes(name.slice(0, 4)))!;
+
+  sidebar.handleMouse(mouse(row(sidebar, "pi_web_search_parallel")));
+  assert.equal(line("pi_web_search_parallel").trim(), "● pi_web_search_parallel", "no room: the hint is skipped");
+  sidebar.handleMouse(mouse(row(sidebar, "docs")));
+  assert.match(line("docs"), /^● docs +not used yet$/, "spare room: the hint shows beside the full name");
+});
+
 test("only an active MCP row that is painted advances the 120 ms frame phase", t => {
   const { sidebar, advance } = fixture();
   t.after(() => sidebar.dispose());

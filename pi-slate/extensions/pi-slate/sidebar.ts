@@ -380,21 +380,24 @@ export class Sidebar implements Component {
       const server = items[i]!;
       const activity = this.mcpActivity.view(server.name, now);
       const hintUntil = this.mcpHint?.server === server.name ? this.mcpHint.at + MCP_HINT_MS : undefined;
-      const hint = hintUntil !== undefined && now < hintUntil
-        ? activity.lastUsed === null ? "not used yet" : `used ${mcpAge(now - activity.lastUsed)} ago` : "";
       // Activity shares one status column between the config glyph and the name.
       const status = activity.active
         ? `${this.paint("accent", MCP_SPINNER[Math.floor(now / WAVE_STEP_MS) % MCP_SPINNER.length]!)} `
         : activity.warning ? `${this.paint("warning", "!")} ` : "";
       const glyph = server.enabled === null ? "—" : server.enabled ? "●" : "○";
-      const reserved = visibleWidth(glyph) + 1 + visibleWidth(status) + (hint ? visibleWidth(hint) + 1 : 0);
-      const name = truncateToWidth(sidebarText(server.name), Math.max(0, width - reserved), "…");
+      const fullName = sidebarText(server.name);
+      const room = width - visibleWidth(glyph) - 1 - visibleWidth(status);
+      // The hint only uses spare columns; it never truncates the server name (details carry it too).
+      const usedHint = hintUntil !== undefined && now < hintUntil
+        ? activity.lastUsed === null ? "not used yet" : `used ${mcpAge(now - activity.lastUsed)} ago` : "";
+      const hint = usedHint && visibleWidth(fullName) + 1 + visibleWidth(usedHint) <= room ? usedHint : "";
+      const name = truncateToWidth(fullName, Math.max(0, room), "…");
       const tone = server.enabled === true ? "muted" : "dim";
       const left = `${this.paint(tone, `${glyph} `)}${status}${this.paint(tone, name)}`;
       const wakes: number[] = [];
       if (activity.active) wakes.push((Math.floor(now / WAVE_STEP_MS) + 1) * WAVE_STEP_MS);
       if (activity.warning && activity.warnUntil !== null) wakes.push(activity.warnUntil);
-      if (hintUntil !== undefined && now < hintUntil) wakes.push(hintUntil);
+      if (hint && hintUntil !== undefined) wakes.push(hintUntil);
       const wakeAt = wakes.length > 0 ? Math.min(...wakes) : undefined;
       rows.push({ text: hint ? this.pair(left, this.paint("dim", hint), width) : left, list: "mcp", item: i, wakeAt,
         action: () => {
