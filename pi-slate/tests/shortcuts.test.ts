@@ -33,6 +33,13 @@ test("parseShortcut treats unset and opt-out as no chord", () => {
   for (const key of [undefined, true, 1]) assert.equal(parseShortcut(key), undefined);
 });
 
+test("hand-edited Cmd/Win aliases normalize to super and share one owner", () => {
+  for (const alias of ["cmd", "command", "win", "windows"]) {
+    assert.deepEqual(loadShortcuts({ sidebar: `Ctrl+${alias}+K`, theme: "ctrl+super+k" }), { sidebar: "ctrl+super+k", theme: false });
+    assert.equal(parseShortcut(`${alias}+super+k`), undefined);
+  }
+});
+
 test("loadShortcuts keeps parsed prompt and sidebar bindings", () => {
   assert.equal(loadShortcuts(undefined), undefined);
   assert.equal(loadShortcuts("ctrl+alt+."), undefined);

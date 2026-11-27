@@ -22,24 +22,27 @@ const EDITING_KEYS = [...SPECIAL.values()].filter(key => !isFunctionKey(key));
 
 export type SlateShortcut = string | false;
 export const SHORTCUT_ACTIONS = [
-  { id: "sidebar", label: "Toggle sidebar", detail: "Same as /slate focused" },
-  { id: "prompts", label: "Prompt picker", detail: "Same as /prompts" },
-  { id: "theme", label: "Theme picker", detail: "Same as /theme" },
-  { id: "pid", label: "PID display", detail: "Same as /slate pid" },
-  { id: "effort-border", label: "Effort border color", detail: "Same as /slate effort-border" },
-  { id: "density", label: "Density", detail: "Toggles comfortable ⇄ compact" },
-  { id: "footer", label: "Composer metadata", detail: "Toggles standard ⇄ minimal" },
+  { id: "sidebar", label: "Toggle sidebar", detail: "Shows or hides the sidebar", command: "/slate focused" },
+  { id: "prompts", label: "Prompt picker", detail: "Opens the prompt template picker", command: "/prompts" },
+  { id: "theme", label: "Theme picker", detail: "Opens the theme picker", command: "/theme" },
+  { id: "pid", label: "PID display", detail: "Shows or hides the process ID", command: "/slate pid" },
+  { id: "effort-border", label: "Effort border color", detail: "Colours the composer border by effort", command: "/slate effort-border" },
+  { id: "density", label: "Density", detail: "Switches comfortable ⇄ compact spacing", command: "/slate density" },
+  { id: "footer", label: "Composer metadata", detail: "Switches standard ⇄ minimal composer details", command: "/slate footer" },
 ] as const;
 export type ShortcutActionId = typeof SHORTCUT_ACTIONS[number]["id"];
 export type SlateShortcuts = Partial<Record<ShortcutActionId, SlateShortcut>>;
 
-function chordParts(value: string) {
+export const shortcutLabel = (key: string) =>
+  key.replace(/(^|\+)super(?=\+)/gi, "$1Cmd/Win").replace(/(^|\+)[a-z]/g, part => part.toUpperCase());
+
+function chordParts(value: string, aliases = false) {
   const chord = value.trim().toLowerCase();
   const plus = chord === "+" || /\+\s*\+$/.test(chord);
   const parts = (plus ? chord.slice(0, -1) : chord).split("+").map(part => part.trim());
   const part = plus ? "+" : parts.at(-1)!;
   const base = /^[a-z0-9]$/.test(part) || SYMBOL.has(part) ? part : SPECIAL.get(part);
-  const mods = parts.slice(0, -1);
+  const mods = parts.slice(0, -1).map(mod => aliases && /^(cmd|command|win|windows)$/.test(mod) ? "super" : mod);
   if (!base || new Set(mods).size !== mods.length || mods.some(mod => !MODIFIER_SET.has(mod))) return undefined;
   return { base, mods, key: [...MODIFIERS.filter(mod => mods.includes(mod)), base].join("+") as KeyId };
 }
@@ -92,7 +95,7 @@ function sameChord(chord: Chord, value: string, data?: string): boolean {
 
 export function parseShortcut(value: unknown): SlateShortcut | undefined {
   if (value === false || value === "none" || value === "") return false;
-  return typeof value === "string" ? chordParts(value)?.key : undefined;
+  return typeof value === "string" ? chordParts(value, true)?.key : undefined;
 }
 
 const shortcutObject = (value: unknown): Record<string, unknown> =>
@@ -134,14 +137,14 @@ export function mergeShortcuts(value: unknown, initial: SlateShortcuts | undefin
   for (const { id, label } of SHORTCUT_ACTIONS) {
     if (!changed.includes(id)) {
       const current = shortcutKey(disk, id);
-      if (current && current !== shortcutKey(shortcuts, id)) return refuse(`${current} is now used by ${label}`);
+      if (current && current !== shortcutKey(shortcuts, id)) return refuse(`${shortcutLabel(current)} is now used by ${label}`);
       continue;
     }
     const wanted = parseShortcut(draft[id]) || undefined;
     if (wanted === shortcutKey(shortcuts, id)) continue;
     const [owner] = wanted ? shortcutOwners(wanted, id, shortcuts ?? {}) : [];
     const holder = SHORTCUT_ACTIONS.find(action => action.id === owner)?.label;
-    return refuse(holder ? `${wanted} is now used by ${holder}` : "the draft conflicts with current bindings");
+    return refuse(holder ? `${shortcutLabel(wanted!)} is now used by ${holder}` : "the draft conflicts with current bindings");
   }
   return { raw } as const;
 }
@@ -219,14 +222,14 @@ export type KeyClassification = { kind: "reserved"; description: string }
 
 export function shortcutStatus(result: KeyClassification): string {
   switch (result.kind) {
-    case "free": return "free";
+    case "free": return "Ready";
     case "pi": return `Also bound in Pi: ${result.description}`;
     case "reserved": return `Reserved by Pi: ${result.description}`;
     case "viewport": return "Used by Pi's viewport";
     case "editor": return "Used by Slate's editor";
     case "global": return "Used by Pi";
     case "editing": return "Used for editing — add ctrl or alt";
-    case "needs-modifier": return "Add ctrl, alt or super";
+    case "needs-modifier": return "Add Ctrl, Alt or Cmd/Win";
     case "unsupported": return "Not supported by Pi";
     case "moved": return `Moved from ${SHORTCUT_ACTIONS.find(({ id }) => id === result.owners[0])!.label}`;
   }
@@ -245,9 +248,6 @@ function matchingPiBindings(chord: Chord, keys?: ShortcutKeys, data?: string): s
   return Object.entries(keys?.getResolvedBindings() ?? {}).filter(([, binding]) =>
     binding !== undefined && (Array.isArray(binding) ? binding : [binding]).some(key => sameChord(chord, key, data))).map(([id]) => id);
 }
-
-export const shortcutSaveKey = (keys: ShortcutKeys) => (["ctrl+s", "alt+s", "ctrl+alt+s"] as const).find(key =>
-  !matchingPiBindings(chordParts(key)!, keys).some(isViewport));
 
 // Pi's InteractiveMode installs onDebug; TuiBase dispatches it before editor/overlays.
 type KeyContext = { id?: ShortcutActionId; draft?: SlateShortcuts; keys?: ShortcutKeys; ownsEditor?: boolean; data?: string };

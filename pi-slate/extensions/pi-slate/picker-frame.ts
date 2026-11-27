@@ -44,10 +44,14 @@ export function pickerBody(th: Theme, width: number, inner: number, rows: number
   return [...first(inner, top), ...second(inner, rows - top)];
 }
 
-export function pickerFrame(th: Theme, width: number, title: string, body: string[], status: string, hints: [string, string],
-  borderToken: "border" | "borderAccent" = "border", titleSuffix = ""): string[] {
+export function pickerFrame(th: Theme, width: number, title: string, body: string[], status: string, hints: [string, string]): string[] {
+  return framedPicker(th, width, title, body, [th.fg("error", status), ...hints.map(hint => th.fg("dim", hint))]);
+}
+
+export function framedPicker(th: Theme, width: number, title: string, body: string[], footer: string[],
+  borderToken: "border" | "borderAccent" = "border"): string[] {
   const border = (text: string) => th.fg(borderToken, text);
-  const content = [th.bold(title) + titleSuffix, "", ...body, th.fg("error", status), ...hints.map(hint => th.fg("dim", hint))];
+  const content = [th.bold(title), "", ...body, ...footer];
   return [border(`╭${"─".repeat(width - 2)}╮`),
     ...content.map(line => border("│ ") + fit(line, width - 4) + border(" │")),
     border(`╰${"─".repeat(width - 2)}╯`)];

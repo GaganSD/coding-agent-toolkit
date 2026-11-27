@@ -5,45 +5,11 @@ import { stripVTControlCharacters } from "node:util";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { openShortcutsPanel, ShortcutsPanel } from "../extensions/pi-slate/shortcuts-panel.ts";
-import type { SlateShortcuts } from "../extensions/pi-slate/shortcuts.ts";
+import { classifyKey, type SlateShortcuts } from "../extensions/pi-slate/shortcuts.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { getThemeByName, initTheme, loadThemeFromPath } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text, style: (text: string) => text } as unknown as Theme;
-const up = "\x1b[A", down = "\x1b[B", esc = "\x1b", f2 = "\x1bOQ";
-
-function fixture(initial?: SlateShortcuts, ownsEditor = true, keys = new KeybindingsManager(), getTheme = () => theme) {
-  const done: Array<SlateShortcuts | undefined> = [];
-  const terminal = { rows: 40 };
-  const panel = new ShortcutsPanel(initial, { terminal: terminal as TUI["terminal"], requestRender() {} }, getTheme,
-    keys, { ownsEditor }, value => done.push(value));
-  const input = (...sequences: string[]) => sequences.forEach(seq => panel.handleInput(seq));
-  const render = (width = 88) => panel.render(width).join("\n");
-  return { panel, input, render, terminal, done };
-}
-
-test("shortcuts uses the picker geometry at wide, stacked, and tiny sizes", () => {
-  const f = fixture({ sidebar: "f8", prompts: "ctrl+alt+." });
-  for (const width of [88, 68, 67, 58, 24, 23, 18, 4, 1]) {
-    for (const rows of [40, 15, 14, 8, 3]) {
-      f.terminal.rows = rows;
-      const lines = f.panel.render(width);
-      assert.equal(lines.length, Math.min(22, Math.max(1, rows - 2)));
-      assert(lines.every(line => visibleWidth(line) === width), `${width}x${rows}`);
-    }
-  }
-  f.terminal.rows = 40;
-  assert.match(f.render(), /Actions 1\/7\s+│ Toggle sidebar/);
-  assert.match(f.render(), /── Layout\s+│ Same as \/slate focused/);
-  assert.match(f.render(), /› Toggle sidebar\s+F8\s+│/);
-  assert.match(f.render(58), /Actions 1\/7/);
-  assert.match(f.render(58), /Status\s+● free/);
-  f.terminal.rows = 15;
-  assert.match(f.render(58), /Actions 1\/7 ↓\d/);
-  assert.match(f.render(18), /Slate shortcuts/);
-  assert.doesNotMatch(f.render(18), /╭/);
-});
-
 const markerTheme = {
   fg: (token: string, text: string) => `<${token}>${text}</${token}>`,
   bold: (text: string) => `<bold>${text}</bold>`,
@@ -52,10 +18,42 @@ const markerTheme = {
     return `<${marker}>${text}</${marker}>`;
   },
 } as unknown as Theme;
+const up = "\x1b[A", down = "\x1b[B", esc = "\x1b", f2 = "\x1bOQ", del = "\x1b[3~", bs = "\x7f";
 
-const themed = (initial?: SlateShortcuts, ownsEditor = true) => fixture(initial, ownsEditor, undefined, () => markerTheme);
+function fixture(initial?: SlateShortcuts, ownsEditor = true, keys = new KeybindingsManager(), getTheme = () => theme) {
+  const done: boolean[] = [], saved: SlateShortcuts[] = [];
+  const terminal = { rows: 40 }, failures: string[] = [];
+  const panel = new ShortcutsPanel(initial, { terminal: terminal as TUI["terminal"], requestRender() {} }, getTheme,
+    keys, { ownsEditor }, (_previous, next) => {
+      const error = failures.shift();
+      if (error) return error;
+      saved.push(next);
+    }, value => done.push(value));
+  const input = (...sequences: string[]) => sequences.forEach(seq => panel.handleInput(seq));
+  const render = (width = 88) => panel.render(width).join("\n");
+  return { panel, input, render, terminal, done, saved, failures };
+}
+const themed = (initial?: SlateShortcuts, ownsEditor = true, keys?: KeybindingsManager) => fixture(initial, ownsEditor, keys, () => markerTheme);
 
-test("section headers are muted and arrows select only actions in the original order", () => {
+test("shortcuts uses the picker geometry at wide, stacked, and tiny sizes", () => {
+  const f = fixture({ sidebar: "f8", prompts: "ctrl+alt+." });
+  for (const width of [88, 68, 67, 58, 24, 23, 18, 4, 1]) for (const rows of [40, 15, 14, 8, 3]) {
+    f.terminal.rows = rows;
+    const lines = f.panel.render(width);
+    assert.equal(lines.length, Math.min(22, Math.max(1, rows - 2)));
+    assert(lines.every(line => visibleWidth(line) === width), `${width}x${rows}`);
+  }
+  f.terminal.rows = 40;
+  assert.match(f.render(), /Actions 1\/7\s+│ Toggle sidebar/);
+  assert.match(f.render(), /› Toggle sidebar\s+F8\s+│/);
+  assert.match(f.render(58), /Shortcut\s+\[ F8 \]/);
+  f.terminal.rows = 15;
+  assert.match(f.render(58), /Actions 1\/7 ↓\d/);
+  assert.match(f.render(18), /Slate shortcuts/);
+  assert.doesNotMatch(f.render(18), /╭/);
+});
+
+test("muted section headers are skipped and navigation wraps both ways", () => {
   const f = themed();
   const render = () => f.render(160);
   for (const label of ["Layout", "Pickers", "Display"]) assert(render().includes(`<muted>── ${label}</muted>`));
@@ -63,31 +61,33 @@ test("section headers are muted and arrows select only actions in the original o
     f.input(down);
     assert(render().includes(`<text selectedBg bold>› ${label}`));
   }
+  f.input(up);
+  assert(render().includes("<text selectedBg bold>› Composer metadata"));
 });
 
-test("details, statuses, keycaps, and the recording state use distinct theme tokens", () => {
+test("details show one themed state, with the command and selected-row contrast", () => {
   const f = themed({ sidebar: "f8", prompts: "f2" });
   const render = () => f.render(160);
-  assert(render().includes("<border>╭"));
-  assert(render().includes("<bold>Slate shortcuts</bold>"));
-  assert(render().includes("<accent bold>Toggle sidebar"));
-  assert(render().includes("<muted>Same as /slate focused</muted>"));
-  assert(render().includes("<success>● free</success>"));
-  assert(render().includes("<accent userMessageBg> F8 "));
+  for (const part of ["<border>╭", "<bold>Slate shortcuts</bold>", "<accent bold>Toggle sidebar", "<text>Shows or hides the sidebar</text>",
+    "<dim>/slate focused</dim>", "<success>● Ready</success>", "<accent userMessageBg> [ F8 ] "]) assert(render().includes(part), part);
   const selected = render().split("\n").find(line => line.includes("<text selectedBg bold>› Toggle sidebar"))!;
-  assert(!selected.includes("<accent userMessageBg>"), "the selected row never paints an accent keycap");
-  assert(themed().render(160).includes("<dim>—</dim>"));
+  assert(!selected.includes("<accent userMessageBg>"));
+  assert(themed().render(160).includes("<muted>Not set</muted>"));
+  assert.doesNotMatch(themed().render(160), /free|Ready/);
   assert(themed({ sidebar: "ctrl+b" }, false).render(160).includes("<warning>▲ Also bound in Pi:"));
-  assert(themed({ sidebar: "ctrl+t" }).render(160).includes("<error>✕ Reserved by Pi:"));
-  assert(themed({ sidebar: "left" }).render(160).includes("<error>✕ Used for editing"));
-  assert(themed({ sidebar: "shift+f2" }).render(160).includes("<error>✕ Not supported by Pi"));
+  for (const [key, message] of [["ctrl+t", "Reserved by Pi:"], ["left", "Used for editing"], ["ctrl+escape", "Not supported by Pi"],
+    ["ctrl+shift+d", "Used by Pi"]] as const) assert(themed({ sidebar: key }).render(160).includes(`<error>✕ ${message}`));
+  f.input(del);
+  assert(render().includes("<warning>Press Del again to remove F8</warning>"));
+  assert(!render().includes("● Ready"));
   f.input("\r");
   assert(render().includes("<borderAccent>╭"));
-  assert.match(render(), /<accent>● Recording<\/accent>[^\n]*\n[^\n]*Press a key…/);
+  assert(render().includes("<accent userMessageBg> [ Press a key… ] "));
+  assert(render().includes(`<dim>Esc cancels${process.platform === "darwin" ? " · F-keys may need fn" : ""}</dim>`));
+  assert.doesNotMatch(render(), /● Ready|Press Del again/);
   f.input(f2);
   assert(render().includes("<accent>↺ Moved from Prompt picker</accent>"));
-  assert(render().includes("<bold>Slate shortcuts</bold><warning> · 2 unsaved</warning>"));
-  assert(render().includes("<border>╭"));
+  assert(render().includes("<success>✓ Saved — applies when you close</success>"));
 });
 
 test("live Latte and system palettes retain legible keycaps and exact ANSI geometry", () => {
@@ -103,12 +103,12 @@ test("live Latte and system palettes retain legible keycaps and exact ANSI geome
   for (const current of [latte, system]) {
     active = current;
     if (current === system) assert.notEqual(f.render(), light, "the open panel picks up the new palette");
-    assert.match(stripVTControlCharacters(f.render()), /› Toggle sidebar\s+F8/);
     assert.match(stripVTControlCharacters(f.render()), /Prompt picker\s+Ctrl\+Alt\+\./);
     for (const width of [88, 58, 18]) for (const rows of [40, 15, 8]) {
       f.terminal.rows = rows;
       const check = () => assert(f.panel.render(width).every(line => visibleWidth(line) === width), `${current.name} ${width}x${rows}`);
       check();
+      f.input(del); check();
       f.input("\r"); check();
       f.input(esc);
     }
@@ -116,211 +116,150 @@ test("live Latte and system palettes retain legible keycaps and exact ANSI geome
   }
 });
 
-test("selection wraps both ways", () => {
+test("recording auto-saves each accepted change and Ctrl+S does not close the panel", () => {
   const f = fixture();
-  f.input(up);
-  assert.match(f.render(), /Actions 7\/7/);
-  assert.match(f.render(), /› Composer metadata/);
-  f.input(down);
-  assert.match(f.render(), /› Toggle sidebar/);
-});
-
-test("records a function key and a normalized Kitty chord, then saves the draft", () => {
-  const f = fixture();
-  f.input("\r");
-  assert.match(f.render(), /Press a key…/);
-  f.input(f2);
-  assert.match(f.render(), /Key\s+F2/);
-  assert.doesNotMatch(f.render(), /Press a key…/);
-  f.input(down, "\r", "\x1b[98;6u");
-  assert.match(f.render(), /Key\s+Ctrl\+Shift\+B/);
-  assert.match(f.render(), /Slate shortcuts · 2 unsaved/);
-  f.input("\r", "\x13"); // Save takes precedence over recording.
-  assert.deepEqual(f.done, [{ sidebar: "f2", prompts: "ctrl+shift+b" }]);
-});
-
-test("Escape backs out of recording before discarding the list; Ctrl+C discards anywhere", () => {
-  const f = fixture();
-  f.input("\r", f2, "\r", esc);
-  assert.match(f.render(), /Press Enter, then the new key/);
+  f.input("\r", f2);
+  assert.deepEqual(f.saved, [{ sidebar: "f2" }]);
+  assert.match(f.render(), /Shortcut\s+\[ F2 \]/);
+  f.input("\x13", down, "\r", "\x1b[98;6u");
+  assert.deepEqual(f.saved, [{ sidebar: "f2" }, { sidebar: "f2", prompts: "ctrl+shift+b" }]);
+  assert.match(f.render(), /Shortcut\s+\[ Ctrl\+Shift\+B \]/);
   assert.deepEqual(f.done, []);
   f.input(esc);
-  assert.deepEqual(f.done, [undefined]);
-  for (const recording of [false, true]) {
+  assert.deepEqual(f.done, [true]);
+  const noSaveChord = fixture();
+  noSaveChord.input("\r", "\x13");
+  assert.deepEqual(noSaveChord.saved, [{ sidebar: "ctrl+s" }]);
+  assert.deepEqual(noSaveChord.done, []);
+});
+
+test("plain F1, F5 and F12 are bindable and record legacy function-key sequences", () => {
+  for (const [key, raw] of [["f1", "\x1bOP"], ["f5", "\x1b[15~"], ["f12", "\x1b[24~"]] as const) {
+    assert.deepEqual(classifyKey(key), { kind: "free", key });
+    const f = fixture();
+    f.input("\r", raw);
+    assert.deepEqual(f.saved, [{ sidebar: key }]);
+  }
+});
+
+test("Cmd/Win is displayed while recorded keys retain Pi's super spelling", () => {
+  const f = fixture();
+  f.input("\r", "\x1b[107;9u");
+  assert.deepEqual(f.saved, [{ sidebar: "super+k" }]);
+  assert.match(f.render(), /Shortcut\s+\[ Cmd\/Win\+K \]/);
+  assert.doesNotMatch(f.render(), /super/i);
+});
+
+test("Escape backs out of recording; Ctrl+C closes from list, recording or confirmation", () => {
+  const f = fixture();
+  f.input("\r", esc);
+  assert.doesNotMatch(f.render(), /Press a key…/);
+  assert.deepEqual(f.done, []);
+  f.input(esc);
+  assert.deepEqual(f.done, [false]);
+  for (const mode of [[], ["\r"], [del]]) {
     const cancel = fixture();
-    cancel.input("\r", f2);
-    if (recording) cancel.input("\r");
-    cancel.input("\x03");
-    assert.deepEqual(cancel.done, [undefined]);
+    cancel.input("\r", f2, ...mode, "\x03");
+    assert.deepEqual(cancel.saved, [{ sidebar: "f2" }]);
+    assert.deepEqual(cancel.done, [true]);
   }
 });
 
-test("reserved and bare keys are rejected without leaving recording", () => {
-  const f = fixture();
-  f.input("\r", "\x14");
-  assert.match(f.render(), /Reserved by Pi:/);
-  assert.match(f.render(), /Press a key…/);
-  f.input("a");
-  assert.match(f.render(), /Add ctrl, alt or super/);
-  assert.match(f.render(), /Press a key…/);
-  f.input(f2);
-  assert.doesNotMatch(f.render(), /Add ctrl, alt or super|Press a key…/);
-});
-
-test("recording rejects legacy aliases of reserved keys, viewport keys, and editor keys", () => {
+test("reserved, viewport, editor, bare and unsupported inputs stay in recording and do not save", () => {
   const f = fixture();
   f.input("\r");
-  for (const input of ["\x1b[109;5u", "\x1b[91;5u"]) { // Kitty Ctrl+M and Ctrl+[
-    f.input(input);
-    assert.match(f.render(), /Reserved by Pi:/);
+  for (const [data, status] of [
+    ...["\x14", "\x1b[109;5u", "\x1b[91;5u"].map(data => [data, /Reserved by Pi:/] as const),
+    ["\x1b[1;5H", /Used by Pi's viewport/], ["\x01", /Used by Slate's editor/],
+    ...["a", "A", "\x1b[97;2u"].map(data => [data, /Add Ctrl, Alt or Cmd\/Win/] as const),
+    ...[" ", "\x1b[32;2u", "\x1b[D", "\x1b[1;2D", "\x1b[5~", "\x1b[105;5u"].map(data => [data, /Used for editing/] as const),
+    ["\x1b[27;5u", /Not supported by Pi/],
+  ] as const) {
+    f.input(data);
+    assert.match(f.render(), status);
+    assert.match(f.render(), /Press a key…/);
+    assert.deepEqual(f.saved, []);
   }
-  f.input("\x1b[1;5H");
-  assert.match(f.render(), /Used by Pi's viewport/);
-  f.input("\x01");
-  assert.match(f.render(), /Used by Slate's editor/);
-  assert.match(f.render(), /Press a key…/);
-  assert.doesNotMatch(f.render(), /unsaved/);
-
+  f.input("\x1b[43;5u");
+  assert.deepEqual(f.saved, [{ sidebar: "ctrl++" }]);
   const native = fixture(undefined, false);
-  native.input("\r", "\x01", "\x13");
-  assert.deepEqual(native.done, [{ sidebar: "ctrl+a" }]);
+  native.input("\r", "\x01");
+  assert.deepEqual(native.saved, [{ sidebar: "ctrl+a" }]);
 });
 
-test("recording rejects printable keys in both encodings and accepts only round-tripping chords", () => {
-  const f = fixture();
-  f.input("\r");
-  for (const input of ["A", "\x1b[97;2u"]) {
-    f.input(input);
-    assert.match(f.render(), /Add ctrl, alt or super/);
-    assert.match(f.render(), /Press a key…/);
-  }
-  for (const input of [" ", "\x1b[32;2u", "\x1b[D", "\x1b[1;2D", "\x1b[5~", "\x1b[105;5u"]) {
-    f.input(input);
-    assert.match(f.render(), /Used for editing — add ctrl or alt/);
-    assert.match(f.render(), /Press a key…/);
-  }
-  f.input("\x1b[27;5u"); // Kitty Ctrl+Esc parses, but Pi never matches that chord.
-  assert.match(f.render(), /Not supported by Pi/);
-  assert.match(f.render(), /Press a key…/);
-  f.input("\x1b[43;5u", "\x13");
-  assert.deepEqual(f.done, [{ sidebar: "ctrl++" }]);
-});
-
-test("non-reserved keys show their other Pi bindings", () => {
-  const f = fixture(undefined, false);
-  f.input("\r", "\x02");
-  assert.match(f.render(), /Key\s+Ctrl\+B/);
-  assert.match(f.render(), /Also bound in Pi:/);
-});
-
-test("saved editing, unsupported, and global keys display their blocked status", () => {
-  for (const [key, status] of [["left", /Used for editing — add ctrl or alt/], ["ctrl+escape", /Not supported by Pi/],
-    ["shift+f2", /Not supported by Pi/], ["ctrl+shift+d", /Used by Pi/]] as const) {
-    assert.match(fixture({ sidebar: key }).render(), status);
-  }
-});
-
-test("recording uses Kitty's raw physical and logical aliases for Pi and Slate bindings", () => {
-  for (const [physical, data] of [["ctrl+shift+=", "\x1b[61:43;6u"], ["ctrl+shift+-", "\x1b[45:43;6u"]] as const) {
-    const keys = new KeybindingsManager({ "app.interrupt": physical });
-    const blocked = fixture(undefined, true, keys);
+test("Kitty and xterm shifted-symbol aliases stay reserved and moves remove all owners at once", () => {
+  for (const [physical, data] of [["ctrl+shift+=", "\x1b[61:43;6u"], ["ctrl+shift+-", "\x1b[45:43;6u"], ["ctrl+shift+?", "\x1b[27;6;63~"]] as const) {
+    const blocked = fixture(undefined, true, new KeybindingsManager({ "app.interrupt": physical }));
     blocked.input("\r", data);
     assert.match(blocked.render(), /Reserved by Pi: Cancel or abort/);
     assert.match(blocked.render(), /Press a key…/);
-    const moved = fixture({ prompts: physical, theme: "ctrl++" });
-    moved.input("\r", data, "\x13");
-    assert.deepEqual(moved.done, [{ sidebar: "ctrl++", prompts: false, theme: false }]);
+    assert.deepEqual(blocked.saved, []);
   }
+  const initial = { prompts: "ctrl+shift+=", theme: "ctrl++" };
+  const moved = fixture(initial);
+  moved.input("\r", "\x1b[61:43;6u");
+  assert.deepEqual(moved.saved, [{ sidebar: "ctrl++", prompts: false, theme: false }]);
+  assert.deepEqual(initial, { prompts: "ctrl+shift+=", theme: "ctrl++" });
 });
 
-test("xterm modifyOtherKeys also sees the reserved shifted-symbol alias", () => {
-  const f = fixture(undefined, true, new KeybindingsManager({ "app.interrupt": "ctrl+shift+?" }));
-  f.input("\r", "\x1b[27;6;63~");
-  assert.match(f.render(), /Reserved by Pi: Cancel or abort/);
-  assert.match(f.render(), /Press a key…/);
-});
-
-test("save uses the first chord not consumed by Pi's viewport", () => {
-  for (const [bindings, label, data] of [
-    [{}, "Ctrl+S", "\x13"],
-    [{ "tui.altScreen.search": "ctrl+s" }, "Alt+S", "\x1b[115;3u"],
-    [{ "tui.altScreen.search": "alt+s", "tui.altScreen.searchNext": "ctrl+s" }, "Ctrl+Alt+S", "\x1b[115;7u"],
-  ] as const) {
-    const f = fixture(undefined, true, new KeybindingsManager(bindings));
-    assert(f.render().includes(`${label} save`));
-    f.input("\r", f2);
-    if (data !== "\x13") f.input("\x13");
-    if (label === "Ctrl+Alt+S") f.input("\x1b[115;3u");
-    assert.deepEqual(f.done, []);
-    f.input(data);
-    assert.deepEqual(f.done, [{ sidebar: "f2" }]);
-  }
-});
-
-test("remapped selection and recording controls are reflected in hints, including discard", () => {
-  const f = fixture(undefined, true, new KeybindingsManager({ "tui.select.up": "ctrl+p", "tui.select.down": "ctrl+n", "tui.select.confirm": "f6" }));
-  assert.match(f.render(), /Ctrl\+P\/Ctrl\+N action · F6 record/);
-  assert.match(f.render(), /Press F6, then the new key/);
-  assert.match(fixture().render(), /↑↓ action · Enter record/);
+test("footer chips honor remapped select controls and drop labels before chips", () => {
+  const f = themed(undefined, true, new KeybindingsManager({ "tui.select.up": "ctrl+p", "tui.select.down": "ctrl+n", "tui.select.confirm": "f6" }));
+  assert.match(f.render(360), /<accent userMessageBg> Ctrl\+P\/Ctrl\+N <\/accent userMessageBg> <muted>Move<\/muted>/);
+  assert.match(f.render(360), /<accent userMessageBg> F6 <\/accent userMessageBg> <muted>Record<\/muted>/);
+  assert.match(fixture().render(24), /↑↓ Enter Del Esc/);
+  assert.doesNotMatch(fixture().render(24), /Move|Record|Remove|Close/);
   f.input("\x10");
   assert.match(f.render(), /Actions 7\/7/);
-  f.input("\x0e", "\x1b[17~", f2);
-  assert.match(f.render(), /Actions 1\/7/);
-  assert.match(f.render(), /Esc discard/);
-  f.input("\x1b[17~");
-  assert.match(f.render(), /Esc back/);
-  assert.doesNotMatch(f.render(), /Esc discard/);
-  f.input(esc, esc);
-  assert.deepEqual(f.done, [undefined]);
-});
-
-test("assignment moves a duplicate key and clears every previous owner on save", () => {
-  const initial = { sidebar: "f2", theme: "f2" };
-  const f = fixture(initial);
-  f.input(down, "\r", f2);
-  assert.match(f.render(), /Moved from Toggle sidebar/);
-  assert.match(f.render(), /Slate shortcuts · 3 unsaved/);
-  assert.match(f.render(), /Toggle sidebar\s+—/);
-  assert.match(f.render(), /Theme picker\s+—/);
-  f.input("\x13");
-  assert.deepEqual(f.done, [{ sidebar: false, theme: false, prompts: "f2" }]);
-  assert.deepEqual(initial, { sidebar: "f2", theme: "f2" });
+  f.input("\x0e", "\x1b[17~");
+  assert.match(f.render(160), /<accent userMessageBg> Esc <\/accent userMessageBg> <muted>Cancel<\/muted>/);
+  assert.doesNotMatch(f.render(160), /<muted>(Move|Record|Remove|Close)<\/muted>/);
 });
 
 test("recording prompts requires the editor surface", () => {
   const f = fixture(undefined, false);
   f.input(down, "\r", f2);
-  assert.match(f.render(), /Needs the editor surface/);
-  assert.doesNotMatch(f.render(), /F2|unsaved|Press a key…/);
+  assert.match(f.render(), /✕ Needs the editor surface/);
+  assert.doesNotMatch(f.render(), /F2|Press a key…/);
 });
 
-test("Delete or Backspace unbinds a saved key; unbinding a new key restores the initial draft", () => {
-  for (const del of ["\x1b[3~", "\x7f"]) {
-    const f = fixture({ sidebar: "f2" });
-    f.input(del);
-    assert.match(f.render(), /Key\s+—/);
-    assert.match(f.render(), /Slate shortcuts · 1 unsaved/);
-    f.input("\x13");
-    assert.deepEqual(f.done, [{ sidebar: false }]);
-  }
-  const f = fixture();
-  f.input("\r", f2, "\x1b[3~", "\x13");
-  assert.doesNotMatch(f.render(), /unsaved/);
-  assert.deepEqual(f.done, [{}]);
+test("unbind requires two consecutive removal keys on a bound action", () => {
+  const f = fixture({ sidebar: "f8", prompts: "f2" });
+  f.input(del, "a", del, down);
+  assert.doesNotMatch(f.render(), /Press Del again/);
+  f.input(bs);
+  assert.match(f.render(), /Press Del again to remove F2/);
+  assert.deepEqual(f.saved, []);
+  f.input(del, del, del);
+  assert.deepEqual(f.saved, [{ sidebar: "f8", prompts: false }]);
+  assert.match(f.render(), /Shortcut\s+Not set/);
 });
 
-test("opening the panel uses the shared overlay and suppresses unchanged drafts", async () => {
+test("failed records and unbinds retain the previous binding and show an error", () => {
+  const f = themed({ sidebar: "f8", prompts: "f2" });
+  f.failures.push("Could not save settings", "Another session changed this binding");
+  f.input("\r", f2);
+  assert(f.render(160).includes("<error>Could not save settings</error>"));
+  assert(f.render(160).includes("<accent userMessageBg> [ F8 ] "));
+  f.input(down);
+  assert(f.render(160).includes("<accent userMessageBg> [ F2 ] "));
+  f.input(up);
+  f.input(del, bs);
+  assert(f.render(160).includes("<error>Another session changed this binding</error>"));
+  assert(f.render(160).includes("<accent userMessageBg> [ F8 ] "));
+  f.input(esc);
+  assert.deepEqual(f.done, [false]);
+});
+
+test("opening uses the shared overlay and non-terminal modes do not open it", async () => {
   const ctx = { mode: "tui", ui: { custom: async (_: unknown, options: unknown) => {
     assert.deepEqual(options, { overlay: true, overlayOptions: { anchor: "center", width: 88, maxHeight: "100%", margin: 1 } });
-    return { sidebar: "f2" };
+    return false;
   } } } as unknown as ExtensionContext;
-  assert.equal(await openShortcutsPanel(ctx, { sidebar: "f2" }, { ownsEditor: true }), undefined);
-});
-
-test("non-terminal modes do not open a shortcuts panel", async () => {
-  const ctx = { mode: "rpc", ui: {
+  const save = () => assert.fail("must not save");
+  assert.equal(await openShortcutsPanel(ctx, undefined, { ownsEditor: true }, save), false);
+  const rpc = { mode: "rpc", ui: {
     notify: (message: string) => assert.equal(message, "/shortcuts requires interactive terminal mode"),
     custom: () => assert.fail("must not open a panel"),
   } } as unknown as ExtensionContext;
-  assert.equal(await openShortcutsPanel(ctx, undefined, { ownsEditor: true }), undefined);
+  assert.equal(await openShortcutsPanel(rpc, undefined, { ownsEditor: true }, save), false);
 });

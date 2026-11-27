@@ -83,7 +83,7 @@ import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
-import { classifyKey, loadShortcutKeys, loadShortcuts, mergeShortcuts, SHORTCUT_ACTIONS, shortcutKey, shortcutStatus, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
+import { classifyKey, loadShortcutKeys, loadShortcuts, mergeShortcuts, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 import { openShortcutsPanel } from "./shortcuts-panel.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
 
@@ -231,7 +231,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (!key || !shortcutKeys) return;
     const result = classifyKey(key, { keys: shortcutKeys, ownsEditor: owns("editor") });
     if ("key" in result) return result.key;
-    shortcutWarnings.push(`Skipped Slate shortcut ${id} (${key}): ${shortcutStatus(result)}`);
+    shortcutWarnings.push(`Skipped Slate shortcut ${id} (${shortcutLabel(key)}): ${shortcutStatus(result)}`);
   };
   if (owns("editor")) installPromptPicker(pi, configuredShortcut("prompts"));
   installExitCommand(pi);
@@ -1023,19 +1023,18 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const pickShortcuts = async (ctx: ExtensionCommandContext): Promise<void> => {
     const owner = sessionEpoch, initial = loadConfig(configPath).config.shortcuts;
-    const draft = await openShortcutsPanel(ctx, initial, { ownsEditor: owns("editor") });
-    if (!draft || owner !== sessionEpoch) return;
-    try {
-      const warning = saveConfig(raw => {
-        const merged = mergeShortcuts(raw.shortcuts, initial, draft);
-        return "error" in merged ? merged.error : { shortcuts: merged.raw };
-      });
-      if (warning) { ctx.ui.notify(warning, "warning"); return; }
-    } catch (error) {
-      ctx.ui.notify(`Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`, "error");
-      return;
-    }
-    ctx.ui.notify("Shortcuts saved", "info");
+    const saved = await openShortcutsPanel(ctx, initial, { ownsEditor: owns("editor") }, (previous, next) => {
+      if (owner !== sessionEpoch) return "The session changed. Reopen /shortcuts.";
+      try {
+        return saveConfig(raw => {
+          const merged = mergeShortcuts(raw.shortcuts, previous, next);
+          return "error" in merged ? merged.error : { shortcuts: merged.raw };
+        });
+      } catch (error) {
+        return `Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    });
+    if (!saved || owner !== sessionEpoch) return;
     if (pendingShortcutReload) return pendingShortcutReload;
     const pending = pendingShortcutReload = (async () => {
       await ctx.waitForIdle();
