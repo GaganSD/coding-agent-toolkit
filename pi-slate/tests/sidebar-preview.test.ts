@@ -10,10 +10,14 @@ import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
 import { perfFixture } from "./perf-fixture.ts";
 import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
 import { sidebarUsage, SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
+import { McpActivity } from "../extensions/pi-slate/mcp-activity.ts";
+import { setProgressStyle } from "../extensions/pi-slate/working-wave.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
 
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
+const toneCodes: Record<string, number> = { accent: 36, warning: 33, success: 32, error: 31, muted: 90, dim: 2, text: 37, mdHeading: 35 };
+const toneTheme = () => ({ fg: (tone: string, text: string) => `\x1b[${toneCodes[tone] ?? 0}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
 const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cost: 0.12 }, perf: perfFixture(1000) };
@@ -30,7 +34,7 @@ function fixture(rows = 60) {
   const terminal = { rows, columns: 140 };
   sidebar.attach({ terminal, requestRender() { renders++; }, showOverlay() { return { hide() {} }; } } as unknown as TUI, theme());
   sidebar.setSession(session); sidebar.setResources(resources);
-  return { sidebar, terminal, advance: (ms: number) => { clock += ms; }, renders: () => renders };
+  return { sidebar, terminal, now: () => clock, advance: (ms: number) => { clock += ms; }, renders: () => renders };
 }
 function mouse(y: number, extra: Partial<TuiMouseEvent> = {}): TuiMouseEvent {
   return { type: "click", button: "left", x: 2, y, screenX: 112, screenY: y, width: 40, height: 60, shift: false, alt: false, ctrl: false, ...extra };
@@ -426,6 +430,75 @@ test("resource status glyphs distinguish unknown MCP state without color or redu
     assert(lines.some(line => line.trim() === expected), expected);
   sidebar.handleMouse(mouse(row(sidebar, "unknown-server")));
   assert.match(details[0]!, /^— \(configuration, not connection status\)/);
+});
+
+test("MCP activity keeps the config glyph and adds only an accent spinner or warning", () => {
+  const { sidebar, advance, now } = fixture();
+  const activity = new McpActivity();
+  sidebar.setMcpActivity(activity);
+  sidebar.setThemeProvider(() => toneTheme());
+  setProgressStyle("waves");
+  sidebar.setResources({ ...resources, mcp: [{ name: "enabled-server", enabled: true, source: "global" }] });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  const painted = () => sidebar.render(80).find(line => stripAnsi(line).includes("enabled-server"))!;
+  const text = () => plain([painted()])[0]!;
+
+  assert.match(text(), /^● enabled-server$/);
+  assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33|36)m/);
+
+  activity.start("a", "enabled-server");
+  assert.match(text(), /^● enabled-server [▁▂▃▄▅▆▇█]{3}$/);
+  assert.match(painted(), /\x1b\[36m [▁▂▃▄▅▆▇█]{3}\x1b\[0m/);
+  assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33)m/);
+
+  activity.end("a", { ran: true, result: "success" }, now());
+  activity.start("b", "enabled-server");
+  activity.end("b", { ran: true, result: "error", error: "lookup failed" }, now());
+  assert.match(text(), /^● enabled-server !$/);
+  assert.match(painted(), /\x1b\[33m !\x1b\[0m/);
+  assert.doesNotMatch(painted(), /\x1b\[(?:31|32|36)m/);
+
+  advance(59_999);
+  assert.match(text(), /^● enabled-server !$/);
+  advance(1);
+  assert.match(text(), /^● enabled-server$/);
+});
+
+test("clicking an MCP row shows a used hint for three seconds and still opens activity details", () => {
+  const { sidebar, advance, now } = fixture();
+  const activity = new McpActivity();
+  const details: string[] = [];
+  sidebar.setMcpActivity(activity);
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
+  sidebar.setResources({ ...resources, mcp: [{ name: "server-0", enabled: true, source: "global" }] });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  const hint = () => plain(sidebar.render(80)).find(line => line.includes("server-0"))!;
+  const click = () => sidebar.handleMouse(mouse(row(sidebar, "server-0")));
+
+  click();
+  assert.match(hint(), /not used yet$/);
+  advance(2_999);
+  assert.match(hint(), /not used yet$/);
+  advance(1);
+  assert.doesNotMatch(hint(), /not used yet$/);
+
+  activity.start("a", "server-0");
+  activity.end("a", { ran: true, result: "success" }, now());
+  advance(120_000);
+  click();
+  assert.match(hint(), /used 2m ago$/);
+  assert.match(details.at(-1)!, /Last used: 2m ago/);
+  assert.match(details.at(-1)!, /Calls this session: 1/);
+  assert.match(details.at(-1)!, /Last error: none/);
+  assert.match(details.at(-1)!, /Slate does not validate MCP/);
+  assert.match(details.at(-1)!, /Use \/mcp/);
+
+  activity.start("b", "server-0");
+  activity.end("b", { ran: true, result: "error", error: "lookup failed" }, now());
+  advance(2_000);
+  click();
+  assert.match(details.at(-1)!, /Last error: lookup failed \(2s ago\)/);
+  assert.match(details.at(-1)!, /Calls this session: 2/);
 });
 
 test("MCP is limited to five rows; list wheel scroll does not move the session header", () => {

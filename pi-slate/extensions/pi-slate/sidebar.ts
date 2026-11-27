@@ -3,6 +3,8 @@ import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type
 import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
 import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
 import { mcpDetails } from "./sidebar-mcp.ts";
+import { formatMcpAge, type McpActivity } from "./mcp-activity.ts";
+import { compactProgressFrame, WAVE_STEP_MS } from "./working-wave.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarCacheHit, sidebarText, sidebarUsage, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
@@ -12,9 +14,10 @@ import { EMPTY_PERF } from "./perf-stats.ts";
 import { sameLines } from "./render-lines.ts";
 
 export const DOUBLE_CLICK_MS = 400;
+const MCP_HINT_MS = 3_000;
 type ListName = "mcp" | "skills" | "prompts";
-type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
-type Hit = { y: number; x0: number; x1: number; action: () => void };
+type Row = { divider?: boolean; text: string; action?: () => boolean | void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
+type Hit = { y: number; x0: number; x1: number; action: () => boolean | void };
 type PaneFrame = {
   key?: string;
   lines: string[];
@@ -65,6 +68,9 @@ export class Sidebar implements Component {
   private cached?: PaneFrame;
   private revision = 0;
   private actions?: SidebarActions;
+  private mcpActivity?: McpActivity;
+  private mcpHint?: { server: string; at: number };
+  private paintedWidth = 0;
 
   private readonly now: () => number;
   constructor(now: () => number = Date.now) { this.now = now; }
@@ -104,6 +110,7 @@ export class Sidebar implements Component {
     this.splitDispose?.requestRender("forced-layout");
   }
   setActions(actions: SidebarActions): void { this.actions = actions; }
+  setMcpActivity(activity: McpActivity): void { this.mcpActivity = activity; this.changed(); }
   setSession(session: SidebarSession): void {
     // Keep the full plain-text title for copying/details; truncate only its painted row.
     this.session = { ...session, name: sidebarText(session.name, Infinity), usage: { ...session.usage } };
@@ -125,7 +132,7 @@ export class Sidebar implements Component {
   reset(): void {
     this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES;
     this.offsets = { mcp: 0, skills: 0, prompts: 0 }; this.middleOffset = 0;
-    this.image = undefined;
+    this.image = undefined; this.mcpHint = undefined;
     this.painted = undefined; this.lastClick = undefined; this.changed();
   }
   /** The image shelf follows the caret: an image token shows it, leaving the token clears it. */
@@ -206,7 +213,14 @@ export class Sidebar implements Component {
     }
     if (event.type !== "click" || event.button !== "left") return undefined;
     const hit = frame.hits.find(hit => hit.y === event.y && event.x >= hit.x0 && event.x < hit.x1);
-    if (hit) { hit.action(); return { handled: true, render: false }; }
+    if (hit) {
+      const render = hit.action() === true;
+      if (render) {
+        this.invalidate();
+        this.painted = this.buildFrame(this.paintedWidth);
+      }
+      return { handled: true, render };
+    }
     const { start, height, path } = frame.image;
     if (event.y > start && event.y < start + height) {
       if (path && this.isDoubleClick(event, `image:${path}`)) {
@@ -230,7 +244,10 @@ export class Sidebar implements Component {
     const theme = this.themeProvider?.() ?? this.theme;
     if (theme !== this.theme) { this.theme = theme; this.invalidate(); }
     if (theme) this.image?.setTheme?.(theme);
-    const key = `${width}:${height}:${this.revision}:${Math.floor(this.now() / 1000)}`;
+    this.paintedWidth = width;
+    const now = this.now();
+    const active = this.mcpActivity?.anyActive() === true;
+    const key = `${width}:${height}:${this.revision}:${Math.floor(now / 1000)}${active ? `:${Math.floor(now / WAVE_STEP_MS)}` : ""}`;
     if (this.cached?.key === key) return this.cached;
     const hits: Hit[] = [], listRows: PaneFrame["listRows"] = [];
     const inner = Math.max(0, width - 4);
@@ -249,7 +266,7 @@ export class Sidebar implements Component {
     };
     if (slots.frame) lines.push(this.dividerLine(width, "┌"));
     for (const row of header.filter(row => !gap(row) || dropGaps-- <= 0).slice(0, slots.header)) add(row);
-    const middle = this.middle();
+    const middle = this.middle(inner);
     const middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
     for (let i = 0; i < slots.middle; i++) add(middle[this.middleOffset + i] ?? { text: "" });
@@ -306,7 +323,7 @@ export class Sidebar implements Component {
     const performance = perfRows(input).flat().map(text => text === null ? HEADER_GAP : { text });
     return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP, ...performance, divider];
   }
-  private middle(): Row[] {
+  private middle(width: number): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
     const unknownCount = this.resources.mcp.filter(x => x.enabled === null).length;
     const errors = this.resources.mcpError ? 1 : 0;
@@ -319,14 +336,14 @@ export class Sidebar implements Component {
       text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors),
       action: () => this.toggleSection("mcp"),
     }];
-    if (this.folds.mcp) rows.push(...this.resourceRows("mcp"));
+    if (this.folds.mcp) rows.push(...this.resourceRows("mcp", width));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} Loaded`), action: () => this.toggleSection("skills") });
-    if (this.folds.skills) rows.push(...this.resourceRows("skills"));
+    if (this.folds.skills) rows.push(...this.resourceRows("skills", width));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.prompts ? "⌄" : "›"} Prompts`, `${this.resources.prompts.length}`), action: () => this.toggleSection("prompts") });
-    if (this.folds.prompts) rows.push(...this.resourceRows("prompts"));
+    if (this.folds.prompts) rows.push(...this.resourceRows("prompts", width));
     return rows;
   }
-  private resourceRows(list: ListName): Row[] {
+  private resourceRows(list: ListName, width: number): Row[] {
     const items = this.resources[list];
     const visible = list === "mcp" ? 5 : 3;
     this.offsets[list] = sidebarListOffset(this.offsets[list], items.length, visible);
@@ -336,8 +353,22 @@ export class Sidebar implements Component {
     for (let i = start; i < Math.min(items.length, start + visible); i++) {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
-        rows.push({ text: this.paint(server.enabled === true ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`), list, item: i,
-          action: () => this.actions?.inspect?.(server.name, mcpDetails(server)) });
+        const now = this.now();
+        const activity = this.mcpActivity?.view(server.name, now);
+        const lastUsed = activity?.lastUsed ?? null;
+        const marker = activity?.active
+          ? this.paint("accent", ` ${compactProgressFrame(Math.floor(now / WAVE_STEP_MS))}`)
+          : activity?.warning ? this.paint("warning", " !") : "";
+        const left = this.paint(server.enabled === true ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`) + marker;
+        const hint = this.mcpHint?.server === server.name && now - this.mcpHint.at < MCP_HINT_MS
+          ? this.paint("dim", lastUsed === null ? "not used yet" : `used ${formatMcpAge(now - lastUsed)} ago`) : "";
+        rows.push({ text: hint ? this.pair(left, hint, width) : left, list, item: i,
+          action: () => {
+            const at = this.now();
+            this.mcpHint = { server: server.name, at };
+            this.actions?.inspect?.(server.name, mcpDetails(server, this.mcpActivity?.view(server.name, at), at));
+            return true;
+          } });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;
         rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", `${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`), list, item: i,
