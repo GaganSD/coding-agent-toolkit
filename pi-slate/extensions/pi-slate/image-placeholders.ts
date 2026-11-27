@@ -58,12 +58,15 @@ function loadImage(filePath: string): ImageAttachment | undefined {
   }
 }
 
+export const IMAGE_EDITOR_BINDINGS = ["tui.editor.deleteCharBackward", "tui.editor.deleteCharForward", "tui.editor.cursorLeft", "tui.editor.cursorRight"] as const;
+const [DELETE_BACK, DELETE_FORWARD, CURSOR_LEFT, CURSOR_RIGHT] = IMAGE_EDITOR_BINDINGS;
+
 // Match exactly the inputs the editor maps to single-character deletion
 // (see handleInput in @earendil-works/pi-tui components/editor.js).
 function atomicDeleteDirection(data: string): "back" | "forward" | undefined {
   const kb = getKeybindings();
-  if (kb.matches(data, "tui.editor.deleteCharBackward") || matchesKey(data, "shift+backspace")) return "back";
-  if (kb.matches(data, "tui.editor.deleteCharForward") || matchesKey(data, "shift+delete")) return "forward";
+  if (kb.matches(data, DELETE_BACK) || matchesKey(data, "shift+backspace")) return "back";
+  if (kb.matches(data, DELETE_FORWARD) || matchesKey(data, "shift+delete")) return "forward";
   return undefined;
 }
 
@@ -75,24 +78,24 @@ const CTRL_F = "\x06";
 /** A keypress the editor will treat as cursor-left, respecting custom keybindings. */
 function moveLeftKey(): string | undefined {
   const kb = getKeybindings();
-  if (kb.matches(LEFT_ARROW, "tui.editor.cursorLeft")) return LEFT_ARROW;
-  if (kb.matches(CTRL_B, "tui.editor.cursorLeft")) return CTRL_B;
+  if (kb.matches(LEFT_ARROW, CURSOR_LEFT)) return LEFT_ARROW;
+  if (kb.matches(CTRL_B, CURSOR_LEFT)) return CTRL_B;
   return undefined;
 }
 
 /** A keypress the editor will treat as cursor-right, respecting custom keybindings. */
 function moveRightKey(): string | undefined {
   const kb = getKeybindings();
-  if (kb.matches(RIGHT_ARROW, "tui.editor.cursorRight")) return RIGHT_ARROW;
-  if (kb.matches(CTRL_F, "tui.editor.cursorRight")) return CTRL_F;
+  if (kb.matches(RIGHT_ARROW, CURSOR_RIGHT)) return RIGHT_ARROW;
+  if (kb.matches(CTRL_F, CURSOR_RIGHT)) return CTRL_F;
   return undefined;
 }
 
 /** A keypress the editor maps to a single caret step left/right. */
 function cursorStepDirection(data: string): "left" | "right" | undefined {
   const kb = getKeybindings();
-  if (kb.matches(data, "tui.editor.cursorLeft")) return "left";
-  if (kb.matches(data, "tui.editor.cursorRight")) return "right";
+  if (kb.matches(data, CURSOR_LEFT)) return "left";
+  if (kb.matches(data, CURSOR_RIGHT)) return "right";
   return undefined;
 }
 

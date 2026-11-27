@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Added a `/shortcuts` panel for assigning keys to Slate actions, saved as `shortcuts.<action>` in `pi-slate.json`.
 * Focused mode now shows the thinking level beside the model on the composer's bottom edge, leaving context and MCP status on top.
 
 ## 0.4.1

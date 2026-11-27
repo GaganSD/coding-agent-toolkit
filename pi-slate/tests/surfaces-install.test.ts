@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { ExtensionRunner, SessionManager, type ExtensionAPI, type ExtensionContext, type ExtensionEvent, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Container, Editor, ScrollView, Text, TuiAltScreen, type Component, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
+import { ExtensionRunner, SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type ExtensionEvent, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Container, Editor, matchesKey, ScrollView, Text, TuiAltScreen, type Component, type EditorTheme, type KeyId, type Terminal, type TUI } from "@earendil-works/pi-tui";
 import piSlate from "../extensions/pi-slate/index.ts";
 import { ComposerEditor } from "../extensions/pi-slate/composer.ts";
 import { Sidebar, type SidebarActions } from "../extensions/pi-slate/sidebar.ts";
@@ -21,12 +21,12 @@ class NullTerminal implements Terminal {
   clearLine() {} clearFromCursor() {} clearScreen() {} setTitle() {} setProgress() {} setProgramStatus() {}
 }
 
-const theme = { name: "dark", fg: (_color: string, text: string) => text, bold: (text: string) => text, italic: (text: string) => text } as Theme;
+const theme = { name: "dark", fg: (_color: string, text: string) => text, bold: (text: string) => text, italic: (text: string) => text, style: (text: string) => text } as unknown as Theme;
 const editorTheme = { borderColor: (text: string) => text } as EditorTheme;
 
 type Handler = (event: ExtensionEvent, ctx: ExtensionContext) => unknown;
 
-async function fixture(t: TestContext, text: string | undefined, mode = "tui", compatible = true, conflict = false, configure?: (pi: ExtensionAPI, ui: ExtensionContext["ui"]) => void) {
+async function fixture(t: TestContext, text: string | undefined, mode = "tui", compatible = true, conflict = false, configure?: (pi: ExtensionAPI, ui: ExtensionContext["ui"], agentDir: string) => void | Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), "slate-surfaces-"));
   const previous = { dir: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE };
   process.env.PI_CODING_AGENT_DIR = cwd;
@@ -43,7 +43,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const calls: string[] = [];
   const notices: string[] = [];
   const notifications: Array<{ message: string; kind: string }> = [];
-  const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => Promise<void> }>();
+  const commands = new Map<string, { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }>();
   const tools: ToolDefinition[] = [];
   const handlers = new Map<string, Handler[]>();
   const choices: string[] = [];
@@ -51,12 +51,15 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const extraCommands: Array<{ name: string; source: string; sourceInfo: { path: string; scope: string } }> = [];
   let draft = "existing draft";
   const shortcuts: string[] = [];
+  const shortcutHandlers = new Map<string, (ctx: ExtensionContext) => Promise<void> | void>();
   t.mock.method(GitStatusPoller.prototype, "start", () => { calls.push("files-start"); });
   t.mock.method(GitStatusPoller.prototype, "refresh", async () => { calls.push("files-refresh"); });
   const pi = {
     on(event: string, handler: Handler) { handlers.set(event, [...handlers.get(event) ?? [], handler]); },
     registerCommand(name: string, command: typeof commands extends Map<string, infer V> ? V : never) { commands.set(name, command); },
-    registerShortcut(key: string) { shortcuts.push(key); },
+    registerShortcut(key: string, options: { handler: (ctx: ExtensionContext) => Promise<void> | void }) {
+      shortcuts.push(key); shortcutHandlers.set(key, options.handler);
+    },
     registerTool(tool: ToolDefinition) { tools.push(tool); },
     registerToolRenderer() { calls.push("tool-renderer"); },
     getCommands: () => extraCommands,
@@ -128,15 +131,15 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   };
   const manager = SessionManager.inMemory(cwd);
   let stale = false;
-  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, modelRegistry: { find: () => undefined }, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false } as unknown as ExtensionContext, {
+  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, modelRegistry: { find: () => undefined }, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false, waitForIdle: async () => { calls.push("waitForIdle"); }, reload: async () => { calls.push("reload"); } } as unknown as ExtensionCommandContext, {
     get(target, key, receiver) {
       if (stale) throw new Error("This extension ctx is stale after session replacement or reload.");
       return Reflect.get(target, key, receiver);
     },
   });
-  configure?.(pi, ui as unknown as ExtensionContext["ui"]);
+  await configure?.(pi, ui as unknown as ExtensionContext["ui"], cwd);
   piSlate(pi);
-  const emit = async (type: string, extra: Record<string, unknown> = {}, context = ctx) => {
+  const emit = async (type: string, extra: Record<string, unknown> = {}, context: ExtensionContext = ctx) => {
     let result: unknown;
     for (const handler of handlers.get(type) ?? []) result = await handler({ type, ...extra } as ExtensionEvent, context);
     return result;
@@ -147,7 +150,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, shortcutHandlers, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {
@@ -439,12 +442,14 @@ test("invalid files activate nothing, warn, and survive even a settings command"
   assert.equal(await readFile(f.path, "utf8"), text);
 });
 
-test("fresh config does not write preferences on load", async (t) => {
+test("fresh config stays unwritten until a save and persists the fresh surface set", async (t) => {
   const f = await fixture(t, undefined);
   assert.equal(f.calls.includes("editor"), true);
   assert.equal(f.calls.includes("header"), false);
   assert.equal(f.calls.includes("footer"), false);
   await assert.rejects(readFile(f.path), { code: "ENOENT" });
+  await f.commands.get("slate")!.handler("pid on", f.ctx);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).surfaces, FRESH_SURFACES);
 });
 
 for (const mode of ["print", "rpc", "json"]) {
@@ -572,8 +577,383 @@ test("prompt shortcut stays unset unless shortcuts.prompts is a valid chord", as
   assert.deepEqual(bound.shortcuts, ["ctrl+alt+."]);
   await bound.commands.get("slate")!.handler("pid on", bound.ctx);
   const saved = JSON.parse(await readFile(bound.path, "utf8"));
-  assert.deepEqual(saved.shortcuts, { prompts: "ctrl+alt+." });
+  assert.deepEqual(saved.shortcuts, { prompts: "Ctrl+Alt+." }, "PID saves leave unrelated settings as written");
   assert.equal(saved.showPid, true);
+});
+
+test("sidebar shortcut uses the saved focused-mode toggle", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: true, shortcuts: { sidebar: "Ctrl+Shift+B" } }));
+  assert.deepEqual(f.shortcuts, ["ctrl+shift+b"]);
+
+  await f.shortcutHandlers.get("ctrl+shift+b")!(f.ctx);
+  let saved = JSON.parse(await readFile(f.path, "utf8"));
+  assert.equal(saved.focused, false);
+  assert.deepEqual(saved.shortcuts, { sidebar: "Ctrl+Shift+B" });
+  assert.equal(f.notices.at(-1), "Focused mode off");
+
+  await f.commands.get("slate")!.handler("focused", f.ctx);
+  saved = JSON.parse(await readFile(f.path, "utf8"));
+  assert.equal(saved.focused, true);
+  assert.equal(f.notices.at(-1), "Focused mode on");
+});
+
+test("a stale PID shortcut patches only PID and preserves newer settings", async t => {
+  const initial = { surfaces: ["editor"], shortcuts: { pid: "f4" } };
+  const f = await fixture(t, JSON.stringify(initial));
+  const latest = { ...initial, shortcuts: { ...initial.shortcuts, theme: "f3" }, unknown: { nested: "keep" } };
+  await writeFile(f.path, JSON.stringify(latest));
+  const toggle = f.shortcutHandlers.get("f4")!;
+  await toggle(f.ctx);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, showPid: true });
+  await writeFile(f.path, "{broken external edit");
+  await toggle(f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), "{broken external edit");
+  assert.match(f.notices.at(-1)!, /Settings file preserved/);
+});
+
+test("all bound actions register; density and footer keys toggle immediately", async t => {
+  const shortcuts = { sidebar: "f8", prompts: "f2", theme: "f3", pid: "f4", "effort-border": "f5", density: "f6", footer: "f7" };
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], shortcuts }));
+  assert.deepEqual([...f.shortcuts].sort(), Object.values(shortcuts).sort());
+  const read = async () => JSON.parse(await readFile(f.path, "utf8"));
+  for (const [key, field, toggled, command, restored] of [
+    ["f8", "focused", false, "focused", true],
+    ["f4", "showPid", true, "pid", false],
+    ["f5", "effortBorderColor", true, "effort-border", false],
+  ] as const) {
+    await f.shortcutHandlers.get(key)!(f.ctx);
+    assert.equal((await read())[field], toggled);
+    await f.commands.get("slate")!.handler(command, f.ctx);
+    assert.equal((await read())[field], restored);
+  }
+  for (const [key, field, toggled, restored] of [
+    ["f6", "density", "compact", "comfortable"], ["f7", "composerMetadata", "minimal", "standard"],
+  ] as const) {
+    const handler = f.shortcutHandlers.get(key)!;
+    await handler(f.ctx);
+    assert.equal((await read())[field], toggled);
+    await handler(f.ctx);
+    assert.equal((await read())[field], restored);
+  }
+  const saved = await read();
+  assert.deepEqual(saved.shortcuts, shortcuts);
+  assert.equal(saved.footer, saved.composerMetadata, "composer metadata keeps the legacy footer mirror");
+});
+
+test("registration skips reserved aliases, Pi remaps, viewport and Slate editor keys", async t => {
+  const shortcuts = { sidebar: "ctrl+[", prompts: "ctrl+m", theme: "ctrl+shift+p", pid: "f8", "effort-border": "ctrl+home", density: "ctrl+a", footer: "f2" };
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts }), "tui", true, false, async (_pi, _ui, dir) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({ cycleModelBackward: "shift+ctrl+p", "app.thinking.toggle": ["f8"] }));
+  });
+  assert.deepEqual(f.shortcuts, ["f2"]);
+  for (const raw of ["\r", "\x1b"]) assert(!f.shortcuts.some(key => matchesKey(raw, key as KeyId)), "reserved input must not trigger Slate");
+  assert(f.notices.some(notice => notice.includes("prompts (Ctrl+M): Reserved by Pi")));
+  assert(f.notices.some(notice => notice.includes("effort-border (Ctrl+Home): Used by Pi's viewport")));
+  assert(f.notices.some(notice => notice.includes("density (Ctrl+A): Used by Slate's editor")));
+});
+
+test("load-time registration skips editing keys, unsupported chords, global keys and Kitty symbol aliases", async t => {
+  const shortcuts = { sidebar: "left", prompts: "ctrl++", theme: "ctrl+escape", pid: "shift+f2", "effort-border": "ctrl+shift+d", footer: "f2" };
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts }), "tui", true, false, async (_pi, _ui, dir) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({ "app.interrupt": "ctrl+shift+=" }));
+  });
+  assert.deepEqual(f.shortcuts, ["f2"], "Left must stay available to Slate's caret movement adapter");
+  assert(!f.shortcuts.some(key => matchesKey("\x1b[D", key as KeyId)));
+  for (const message of ["(Left): Used for editing — add ctrl or alt", "(Ctrl++): Reserved by Pi", "(Ctrl+Escape): Not supported by Pi",
+    "(Shift+F2): Not supported by Pi", "(Ctrl+Shift+D): Used by Pi"]) {
+    assert(f.notices.some(notice => notice.includes(message)), message);
+  }
+});
+
+test("literal Tab cannot dispatch a hand-edited Ctrl+I shortcut", async t => {
+  const text = JSON.stringify({ surfaces: ["editor"], shortcuts: { pid: "ctrl+i" } });
+  const f = await fixture(t, text);
+  assert(matchesKey("\t", "ctrl+i"), "Pi treats legacy Tab as Ctrl+I");
+  for (const [key, handler] of f.shortcutHandlers) if (matchesKey("\t", key as KeyId)) await handler(f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), text);
+  assert.match(f.notices.at(-1)!, /\(Ctrl\+I\): Used for editing/);
+});
+
+test("registration blocks remapped image-token editor actions only when Slate owns the editor", async t => {
+  const configure = async (_pi: ExtensionAPI, _ui: ExtensionContext["ui"], dir: string) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({
+      "tui.editor.deleteCharBackward": ["backspace", "f8"], deleteCharForward: "f7", cursorLeft: "f6", cursorRight: "f5",
+    }));
+  };
+  const shortcuts = { pid: "f8", footer: "f7", density: "f6", theme: "f5" };
+  const owned = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts }), "tui", true, false, configure);
+  assert.deepEqual(owned.shortcuts, []);
+  assert.equal(owned.notices.filter(notice => notice.endsWith("Used by Slate's editor")).length, 4);
+  const native = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts }), "tui", true, false, configure);
+  assert.deepEqual([...native.shortcuts].sort(), Object.values(shortcuts).sort());
+});
+
+test("registration rejects the same xterm shifted-symbol alias as the recorder", async t => {
+  const f = await fixture(t, JSON.stringify({ shortcuts: { pid: "ctrl+?" } }), "tui", true, false, async (_pi, _ui, dir) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({ "app.interrupt": "ctrl+shift+?" }));
+  });
+  assert.deepEqual(f.shortcuts, []);
+  assert.match(f.notices.at(-1)!, /\(Ctrl\+\?\): Reserved by Pi/);
+});
+
+function driveShortcuts(t: TestContext, f: Awaited<ReturnType<typeof fixture>>, drive: (panel: Component) => void | Promise<void>) {
+  t.mock.method(f.ctx.ui, "custom", async (factory: Parameters<ExtensionContext["ui"]["custom"]>[0]) => {
+    let result: unknown;
+    const panel = await factory(f.tui, theme, new KeybindingsManager(), value => { result = value; });
+    await drive(panel);
+    return result;
+  });
+}
+
+const shortcutEsc = "\x1b", shortcutEnter = "\r", shortcutDel = "\x1b[3~", f2Input = "\x1bOQ", f8Input = "\x1b[19~";
+
+function sendShortcut(panel: Component, ...keys: string[]) {
+  for (const key of keys) panel.handleInput!(key);
+}
+
+test("unbinding a duplicate winner does not resurrect hidden owners on reload", async t => {
+  const config = { surfaces: ["editor", "sidebar"], shortcuts: { theme: "f2", prompts: "F2", sidebar: "f2" } };
+  const f = await fixture(t, JSON.stringify(config));
+  assert.deepEqual(f.shortcuts, ["f2"]);
+  driveShortcuts(t, f, async panel => {
+    const rows = panel.render(88).join("\n");
+    assert.match(rows, /Toggle sidebar\s+F2/);
+    for (const label of [/Theme picker\s+—/, /Prompt picker\s+—/]) assert.match(rows, label);
+    sendShortcut(panel, shortcutDel);
+    assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), config);
+    sendShortcut(panel, shortcutDel);
+    assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: false, prompts: false, theme: false });
+    assert(!f.calls.includes("reload"));
+    sendShortcut(panel, shortcutEsc);
+  });
+  await f.commands.get("shortcuts")!.handler("", f.ctx);
+  assert(f.calls.includes("reload"));
+  const reloaded = await fixture(t, await readFile(f.path, "utf8"));
+  assert.deepEqual(reloaded.shortcuts, []);
+});
+
+for (const [name, initial, disk, prepare, edit, reason] of [
+  ["a newer binding earlier in catalog order", {}, { sidebar: "f2" }, ["\x1b[A", shortcutEnter], f2Input, "F2 is now used by Toggle sidebar"],
+  ["a newer binding later in catalog order", {}, { footer: "f2" }, [shortcutEnter], f2Input, "F2 is now used by Composer metadata"],
+  ["a divergent edit to the same action", { footer: "f2" }, { footer: "f3" }, ["\x1b[A", shortcutEnter], "\x1bOS", "Composer metadata changed in another session"],
+  ["unbinding an action edited since opening", { sidebar: "f8" }, { sidebar: "f3" }, [shortcutDel], shortcutDel, "Toggle sidebar changed in another session"],
+] as const) {
+  test("shortcuts auto-save refuses " + name, async t => {
+    const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: initial }));
+    const concurrent = JSON.stringify({ surfaces: ["sidebar"], shortcuts: disk });
+    driveShortcuts(t, f, async panel => {
+      sendShortcut(panel, ...prepare);
+      await writeFile(f.path, concurrent);
+      sendShortcut(panel, edit);
+      const rows = panel.render(88).join("\n");
+      assert(rows.includes("Shortcuts not saved: " + reason), rows);
+      assert.match(rows, Object.keys(initial).length ? /Shortcut\s+\[ F[28] \]/ : /Shortcut\s+Not set/);
+      sendShortcut(panel, shortcutEsc);
+    });
+    await f.commands.get("shortcuts")!.handler("", f.ctx);
+    assert.equal(await readFile(f.path, "utf8"), concurrent);
+    assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+  });
+}
+
+test("a concurrent Kitty physical alias is refused unless the panel intended to move it", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"] }));
+  const physical = "\x1b[45:43;6u";
+  assert(matchesKey(physical, "ctrl++") && matchesKey(physical, "ctrl+shift+-"));
+  const concurrent = JSON.stringify({ surfaces: ["editor"], shortcuts: { prompts: "ctrl+shift+-" } });
+  driveShortcuts(t, f, async panel => {
+    sendShortcut(panel, shortcutEnter);
+    await writeFile(f.path, concurrent);
+    sendShortcut(panel, physical);
+    const rows = panel.render(88).join("\n");
+    assert.match(rows, /Shortcuts not saved: Ctrl\+\+ is now used by Prompt picker/);
+    assert.match(rows, /Shortcut\s+Not set/);
+    sendShortcut(panel, shortcutEsc);
+  });
+  const pick = f.commands.get("shortcuts")!.handler;
+  await pick("", f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), concurrent);
+  assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+
+  driveShortcuts(t, f, panel => {
+    sendShortcut(panel, shortcutEnter, physical);
+    assert.match(panel.render(88).join("\n"), /Moved from Prompt picker/);
+    sendShortcut(panel, shortcutEsc);
+  });
+  await pick("", f.ctx);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: "ctrl++", prompts: false });
+  assert(f.calls.includes("reload"));
+});
+
+test("/shortcuts merges each auto-save into fresh settings and waits for idle only on close", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } }));
+  const latest = { version: 1, surfaces: ["editor"], unknown: { future: true }, shortcuts: { sidebar: "f8", footer: "F7", density: "f8", future: 42 } };
+  const moved = { ...latest.shortcuts, sidebar: false, pid: "f8", density: false };
+  let entered!: () => void, idle!: () => void;
+  const waiting = new Promise<void>(resolve => { entered = resolve; });
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  const wait = t.mock.method(f.ctx, "waitForIdle", () => { entered(); return resume; });
+  const reload = t.mock.method(f.ctx, "reload", async () => {});
+  driveShortcuts(t, f, async panel => {
+    await writeFile(f.path, JSON.stringify(latest));
+    sendShortcut(panel, "\x1b[B", "\x1b[B", "\x1b[B", shortcutEnter, f8Input);
+    assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, shortcuts: moved });
+    assert.match(panel.render(88).join("\n"), /✓ Saved — applies when you close/);
+    sendShortcut(panel, "\x1b[B", shortcutEnter, "\x1b[15~");
+    assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, shortcuts: { ...moved, "effort-border": "f5" } });
+    // A later failure still leaves the successful changes eligible for reload.
+    await writeFile(f.path, JSON.stringify({ ...latest, shortcuts: { ...moved, "effort-border": "f6" } }));
+    sendShortcut(panel, shortcutEnter, f2Input);
+    assert.match(panel.render(88).join("\n"), /Shortcuts not saved: Effort border color changed/);
+    assert.equal(wait.mock.callCount(), 0);
+    assert.equal(reload.mock.callCount(), 0);
+    sendShortcut(panel, shortcutEsc);
+  });
+  const saving = f.commands.get("shortcuts")!.handler("", f.ctx);
+  await Promise.race([waiting, saving]);
+  assert.equal(wait.mock.callCount(), 1);
+  assert.equal(reload.mock.callCount(), 0);
+  idle();
+  await saving;
+  assert.equal(reload.mock.callCount(), 1);
+  await f.commands.get("slate")!.handler("surfaces", f.ctx);
+  assert.match(f.notices.at(-1)!, /Slate surfaces: editor\. Active: sidebar/);
+});
+
+test("two panels closed while Pi is busy share a single wait and reload", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  let idle!: () => void;
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  const wait = t.mock.method(f.ctx, "waitForIdle", () => resume);
+  const reload = t.mock.method(f.ctx, "reload", async () => {});
+  const pick = f.commands.get("shortcuts")!.handler;
+  let input = [shortcutEnter, f2Input, shortcutEsc];
+  driveShortcuts(t, f, panel => sendShortcut(panel, ...input));
+  const first = pick("", f.ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  input = ["\x1b[A", shortcutEnter, "\x1b[18~", shortcutEsc];
+  const second = pick("", f.ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: "f2", footer: "f7" });
+  assert.equal(wait.mock.callCount(), 1);
+  assert.equal(reload.mock.callCount(), 0);
+  idle();
+  await Promise.all([first, second]);
+  assert.equal(reload.mock.callCount(), 1);
+});
+
+// Model Pi 1.4: only done settles custom(), not a host UI reset.
+function mountShortcuts(t: TestContext, f: Awaited<ReturnType<typeof fixture>>) {
+  const panels: Component[] = [];
+  t.mock.method(f.ctx.ui, "custom", (factory: Parameters<ExtensionContext["ui"]["custom"]>[0]) => new Promise(resolve => {
+    const panel = factory(f.tui, theme, new KeybindingsManager(), resolve);
+    assert(!(panel instanceof Promise));
+    panels.push(panel);
+  }));
+  return panels;
+}
+
+test("idle arriving while a second shortcuts panel is open defers reload until it closes", { timeout: 3000 }, async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const panels = mountShortcuts(t, f);
+  let idle!: () => void;
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  const wait = t.mock.method(f.ctx, "waitForIdle", () => resume);
+  const reload = t.mock.method(f.ctx, "reload", async () => {});
+  const pick = f.commands.get("shortcuts")!.handler;
+  const first = pick("", f.ctx);
+  sendShortcut(panels[0]!, shortcutEnter, f2Input, shortcutEsc);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(wait.mock.callCount(), 1);
+  const second = pick("", f.ctx);
+  idle();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reload.mock.callCount(), 0);
+  sendShortcut(panels[1]!, "\x1b[A", shortcutEnter, f8Input, shortcutEsc);
+  await Promise.all([first, second]);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: "f2", footer: "f8" });
+  assert.equal(wait.mock.callCount(), 1);
+  assert.equal(reload.mock.callCount(), 1);
+});
+
+for (const event of ["session_shutdown", "session_start"] as const) {
+  test(`an open shortcuts command settles on ${event} and ignores late input`, { timeout: 3000 }, async t => {
+    const original = JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } });
+    const f = await fixture(t, original);
+    const panels = mountShortcuts(t, f);
+    const command = f.commands.get("shortcuts")!.handler("", f.ctx);
+    const panel = panels[0]!;
+    sendShortcut(panel, shortcutEnter);
+    await f.emit(event, { reason: "reload" });
+    await command;
+    sendShortcut(panel, f2Input, shortcutEnter, f2Input, shortcutDel, shortcutDel, shortcutEsc);
+    assert.equal(await readFile(f.path, "utf8"), original);
+    assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+  });
+}
+
+test("shutdown closes a panel that has already saved without requesting reload", { timeout: 3000 }, async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const panels = mountShortcuts(t, f);
+  const command = f.commands.get("shortcuts")!.handler("", f.ctx);
+  sendShortcut(panels[0]!, shortcutEnter, f2Input);
+  await f.emit("session_shutdown", { reason: "reload" });
+  await command;
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, { sidebar: "f2" });
+  assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+});
+
+test("a pending shortcut reload is dropped on session shutdown", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  let idle!: () => void;
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  t.mock.method(f.ctx, "waitForIdle", () => resume);
+  const pick = f.commands.get("shortcuts")!.handler;
+  let data = f2Input;
+  driveShortcuts(t, f, panel => sendShortcut(panel, shortcutEnter, data, shortcutEsc));
+  const first = pick("", f.ctx);
+  await new Promise(resolve => setImmediate(resolve));
+  await f.emit("session_shutdown", { reason: "reload" });
+  await f.emit("session_start");
+  t.mock.method(f.ctx, "waitForIdle", async () => {});
+  data = "\x1bOR";
+  await pick("", f.ctx);
+  idle();
+  await first;
+  assert.equal(f.calls.filter(call => call === "reload").length, 1);
+});
+
+test("panels without successful changes do not write or reload", async t => {
+  const text = JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } });
+  const f = await fixture(t, text);
+  for (const keys of [[shortcutEnter, shortcutEsc], [shortcutEnter, f8Input], [shortcutDel]]) {
+    driveShortcuts(t, f, panel => sendShortcut(panel, ...keys, shortcutEsc));
+    await f.commands.get("shortcuts")!.handler("", f.ctx);
+    assert.equal(await readFile(f.path, "utf8"), text);
+    assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+  }
+});
+
+test("a failed shortcut save displays the reason and does not reload", async t => {
+  const f = await fixture(t, "invalid JSON");
+  driveShortcuts(t, f, panel => {
+    sendShortcut(panel, shortcutEnter, f2Input);
+    const rows = panel.render(88).join("\n");
+    assert.match(rows, /Slate surfaces unavailable: .*invalid JSON/);
+    assert.match(rows, /Shortcut\s+Not set/);
+    sendShortcut(panel, shortcutEsc);
+  });
+  await f.commands.get("shortcuts")!.handler("", f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), "invalid JSON");
+  assert(!f.calls.includes("reload"));
+});
+
+test("the Slate menu opens the same shortcuts panel", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  f.choices.push("Shortcuts");
+  await f.commands.get("slate")!.handler("", f.ctx);
+  assert.match(f.inspected.at(-1)!, /Slate shortcuts/);
+  assert(!f.calls.includes("reload"));
 });
 
 test("rail omits the command catalog", async t => {
