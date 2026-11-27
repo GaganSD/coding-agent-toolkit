@@ -442,12 +442,14 @@ test("invalid files activate nothing, warn, and survive even a settings command"
   assert.equal(await readFile(f.path, "utf8"), text);
 });
 
-test("fresh config does not write preferences on load", async (t) => {
+test("fresh config stays unwritten until a save and persists the fresh surface set", async (t) => {
   const f = await fixture(t, undefined);
   assert.equal(f.calls.includes("editor"), true);
   assert.equal(f.calls.includes("header"), false);
   assert.equal(f.calls.includes("footer"), false);
   await assert.rejects(readFile(f.path), { code: "ENOENT" });
+  await f.commands.get("slate")!.handler("pid on", f.ctx);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).surfaces, FRESH_SURFACES);
 });
 
 for (const mode of ["print", "rpc", "json"]) {
@@ -575,7 +577,7 @@ test("prompt shortcut stays unset unless shortcuts.prompts is a valid chord", as
   assert.deepEqual(bound.shortcuts, ["ctrl+alt+."]);
   await bound.commands.get("slate")!.handler("pid on", bound.ctx);
   const saved = JSON.parse(await readFile(bound.path, "utf8"));
-  assert.deepEqual(saved.shortcuts, { prompts: "ctrl+alt+." });
+  assert.deepEqual(saved.shortcuts, { prompts: "Ctrl+Alt+." }, "PID saves leave unrelated settings as written");
   assert.equal(saved.showPid, true);
 });
 
@@ -586,13 +588,27 @@ test("sidebar shortcut uses the saved focused-mode toggle", async t => {
   await f.shortcutHandlers.get("ctrl+shift+b")!(f.ctx);
   let saved = JSON.parse(await readFile(f.path, "utf8"));
   assert.equal(saved.focused, false);
-  assert.deepEqual(saved.shortcuts, { sidebar: "ctrl+shift+b" });
+  assert.deepEqual(saved.shortcuts, { sidebar: "Ctrl+Shift+B" });
   assert.equal(f.notices.at(-1), "Focused mode off");
 
   await f.commands.get("slate")!.handler("focused", f.ctx);
   saved = JSON.parse(await readFile(f.path, "utf8"));
   assert.equal(saved.focused, true);
   assert.equal(f.notices.at(-1), "Focused mode on");
+});
+
+test("a stale PID shortcut patches only PID and preserves newer settings", async t => {
+  const initial = { surfaces: ["editor"], shortcuts: { pid: "f4" } };
+  const f = await fixture(t, JSON.stringify(initial));
+  const latest = { ...initial, shortcuts: { ...initial.shortcuts, theme: "f3" }, unknown: { nested: "keep" } };
+  await writeFile(f.path, JSON.stringify(latest));
+  const toggle = f.shortcutHandlers.get("f4")!;
+  await toggle(f.ctx);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, showPid: true });
+  await writeFile(f.path, "{broken external edit");
+  await toggle(f.ctx);
+  assert.equal(await readFile(f.path, "utf8"), "{broken external edit");
+  assert.match(f.notices.at(-1)!, /Settings file preserved/);
 });
 
 test("all bound actions register; density and footer keys toggle immediately", async t => {
@@ -619,7 +635,9 @@ test("all bound actions register; density and footer keys toggle immediately", a
     await handler(f.ctx);
     assert.equal((await read())[field], restored);
   }
-  assert.deepEqual((await read()).shortcuts, shortcuts);
+  const saved = await read();
+  assert.deepEqual(saved.shortcuts, shortcuts);
+  assert.equal(saved.footer, saved.composerMetadata, "composer metadata keeps the legacy footer mirror");
 });
 
 test("registration skips reserved aliases, Pi remaps, viewport and Slate editor keys", async t => {
@@ -730,6 +748,26 @@ test("a concurrent assignment that would win against the panel draft aborts the 
   await reloaded.shortcutHandlers.get("f2")!(reloaded.ctx);
   assert.equal(reloaded.notices.at(-1), "Focused mode off");
 });
+
+for (const [name, initial, disk, input, reason] of [
+  ["a newer binding later in catalog order", {}, { footer: "f2" }, ["\r", "\x1bOQ"], "f2 is now used by Composer metadata"],
+  ["a divergent edit to the same action", { footer: "f2" }, { footer: "f3" }, ["\x1b[A", "\r", "\x1bOS"], "Composer metadata changed in another session"],
+] as const) {
+  test(`shortcuts save refuses ${name}`, async t => {
+    const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: initial }));
+    const concurrent = JSON.stringify({ surfaces: ["sidebar"], shortcuts: disk });
+    driveShortcuts(t, f, async panel => {
+      for (const key of input) panel.handleInput!(key);
+      assert.match(panel.render(88).join("\n"), /1 unsaved/);
+      await writeFile(f.path, concurrent);
+      panel.handleInput!("\x13");
+    });
+    await f.commands.get("shortcuts")!.handler("", f.ctx);
+    assert.equal(await readFile(f.path, "utf8"), concurrent);
+    assert.equal(f.notices.at(-1), `Shortcuts not saved: ${reason}. Reopen /shortcuts.`);
+    assert(!f.calls.includes("waitForIdle") && !f.calls.includes("reload"));
+  });
+}
 
 test("/shortcuts merges fresh settings and waits for idle before reloading exactly once", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } }));

@@ -119,20 +119,31 @@ function clearDuplicateShortcuts(raw: Record<string, unknown>): SlateShortcuts |
 
 export function mergeShortcuts(value: unknown, initial: SlateShortcuts | undefined, draft: SlateShortcuts) {
   const raw = { ...shortcutObject(value) }, changed = changedShortcuts(initial, draft);
-  clearDuplicateShortcuts(raw); // A hidden duplicate must not inherit a key the panel unbound.
+  const disk = clearDuplicateShortcuts(raw); // Hidden duplicates must not inherit an unbound key.
+  const refuse = (reason: string) => ({ error: `Shortcuts not saved: ${reason}. Reopen /shortcuts.` } as const);
   for (const id of changed) {
+    const current = shortcutKey(disk, id), wanted = parseShortcut(draft[id]) || undefined;
+    // Refuse divergent edits to the same action; identical edits can merge.
+    if (current !== shortcutKey(initial, id) && current !== wanted) {
+      return refuse(`${SHORTCUT_ACTIONS.find(action => action.id === id)!.label} changed in another session`);
+    }
     if (draft[id] === undefined) delete raw[id];
     else raw[id] = draft[id];
   }
   const shortcuts = clearDuplicateShortcuts(raw);
-  for (const id of changed) {
+  for (const { id, label } of SHORTCUT_ACTIONS) {
+    if (!changed.includes(id)) {
+      const current = shortcutKey(disk, id);
+      if (current && current !== shortcutKey(shortcuts, id)) return refuse(`${current} is now used by ${label}`);
+      continue;
+    }
     const wanted = parseShortcut(draft[id]) || undefined;
     if (wanted === shortcutKey(shortcuts, id)) continue;
     const [owner] = wanted ? shortcutOwners(wanted, id, shortcuts ?? {}) : [];
-    const label = SHORTCUT_ACTIONS.find(({ id }) => id === owner)?.label;
-    return { error: `Shortcuts not saved: ${label ? `${wanted} is now used by ${label}` : "the draft conflicts with current bindings"}. Reopen /shortcuts.` } as const;
+    const holder = SHORTCUT_ACTIONS.find(action => action.id === owner)?.label;
+    return refuse(holder ? `${wanted} is now used by ${holder}` : "the draft conflicts with current bindings");
   }
-  return { raw, shortcuts } as const;
+  return { raw } as const;
 }
 
 export function shortcutKey(shortcuts: SlateShortcuts | undefined, id: ShortcutActionId): string | undefined {
@@ -209,7 +220,7 @@ export type KeyClassification = { kind: "reserved"; description: string }
 export function shortcutStatus(result: KeyClassification): string {
   switch (result.kind) {
     case "free": return "free";
-    case "pi": return `Replaces Pi: ${result.description}`;
+    case "pi": return `Also bound in Pi: ${result.description}`;
     case "reserved": return `Reserved by Pi: ${result.description}`;
     case "viewport": return "Used by Pi's viewport";
     case "editor": return "Used by Slate's editor";

@@ -130,11 +130,11 @@ test("recording rejects printable keys in both encodings and accepts only round-
   assert.deepEqual(f.done, [{ sidebar: "ctrl++" }]);
 });
 
-test("non-reserved Pi keys outside Slate's editor can be replaced", () => {
+test("non-reserved keys show their other Pi bindings", () => {
   const f = fixture(undefined, false);
   f.input("\r", "\x02");
   assert.match(f.render(), /Key\s+ctrl\+b/);
-  assert.match(f.render(), /Replaces Pi:/);
+  assert.match(f.render(), /Also bound in Pi:/);
 });
 
 test("saved editing, unsupported, and global keys display their blocked status", () => {
