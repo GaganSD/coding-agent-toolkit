@@ -492,6 +492,9 @@ try {
     const editor = Reflect.get(mode, "editor");
     const image = join(root, "retry-drop.png");
     await writeFile(image, fixturePng);
+    // Let the host's deferred syntax-language load finish before faulting the
+    // image repaint path, so an unrelated startup repaint cannot hit the stub.
+    await delay(250);
     editor.setText("");
     editor.handleInput(`"${image}"`);
     ui.renderNow(true);
