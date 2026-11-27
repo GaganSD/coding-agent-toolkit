@@ -1,7 +1,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, parseKey, visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
+import { matchesKey, parseKey, visibleWidth, type Component, type KeybindingsManager, type KeyId, type TUI } from "@earendil-works/pi-tui";
 import { compactPicker, fit, pickerBody, pickerFrame, pickerGeometry, PICKER_OVERLAY, selectedRow, viewport } from "./picker-frame.ts";
-import { classifyKey, parseKeyChord, SHORTCUT_ACTIONS, shortcutKey, type KeyClassification, type ShortcutActionId, type ShortcutKeys, type SlateShortcuts } from "./shortcuts.ts";
+import { blockedShortcutText, classifyKey, parseKeyChord, SHORTCUT_ACTIONS, shortcutKey, shortcutOwners, type KeyClassification, type ShortcutActionId, type ShortcutKeys, type SlateShortcuts } from "./shortcuts.ts";
 
 type Options = { ownsEditor: boolean };
 type PanelKeys = ShortcutKeys & Pick<KeybindingsManager, "matches">;
@@ -12,9 +12,10 @@ function statusText(result: KeyClassification): string {
   switch (result.kind) {
     case "free": return "free";
     case "pi": return `Replaces Pi: ${result.description}`;
-    case "reserved": return `Reserved by Pi: ${result.description}`;
+    case "reserved": case "viewport": case "editor": return blockedShortcutText(result);
     case "moved": return `Moved from ${SHORTCUT_ACTIONS.find(({ id }) => id === result.from)!.label}`;
-    case "needs-modifier": return "Add ctrl or alt";
+    case "needs-modifier": return "Add ctrl, alt or super";
+    case "unsupported": return "Not supported by Pi";
   }
 }
 
@@ -60,16 +61,19 @@ export class ShortcutsPanel implements Component {
       if (!this.recording) { this.finish(); return; }
       this.recording = false;
     } else if (this.recording) {
-      const raw = parseKey(data) ?? "";
-      const result = classifyKey(raw, id, this.draft, this.keys);
-      if (result.kind === "reserved" || result.kind === "needs-modifier") this.error = statusText(result);
+      const key = parseKeyChord(parseKey(data) ?? "");
+      if (!key) this.error = statusText({ kind: "needs-modifier" });
+      else if (!matchesKey(data, key as KeyId)) this.error = statusText({ kind: "unsupported" });
       else {
-        if (result.kind === "moved") {
-          this.unbind(result.from);
-          this.moved[id] = result.from;
-        } else delete this.moved[id];
-        this.draft[id] = parseKeyChord(raw)!;
-        this.recording = false;
+        const result = classifyKey(key, id, this.draft, this.keys, this.opts.ownsEditor);
+        if (result.kind === "free" || result.kind === "pi" || result.kind === "moved") {
+          if (result.kind === "moved") {
+            for (const owner of shortcutOwners(key, id, this.draft)) this.unbind(owner);
+            this.moved[id] = result.from;
+          } else delete this.moved[id];
+          this.draft[id] = key;
+          this.recording = false;
+        } else this.error = statusText(result);
       }
     } else if (this.keys.matches(data, "tui.select.up")) {
       this.selected = (this.selected + SHORTCUT_ACTIONS.length - 1) % SHORTCUT_ACTIONS.length;
@@ -88,7 +92,7 @@ export class ShortcutsPanel implements Component {
     const key = shortcutKey(this.draft, id);
     const from = this.moved[id];
     const status = this.disabled ? "Needs the editor surface" : from ? statusText({ kind: "moved", from })
-      : key ? statusText(classifyKey(key, id, this.draft, this.keys)) : "free";
+      : key ? statusText(classifyKey(key, id, this.draft, this.keys, this.opts.ownsEditor)) : "free";
     const unsaved = changedCount(this.initial, this.draft);
     const title = `Slate shortcuts${unsaved ? ` · ${unsaved} unsaved` : ""}`;
     const hint = this.recording ? "Press a key… (Esc to go back)" : "Press Enter, then the new key.";

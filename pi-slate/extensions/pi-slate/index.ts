@@ -83,7 +83,7 @@ import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
-import { loadShortcuts, promptShortcutKey, SHORTCUT_ACTIONS, shortcutKey, type SlateShortcuts } from "./shortcuts.ts";
+import { blockedShortcutText, classifyKey, loadShortcutKeys, loadShortcuts, SHORTCUT_ACTIONS, shortcutKey, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 import { openShortcutsPanel } from "./shortcuts-panel.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
 
@@ -209,7 +209,8 @@ class SlateFooter implements Component {
 }
 
 export default function piSlate(pi: ExtensionAPI): void {
-  const configPath = join(getAgentDir(), "pi-slate.json");
+  const agentDir = getAgentDir();
+  const configPath = join(agentDir, "pi-slate.json");
   const loaded = loadConfig(configPath);
   const saveConfig = (next: SlateConfig): void => writeConfig(configPath, { ...next, footer: next.composerMetadata });
   let config = loaded.config;
@@ -227,7 +228,19 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     if (!claudeTools) installRead(pi);
   }
-  if (owns("editor")) installPromptPicker(pi, promptShortcutKey(config.shortcuts));
+  const shortcutWarnings: string[] = [];
+  const shortcutKeys = config.shortcuts ? loadShortcutKeys(agentDir) : undefined;
+  const configuredShortcut = (id: ShortcutActionId): string | undefined => {
+    const key = shortcutKey(config.shortcuts, id);
+    if (!key || !shortcutKeys) return;
+    const result = classifyKey(key, id, {}, shortcutKeys, owns("editor"));
+    if (result.kind === "reserved" || result.kind === "viewport" || result.kind === "editor") {
+      shortcutWarnings.push(`Skipped Slate shortcut ${id} (${key}): ${blockedShortcutText(result)}`);
+      return;
+    }
+    return key;
+  };
+  if (owns("editor")) installPromptPicker(pi, configuredShortcut("prompts"));
   installExitCommand(pi);
   const sidebar = new Sidebar();
   const images = owns("editor") ? installImagePlaceholders(pi, owns("sidebar") ? sidebar : undefined, () => editorActive()) : undefined;
@@ -681,7 +694,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
   };
 
-  pi.on("session_start", (_event, ctx) => { install(ctx); });
+  pi.on("session_start", (_event, ctx) => {
+    install(ctx);
+    if (ctx.mode === "tui") for (const warning of shortcutWarnings.splice(0)) ctx.ui.notify(warning, "warning");
+  });
   pi.on("agent_start", (_event, ctx) => {
     currentContext = ctx;
     if (ctx.mode === "tui" && (owns("sidebar") || editorActive() || owns("transcript"))) {
@@ -1011,15 +1027,25 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   for (const { id, label } of SHORTCUT_ACTIONS) {
     if (id === "prompts") continue;
-    const key = shortcutKey(config.shortcuts, id);
+    const key = configuredShortcut(id);
     if (key) pi.registerShortcut(key as KeyId, { description: label, handler: shortcutHandlers[id] });
   }
 
   const pickShortcuts = async (ctx: ExtensionCommandContext): Promise<void> => {
     const shortcuts = await openShortcutsPanel(ctx, config.shortcuts, { ownsEditor: owns("editor") });
     if (!shortcuts) return;
-    apply({ ...config, shortcuts }, "Shortcuts saved", ctx);
-    if (config.shortcuts === shortcuts) await ctx.reload();
+    try {
+      const latest = loadConfig(configPath);
+      if (latest.error) { ctx.ui.notify(latest.error, "warning"); return; }
+      writeConfig(configPath, { ...latest.raw, shortcuts });
+      config = { ...latest.config, shortcuts };
+    } catch (error) {
+      ctx.ui.notify(`Could not save Slate settings: ${error instanceof Error ? error.message : String(error)}`, "error");
+      return;
+    }
+    ctx.ui.notify("Shortcuts saved", "info");
+    await ctx.waitForIdle();
+    await ctx.reload();
   };
   pi.registerCommand("shortcuts", {
     description: "Assign keyboard shortcuts to Slate actions",

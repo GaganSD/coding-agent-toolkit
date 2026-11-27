@@ -52,13 +52,12 @@ type InstalledEditor = {
   deactivate(): void;
 };
 
-function isSelectAll(data: string): boolean {
-  return matchesKey(data, "ctrl+a") || matchesKey(data, "super+a") || matchesKey(data, "ctrl+shift+a");
-}
-
-function isCopy(data: string): boolean {
-  return matchesKey(data, "ctrl+c") || matchesKey(data, "super+c") || matchesKey(data, "ctrl+shift+c");
-}
+const SELECT_ALL = ["ctrl+a", "super+a", "ctrl+shift+a"] as const;
+const COPY = ["ctrl+c", "super+c", "ctrl+shift+c"] as const;
+const CLEAR = ["escape"] as const;
+const DELETE_SELECTION = ["backspace", "delete", "shift+backspace", "shift+delete"] as const;
+const NEWLINE_REPLACES_SELECTION = ["shift+enter", "ctrl+j"] as const;
+export const COMPOSER_SELECTION_KEYS = [...SELECT_ALL, ...COPY, ...CLEAR, ...DELETE_SELECTION, ...NEWLINE_REPLACES_SELECTION];
 
 function isPrintable(data: string): boolean {
   return data.length > 0 && !/[\x00-\x1f\x7f]/.test(data);
@@ -70,8 +69,7 @@ function isReplace(data: string): boolean {
   return decodeKittyPrintable(printableInput) !== undefined
     || isPrintable(data)
     || data.includes("\x1b[200~")
-    || matchesKey(data, "shift+enter")
-    || matchesKey(data, "ctrl+j");
+    || NEWLINE_REPLACES_SELECTION.some(key => matchesKey(data, key));
 }
 
 const PASTE_TOKEN = /\[paste #(\d+)(?: \+\d+ lines| \d+ chars)?\]/g;
@@ -264,7 +262,7 @@ export class ComposerSelectionController {
 
     const handleInput = (data: string): void => {
       if (disposed) { originalHandleInput.call(editor, data); return; }
-      if (matchesKey(data, "escape")) {
+      if (CLEAR.some(key => matchesKey(data, key))) {
         if (isKeyRelease(data)) return;
         if (isKeyRepeat(data)) {
           if (this.escapeArmedText !== undefined && editor.getText() !== this.escapeArmedText) disarmEscape();
@@ -296,20 +294,19 @@ export class ComposerSelectionController {
 
       this.revision += 1;
       disarmEscape();
-      if (isSelectAll(data)) {
+      if (SELECT_ALL.some(key => matchesKey(data, key))) {
         setSelected(editor.getText().length > 0);
         return;
       }
 
       // Ctrl+C is Pi's app.clear. Never let it wipe a non-empty prompt.
-      if (isCopy(data) && editor.getText().length > 0) {
+      if (COPY.some(key => matchesKey(data, key)) && editor.getText().length > 0) {
         copyPrompt();
         return;
       }
 
       if (this.selected) {
-        if (matchesKey(data, "backspace") || matchesKey(data, "delete")
-          || matchesKey(data, "shift+backspace") || matchesKey(data, "shift+delete")) {
+        if (DELETE_SELECTION.some(key => matchesKey(data, key))) {
           editor.setText("");
           return;
         }

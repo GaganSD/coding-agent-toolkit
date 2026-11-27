@@ -85,10 +85,44 @@ test("reserved and bare keys are rejected without leaving recording", () => {
   assert.match(f.render(), /Reserved by Pi:/);
   assert.match(f.render(), /Press a key…/);
   f.input("a");
-  assert.match(f.render(), /Add ctrl or alt/);
+  assert.match(f.render(), /Add ctrl, alt or super/);
   assert.match(f.render(), /Press a key…/);
   f.input(f2);
-  assert.doesNotMatch(f.render(), /Add ctrl or alt|Press a key…/);
+  assert.doesNotMatch(f.render(), /Add ctrl, alt or super|Press a key…/);
+});
+
+test("recording rejects legacy aliases of reserved keys, viewport keys, and editor keys", () => {
+  const f = fixture();
+  f.input("\r");
+  for (const input of ["\x1b[109;5u", "\x1b[91;5u"]) { // Kitty Ctrl+M and Ctrl+[
+    f.input(input);
+    assert.match(f.render(), /Reserved by Pi:/);
+  }
+  f.input("\x1b[5~");
+  assert.match(f.render(), /Used by Pi's viewport/);
+  f.input("\x01");
+  assert.match(f.render(), /Used by Slate's editor/);
+  assert.match(f.render(), /Press a key…/);
+  assert.doesNotMatch(f.render(), /unsaved/);
+
+  const native = fixture(undefined, false);
+  native.input("\r", "\x01", "\x13");
+  assert.deepEqual(native.done, [{ sidebar: "ctrl+a" }]);
+});
+
+test("recording rejects printable keys in both encodings and accepts only round-tripping chords", () => {
+  const f = fixture();
+  f.input("\r");
+  for (const input of ["A", "\x1b[97;2u", " ", "\x1b[32;2u"]) {
+    f.input(input);
+    assert.match(f.render(), /Add ctrl, alt or super/);
+    assert.match(f.render(), /Press a key…/);
+  }
+  f.input("\x1b[27;5u"); // Kitty Ctrl+Esc parses, but Pi never matches that chord.
+  assert.match(f.render(), /Not supported by Pi/);
+  assert.match(f.render(), /Press a key…/);
+  f.input("\x1b[43;5u", "\x13");
+  assert.deepEqual(f.done, [{ sidebar: "ctrl++" }]);
 });
 
 test("non-reserved Pi keys can be replaced", () => {
@@ -98,16 +132,17 @@ test("non-reserved Pi keys can be replaced", () => {
   assert.match(f.render(), /Replaces Pi:/);
 });
 
-test("assignment moves a duplicate key and clears its old binding on save", () => {
-  const initial = { prompts: "f2" };
+test("assignment moves a duplicate key and clears every previous owner on save", () => {
+  const initial = { sidebar: "f2", theme: "f2" };
   const f = fixture(initial);
-  f.input("\r", f2);
-  assert.match(f.render(), /Moved from Prompt picker/);
-  assert.match(f.render(), /Slate shortcuts · 2 unsaved/);
-  assert.match(f.render(), /Prompt picker\s+—/);
+  f.input(down, "\r", f2);
+  assert.match(f.render(), /Moved from Toggle sidebar/);
+  assert.match(f.render(), /Slate shortcuts · 3 unsaved/);
+  assert.match(f.render(), /Toggle sidebar\s+—/);
+  assert.match(f.render(), /Theme picker\s+—/);
   f.input("\x13");
-  assert.deepEqual(f.done, [{ sidebar: "f2", prompts: false }]);
-  assert.deepEqual(initial, { prompts: "f2" });
+  assert.deepEqual(f.done, [{ sidebar: false, theme: false, prompts: "f2" }]);
+  assert.deepEqual(initial, { sidebar: "f2", theme: "f2" });
 });
 
 test("recording prompts requires the editor surface", () => {

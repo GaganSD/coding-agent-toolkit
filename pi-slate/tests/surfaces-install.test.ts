@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { ExtensionRunner, SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type ExtensionEvent, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Container, Editor, ScrollView, Text, TuiAltScreen, type Component, type EditorTheme, type Terminal, type TUI } from "@earendil-works/pi-tui";
+import { Container, Editor, matchesKey, ScrollView, Text, TuiAltScreen, type Component, type EditorTheme, type KeyId, type Terminal, type TUI } from "@earendil-works/pi-tui";
 import piSlate from "../extensions/pi-slate/index.ts";
 import { ComposerEditor } from "../extensions/pi-slate/composer.ts";
 import { Sidebar, type SidebarActions } from "../extensions/pi-slate/sidebar.ts";
@@ -26,7 +26,7 @@ const editorTheme = { borderColor: (text: string) => text } as EditorTheme;
 
 type Handler = (event: ExtensionEvent, ctx: ExtensionContext) => unknown;
 
-async function fixture(t: TestContext, text: string | undefined, mode = "tui", compatible = true, conflict = false, configure?: (pi: ExtensionAPI, ui: ExtensionContext["ui"]) => void) {
+async function fixture(t: TestContext, text: string | undefined, mode = "tui", compatible = true, conflict = false, configure?: (pi: ExtensionAPI, ui: ExtensionContext["ui"], agentDir: string) => void | Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), "slate-surfaces-"));
   const previous = { dir: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE };
   process.env.PI_CODING_AGENT_DIR = cwd;
@@ -131,13 +131,13 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   };
   const manager = SessionManager.inMemory(cwd);
   let stale = false;
-  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, modelRegistry: { find: () => undefined }, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false, reload: async () => { calls.push("reload"); } } as unknown as ExtensionCommandContext, {
+  const ctx = new Proxy({ cwd, mode, ui, sessionManager: manager, modelRegistry: { find: () => undefined }, getContextUsage: () => undefined, isIdle: () => true, isProjectTrusted: () => false, waitForIdle: async () => { calls.push("waitForIdle"); }, reload: async () => { calls.push("reload"); } } as unknown as ExtensionCommandContext, {
     get(target, key, receiver) {
       if (stale) throw new Error("This extension ctx is stale after session replacement or reload.");
       return Reflect.get(target, key, receiver);
     },
   });
-  configure?.(pi, ui as unknown as ExtensionContext["ui"]);
+  await configure?.(pi, ui as unknown as ExtensionContext["ui"], cwd);
   piSlate(pi);
   const emit = async (type: string, extra: Record<string, unknown> = {}, context: ExtensionContext = ctx) => {
     let result: unknown;
@@ -595,7 +595,7 @@ test("sidebar shortcut uses the saved focused-mode toggle", async t => {
   assert.equal(f.notices.at(-1), "Focused mode on");
 });
 
-test("all bound actions register, and setting shortcuts share the command setters", async t => {
+test("all bound actions register; density and footer keys toggle immediately", async t => {
   const shortcuts = { sidebar: "f8", prompts: "f2", theme: "f3", pid: "f4", "effort-border": "f5", density: "f6", footer: "f7" };
   const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], shortcuts }));
   assert.deepEqual([...f.shortcuts].sort(), Object.values(shortcuts).sort());
@@ -604,28 +604,64 @@ test("all bound actions register, and setting shortcuts share the command setter
     ["f8", "focused", false, "focused", true],
     ["f4", "showPid", true, "pid", false],
     ["f5", "effortBorderColor", true, "effort-border", false],
-    ["f6", "density", "compact", "density comfortable", "comfortable"],
-    ["f7", "composerMetadata", "minimal", "footer standard", "standard"],
   ] as const) {
     await f.shortcutHandlers.get(key)!(f.ctx);
     assert.equal((await read())[field], toggled);
     await f.commands.get("slate")!.handler(command, f.ctx);
     assert.equal((await read())[field], restored);
   }
+  for (const [key, field, toggled, restored] of [
+    ["f6", "density", "compact", "comfortable"], ["f7", "composerMetadata", "minimal", "standard"],
+  ] as const) {
+    const handler = f.shortcutHandlers.get(key)!;
+    await handler(f.ctx);
+    assert.equal((await read())[field], toggled);
+    await handler(f.ctx);
+    assert.equal((await read())[field], restored);
+  }
   assert.deepEqual((await read()).shortcuts, shortcuts);
 });
 
-test("/shortcuts saves a changed draft and reloads exactly once", async t => {
+test("registration skips reserved aliases, Pi remaps, viewport and Slate editor keys", async t => {
+  const shortcuts = { sidebar: "ctrl+[", prompts: "ctrl+m", theme: "ctrl+shift+p", pid: "f8", "effort-border": "pageUp", density: "ctrl+a", footer: "f2" };
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor"], shortcuts }), "tui", true, false, async (_pi, _ui, dir) => {
+    await writeFile(join(dir, "keybindings.json"), JSON.stringify({ cycleModelBackward: "shift+ctrl+p", "app.thinking.toggle": ["f8"] }));
+  });
+  assert.deepEqual(f.shortcuts, ["f2"]);
+  for (const raw of ["\r", "\x1b"]) assert(!f.shortcuts.some(key => matchesKey(raw, key as KeyId)), "reserved input must not trigger Slate");
+  assert(f.notices.some(notice => notice.includes("prompts (ctrl+m): Reserved by Pi")));
+  assert(f.notices.some(notice => notice.includes("effort-border (pageUp): Used by Pi's viewport")));
+  assert(f.notices.some(notice => notice.includes("density (ctrl+a): Used by Slate's editor")));
+});
+
+test("only the first Slate action in catalog order registers a duplicate JSON binding", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["editor", "sidebar"], shortcuts: { theme: "f2", prompts: "F2", sidebar: "f2" } }));
+  assert.deepEqual(f.shortcuts, ["f2"]);
+  await f.shortcutHandlers.get("f2")!(f.ctx);
+  assert.equal(f.notices.at(-1), "Focused mode off");
+});
+
+test("/shortcuts merges fresh settings and waits for idle before reloading exactly once", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], shortcuts: { sidebar: "f8" } }));
   const draft = { sidebar: false, pid: "f8" };
-  t.mock.method(f.ctx.ui, "custom", async () => draft);
-  const reload = t.mock.method(f.ctx, "reload", async () => {
-    assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, draft);
-  });
-  await f.commands.get("shortcuts")!.handler("", f.ctx);
-  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")).shortcuts, draft);
+  const latest = { version: 1, surfaces: ["editor"], unknown: { future: true }, shortcuts: { sidebar: "f8" } };
+  t.mock.method(f.ctx.ui, "custom", async () => { await writeFile(f.path, JSON.stringify(latest)); return draft; });
+  let entered!: () => void, idle!: () => void;
+  const waiting = new Promise<void>(resolve => { entered = resolve; });
+  const resume = new Promise<void>(resolve => { idle = resolve; });
+  const wait = t.mock.method(f.ctx, "waitForIdle", () => { entered(); return resume; });
+  const reload = t.mock.method(f.ctx, "reload", async () => {});
+  const saving = f.commands.get("shortcuts")!.handler("", f.ctx);
+  await Promise.race([waiting, saving]);
+  assert.equal(wait.mock.callCount(), 1);
+  assert.equal(reload.mock.callCount(), 0);
+  assert.deepEqual(JSON.parse(await readFile(f.path, "utf8")), { ...latest, shortcuts: draft });
+  idle();
+  await saving;
   assert.equal(reload.mock.callCount(), 1);
   assert.equal(f.notices.at(-1), "Shortcuts saved");
+  await f.commands.get("slate")!.handler("surfaces", f.ctx);
+  assert.match(f.notices.at(-1)!, /Slate surfaces: editor\. Active: sidebar/);
 });
 
 test("cancelled or unchanged shortcut drafts do not save or reload", async t => {

@@ -145,9 +145,9 @@ These work when `editor` is selected. No terminal configuration.
 
 ### Shortcuts
 
-Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del to unbind it. Ctrl+S saves and reloads Slate so the new keys take effect. Esc backs out of recording or closes the panel without saving; Ctrl+C cancels from anywhere.
+Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del to unbind it. Ctrl+S saves and reloads Slate once Pi is idle. Esc backs out of recording or closes the panel without saving; Ctrl+C cancels from anywhere.
 
-Pi-reserved keys are blocked. Other Pi bindings can be replaced; the panel shows what the key replaces. There are no default Slate shortcut keys.
+Pi-reserved keys, viewport keys, and Slate editor keys (when the editor surface is selected) are blocked. Other Pi bindings can be replaced; the panel shows what the key replaces. Printable keys, including Space, require Ctrl, Alt, or Super; Shift alone isn't enough. There are no default Slate shortcut keys.
 
 You can also edit `~/.pi/agent/pi-slate.json` by hand and run `/reload`:
 
@@ -155,7 +155,7 @@ You can also edit `~/.pi/agent/pi-slate.json` by hand and run `/reload`:
 { "shortcuts": { "sidebar": "f8", "prompts": "ctrl+alt+." } }
 ```
 
-Action IDs: `sidebar` (focused mode), `prompts` (requires the editor surface), `theme`, `pid`, `effort-border`, `density`, and `footer` (composer metadata). Use `false`, `"none"`, or `""` to leave an action unbound.
+Action IDs: `sidebar` (focused mode), `prompts` (requires the editor surface), `theme`, `pid`, `effort-border`, `density`, and `footer` (composer metadata). Use `false`, `"none"`, or `""` to leave an action unbound. If hand-edited bindings overlap, the first action in the order above wins.
 
 ## Independent Surfaces
 
