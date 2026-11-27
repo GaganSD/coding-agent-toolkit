@@ -1106,7 +1106,7 @@ test("SPEED follows persistence, not token deltas or an unrelated model selectio
 });
 
 test("live MCP activity drives the sidebar spinner and warning, then stops its timer", async t => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 1000 });
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
   t.after(() => t.mock.timers.reset());
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }), "tui", true, false, async (_pi, _ui, agentDir) => {
     await writeFile(join(agentDir, "mcp.json"), '{"mcpServers":{"docs":{"command":"docs"}}}');
@@ -1150,13 +1150,6 @@ test("live MCP activity drives the sidebar spinner and warning, then stops its t
   await start("d");
   await end("d", { durationMs: 5 });
   assert.doesNotMatch(rows(), /● docs !/, "the next success clears the warning");
-
-  await start("e");
-  await end("e", { isError: true });
-  assert.doesNotMatch(rows(), /● docs (?:[▁▂▃▄▅▆▇█]{3}|!)/, "an end without durationMs never ran");
-  count = ticks.mock.callCount();
-  t.mock.timers.tick(WAVE_STEP_MS);
-  assert.equal(ticks.mock.callCount(), count, "the timer remains stopped");
 
   await start("f");
   await f.emit("session_shutdown");

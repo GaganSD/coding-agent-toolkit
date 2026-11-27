@@ -6,6 +6,7 @@ export const MCP_WARN_MS = 60_000;
 export type McpActivityView = {
   active: boolean;
   warning: boolean;
+  warnUntil: number | null;
   calls: number;
   lastUsed: number | null;
   lastError: { text: string; at: number } | null;
@@ -14,7 +15,7 @@ export type McpActivityView = {
 type ServerActivity = {
   calls: number;
   lastUsed: number | null;
-  warningAt: number | null;
+  warnUntil: number | null;
   lastError: { text: string; at: number } | null;
 };
 
@@ -28,33 +29,38 @@ export class McpActivity {
     this.calls.set(id, server);
   }
 
-  end(event: ToolExecutionEndEvent, aborted: boolean, now: number): void {
+  /** Returns whether this was a tracked MCP call; an untracked id is a no-op. */
+  end(event: ToolExecutionEndEvent, aborted: boolean, now: number): boolean {
     const server = this.calls.get(event.toolCallId);
-    if (server === undefined) return;
+    if (server === undefined) return false;
     this.calls.delete(event.toolCallId);
-    if (event.durationMs === undefined) return;
-    const state = this.state(server);
+    if (event.durationMs === undefined) return true;
+    let state = this.servers.get(server);
+    if (!state) {
+      state = { calls: 0, lastUsed: null, warnUntil: null, lastError: null };
+      this.servers.set(server, state);
+    }
     state.calls++;
     state.lastUsed = now;
-    if (aborted) return;
-    if (!event.isError) { state.warningAt = null; return; }
-    state.warningAt = now;
+    if (event.isError === false) { state.warnUntil = null; return true; }
+    if (aborted) return true;
+    state.warnUntil = now + MCP_WARN_MS;
     state.lastError = { text: errorText(event.result), at: now };
+    return true;
   }
 
   view(server: string, now: number): McpActivityView {
     const state = this.servers.get(server);
-    const warningAt = state?.warningAt;
+    const warnUntil = state?.warnUntil ?? null;
     return {
       active: this.active(server),
-      warning: warningAt !== null && warningAt !== undefined && now - warningAt < MCP_WARN_MS,
+      warning: warnUntil !== null && now < warnUntil,
+      warnUntil,
       calls: state?.calls ?? 0,
       lastUsed: state?.lastUsed ?? null,
       lastError: state?.lastError ?? null,
     };
   }
-
-  anyActive(): boolean { return this.calls.size > 0; }
 
   reset(): void {
     this.servers.clear();
@@ -64,15 +70,6 @@ export class McpActivity {
   private active(server: string): boolean {
     for (const name of this.calls.values()) if (name === server) return true;
     return false;
-  }
-
-  private state(server: string): ServerActivity {
-    let state = this.servers.get(server);
-    if (!state) {
-      state = { calls: 0, lastUsed: null, warningAt: null, lastError: null };
-      this.servers.set(server, state);
-    }
-    return state;
   }
 }
 
@@ -85,8 +82,8 @@ function errorText(result: AgentToolResult): string {
   return "error";
 }
 
-export function mcpServer(toolName: string, tools: readonly ToolInfo[]): string | undefined {
+export function mcpServer(toolName: string, tools: () => readonly ToolInfo[]): string | undefined {
   if (!toolName.startsWith("mcp__")) return undefined;
-  const namespace = tools.find(tool => tool.name === toolName)?.namespace;
+  const namespace = tools().find(tool => tool.name === toolName)?.namespace;
   return namespace?.name.startsWith("mcp__") ? namespace.aliases?.[0] : undefined;
 }

@@ -58,13 +58,12 @@ export function mcpAge(ms: number): string {
   return sidebarDuration(ms).split(" ", 1)[0]!;
 }
 
-export function mcpDetails(server: SidebarMcp, activity?: McpActivityView, now = Date.now()): string {
-  const lastUsed = activity?.lastUsed ?? null;
-  const lastError = activity?.lastError ?? null;
+export function mcpDetails(server: SidebarMcp, activity: McpActivityView, now: number): string {
+  const { lastUsed, lastError } = activity;
   return `${server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled"} (configuration, not connection status)\nSource: ${server.source}\n`
     + (server.enabled === null ? "Enabled state could not be read from this declaration.\n" : "")
     + `Last used: ${lastUsed === null ? "not this session" : `${mcpAge(now - lastUsed)} ago`}\n`
-    + `Calls this session: ${activity?.calls ?? 0}\n`
+    + `Calls this session: ${activity.calls}\n`
     + `Last error: ${lastError ? `${lastError.text} (${mcpAge(now - lastError.at)} ago)` : "none"}\n`
     + "Slate does not validate MCP server configurations. Use /mcp for validation and live status.";
 }

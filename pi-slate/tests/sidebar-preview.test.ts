@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { Theme, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolExecutionEndEvent, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { SidebarSplit } from "../extensions/pi-slate/sidebar-split.ts";
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
@@ -24,6 +24,13 @@ const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRea
 const mcpEnded = (id: string, extra: Partial<ToolExecutionEndEvent> = {}): ToolExecutionEndEvent => ({
   type: "tool_execution_end", toolCallId: id, toolName: "mcp__docs__search", result: {}, isError: false, ...extra,
 });
+const mcpTool = (server: string): ToolInfo => ({
+  name: "mcp__docs__search", description: "", parameters: {}, exposure: "direct",
+  namespace: { name: "mcp__docs", aliases: [server] },
+  sourceInfo: { path: "/host/mcp.ts", source: "fixture", scope: "user", origin: "top-level" },
+});
+const mcpStarted = (sidebar: Sidebar, id: string, server: string): void =>
+  sidebar.mcpCallStarted(id, "mcp__docs__search", () => [mcpTool(server)]);
 const resources: SidebarResources = {
   mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
   skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
@@ -36,7 +43,22 @@ function fixture(rows = 60) {
   const terminal = { rows, columns: 140 };
   sidebar.attach({ terminal, requestRender() { renders++; }, showOverlay() { return { hide() {} }; } } as unknown as TUI, theme());
   sidebar.setSession(session); sidebar.setResources(resources);
-  return { sidebar, terminal, now: () => clock, advance: (ms: number) => { clock += ms; }, renders: () => renders };
+  return { sidebar, terminal, advance: (ms: number) => { clock += ms; }, renders: () => renders };
+}
+function liveFixture(rows = 60) {
+  let clock = 4000;
+  const sidebar = new Sidebar(() => clock);
+  const tui = {
+    [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
+    layoutRoot: new Text("chat", 0, 0) as Component | undefined,
+    setLayoutRoot(component: Component | undefined) { this.layoutRoot = component; },
+    terminal: { rows, columns: 140 },
+    requestRender() {},
+    requestViewRender() {},
+  };
+  sidebar.attach(tui as unknown as TUI, theme());
+  sidebar.setSession(session); sidebar.setResources(resources);
+  return { sidebar, advance: (ms: number) => { clock += ms; } };
 }
 function mouse(y: number, extra: Partial<TuiMouseEvent> = {}): TuiMouseEvent {
   return { type: "click", button: "left", x: 2, y, screenX: 112, screenY: y, width: 40, height: 60, shift: false, alt: false, ctrl: false, ...extra };
@@ -451,13 +473,14 @@ test("MCP activity keeps the config glyph and adds only an accent spinner or war
   assert.match(text(), /^● enabled-server$/);
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33|36)m/);
 
-  sidebar.mcpCallStarted("a", "enabled-server");
+  mcpStarted(sidebar, "a", "enabled-server");
   assert.match(text(), /^● enabled-server [▁▂▃▄▅▆▇█]{3}$/);
   assert.match(painted(), /\x1b\[36m [▁▂▃▄▅▆▇█]{3}\x1b\[0m/);
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33)m/);
 
   sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
-  sidebar.mcpCallStarted("b", "enabled-server");
+  advance(1_500);
+  mcpStarted(sidebar, "b", "enabled-server");
   sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "lookup failed" }] } }), false);
   assert.match(text(), /^● enabled-server !$/);
   assert.match(painted(), /\x1b\[33m !\x1b\[0m/);
@@ -478,6 +501,7 @@ test("clicking an MCP row shows a used hint for three seconds and still opens ac
   const hint = () => plain(sidebar.render(80)).find(line => line.includes("server-0"))!;
   const click = () => sidebar.handleMouse(mouse(row(sidebar, "server-0")));
 
+  advance(1_500);
   click();
   assert.match(hint(), /not used yet$/);
   advance(2_999);
@@ -485,7 +509,7 @@ test("clicking an MCP row shows a used hint for three seconds and still opens ac
   advance(1);
   assert.doesNotMatch(hint(), /not used yet$/);
 
-  sidebar.mcpCallStarted("a", "server-0");
+  mcpStarted(sidebar, "a", "server-0");
   sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
   advance(120_000);
   click();
@@ -496,7 +520,7 @@ test("clicking an MCP row shows a used hint for three seconds and still opens ac
   assert.match(details.at(-1)!, /Slate does not validate MCP/);
   assert.match(details.at(-1)!, /Use \/mcp/);
 
-  sidebar.mcpCallStarted("b", "server-0");
+  mcpStarted(sidebar, "b", "server-0");
   sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "lookup failed" }] } }), false);
   advance(2_000);
   click();
@@ -512,13 +536,13 @@ test("narrow MCP rows keep the spinner and warning and truncate only the name", 
   sidebar.setResources({ ...resources, mcp: [{ name, enabled: true, source: "global" }] });
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
 
-  sidebar.mcpCallStarted("a", name);
+  mcpStarted(sidebar, "a", name);
   const active = plain(sidebar.render(28)).find(line => line.includes("…"))!;
   assert.equal(visibleWidth(active), 24, "the row uses the 24 inner columns of a 28-column rail");
   assert.match(active, /^● a+… [▁▂▃▄▅▆▇█]{3}$/);
 
   sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
-  sidebar.mcpCallStarted("b", name);
+  mcpStarted(sidebar, "b", name);
   sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "boom" }] } }), false);
   const warning = plain(sidebar.render(28)).find(line => line.includes("…"))!;
   assert.equal(visibleWidth(warning), 24);
@@ -532,7 +556,7 @@ test("only an active MCP row that is painted advances the 120 ms frame phase", t
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
   sidebar.render(40);
   sidebar.handleMouse(mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 }));
-  sidebar.mcpCallStarted("a", "server-0");
+  mcpStarted(sidebar, "a", "server-0");
   const scrolledOut = sidebar.render(40);
   advance(WAVE_STEP_MS);
   assert.equal(sidebar.render(40), scrolledOut, "an active row outside the five visible rows does not animate");
@@ -546,6 +570,36 @@ test("only an active MCP row that is painted advances the 120 ms frame phase", t
   const folded = sidebar.render(40);
   advance(WAVE_STEP_MS);
   assert.equal(sidebar.render(40), folded, "a folded MCP section does not animate");
+});
+
+test("cropped MCP rows schedule no wake-up", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { sidebar } = liveFixture(12);
+  t.after(() => { sidebar.dispose(); t.mock.timers.reset(); });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  sidebar.render(40);
+  mcpStarted(sidebar, "a", "server-0");
+  sidebar.render(40);
+  const ticks = t.mock.method(sidebar, "tick");
+  t.mock.timers.tick(WAVE_STEP_MS * 2);
+  assert.equal(ticks.mock.callCount(), 0, "the middle pane has no room for the active row");
+});
+
+test("the painted MCP spinner advances on its wake-up", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { sidebar, advance } = liveFixture();
+  t.after(() => { sidebar.dispose(); t.mock.timers.reset(); });
+  setProgressStyle("waves");
+  sidebar.setResources({ ...resources, mcp: [{ name: "server-0", enabled: true, source: "global" }] });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  const spinner = () => plain(sidebar.render(80)).find(line => line.includes("server-0"))!;
+  mcpStarted(sidebar, "a", "server-0");
+  const before = spinner();
+  const ticks = t.mock.method(sidebar, "tick");
+  advance(WAVE_STEP_MS);
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), 1);
+  assert.notEqual(spinner(), before, "the next frame is painted by the wake-up");
 });
 
 test("MCP is limited to five rows; list wheel scroll does not move the session header", () => {

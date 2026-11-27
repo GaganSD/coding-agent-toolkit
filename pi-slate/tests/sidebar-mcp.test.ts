@@ -3,9 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type { McpActivityView } from "../extensions/pi-slate/mcp-activity.ts";
 import { mcpDetails, parseMcpFile, sidebarMcp, SidebarMcpFiles } from "../extensions/pi-slate/sidebar-mcp.ts";
 
 const file = (servers: Record<string, unknown>) => parseMcpFile(JSON.stringify({ mcpServers: servers }));
+const idle: McpActivityView = { active: false, warning: false, warnUntil: null, calls: 0, lastUsed: null, lastError: null };
 
 test("MCP is a version-independent configuration projection, never a second server validator", () => {
   const result = sidebarMcp([], file({
@@ -20,8 +22,8 @@ test("MCP is a version-independent configuration projection, never a second serv
     ["invalidToPi", true], ["scalar", null], ["unknownFlag", null],
   ]);
   assert(!JSON.stringify(result).includes("SECRET"));
-  assert.match(mcpDetails(result[0]!), /does not validate/);
-  assert.match(mcpDetails(result.find(row => row.name === "scalar")!), /Enabled state could not be read/);
+  assert.match(mcpDetails(result[0]!, idle, 0), /does not validate/);
+  assert.match(mcpDetails(result.find(row => row.name === "scalar")!, idle, 0), /Enabled state could not be read/);
 });
 
 test("file declarations override registrations without revalidating the public registry", () => {

@@ -15,15 +15,14 @@ test("concurrent calls keep a server active until the last one ends", () => {
   const activity = new McpActivity();
   activity.start("a", "docs");
   activity.start("b", "docs");
-  assert.equal(activity.anyActive(), true);
+  assert.equal(activity.view("docs", 1_000).active, true);
   activity.end(success("a"), false, 1_000);
   assert.equal(activity.view("docs", 1_000).active, true);
   assert.equal(activity.view("docs", 1_000).calls, 1);
   activity.end(success("b"), false, 2_000);
   assert.deepEqual(activity.view("docs", 2_000), {
-    active: false, warning: false, calls: 2, lastUsed: 2_000, lastError: null,
+    active: false, warning: false, warnUntil: null, calls: 2, lastUsed: 2_000, lastError: null,
   });
-  assert.equal(activity.anyActive(), false);
 });
 
 test("a success clears the warning but keeps the last error details", () => {
@@ -42,6 +41,7 @@ test("a warning fades 60 seconds after the failure and leaves the error in detai
   const activity = new McpActivity();
   activity.start("a", "docs");
   activity.end(failure("a", "timeout"), false, 5_000);
+  assert.equal(activity.view("docs", 5_000).warnUntil, 5_000 + MCP_WARN_MS);
   assert.equal(activity.view("docs", 5_000 + MCP_WARN_MS - 1).warning, true);
   assert.equal(activity.view("docs", 5_000 + MCP_WARN_MS).warning, false);
   assert.deepEqual(activity.view("docs", 5_000 + MCP_WARN_MS).lastError, { text: "timeout", at: 5_000 });
@@ -52,15 +52,15 @@ test("a blocked attempt ends without durationMs: no call, failure or last-used u
   activity.start("a", "docs");
   activity.end(ended({ toolCallId: "a", isError: true }), false, 1_000);
   assert.deepEqual(activity.view("docs", 1_000), {
-    active: false, warning: false, calls: 0, lastUsed: null, lastError: null,
+    active: false, warning: false, warnUntil: null, calls: 0, lastUsed: null, lastError: null,
   });
 });
 
 test("an end without a tracked start changes nothing", () => {
   const activity = new McpActivity();
-  activity.end(failure("missing", "not tracked"), false, 1_000);
+  assert.equal(activity.end(failure("missing", "not tracked"), false, 1_000), false);
   assert.deepEqual(activity.view("docs", 1_000), {
-    active: false, warning: false, calls: 0, lastUsed: null, lastError: null,
+    active: false, warning: false, warnUntil: null, calls: 0, lastUsed: null, lastError: null,
   });
 });
 
@@ -69,15 +69,31 @@ test("an aborted call counts and updates last-used but is not a failure", () => 
   activity.start("a", "docs");
   activity.end(ended({ toolCallId: "a", durationMs: 7, isError: true }), true, 1_000);
   assert.deepEqual(activity.view("docs", 1_000), {
-    active: false, warning: false, calls: 1, lastUsed: 1_000, lastError: null,
+    active: false, warning: false, warnUntil: null, calls: 1, lastUsed: 1_000, lastError: null,
   });
 
   activity.start("b", "docs");
   activity.end(failure("b", "old failure"), false, 2_000);
   activity.start("c", "docs");
-  activity.end(ended({ toolCallId: "c", durationMs: 7 }), true, 3_000);
-  assert.equal(activity.view("docs", 3_000).warning, true, "an abort does not clear an existing warning");
+  activity.end(ended({ toolCallId: "c", durationMs: 7, isError: true }), true, 3_000);
+  assert.equal(activity.view("docs", 3_000).warning, true, "an aborted failure does not clear an existing warning");
   assert.deepEqual(activity.view("docs", 3_000).lastError, { text: "old failure", at: 2_000 });
+});
+
+test("a successful end wins over the run-level abort and clears the warning", () => {
+  const activity = new McpActivity();
+  activity.start("a", "docs");
+  activity.end(failure("a", "lookup failed"), false, 1_000);
+  assert.equal(activity.view("docs", 1_000).warning, true);
+
+  activity.start("b", "docs");
+  activity.end(success("b"), true, 2_000);
+  const view = activity.view("docs", 2_000);
+  assert.equal(view.warning, false);
+  assert.equal(view.warnUntil, null);
+  assert.equal(view.calls, 2);
+  assert.equal(view.lastUsed, 2_000);
+  assert.deepEqual(view.lastError, { text: "lookup failed", at: 1_000 });
 });
 
 test("the first non-empty error text block is sanitized to one bounded line", () => {
@@ -110,19 +126,23 @@ test("reset clears active calls, counts, warnings and errors", () => {
   activity.end(failure("a", "boom"), false, 1_000);
   activity.start("b", "docs");
   activity.reset();
-  assert.equal(activity.anyActive(), false);
   assert.deepEqual(activity.view("docs", 1_000), {
-    active: false, warning: false, calls: 0, lastUsed: null, lastError: null,
+    active: false, warning: false, warnUntil: null, calls: 0, lastUsed: null, lastError: null,
   });
 });
 
-test("MCP server lookup only runs for MCP tools and requires a namespace alias", () => {
-  const tools: ToolInfo[] = [{
+test("MCP server lookup is lazy, only runs for MCP tools, and requires a namespace alias", () => {
+  const catalog: ToolInfo[] = [{
     name: "mcp__docs__search", description: "", parameters: {}, exposure: "direct",
     namespace: { name: "mcp__docs", aliases: ["docs"] },
     sourceInfo: { path: "/host/mcp.ts", source: "fixture", scope: "user", origin: "top-level" },
   }];
+  let reads = 0;
+  const tools = () => { reads++; return catalog; };
   assert.equal(mcpServer("read", tools), undefined);
+  assert.equal(reads, 0, "non-MCP tools never read the catalog");
   assert.equal(mcpServer("mcp__docs__search", tools), "docs");
+  assert.equal(reads, 1);
   assert.equal(mcpServer("mcp__docs__missing", tools), undefined);
+  assert.equal(reads, 2);
 });

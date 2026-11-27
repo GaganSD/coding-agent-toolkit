@@ -31,7 +31,6 @@ import { ToolGroups } from "./tool-groups.ts";
 import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
 import { Sidebar } from "./sidebar.ts";
-import { mcpServer } from "./mcp-activity.ts";
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
 import { inspectSidebarText } from "./sidebar-inspector.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
@@ -787,8 +786,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     });
     pi.on("tool_execution_start", (event, ctx) => {
       if (ctx.mode !== "tui") return;
-      const server = event.toolName.startsWith("mcp__") ? mcpServer(event.toolName, pi.getAllTools()) : undefined;
-      if (server) sidebar.mcpCallStarted(event.toolCallId, server);
+      sidebar.mcpCallStarted(event.toolCallId, event.toolName, () => pi.getAllTools());
       skills.readStart(event.toolCallId, event.toolName, event.args, ctx.cwd);
       syncSidebar(ctx); // message_end precedes persistence; the tool starts after it.
     });

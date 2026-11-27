@@ -1,9 +1,9 @@
-import type { Theme, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolExecutionEndEvent, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type OverlayOptions, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
 import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
 import { mcpAge, mcpDetails } from "./sidebar-mcp.ts";
-import { McpActivity } from "./mcp-activity.ts";
+import { McpActivity, mcpServer } from "./mcp-activity.ts";
 import { compactProgressFrame, WAVE_STEP_MS } from "./working-wave.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
@@ -16,7 +16,7 @@ import { sameLines } from "./render-lines.ts";
 export const DOUBLE_CLICK_MS = 400;
 const MCP_HINT_MS = 3_000;
 type ListName = "mcp" | "skills" | "prompts";
-type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
+type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; wakeAt?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
 type PaneFrame = {
   key?: string;
@@ -25,6 +25,7 @@ type PaneFrame = {
   listRows: Array<{ y: number; list: ListName }>;
   middle: { start: number; height: number; rows: number };
   image: { start: number; height: number; path?: string };
+  wakeAt?: number;
 };
 const HEADER_GAP: Row = { text: "" };
 export type SidebarActions = {
@@ -69,7 +70,8 @@ export class Sidebar implements Component {
   private revision = 0;
   private actions?: SidebarActions;
   private readonly mcpActivity = new McpActivity();
-  private mcpClock?: ReturnType<typeof setInterval>;
+  private mcpWake?: ReturnType<typeof setTimeout>;
+  private mcpWakeAt?: number;
   private mcpHint?: { server: string; at: number };
 
   private readonly now: () => number;
@@ -107,16 +109,18 @@ export class Sidebar implements Component {
   setHidden(hidden: boolean): void {
     if (this.hidden === hidden) return;
     this.hidden = hidden;
+    if (hidden) this.stopMcpWake();
     this.splitDispose?.requestRender("forced-layout");
   }
   setActions(actions: SidebarActions): void { this.actions = actions; }
-  mcpCallStarted(toolCallId: string, server: string): void {
+  mcpCallStarted(toolCallId: string, toolName: string, tools: () => readonly ToolInfo[]): void {
+    const server = mcpServer(toolName, tools);
+    if (server === undefined) return;
     this.mcpActivity.start(toolCallId, server);
-    this.changed();
+    this.revision++;
   }
   mcpCallEnded(event: ToolExecutionEndEvent, aborted: boolean): void {
-    this.mcpActivity.end(event, aborted, this.now());
-    this.changed();
+    if (this.mcpActivity.end(event, aborted, this.now())) this.revision++;
   }
   setSession(session: SidebarSession): void {
     // Keep the full plain-text title for copying/details; truncate only its painted row.
@@ -137,7 +141,7 @@ export class Sidebar implements Component {
   }
   /** A new session cannot inherit scroll positions, selected images, or old hit targets. */
   reset(): void {
-    this.stopMcpClock(); this.mcpActivity.reset();
+    this.stopMcpWake(); this.mcpActivity.reset();
     this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES;
     this.offsets = { mcp: 0, skills: 0, prompts: 0 }; this.middleOffset = 0;
     this.image = undefined; this.mcpHint = undefined;
@@ -173,24 +177,21 @@ export class Sidebar implements Component {
       `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`];
   }
   tick(): void { this.refresh(); }
-  private stopMcpClock(): void { clearInterval(this.mcpClock); this.mcpClock = undefined; }
-  private syncMcpClock(active: boolean): void {
-    if (!active || !this.splitActive) { this.stopMcpClock(); return; }
-    if (this.mcpClock) return;
-    this.mcpClock = setInterval(() => {
-      if (!this.splitActive || !this.mcpRowActive(this.now())) { this.stopMcpClock(); return; }
-      this.tick();
-    }, WAVE_STEP_MS);
-    this.mcpClock.unref?.();
+  private stopMcpWake(): void {
+    clearTimeout(this.mcpWake);
+    this.mcpWake = undefined;
+    this.mcpWakeAt = undefined;
   }
-  private mcpRowActive(now: number): boolean {
-    if (this.hidden || this.displayedWidth() <= 0 || !this.folds.mcp) return false;
-    const items = this.resources.mcp;
-    const start = sidebarListOffset(this.offsets.mcp, items.length, 5);
-    for (let i = start; i < Math.min(items.length, start + 5); i++) {
-      if (this.mcpActivity.view(items[i]!.name, now).active) return true;
-    }
-    return false;
+  private scheduleMcpWake(wakeAt: number | undefined): void {
+    if (wakeAt === this.mcpWakeAt) return;
+    this.stopMcpWake();
+    if (wakeAt === undefined) return;
+    this.mcpWakeAt = wakeAt;
+    this.mcpWake = setTimeout(() => {
+      this.mcpWake = undefined; this.mcpWakeAt = undefined;
+      if (this.splitActive) this.tick();
+    }, Math.max(0, wakeAt - this.now()));
+    this.mcpWake.unref?.();
   }
   invalidate(): void {
     if (this.cached) this.cached.key = undefined;
@@ -204,14 +205,15 @@ export class Sidebar implements Component {
     if (width > 0) {
       const previous = this.cached;
       const next = this.buildFrame(width);
-      // Identical rows can take newer details without another host frame.
-      if ((this.painted && sameLines(this.painted.lines, next.lines)) || (previous && sameLines(previous.lines, next.lines))) {
+      this.scheduleMcpWake(next.wakeAt);
+      if (this.painted && sameLines(this.painted.lines, next.lines)) {
+        // Identical rows can take newer details without a host frame.
         this.painted = next;
-      } else {
+      } else if (!previous || !sameLines(previous.lines, next.lines)) {
         split.requestRender("pane");
         return;
       }
-    }
+    } else this.scheduleMcpWake(undefined);
     split.retryRender();
   }
 
@@ -254,10 +256,13 @@ export class Sidebar implements Component {
     const height = Math.max(0, this.tui?.terminal.rows ?? 1);
     if (width <= 0) {
       this.painted = undefined;
+      this.scheduleMcpWake(undefined);
       return Array.from({ length: height }, () => "");
     }
-    this.painted = this.buildFrame(width, height);
-    return this.painted.lines;
+    const frame = this.buildFrame(width, height);
+    this.painted = frame;
+    this.scheduleMcpWake(frame.wakeAt);
+    return frame.lines;
   }
 
   private buildFrame(width: number, height = Math.max(0, this.tui?.terminal.rows ?? 1)): PaneFrame {
@@ -265,11 +270,10 @@ export class Sidebar implements Component {
     if (theme !== this.theme) { this.theme = theme; this.invalidate(); }
     if (theme) this.image?.setTheme?.(theme);
     const now = this.now();
-    const active = this.mcpRowActive(now);
-    this.syncMcpClock(active);
-    const key = `${width}:${height}:${this.revision}:${Math.floor(now / 1000)}${active ? `:${Math.floor(now / WAVE_STEP_MS)}` : ""}`;
-    if (this.cached?.key === key) return this.cached;
+    const key = `${width}:${height}:${this.revision}:${Math.floor(now / 1000)}`;
+    if (this.cached?.key === key && (this.cached.wakeAt === undefined || now < this.cached.wakeAt)) return this.cached;
     const hits: Hit[] = [], listRows: PaneFrame["listRows"] = [];
+    let wakeAt: number | undefined;
     const inner = Math.max(0, width - 4);
     const header = this.headerRows(inner, height >= 44 ? "full" : "compact");
     const gap = (row: Row): boolean => row === HEADER_GAP || row.divider === true;
@@ -283,6 +287,7 @@ export class Sidebar implements Component {
       if (inner > 0) for (const e of row.extra ?? []) hits.push({ y, x0: 2 + e.x0, x1: 2 + e.x1, action: e.action });
       if (row.action && inner > 0) hits.push({ y, x0: 2, x1: width - 2, action: row.action });
       if (row.list) listRows.push({ y, list: row.list });
+      if (row.wakeAt !== undefined && (wakeAt === undefined || row.wakeAt < wakeAt)) wakeAt = row.wakeAt;
     };
     if (slots.frame) lines.push(this.dividerLine(width, "┌"));
     for (const row of header.filter(row => !gap(row) || dropGaps-- <= 0).slice(0, slots.header)) add(row);
@@ -295,7 +300,7 @@ export class Sidebar implements Component {
     lines.push(...this.imageLines(width, slots.image, imageStart, hits, image));
     if (slots.frame) lines.push(this.dividerLine(width, "└"));
     return this.cached = {
-      key, lines: lines.slice(0, height), hits, listRows,
+      key, lines: lines.slice(0, height), hits, listRows, wakeAt,
       middle: { start: middleStart, height: slots.middle, rows: middle.length },
       image: { start: imageStart, height: slots.image, path: image?.filePath },
     };
@@ -356,46 +361,62 @@ export class Sidebar implements Component {
       text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors),
       action: () => this.toggleSection("mcp"),
     }];
-    if (this.folds.mcp) rows.push(...this.resourceRows("mcp", width, now));
+    if (this.folds.mcp) rows.push(...this.mcpRows(width, now));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} Loaded`), action: () => this.toggleSection("skills") });
-    if (this.folds.skills) rows.push(...this.resourceRows("skills", width, now));
+    if (this.folds.skills) rows.push(...this.resourceRows("skills"));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.prompts ? "⌄" : "›"} Prompts`, `${this.resources.prompts.length}`), action: () => this.toggleSection("prompts") });
-    if (this.folds.prompts) rows.push(...this.resourceRows("prompts", width, now));
+    if (this.folds.prompts) rows.push(...this.resourceRows("prompts"));
     return rows;
   }
-  private resourceRows(list: ListName, width: number, now: number): Row[] {
+  private mcpRows(width: number, now: number): Row[] {
+    const items = this.resources.mcp;
+    const visible = 5;
+    this.offsets.mcp = sidebarListOffset(this.offsets.mcp, items.length, visible);
+    if (!items.length) return [{ text: this.paint("dim", "none"), list: "mcp" }];
+    const start = this.offsets.mcp;
+    const rows: Row[] = [];
+    for (let i = start; i < Math.min(items.length, start + visible); i++) {
+      const server = items[i]!;
+      const activity = this.mcpActivity.view(server.name, now);
+      const hintUntil = this.mcpHint?.server === server.name ? this.mcpHint.at + MCP_HINT_MS : undefined;
+      const hint = hintUntil !== undefined && now < hintUntil
+        ? activity.lastUsed === null ? "not used yet" : `used ${mcpAge(now - activity.lastUsed)} ago` : "";
+      const marker = activity.active
+        ? this.paint("accent", ` ${compactProgressFrame(Math.floor(now / WAVE_STEP_MS))}`)
+        : activity.warning ? this.paint("warning", " !") : "";
+      const glyph = server.enabled === null ? "—" : server.enabled ? "●" : "○";
+      const reserved = visibleWidth(glyph) + 1 + visibleWidth(marker) + (hint ? visibleWidth(hint) + 1 : 0);
+      const name = truncateToWidth(sidebarText(server.name), Math.max(0, width - reserved), "…");
+      const left = this.paint(server.enabled === true ? "muted" : "dim", `${glyph} ${name}`) + marker;
+      const wakes: number[] = [];
+      if (activity.active) wakes.push((Math.floor(now / WAVE_STEP_MS) + 1) * WAVE_STEP_MS);
+      if (activity.warning && activity.warnUntil !== null) wakes.push(activity.warnUntil);
+      if (hintUntil !== undefined && now < hintUntil) wakes.push(hintUntil);
+      const wakeAt = wakes.length > 0 ? Math.min(...wakes) : undefined;
+      rows.push({ text: hint ? this.pair(left, this.paint("dim", hint), width) : left, list: "mcp", item: i, wakeAt,
+        action: () => {
+          const current = this.resources.mcp.find(item => item.name === server.name) ?? server;
+          const at = this.now();
+          this.mcpHint = { server: current.name, at };
+          this.changed();
+          this.actions?.inspect?.(current.name, mcpDetails(current, this.mcpActivity.view(current.name, at), at));
+        } });
+    }
+    return rows;
+  }
+  private resourceRows(list: "skills" | "prompts"): Row[] {
     const items = this.resources[list];
-    const visible = list === "mcp" ? 5 : 3;
+    const visible = 3;
     this.offsets[list] = sidebarListOffset(this.offsets[list], items.length, visible);
     if (!items.length) return [{ text: this.paint("dim", list === "skills" ? "No skill catalog available" : "none"), list }];
     const start = this.offsets[list];
     const rows: Row[] = [];
     for (let i = start; i < Math.min(items.length, start + visible); i++) {
-      if (list === "mcp") {
-        const server = this.resources.mcp[i]!;
-        const activity = this.mcpActivity.view(server.name, now);
-        const marker = activity.active
-          ? ` ${compactProgressFrame(Math.floor(now / WAVE_STEP_MS))}`
-          : activity.warning ? " !" : "";
-        const hint = this.mcpHint?.server === server.name && now - this.mcpHint.at < MCP_HINT_MS
-          ? activity.lastUsed === null ? "not used yet" : `used ${mcpAge(now - activity.lastUsed)} ago` : "";
-        const glyph = server.enabled === null ? "—" : server.enabled ? "●" : "○";
-        const reserved = visibleWidth(glyph) + 1 + visibleWidth(marker) + (hint ? visibleWidth(hint) + 1 : 0);
-        const name = truncateToWidth(sidebarText(server.name), Math.max(0, width - reserved), "…");
-        const left = this.paint(server.enabled === true ? "muted" : "dim", `${glyph} ${name}`)
-          + (activity.active ? this.paint("accent", marker) : activity.warning ? this.paint("warning", marker) : "");
-        rows.push({ text: hint ? this.pair(left, this.paint("dim", hint), width) : left, list, item: i,
-          action: () => {
-            const at = this.now();
-            this.mcpHint = { server: server.name, at };
-            this.changed();
-            this.actions?.inspect?.(server.name, mcpDetails(server, this.mcpActivity.view(server.name, at), at));
-          } });
-      } else if (list === "skills") {
+      if (list === "skills") {
         const skill = this.resources.skills[i]!;
         rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", `${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`), list, item: i,
           action: () => this.actions?.inspect?.(skill.name, `${skill.loaded ? "Instructions observed loaded on this branch" : "Available; instructions not observed loaded"}\nSource: ${skill.source}\n${skill.path}`) });
-      } else if (list === "prompts") {
+      } else {
         const prompt = this.resources.prompts[i]!;
         // Name only: the source column repeated "prompt" on every row.
         rows.push({ text: this.paint("muted", sidebarText(prompt.name)), list, item: i,
