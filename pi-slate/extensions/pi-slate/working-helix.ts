@@ -19,15 +19,14 @@ const CREST = 0.45; // height past which a backbone sits flat on a crest
 export const HELIX_PERIOD = 8;
 
 /**
- * One helix frame (7 visible columns by default, word-sized).
+ * One fixed-width helix frame (7 visible columns, word-sized).
  * Never throws; degenerate ticks render frame zero.
  */
-export function helixFrame(tick: number, columns = COLUMNS): string {
+export function helixFrame(tick: number): string {
   const safe = Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : 0;
-  const width = Math.max(1, Math.min(COLUMNS, Math.floor(columns) || COLUMNS));
   const a = (safe % HELIX_PERIOD) * ((2 * Math.PI) / HELIX_PERIOD);
   let frame = "";
-  for (let col = 0; col < width; col++) {
+  for (let col = 0; col < COLUMNS; col++) {
     const lead = K * (col + 0.5) - a; // first backbone's phase at this column
     const trail = lead - GROOVE;
     const leadHeight = Math.cos(lead);

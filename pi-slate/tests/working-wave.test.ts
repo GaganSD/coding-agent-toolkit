@@ -69,15 +69,18 @@ test("progress frame dispatches on the selected style", () => {
   assert.equal(progressFrame(3), waveFrame(3));
 });
 
-test("compact frames fit three columns and still animate in every style", () => {
+test("compact frames are exactly three code units and still animate in every style", () => {
   for (const style of PROGRESS_STYLES) {
     setProgressStyle(style);
-    const frames = Array.from({ length: 12 }, (_, tick) => compactProgressFrame(tick));
+    const frames = Array.from({ length: 24 }, (_, tick) => compactProgressFrame(tick));
     for (const frame of frames) {
-      assert.ok([...frame].length <= 3, `${style}: ${JSON.stringify(frame)}`);
+      assert.equal(frame.length, 3, `${style}: ${JSON.stringify(frame)}`);
+      assert.equal([...frame].length, 3, `${style}: single-unit columns`);
       assert.ok(!/[\x00-\x1f\x7f]/.test(frame), `${style}: no control chars`);
     }
     assert.ok(new Set(frames).size > 1, `${style} must animate`);
+    if (style === "cylon-scanner") assert.equal(frames[1], " ==", "the brackets are gone and the eye sweeps");
+    else assert.equal(frames[0], progressFrame(0, 3).slice(0, 3), `${style}: first three columns`);
   }
   setProgressStyle("waves");
 });

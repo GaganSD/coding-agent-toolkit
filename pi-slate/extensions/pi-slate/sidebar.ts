@@ -1,9 +1,9 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type OverlayOptions, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
 import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
-import { mcpDetails } from "./sidebar-mcp.ts";
-import { formatMcpAge, type McpActivity } from "./mcp-activity.ts";
+import { mcpAge, mcpDetails } from "./sidebar-mcp.ts";
+import { McpActivity } from "./mcp-activity.ts";
 import { compactProgressFrame, WAVE_STEP_MS } from "./working-wave.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
@@ -16,8 +16,8 @@ import { sameLines } from "./render-lines.ts";
 export const DOUBLE_CLICK_MS = 400;
 const MCP_HINT_MS = 3_000;
 type ListName = "mcp" | "skills" | "prompts";
-type Row = { divider?: boolean; text: string; action?: () => boolean | void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
-type Hit = { y: number; x0: number; x1: number; action: () => boolean | void };
+type Row = { divider?: boolean; text: string; action?: () => void; list?: ListName; item?: number; extra?: Array<{ x0: number; x1: number; action: () => void }> };
+type Hit = { y: number; x0: number; x1: number; action: () => void };
 type PaneFrame = {
   key?: string;
   lines: string[];
@@ -68,9 +68,9 @@ export class Sidebar implements Component {
   private cached?: PaneFrame;
   private revision = 0;
   private actions?: SidebarActions;
-  private mcpActivity?: McpActivity;
+  private readonly mcpActivity = new McpActivity();
+  private mcpClock?: ReturnType<typeof setInterval>;
   private mcpHint?: { server: string; at: number };
-  private paintedWidth = 0;
 
   private readonly now: () => number;
   constructor(now: () => number = Date.now) { this.now = now; }
@@ -110,7 +110,14 @@ export class Sidebar implements Component {
     this.splitDispose?.requestRender("forced-layout");
   }
   setActions(actions: SidebarActions): void { this.actions = actions; }
-  setMcpActivity(activity: McpActivity): void { this.mcpActivity = activity; this.changed(); }
+  mcpCallStarted(toolCallId: string, server: string): void {
+    this.mcpActivity.start(toolCallId, server);
+    this.changed();
+  }
+  mcpCallEnded(event: ToolExecutionEndEvent, aborted: boolean): void {
+    this.mcpActivity.end(event, aborted, this.now());
+    this.changed();
+  }
   setSession(session: SidebarSession): void {
     // Keep the full plain-text title for copying/details; truncate only its painted row.
     this.session = { ...session, name: sidebarText(session.name, Infinity), usage: { ...session.usage } };
@@ -130,6 +137,7 @@ export class Sidebar implements Component {
   }
   /** A new session cannot inherit scroll positions, selected images, or old hit targets. */
   reset(): void {
+    this.stopMcpClock(); this.mcpActivity.reset();
     this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES;
     this.offsets = { mcp: 0, skills: 0, prompts: 0 }; this.middleOffset = 0;
     this.image = undefined; this.mcpHint = undefined;
@@ -165,6 +173,25 @@ export class Sidebar implements Component {
       `Cache hit % = cache read ÷ (uncached + cache read + cache write); latest request ${formatCacheHit(c.lastHit)}.`];
   }
   tick(): void { this.refresh(); }
+  private stopMcpClock(): void { clearInterval(this.mcpClock); this.mcpClock = undefined; }
+  private syncMcpClock(active: boolean): void {
+    if (!active || !this.splitActive) { this.stopMcpClock(); return; }
+    if (this.mcpClock) return;
+    this.mcpClock = setInterval(() => {
+      if (!this.splitActive || !this.mcpRowActive(this.now())) { this.stopMcpClock(); return; }
+      this.tick();
+    }, WAVE_STEP_MS);
+    this.mcpClock.unref?.();
+  }
+  private mcpRowActive(now: number): boolean {
+    if (this.hidden || this.displayedWidth() <= 0 || !this.folds.mcp) return false;
+    const items = this.resources.mcp;
+    const start = sidebarListOffset(this.offsets.mcp, items.length, 5);
+    for (let i = start; i < Math.min(items.length, start + 5); i++) {
+      if (this.mcpActivity.view(items[i]!.name, now).active) return true;
+    }
+    return false;
+  }
   invalidate(): void {
     if (this.cached) this.cached.key = undefined;
     this.image?.invalidate();
@@ -177,10 +204,10 @@ export class Sidebar implements Component {
     if (width > 0) {
       const previous = this.cached;
       const next = this.buildFrame(width);
-      if (this.painted && sameLines(this.painted.lines, next.lines)) {
-        // Identical rows can take newer details without a host frame.
+      // Identical rows can take newer details without another host frame.
+      if ((this.painted && sameLines(this.painted.lines, next.lines)) || (previous && sameLines(previous.lines, next.lines))) {
         this.painted = next;
-      } else if (!previous || !sameLines(previous.lines, next.lines)) {
+      } else {
         split.requestRender("pane");
         return;
       }
@@ -213,14 +240,7 @@ export class Sidebar implements Component {
     }
     if (event.type !== "click" || event.button !== "left") return undefined;
     const hit = frame.hits.find(hit => hit.y === event.y && event.x >= hit.x0 && event.x < hit.x1);
-    if (hit) {
-      const render = hit.action() === true;
-      if (render) {
-        this.invalidate();
-        this.painted = this.buildFrame(this.paintedWidth);
-      }
-      return { handled: true, render };
-    }
+    if (hit) { hit.action(); return { handled: true, render: false }; }
     const { start, height, path } = frame.image;
     if (event.y > start && event.y < start + height) {
       if (path && this.isDoubleClick(event, `image:${path}`)) {
@@ -244,9 +264,9 @@ export class Sidebar implements Component {
     const theme = this.themeProvider?.() ?? this.theme;
     if (theme !== this.theme) { this.theme = theme; this.invalidate(); }
     if (theme) this.image?.setTheme?.(theme);
-    this.paintedWidth = width;
     const now = this.now();
-    const active = this.mcpActivity?.anyActive() === true;
+    const active = this.mcpRowActive(now);
+    this.syncMcpClock(active);
     const key = `${width}:${height}:${this.revision}:${Math.floor(now / 1000)}${active ? `:${Math.floor(now / WAVE_STEP_MS)}` : ""}`;
     if (this.cached?.key === key) return this.cached;
     const hits: Hit[] = [], listRows: PaneFrame["listRows"] = [];
@@ -266,7 +286,7 @@ export class Sidebar implements Component {
     };
     if (slots.frame) lines.push(this.dividerLine(width, "┌"));
     for (const row of header.filter(row => !gap(row) || dropGaps-- <= 0).slice(0, slots.header)) add(row);
-    const middle = this.middle(inner);
+    const middle = this.middle(inner, now);
     const middleStart = lines.length;
     this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
     for (let i = 0; i < slots.middle; i++) add(middle[this.middleOffset + i] ?? { text: "" });
@@ -323,7 +343,7 @@ export class Sidebar implements Component {
     const performance = perfRows(input).flat().map(text => text === null ? HEADER_GAP : { text });
     return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP, ...performance, divider];
   }
-  private middle(width: number): Row[] {
+  private middle(width: number, now: number): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
     const unknownCount = this.resources.mcp.filter(x => x.enabled === null).length;
     const errors = this.resources.mcpError ? 1 : 0;
@@ -336,14 +356,14 @@ export class Sidebar implements Component {
       text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, allUnknown || (!errors && unknownCount > 0) ? "—" : `${enabled} Enabled`, errors),
       action: () => this.toggleSection("mcp"),
     }];
-    if (this.folds.mcp) rows.push(...this.resourceRows("mcp", width));
+    if (this.folds.mcp) rows.push(...this.resourceRows("mcp", width, now));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} Loaded`), action: () => this.toggleSection("skills") });
-    if (this.folds.skills) rows.push(...this.resourceRows("skills", width));
+    if (this.folds.skills) rows.push(...this.resourceRows("skills", width, now));
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.prompts ? "⌄" : "›"} Prompts`, `${this.resources.prompts.length}`), action: () => this.toggleSection("prompts") });
-    if (this.folds.prompts) rows.push(...this.resourceRows("prompts", width));
+    if (this.folds.prompts) rows.push(...this.resourceRows("prompts", width, now));
     return rows;
   }
-  private resourceRows(list: ListName, width: number): Row[] {
+  private resourceRows(list: ListName, width: number, now: number): Row[] {
     const items = this.resources[list];
     const visible = list === "mcp" ? 5 : 3;
     this.offsets[list] = sidebarListOffset(this.offsets[list], items.length, visible);
@@ -353,21 +373,23 @@ export class Sidebar implements Component {
     for (let i = start; i < Math.min(items.length, start + visible); i++) {
       if (list === "mcp") {
         const server = this.resources.mcp[i]!;
-        const now = this.now();
-        const activity = this.mcpActivity?.view(server.name, now);
-        const lastUsed = activity?.lastUsed ?? null;
-        const marker = activity?.active
-          ? this.paint("accent", ` ${compactProgressFrame(Math.floor(now / WAVE_STEP_MS))}`)
-          : activity?.warning ? this.paint("warning", " !") : "";
-        const left = this.paint(server.enabled === true ? "muted" : "dim", `${server.enabled === null ? "—" : server.enabled ? "●" : "○"} ${sidebarText(server.name)}`) + marker;
+        const activity = this.mcpActivity.view(server.name, now);
+        const marker = activity.active
+          ? ` ${compactProgressFrame(Math.floor(now / WAVE_STEP_MS))}`
+          : activity.warning ? " !" : "";
         const hint = this.mcpHint?.server === server.name && now - this.mcpHint.at < MCP_HINT_MS
-          ? this.paint("dim", lastUsed === null ? "not used yet" : `used ${formatMcpAge(now - lastUsed)} ago`) : "";
-        rows.push({ text: hint ? this.pair(left, hint, width) : left, list, item: i,
+          ? activity.lastUsed === null ? "not used yet" : `used ${mcpAge(now - activity.lastUsed)} ago` : "";
+        const glyph = server.enabled === null ? "—" : server.enabled ? "●" : "○";
+        const reserved = visibleWidth(glyph) + 1 + visibleWidth(marker) + (hint ? visibleWidth(hint) + 1 : 0);
+        const name = truncateToWidth(sidebarText(server.name), Math.max(0, width - reserved), "…");
+        const left = this.paint(server.enabled === true ? "muted" : "dim", `${glyph} ${name}`)
+          + (activity.active ? this.paint("accent", marker) : activity.warning ? this.paint("warning", marker) : "");
+        rows.push({ text: hint ? this.pair(left, this.paint("dim", hint), width) : left, list, item: i,
           action: () => {
             const at = this.now();
             this.mcpHint = { server: server.name, at };
-            this.actions?.inspect?.(server.name, mcpDetails(server, this.mcpActivity?.view(server.name, at), at));
-            return true;
+            this.changed();
+            this.actions?.inspect?.(server.name, mcpDetails(server, this.mcpActivity.view(server.name, at), at));
           } });
       } else if (list === "skills") {
         const skill = this.resources.skills[i]!;

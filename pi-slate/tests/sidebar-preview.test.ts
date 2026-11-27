@@ -3,15 +3,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { SidebarSplit } from "../extensions/pi-slate/sidebar-split.ts";
 import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
 import { perfFixture } from "./perf-fixture.ts";
 import { EMPTY_PERF } from "../extensions/pi-slate/perf-stats.ts";
 import { sidebarUsage, SidebarMcpFiles, type SidebarResources, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
-import { McpActivity } from "../extensions/pi-slate/mcp-activity.ts";
-import { setProgressStyle } from "../extensions/pi-slate/working-wave.ts";
+import { setProgressStyle, WAVE_STEP_MS } from "../extensions/pi-slate/working-wave.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
 
@@ -22,6 +21,9 @@ const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
 const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").replace(/ ?│$/, "").trimEnd());
 const session: SidebarSession = { id: "session-a", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, uncached: 7300, cost: 0.12 }, perf: perfFixture(1000) };
 const noUsage: SidebarUsage = { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, uncached: null, cost: null };
+const mcpEnded = (id: string, extra: Partial<ToolExecutionEndEvent> = {}): ToolExecutionEndEvent => ({
+  type: "tool_execution_end", toolCallId: id, toolName: "mcp__docs__search", result: {}, isError: false, ...extra,
+});
 const resources: SidebarResources = {
   mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
   skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
@@ -91,13 +93,18 @@ for (const method of ["view", "legacy", "throwing"] as const) {
     sidebar.setResources(resources);
     assert.equal(pane().handleMouse?.(mouse(row(sidebar, "MCP")))?.render, false, "fold clicks schedule their own repaint");
     const serverRow = row(sidebar, "server-0");
-    const counts = [view, full, forced];
+    const beforeResources = [view, full, forced];
     sidebar.setResources({ ...resources, mcp: resources.mcp.map(server => ({ ...server, source: "project" })) });
-    assert.deepEqual([view, full, forced], counts);
+    assert.deepEqual([view, full, forced], beforeResources);
     let detail = "";
     sidebar.setActions({ copy() {}, openFile() {}, inspect(_title, text) { detail = text; } });
+    const beforeClick = [view, full, forced];
     pane().handleMouse?.(mouse(serverRow));
     assert.match(detail, /Source: project/, "unchanged rows still get current details and hit regions");
+    assert.deepEqual([view - beforeClick[0]!, full - beforeClick[1]!, forced - beforeClick[2]!],
+      method === "view" ? [1, 0, 0] : method === "legacy" ? [0, 1, 0] : [0, 0, 1],
+      "the hint schedules its own repaint");
+    const counts = [view, full, forced];
     const wheel = mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 });
     assert.equal(split.handleMouse(wheel), undefined);
     assert.deepEqual(pane().handleMouse?.(wheel)?.render, false, "do not ask dispatch for a full frame");
@@ -433,9 +440,7 @@ test("resource status glyphs distinguish unknown MCP state without color or redu
 });
 
 test("MCP activity keeps the config glyph and adds only an accent spinner or warning", () => {
-  const { sidebar, advance, now } = fixture();
-  const activity = new McpActivity();
-  sidebar.setMcpActivity(activity);
+  const { sidebar, advance } = fixture();
   sidebar.setThemeProvider(() => toneTheme());
   setProgressStyle("waves");
   sidebar.setResources({ ...resources, mcp: [{ name: "enabled-server", enabled: true, source: "global" }] });
@@ -446,14 +451,14 @@ test("MCP activity keeps the config glyph and adds only an accent spinner or war
   assert.match(text(), /^● enabled-server$/);
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33|36)m/);
 
-  activity.start("a", "enabled-server");
+  sidebar.mcpCallStarted("a", "enabled-server");
   assert.match(text(), /^● enabled-server [▁▂▃▄▅▆▇█]{3}$/);
   assert.match(painted(), /\x1b\[36m [▁▂▃▄▅▆▇█]{3}\x1b\[0m/);
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|33)m/);
 
-  activity.end("a", { ran: true, result: "success" }, now());
-  activity.start("b", "enabled-server");
-  activity.end("b", { ran: true, result: "error", error: "lookup failed" }, now());
+  sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
+  sidebar.mcpCallStarted("b", "enabled-server");
+  sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "lookup failed" }] } }), false);
   assert.match(text(), /^● enabled-server !$/);
   assert.match(painted(), /\x1b\[33m !\x1b\[0m/);
   assert.doesNotMatch(painted(), /\x1b\[(?:31|32|36)m/);
@@ -465,10 +470,8 @@ test("MCP activity keeps the config glyph and adds only an accent spinner or war
 });
 
 test("clicking an MCP row shows a used hint for three seconds and still opens activity details", () => {
-  const { sidebar, advance, now } = fixture();
-  const activity = new McpActivity();
+  const { sidebar, advance } = fixture();
   const details: string[] = [];
-  sidebar.setMcpActivity(activity);
   sidebar.setActions({ copy() {}, openFile() {}, inspect: (_title, text) => details.push(text) });
   sidebar.setResources({ ...resources, mcp: [{ name: "server-0", enabled: true, source: "global" }] });
   sidebar.setFolds({ mcp: true, skills: false, prompts: false });
@@ -482,8 +485,8 @@ test("clicking an MCP row shows a used hint for three seconds and still opens ac
   advance(1);
   assert.doesNotMatch(hint(), /not used yet$/);
 
-  activity.start("a", "server-0");
-  activity.end("a", { ran: true, result: "success" }, now());
+  sidebar.mcpCallStarted("a", "server-0");
+  sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
   advance(120_000);
   click();
   assert.match(hint(), /used 2m ago$/);
@@ -493,12 +496,56 @@ test("clicking an MCP row shows a used hint for three seconds and still opens ac
   assert.match(details.at(-1)!, /Slate does not validate MCP/);
   assert.match(details.at(-1)!, /Use \/mcp/);
 
-  activity.start("b", "server-0");
-  activity.end("b", { ran: true, result: "error", error: "lookup failed" }, now());
+  sidebar.mcpCallStarted("b", "server-0");
+  sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "lookup failed" }] } }), false);
   advance(2_000);
   click();
   assert.match(details.at(-1)!, /Last error: lookup failed \(2s ago\)/);
   assert.match(details.at(-1)!, /Calls this session: 2/);
+});
+
+test("narrow MCP rows keep the spinner and warning and truncate only the name", t => {
+  const { sidebar } = fixture();
+  t.after(() => sidebar.dispose());
+  setProgressStyle("waves");
+  const name = "a".repeat(30);
+  sidebar.setResources({ ...resources, mcp: [{ name, enabled: true, source: "global" }] });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+
+  sidebar.mcpCallStarted("a", name);
+  const active = plain(sidebar.render(28)).find(line => line.includes("…"))!;
+  assert.equal(visibleWidth(active), 24, "the row uses the 24 inner columns of a 28-column rail");
+  assert.match(active, /^● a+… [▁▂▃▄▅▆▇█]{3}$/);
+
+  sidebar.mcpCallEnded(mcpEnded("a", { durationMs: 5 }), false);
+  sidebar.mcpCallStarted("b", name);
+  sidebar.mcpCallEnded(mcpEnded("b", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "boom" }] } }), false);
+  const warning = plain(sidebar.render(28)).find(line => line.includes("…"))!;
+  assert.equal(visibleWidth(warning), 24);
+  assert.match(warning, /^● a+… !$/);
+});
+
+test("only an active MCP row that is painted advances the 120 ms frame phase", t => {
+  const { sidebar, advance } = fixture();
+  t.after(() => sidebar.dispose());
+  setProgressStyle("waves");
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  sidebar.render(40);
+  sidebar.handleMouse(mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 }));
+  sidebar.mcpCallStarted("a", "server-0");
+  const scrolledOut = sidebar.render(40);
+  advance(WAVE_STEP_MS);
+  assert.equal(sidebar.render(40), scrolledOut, "an active row outside the five visible rows does not animate");
+
+  sidebar.handleMouse(mouse(row(sidebar, "server-1"), { type: "wheel", wheelDelta: 1 }));
+  const visible = sidebar.render(40);
+  advance(WAVE_STEP_MS);
+  assert.notEqual(sidebar.render(40), visible, "the painted active row advances with the wave phase");
+
+  sidebar.setFolds({ mcp: false, skills: false, prompts: false });
+  const folded = sidebar.render(40);
+  advance(WAVE_STEP_MS);
+  assert.equal(sidebar.render(40), folded, "a folded MCP section does not animate");
 });
 
 test("MCP is limited to five rows; list wheel scroll does not move the session header", () => {

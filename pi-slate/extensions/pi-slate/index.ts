@@ -31,7 +31,7 @@ import { ToolGroups } from "./tool-groups.ts";
 import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
 import { Sidebar } from "./sidebar.ts";
-import { McpActivity, mcpOutcome, mcpServer } from "./mcp-activity.ts";
+import { mcpServer } from "./mcp-activity.ts";
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
 import { inspectSidebarText } from "./sidebar-inspector.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
@@ -40,7 +40,7 @@ import { ContextUsageCache } from "./context-usage.ts";
 import { branchPerf } from "./perf-stats.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
-import { isProgressStyle, PROGRESS_STYLES, setProgressStyle, setWaveActive, WAVE_STEP_MS, type ProgressStyle } from "./working-wave.ts";
+import { isProgressStyle, PROGRESS_STYLES, setProgressStyle, setWaveActive, type ProgressStyle } from "./working-wave.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import { HiddenThinkingLabel } from "./hidden-thinking-label.ts";
 import {
@@ -238,8 +238,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   if (owns("editor")) installPromptPicker(pi, configuredShortcut("prompts"));
   installExitCommand(pi);
   const sidebar = new Sidebar();
-  const mcpActivity = new McpActivity();
-  sidebar.setMcpActivity(mcpActivity);
   const images = owns("editor") ? installImagePlaceholders(pi, owns("sidebar") ? sidebar : undefined, () => editorActive()) : undefined;
   const selection = new ComposerSelectionController();
   const skills = new SidebarSkills();
@@ -249,7 +247,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   let turnStartedAt: number | undefined;
   let lastTurnMs: number | null = null;
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
-  let mcpClock: ReturnType<typeof setInterval> | undefined;
   let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage>; perf: ReturnType<typeof branchPerf> } | undefined;
   let inspectingSidebar = false;
   let sidebarYielded = false;
@@ -442,18 +439,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   const stopDashboard = (): void => {
     clearInterval(dashboardClock); dashboardClock = undefined;
   };
-  const stopMcpClock = (): void => {
-    clearInterval(mcpClock); mcpClock = undefined;
-  };
-  const syncMcpClock = (): void => {
-    if (!mcpActivity.anyActive()) { stopMcpClock(); return; }
-    if (mcpClock) return;
-    mcpClock = setInterval(() => {
-      if (!mcpActivity.anyActive()) { stopMcpClock(); return; }
-      sidebar.tick();
-    }, WAVE_STEP_MS);
-    mcpClock.unref?.();
-  };
   const inspect = (ctx: ExtensionContext, title: string, text: string): void => {
     if (inspectingSidebar || ctx.mode !== "tui") return;
     inspectingSidebar = true;
@@ -505,8 +490,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     tokenRate.dispose();
     workingWord = undefined;
     setWaveActive(false);
-    stopMcpClock();
-    mcpActivity.reset();
     if (loaded.error) {
       diagnostics.fallback("configuration", "Slate surfaces disabled because pi-slate.json could not be read or parsed. File preserved; repair it and /reload.");
       ctx.ui.notify(loaded.error, "warning");
@@ -804,22 +787,14 @@ export default function piSlate(pi: ExtensionAPI): void {
     });
     pi.on("tool_execution_start", (event, ctx) => {
       if (ctx.mode !== "tui") return;
-      const server = mcpServer(event.toolName, () => pi.getAllTools());
-      if (server) {
-        mcpActivity.start(event.toolCallId, server);
-        syncMcpClock();
-        sidebar.tick();
-      }
+      const server = event.toolName.startsWith("mcp__") ? mcpServer(event.toolName, pi.getAllTools()) : undefined;
+      if (server) sidebar.mcpCallStarted(event.toolCallId, server);
       skills.readStart(event.toolCallId, event.toolName, event.args, ctx.cwd);
       syncSidebar(ctx); // message_end precedes persistence; the tool starts after it.
     });
     pi.on("tool_execution_end", (event, ctx) => {
       if (ctx.mode !== "tui") return;
-      if (event.toolName.startsWith("mcp__")) {
-        mcpActivity.end(event.toolCallId, mcpOutcome(event, ctx.signal?.aborted === true), Date.now());
-        syncMcpClock();
-        sidebar.tick();
-      }
+      sidebar.mcpCallEnded(event, ctx.signal?.aborted === true);
       skills.readEnd(event.toolCallId, event.isError);
       refreshResources(ctx);
     });
@@ -860,8 +835,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       selection.dispose();
       images?.dispose();
       stopDashboard();
-      stopMcpClock();
-      mcpActivity.reset();
       mcpFiles.clear();
       branch.dispose();
       chatSurface?.dispose();

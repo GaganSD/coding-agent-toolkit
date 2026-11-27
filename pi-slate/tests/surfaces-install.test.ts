@@ -1125,6 +1125,14 @@ test("live MCP activity drives the sidebar spinner and warning, then stops its t
   let count = ticks.mock.callCount();
   t.mock.timers.tick(WAVE_STEP_MS);
   assert.equal(ticks.mock.callCount(), count + 1, "the active MCP timer ticks the sidebar");
+  sidebar.setFolds({ mcp: false, skills: false, prompts: false });
+  count = ticks.mock.callCount();
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), count, "a folded MCP section stops the timer");
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  count = ticks.mock.callCount();
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), count + 1, "expanding restarts the timer while the call is active");
   await end("a", { durationMs: 5 });
   assert.doesNotMatch(rows(), /● docs (?:[▁▂▃▄▅▆▇█]{3}|!)/, "a success leaves the config row");
   count = ticks.mock.callCount();
