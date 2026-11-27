@@ -492,9 +492,10 @@ try {
     const editor = Reflect.get(mode, "editor");
     const image = join(root, "retry-drop.png");
     await writeFile(image, fixturePng);
-    // Let the host's deferred syntax-language load finish before faulting the
-    // image repaint path, so an unrelated startup repaint cannot hit the stub.
-    await delay(250);
+    // Do not let the host's deferred syntax-language repaint consume the
+    // image-path fault that this case is about.
+    const syntax = await import(pathToFileURL(join(process.env.SLATE_COMPAT_HOST_DIR, "dist/utils/syntax-highlight.js")).href);
+    await syntax.loadAllHighlightLanguages();
     editor.setText("");
     editor.handleInput(`"${image}"`);
     ui.renderNow(true);
