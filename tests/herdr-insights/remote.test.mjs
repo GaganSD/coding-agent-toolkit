@@ -284,7 +284,7 @@ test("end to end: install, collect, and merge on this machine through the shell 
   assert.equal(deriveDashboard(merged, { today, filters: { machine: "box" } }).lifetime.total, expected);
 });
 
-test("a refreshed Codex machine replaces its v9 overcount in the same timezone store", { timeout: 120_000 }, async (t) => {
+test("a refreshed Codex machine replaces its draft overcount in the same timezone store", { timeout: 120_000 }, async (t) => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "insights-remote-codex-v9-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -295,7 +295,7 @@ test("a refreshed Codex machine replaces its v9 overcount in the same timezone s
   await writeFile(file, source);
   const store = emptyStore();
   const entry = newFileEntry(store, { sourceId: "codex", adapter: "codex", path: file, size: 1, mtimeMs: 0 });
-  entry.state.codexParserVersion = 9;
+  entry.state.codexParserVersion = 16;
   const session = `codex:${JSON.parse(source.split("\n")[0]).payload.id}`;
   for (const [i, input] of [100, 200, 300, 200, 300].entries()) {
     addUsage(store, entry, { day: "2026-11-01", session, harness: "codex", provider: "unknown", model: "m", project: "/tmp/p" },
@@ -325,7 +325,7 @@ test("a refreshed Codex machine replaces its v9 overcount in the same timezone s
   assert.ok(probe.dir.endsWith(bundle.hash));
   assert.equal(corrected.scan.status, "complete");
   const refreshedStore = JSON.parse(await readFile(storePath, "utf8"));
-  assert.equal(Object.values(refreshedStore.files)[0].state.codexParserVersion, 11);
+  assert.equal(Object.values(refreshedStore.files)[0].state.codexParserVersion, 20);
   const rows = JSON.parse(gunzipSync(Buffer.from(corrected.rows, "base64")));
   assert.deepEqual(rows.map((row) => [row.tokens.input, row.tokens.output, row.messages]), [[600, 60, 3]]);
   await writeFile(rowsPath, rowsFileText({ machine: "box", envelope: corrected, fetchedAt }));

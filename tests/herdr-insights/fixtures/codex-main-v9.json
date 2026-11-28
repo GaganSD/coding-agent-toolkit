@@ -1,0 +1,406 @@
+{
+  "main": "8ec1106ee71e11fbdd6a91a07b5baa19de1010d3",
+  "initial": {
+    "history.jsonl": "not JSON\n{\"timestamp\":\"2026-11-01T10:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"v9-history\"}}\n{\"timestamp\":\"2026-11-01T10:00:00Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"first\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:00Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"second\",\"usage\":{\"input_tokens\":20}}}\n",
+    "max-a.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"v9-maxima\"}}\n{\"timestamp\":\"2026-11-01T10:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":1}}}}\n{\"timestamp\":\"2026-11-01T10:01:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30}}}}\n",
+    "max-b.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"v9-maxima\"}}\n{\"timestamp\":\"2026-11-01T10:00:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":20}}}}\n{\"timestamp\":\"2026-11-01T10:01:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30}}}}\n"
+  },
+  "store": {
+    "version": 1,
+    "config": {
+      "profile": {
+        "name": "Developer",
+        "handle": "",
+        "avatar": ""
+      },
+      "palette": "blue",
+      "includeCache": true,
+      "weekStartsOn": 0,
+      "refreshSeconds": 60,
+      "sources": [
+        {
+          "id": "pi",
+          "label": "Pi",
+          "adapter": "pi",
+          "enabled": true,
+          "roots": [
+            "~/.pi/agent/sessions"
+          ]
+        },
+        {
+          "id": "codex",
+          "label": "Codex",
+          "adapter": "codex",
+          "enabled": true,
+          "roots": [
+            "~/.codex/sessions",
+            "~/.codex/archived_sessions"
+          ]
+        },
+        {
+          "id": "opencode",
+          "label": "OpenCode",
+          "adapter": "opencode",
+          "enabled": true,
+          "roots": [
+            "~/.local/share/opencode"
+          ]
+        },
+        {
+          "id": "claude",
+          "label": "Claude Code",
+          "adapter": "claude",
+          "enabled": true,
+          "roots": [
+            "~/.claude/projects"
+          ]
+        },
+        {
+          "id": "antigravity",
+          "label": "Antigravity",
+          "adapter": "antigravity",
+          "enabled": true,
+          "roots": [
+            "~/.gemini/antigravity-cli/conversations",
+            "~/.gemini/antigravity-cli/brain"
+          ]
+        }
+      ]
+    },
+    "generation": 0,
+    "nextFileId": 4,
+    "files": {
+      "codex\u0000history.jsonl": {
+        "id": 1,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "history.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 353,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 353,
+        "lineNo": 4,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:v9-history",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "v9-history",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "5d80e9b6b048c294f477ecb0": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "c153e5a6c4e1ce2b5c1f4d4e": [
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": null,
+          "modernRecent": [
+            {
+              "key": "5d80e9b6b048c294f477ecb0",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527200000,
+              "thread": null,
+              "turn": null,
+              "responseId": "first",
+              "turnId": ""
+            },
+            {
+              "key": "c153e5a6c4e1ce2b5c1f4d4e",
+              "tokens": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527200000,
+              "thread": null,
+              "turn": null,
+              "responseId": "second",
+              "turnId": ""
+            }
+          ],
+          "lastRow": {
+            "fileId": 1,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000max-a.jsonl": {
+        "id": 2,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "max-a.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 363,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 363,
+        "lineNo": 3,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:v9-maxima",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "v9-maxima",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "pendingTwin": {
+            "key": "0a20a790e0621666e539becb",
+            "tokens": [
+              29,
+              0,
+              0,
+              0,
+              0
+            ],
+            "timestamp": 1793527260000,
+            "cumulative": [
+              30,
+              0,
+              0,
+              0,
+              0
+            ],
+            "responseId": "",
+            "turnId": ""
+          },
+          "turns": {},
+          "legacyTotals": {
+            "input_tokens": 30,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "lastRow": {
+            "fileId": 2,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000max-b.jsonl": {
+        "id": 3,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "max-b.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 364,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 364,
+        "lineNo": 3,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:v9-maxima",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 20,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 1
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "v9-maxima",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "pendingTwin": {
+            "key": "0a20a790e0621666e539becb",
+            "tokens": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "timestamp": 1793527260000,
+            "cumulative": [
+              30,
+              0,
+              0,
+              0,
+              0
+            ],
+            "responseId": "",
+            "turnId": ""
+          },
+          "turns": {},
+          "legacyTotals": {
+            "input_tokens": 30,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "lastRow": {
+            "fileId": 2,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      }
+    },
+    "dedup": {
+      "5d80e9b6b048c294f477ecb0": [
+        1,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "c153e5a6c4e1ce2b5c1f4d4e": [
+        1,
+        0,
+        20,
+        0,
+        0,
+        0,
+        0
+      ],
+      "b21533e4d0cd0fb99e8d61bd": [
+        2,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "0a20a790e0621666e539becb": [
+        2,
+        0,
+        29,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            3
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:v9-maxima",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "fc79648f1228e9e5aab358bb": [
+        3,
+        0,
+        20,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "tasks": {},
+    "lastScanAt": "2026-11-28T05:21:02.632Z",
+    "lastCompletedScanAt": "2026-11-28T05:21:02.632Z"
+  }
+}

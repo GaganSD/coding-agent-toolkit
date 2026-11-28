@@ -491,8 +491,23 @@ test("Codex mixed upgrade keeps the legacy prefix and appends without double cou
       payload: { turn_id: "modern-1", model: "modern-model", cwd: "/repo/mixed" },
     },
     {
-      type: "event_msg",
+      type: "token_usage_record",
       timestamp: "2026-03-05T05:00:05Z",
+      payload: {
+        response_id: "mixed-resp-1",
+        turn_id: "modern-1",
+        usage: {
+          input_tokens: 100,
+          cached_input_tokens: 20,
+          cache_write_input_tokens: 0,
+          output_tokens: 20,
+          reasoning_output_tokens: 5,
+        },
+      },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-03-05T05:00:06Z",
       payload: {
         type: "token_count",
         info: {
@@ -510,21 +525,6 @@ test("Codex mixed upgrade keeps the legacy prefix and appends without double cou
             output_tokens: 35,
             reasoning_output_tokens: 5,
           },
-        },
-      },
-    },
-    {
-      type: "token_usage_record",
-      timestamp: "2026-03-05T05:00:06Z",
-      payload: {
-        response_id: "mixed-resp-1",
-        turn_id: "modern-1",
-        usage: {
-          input_tokens: 100,
-          cached_input_tokens: 20,
-          cache_write_input_tokens: 0,
-          output_tokens: 20,
-          reasoning_output_tokens: 5,
         },
       },
     },
@@ -811,9 +811,10 @@ for (const { name, records, echo, expectedInput, expectedMessages, separateSessi
     expectedMessages: 2,
   },
   {
-    name: "does not clear newer pending usage at an older echoed baseline",
+    name: "does not clear newer pending usage at an unchanged snapshot",
     records: [
       codexTurnUsage("one", codexUsage(10, 0), codexUsage(10, 0)),
+      countInput(10, 10),
       codexTurnUsage("two", codexUsage(20, 0), codexUsage(30, 0)),
       countInput(10, 10),
       { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: codexUsage(35, 0) } } },
@@ -833,6 +834,7 @@ for (const { name, records, echo, expectedInput, expectedMessages, separateSessi
     records: [
       countInput(20, 20, { response_id: "before-a" }),
       countInput(10, 30, { response_id: "before-b" }),
+      countInput(0, 0),
       countInput(20, 20, { response_id: "after-a" }),
       countInput(10, 30, { response_id: "after-b" }),
     ],
@@ -841,13 +843,13 @@ for (const { name, records, echo, expectedInput, expectedMessages, separateSessi
     expectedMessages: 4,
   },
   {
-    name: "remembers a matching modern response across scans and delayed legacy echoes",
+    name: "recognizes an exact re-emission of a history carrier across scans",
     records: [
       codexTurnUsage("modern", codexUsage(30, 0), codexUsage(30, 0)),
       countInput(30, 30),
       countInput(50, 80),
     ],
-    echo: countInput(30, 30),
+    echo: { ...countInput(30, 30), timestamp: "2026-03-09T09:00:02.000Z" },
     expectedInput: 80,
     expectedMessages: 2,
   },
@@ -858,7 +860,7 @@ for (const { name, records, echo, expectedInput, expectedMessages, separateSessi
     await mkdir(path.dirname(file), { recursive: true });
     const started = Date.UTC(2026, 2, 9, 9);
     const header = { type: "session_meta", payload: { id: "accounting", cwd: "/repo/accounting" } };
-    const line = (record, offset) => `${JSON.stringify({ ...record, timestamp: new Date(started + offset).toISOString() })}\n`;
+    const line = (record, offset) => `${JSON.stringify({ timestamp: new Date(started + offset).toISOString(), ...record })}\n`;
     await writeFile(file, [header, ...records].map((record, index) => line(record, index * 1000)).join(""));
     const first = await snapshot(context);
     if (separateSessions) {
@@ -877,7 +879,7 @@ for (const { name, records, echo, expectedInput, expectedMessages, separateSessi
   });
 }
 
-test("Codex promotes an echo-first prefix to the response day and moves its task", async () => {
+test("Codex promotes a named legacy prefix to the response day and moves its task", async () => {
   const context = await env();
   const dir = path.join(context.home, ".codex", "sessions");
   const file = path.join(dir, "a.jsonl");
@@ -888,7 +890,10 @@ test("Codex promotes an echo-first prefix to the response day and moves its task
   const next = "2026-03-10T00:00:10Z";
   const header = line(start, { type: "session_meta", payload: { id: "promote", cwd: "/repo/old" } });
   const scope = (model, cwd) => ({ type: "turn_context", payload: { turn_id: "turn-1", model, cwd } });
-  const echo = line(next, codexTokenCount(codexUsage(100, 10), codexUsage(100, 10)));
+  // Last-first only has provable identity in the old named shape.
+  const named = codexTokenCount(codexUsage(100, 10), codexUsage(100, 10));
+  named.payload.response_id = "midnight";
+  const echo = line(next, named);
   const task = line(next, { type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1", duration_ms: 3000 } });
   const response = line(start, codexTurnUsage("midnight", codexUsage(100, 10), codexUsage(100, 10)));
   await writeFile(file, header + line(next, scope("older-model", "/repo/old")) + echo + task);
@@ -939,7 +944,7 @@ test("Codex offset reconciliation survives append, restart, and a turn change", 
   const unchanged = await snapshot(context);
   assert.equal(unchanged.stats.bytesRead, 0);
   assert.deepEqual(unchanged.rows, full.rows);
-  assert.match(unchanged.warnings.join("\n"), /inferred from separate usage counters/);
+  assert.doesNotMatch(unchanged.warnings.join("\n"), /ambiguous usage|inferred from separate usage counters/);
 });
 
 test("old file-level Codex modern state is rescanned once to recover the prefix", async () => {

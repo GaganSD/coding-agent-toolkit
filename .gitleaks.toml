@@ -1,3 +1,10 @@
 title = "coding-agent-toolkit secrets"
 [extend]
 useDefault = true
+
+# Ignore 24-character lowercase hex dedup hashes in synthetic Codex store fixtures.
+[[allowlists]]
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^tests/herdr-insights/fixtures/codex-[^/]+\.json$''']
+regexes = ['''^[0-9a-f]{24}$''']

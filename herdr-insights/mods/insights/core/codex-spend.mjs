@@ -1,23 +1,11 @@
-// Rollout-local evidence for relating the response counter to the independently
-// advancing history counter. Only the response record is authoritative spend.
-export const CODEX_PARSER_VERSION = 11;
+import { isPlainObject, toNonNegInt } from "./util.mjs";
+
+export const CODEX_PARSER_VERSION = 20;
+export const codexResponseIdKey = (id) => `:${id}`;
 
 const FIELDS = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];
-const ZERO = FIELDS.map(() => 0);
-
-function vector(raw) {
-  if (Array.isArray(raw)) return raw;
-  if (!raw || !Number.isSafeInteger(raw.input_tokens) || !Number.isSafeInteger(raw.output_tokens)) return null;
-  const values = FIELDS.map((key) => raw[key] === undefined ? 0 : raw[key]);
-  return values.every((n) => Number.isSafeInteger(n) && n >= 0) ? values : null;
-}
-
-const pair = (total, usage) => `${total}/${usage}`;
-const same = (a, b) => Boolean(a && b && a.every((n, i) => n === b[i]));
+const ZERO = Object.freeze([0, 0, 0, 0, 0]);
 const minus = (a, b) => a.map((n, i) => n - b[i]);
-const plus = (a, b) => a.map((n, i) => n + b[i]);
-const nonnegative = (a) => a.every((n) => n >= 0);
-const byId = (id) => `:${id}`;
 
 export function codexSpendScope(state, session) {
   if (state.forkReplay) return state.codexReplaySpend ??= {};
@@ -25,142 +13,108 @@ export function codexSpendScope(state, session) {
   return scopes[session] ??= {};
 }
 
-function compatible(candidate, { responseId, turnId }) {
-  return candidate && (!responseId || !candidate.responseId || responseId === candidate.responseId)
-    && (!turnId || !candidate.turnId || turnId === candidate.turnId);
+export const codexRawVector = (raw) => FIELDS.map((field) => toNonNegInt(raw?.[field]));
+
+// The per-file maxima are independent of the global dedup owner: a copied
+// interval must still subtract the records it contains. Keep deltas in raw
+// counter space so a cache reclassification does not buy new input tokens.
+export function recordCodexSpend(scope, key, current, countedLegacy = ZERO) {
+  const previous = (scope.responses ??= {})[key] ?? countedLegacy;
+  const merged = current.map((n, i) => Math.max(n, previous[i]));
+  merged[1] = Math.min(merged[0], merged[1]);
+  merged[2] = Math.min(merged[0] - merged[1], merged[2]);
+  scope.responses[key] = merged;
+  const delta = minus(merged, previous);
+  if (!delta.some(Boolean)) return delta;
+  scope.recordDelta = (scope.recordDelta ?? ZERO).map((n, i) => n + delta[i]);
+  const pending = scope.pendingRecords ??= {};
+  pending[key] = (pending[key] ?? ZERO).map((n, i) => n + delta[i]);
+  return delta;
 }
 
-function indexPair(index, signature, candidate, key) {
-  const previous = index[signature];
-  index[signature] = previous === undefined || previous?.[key] === candidate[key] ? candidate : false;
+// An installed compaction identifies its response. Its spend is still in
+// the response ledger; only its unacknowledged increment is removed here.
+export function excludeCodexCompaction(scope, responseId) {
+  const key = codexResponseIdKey(responseId);
+  const delta = scope.pendingRecords?.[key];
+  if (!delta) return;
+  scope.recordDelta = minus(scope.recordDelta, delta);
+  delete scope.pendingRecords[key];
 }
 
-export function rememberCodexSnapshot(scope, rawTotal, rawLast, observation, previousTotals) {
-  const total = vector(rawTotal);
-  const usage = vector(rawLast);
-  const snapshot = { ...observation, total, usage };
-  if (!rawLast) {
-    if (observation.responseId && total && !scope.ids?.[byId(observation.responseId)]) {
-      (scope.checkpoints ??= {})[byId(observation.responseId)] = snapshot;
+export function isCodexWindowFill(info, rawTotal, last) {
+  const window = toNonNegInt(info.model_context_window ?? info.modelContextWindow);
+  // fill_to_context_window replaces both raw vectors with scalar-only
+  // values. The preceding internal total may never have been published.
+  return window > 0 && rawTotal?.total_tokens === window && isPlainObject(last) &&
+    !codexRawVector(rawTotal).some(Boolean) && !codexRawVector(last).some(Boolean) &&
+    Number.isSafeInteger(last.total_tokens) && last.total_tokens >= 0 && last.total_tokens <= window;
+}
+
+export function clearCodexPending(scope) {
+  delete scope.recordDelta;
+  delete scope.pendingRecords;
+  delete scope.pendingTurn;
+  delete scope.pendingTurnCompleted;
+  delete scope.pendingCarriers;
+}
+
+function codexIntervalResidual(increase, pending = ZERO, records) {
+  const fits = (usage, capacity) => usage[0] <= capacity[0] && usage[3] <= capacity[3];
+  let remaining = minus(increase, pending);
+  if (!fits(pending, increase)) {
+    // Imported offsets and interrupted appends may leave records whose entire
+    // increment cannot possibly fit. Never spend part of one against history.
+    remaining = increase;
+    for (const record of Object.values(records ?? {}).reverse()) {
+      if (fits(record, remaining)) remaining = minus(remaining, record);
     }
-    return;
   }
-  if (observation.responseId) (scope.snapshotIds ??= {})[byId(observation.responseId)] = snapshot;
-  if (!total || !usage) return;
-  indexPair(scope.snapshotPairs ??= {}, pair(total, usage), snapshot, "key");
-  if (!observation.responseId && scope.latest) {
-    scope.provisional = { snapshot, before: vector(previousTotals) ?? ZERO, after: scope.latest.seq };
-  }
+  const residual = remaining.map((n) => Math.max(0, n));
+  residual[1] = Math.min(residual[0], residual[1]);
+  residual[2] = Math.min(residual[0] - residual[1], residual[2]);
+  if (!residual[0] && !residual[3]) residual[4] = 0;
+  return residual;
 }
 
-function chainStep(candidate, total, usage, accepted, anchor) {
-  return candidate?.total && same(usage, candidate.usage)
-    && same(minus(total, usage), accepted)
-    && candidate.seq > (anchor?.seq ?? 0)
-    && nonnegative(minus(minus(candidate.total, usage), anchor?.modern ?? ZERO));
-}
-
-export function observeCodexResponse(scope, rawTotal, rawUsage, identity) {
-  const usage = vector(rawUsage);
-  if (!identity.responseId || !usage) return {};
-  const total = vector(rawTotal);
-  const id = byId(identity.responseId);
-  const previous = scope.ids?.[id];
-  const exactRecord = total && scope.pairs?.[pair(total, usage)];
-  if (exactRecord?.responseId === identity.responseId
-    || (previous && same(previous.usage, usage) && (!total || same(previous.total, total)))) return {};
-  const candidate = { ...identity, usage, total, seq: (scope.seq ?? 0) + 1 };
-  scope.seq = candidate.seq;
-  (scope.ids ??= {})[id] = candidate;
-  let snapshot = scope.snapshotIds?.[id];
-  const checkpoint = scope.checkpoints?.[id];
-  // One checkpoint can only cover usage at the observed cumulative total.
-  const covered = !snapshot && same(checkpoint?.total, total) ? checkpoint : null;
-  if (!total) return { candidate, snapshot };
-
-  const fingerprint = pair(total, usage);
-  if (!snapshot) {
-    const exact = scope.snapshotPairs?.[fingerprint];
-    if (compatible(exact, candidate)) snapshot = exact;
+// Pure settlement of one history carrier. Only its baseline and the whole
+// record increments in its interval can cover history spend. Ledger records
+// are charged independently. The caller owns persistence and attribution.
+export function settleCodexInterval({ boundary, baseline, total, last, priorLast, fill, priorFill,
+  pending, records, interrupted, interruptedRecords, inheritance, target }) {
+  pending ??= Object.values(records ?? {}).reduce((sum, record) => sum.map((n, i) => n + record[i]), ZERO);
+  const previous = inheritance === "filtered" ? ZERO : baseline ?? ZERO;
+  if (!total) return { charge: last ?? null, target, next: null };
+  if (fill) {
+    const repeated = priorFill === fill && !previous.some(Boolean);
+    return { charge: null, target, next: { historyTotal: [...ZERO], windowFill: fill, close: !repeated } };
   }
-  const provisional = scope.provisional;
-  let inferred = false;
-  if (!snapshot && !covered && provisional && provisional.after === scope.latest?.seq
-    && compatible(provisional.snapshot, candidate)
-    && same(provisional.snapshot.total, vector(scope.legacyTotals))
-    && same(minus(total, usage), scope.latest.total)
-    && chainStep(candidate, provisional.snapshot.total, provisional.snapshot.usage, provisional.before, scope.anchor)) {
-    snapshot = provisional.snapshot;
-    inferred = true;
+  const delta = boundary === "clipped-paginated" && !baseline && last?.some(Boolean) ? last : minus(total, previous);
+  const advancing = Boolean(delta[0] || delta[3]);
+  const reset = delta[0] < 0 || delta[3] < 0;
+  const staleLast = baseline && !reset && last?.every((n, i) => n === priorLast?.[i]);
+  const useLast = advancing && (boundary === "legacy" || boundary === "clipped-paginated") && !staleLast &&
+    !pending.some(Boolean) && total.some(Boolean) && last?.some(Boolean);
+  // An unfinished preceding turn plus restored last-response evidence can
+  // identify a resume without a new session header. A completed turn cannot.
+  const sameVector = (a, b) => Boolean(a && b && a.length === b.length && a.every((n, i) => n === b[i]));
+  const entirelyInterrupted = interrupted?.every((n, i) => n === pending[i]);
+  const priorRecords = Object.values(interruptedRecords ?? {});
+  const distinctLast = last && (priorRecords.length ? !priorRecords.some((record) => sameVector(record, last))
+    : !sameVector(interrupted, last));
+  // If last is itself the whole advance, distinct unpublished responses
+  // from an interrupted turn cannot be part of that advance.
+  const differentAdvance = interrupted && !reset && delta[0] === interrupted[0] && delta[3] === interrupted[3] &&
+    !sameVector(delta, interrupted);
+  const excludeInterrupted = interrupted && (differentAdvance || distinctLast &&
+    (!reset && sameVector(delta, last) || staleLast && entirelyInterrupted));
+  if (excludeInterrupted) {
+    pending = minus(pending, interrupted);
+    records = Object.fromEntries(Object.entries(records ?? {}).map(([id, record]) =>
+      [id, minus(record, interruptedRecords?.[id] ?? (entirelyInterrupted ? record : ZERO))]));
   }
-  delete scope.provisional;
-  scope.latest = candidate;
-  indexPair(scope.pairs ??= {}, fingerprint, candidate, "responseId");
-  indexPair(scope.totals ??= {}, String(total), candidate, "responseId");
-  ((scope.byUsage ??= {})[String(usage)] ??= []).push(candidate);
-  return { candidate, snapshot, checkpoint: covered, inferred };
-}
-
-export function advanceCodexEcho(scope, candidate, rawTotal, rawLast) {
-  const last = vector(rawLast);
-  const snapshot = vector(rawTotal);
-  const previous = vector(scope.legacyTotals);
-  if (!candidate?.total || !snapshot || !last || candidate.seq < (scope.anchor?.seq ?? 0)
-    || (previous && !nonnegative(minus(snapshot, previous)))) return false;
-  scope.anchor = { seq: candidate.seq, modern: candidate.total, snapshot, last };
-  return true;
-}
-
-function firstAfter(candidates, seq) {
-  let lo = 0;
-  let hi = candidates.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (candidates[mid].seq <= seq) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-export function matchCodexSnapshot(scope, rawTotal, rawLast, identity) {
-  const total = vector(rawTotal);
-  const usage = vector(rawLast);
-  if (identity.responseId) {
-    const candidate = scope.ids?.[byId(identity.responseId)];
-    return candidate ? { candidate } : null;
-  }
-  if (!total || !usage || !scope.latest) return null;
-  const exact = scope.pairs?.[pair(total, usage)];
-  if (compatible(exact, identity)) return { candidate: exact };
-
-  const anchor = scope.anchor;
-  const accepted = vector(scope.legacyTotals) ?? ZERO;
-  const candidates = scope.byUsage?.[String(usage)] ?? [];
-  if (same(minus(total, usage), accepted)) {
-    // Prefer the already anchored shift over guessing which equal-sized
-    // response advanced a lagging chain. Otherwise require unique evidence.
-    const expected = anchor && same(anchor.snapshot, accepted)
-      ? scope.pairs?.[pair(plus(anchor.modern, usage), usage)] : null;
-    if (compatible(expected, identity) && chainStep(expected, total, usage, accepted, anchor)) {
-      return { candidate: expected, inferred: true };
-    }
-    let match;
-    for (let i = firstAfter(candidates, anchor?.seq ?? 0); i < candidates.length; i += 1) {
-      const candidate = candidates[i];
-      if (!compatible(candidate, identity) || !chainStep(candidate, total, usage, accepted, anchor)) continue;
-      if (match && match.responseId !== candidate.responseId) return null;
-      match = candidate;
-    }
-    if (match) return { candidate: match, inferred: true };
-  }
-
-  // Spending-only responses advance both counters but preserve history-last.
-  const step = anchor && same(anchor.snapshot, accepted) && same(anchor.last, usage)
-    ? minus(total, anchor.snapshot) : null;
-  const advanced = step && nonnegative(step) && step.some(Boolean)
-    ? scope.totals?.[String(plus(anchor.modern, step))] : null;
-  if (compatible(advanced, identity) && advanced.seq > anchor.seq) {
-    return { candidate: advanced, inferred: true, staleLast: true };
-  }
-  return null;
+  const charge = !advancing ? null : useLast ? last :
+    codexIntervalResidual(reset ? total : delta, pending, records);
+  return { charge, target, next: { historyTotal: total, windowFill: null, useLast,
+    close: advancing || (delta.some(Boolean) && !pending[0] && !pending[3]) } };
 }

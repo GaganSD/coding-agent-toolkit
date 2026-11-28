@@ -116,7 +116,8 @@ for (const carrier of ["modern-mixed", "modern-thread-prefix", "modern-only", "m
     const marker = carrier === "modern-thread-prefix"
       ? forkRecord("event_msg", { type: "task_started", root_turn_id: childTurn }) : forkMarker(childTurn);
     const records = [forkHeader(), forkMarker(copiedTurn), ...copied,
-      ...(carrier === "mixed" ? [forkCount(forkParent)] : []), marker, child,
+      // A restored record counter cannot substitute for copied history.
+      ...(["mixed", "modern-mixed", "modern-thread-prefix"].includes(carrier) ? [forkCount(forkParent)] : []), marker, child,
       ...(["modern-mixed", "modern-thread-prefix", "modern-no-thread", "mixed"].includes(carrier) ? [forkCount(forkTotal)] : [])];
     await writeFile(file, forkEncode(records));
     const config = sourceStore(file, "codex").config;
@@ -138,9 +139,9 @@ for (const carrier of ["modern-mixed", "modern-thread-prefix", "modern-only", "m
     assert.deepEqual((await collectSnapshot("snapshot", { home: root, store })).rows, oracle.rows);
     const saved = JSON.parse(await readFile(store, "utf8"));
     const entry = Object.values(saved.files)[0];
-    assert.equal(entry.state.codexParserVersion, 11);
-    entry.state.codexParserVersion = 9;
-    entry.rows[0].input += 2500; // A stale PR parser contribution must be rebuilt, not retained.
+    assert.equal(entry.state.codexParserVersion, 20);
+    entry.state.codexParserVersion = 16;
+    entry.rows[0].input += 2500; // Draft contributions can be rebuilt; inconsistent genuine v9 rows are retained.
     await writeFile(store, JSON.stringify(saved));
     const migrated = await collectSnapshot("snapshot", { home: root, store });
     assert.equal(migrated.stats.filesRead, 1);
@@ -151,16 +152,16 @@ for (const carrier of ["modern-mixed", "modern-thread-prefix", "modern-only", "m
 
 // Missing/last-only carriers are compatibility inputs, not the required paired
 // cumulative fields in current upstream Codex TokenUsageRecord/TokenUsageInfo.
-async function checkForkCompatibility(t, records, { ambiguous = false, timestampWarning = false } = {}) {
+async function checkForkCompatibility(t, records, { ambiguous = false, timestampWarning = false, expected = ambiguous ? null : forkExpected } = {}) {
   const root = await fixture(t);
   const file = path.join(root, "compatibility.jsonl");
   await writeFile(file, forkEncode(records));
   const config = sourceStore(file, "codex").config;
   const store = path.join(root, "full.json");
   const full = await collectSnapshot("configure", { home: root, store, config });
-  if (!ambiguous) {
+  if (expected) {
     assert.equal(full.rows.length, 1);
-    assert.deepEqual(full.rows[0].tokens, forkExpected);
+    assert.deepEqual(full.rows[0].tokens, expected);
     assert.equal(full.rows[0].messages, 1);
   }
   assert.equal(full.warnings.filter((message) => /lack a reliable shared identity/.test(message)).length, ambiguous ? 1 : 0);
@@ -191,8 +192,11 @@ for (const shape of ["zero-usage", "missing-usage", "modern-missing-time", "mode
       if (shape.includes("invalid")) parent.timestamp = "not-a-timestamp";
       else delete parent.timestamp;
     }
-    await checkForkCompatibility(t, [header, forkMarker(copiedTurn), parent, forkMarker(childTurn), forkCount(forkTotal)],
-      { timestampWarning: modern && shape.endsWith("time") });
+    // Only the actual copied history can establish the baseline, including
+    // when its time is missing or invalid. Modern usage still validates independently.
+    const copiedHistory = { ...forkCount(forkParent), timestamp: parent.timestamp };
+    await checkForkCompatibility(t, [header, forkMarker(copiedTurn), parent, ...(modern ? [copiedHistory] : []),
+      forkMarker(childTurn), forkCount(forkTotal)], { timestampWarning: modern && shape.endsWith("time") });
   });
 }
 
@@ -263,7 +267,11 @@ for (const shape of ["last-to-total", "repeated-exact-last", "repeated-response"
       const rest = Object.fromEntries(Object.keys(forkParent).map((key) => [key, forkParent[key] - forkChild[key]]));
       prefix = [forkCount(rest, true), { ...forkCount(forkChild, true), timestamp: "2026-03-08T08:00:01Z" }];
     }
-    await checkForkCompatibility(t, [forkHeader(), forkMarker(copiedTurn), ...prefix, forkMarker(childTurn), ...suffix]);
+    const independentBase = shape === "modern-thread-last" || shape === "last-modern-thread";
+    await checkForkCompatibility(t, [forkHeader(), forkMarker(copiedTurn), ...prefix, forkMarker(childTurn), ...suffix],
+      independentBase ? {
+        ambiguous: true, expected: { input: 1140, output: 520, cacheRead: 830, cacheWrite: 110, reasoning: 105, total: 2600 },
+      } : undefined);
   });
 }
 
@@ -299,7 +307,8 @@ test("Codex fork replay state survives a budget slice before and after the bound
   const root = await fixture(t);
   const file = path.join(root, "fork.jsonl");
   const padding = forkEncode([forkRecord("ignored", { padding: "x".repeat(300_000) })]);
-  const prefix = forkEncode([forkHeader(), forkMarker(copiedTurn), forkModern("copied", forkParent, forkParent, copiedTurn)]);
+  const prefix = forkEncode([forkHeader(), forkMarker(copiedTurn),
+    forkModern("copied", forkParent, forkParent, copiedTurn), forkCount(forkParent)]);
   const boundary = forkEncode([forkMarker(childTurn)]);
   const suffix = forkEncode([forkModern("own", forkChild, forkTotal, childTurn), forkCount(forkTotal)]);
   await writeFile(file, prefix + padding + boundary + padding + suffix);
