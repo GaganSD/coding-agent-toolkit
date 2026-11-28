@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import dns from "node:dns";
+import dnsPromises from "node:dns/promises";
+import { syncBuiltinESMExports } from "node:module";
+import { cassettePath, type Provenance } from "./provenance.ts";
 import dgram from "node:dgram";
 import net from "node:net";
 
@@ -8,6 +12,7 @@ const retrievalScope = new AsyncLocalStorage<boolean>();
 export const retrieve = <T>(run: () => T): T => retrievalScope.run(true, run);
 
 type Rpc = { id?: number; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+type Archive = { provenance: Provenance; records: Record<string, Recording> };
 type Recording = { status: number; contentType: string; body: string; rpc?: boolean };
 const providers = new Set(["mcp.exa.ai", "mcp.grep.app", "search.parallel.ai", "sourcegraph.com", "r.jina.ai", "context7.com"]);
 const privateToken = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16})\b|\bBearer\s+[A-Za-z0-9._~-]{16,})/giu;
@@ -33,10 +38,19 @@ export class Replay {
 	private readonly path: string;
 	private readonly live: boolean;
 
-	constructor(path: string, live: boolean) {
-		this.path = path;
+	private readonly provenance: Provenance;
+
+	constructor(path: string, live: boolean, provenance: Provenance) {
+		this.path = cassettePath(path);
 		this.live = live;
-		try { this.records = JSON.parse(readFileSync(path, "utf8")); }
+		this.provenance = provenance;
+		try {
+			const archive = JSON.parse(readFileSync(this.path, "utf8")) as Partial<Archive>;
+			if (archive?.provenance !== provenance || !archive.records || typeof archive.records !== "object" || Array.isArray(archive.records)) {
+				throw new Error("Response cassette provenance is missing or differs. Choose a separate cassette.");
+			}
+			this.records = archive.records;
+		}
 		catch (error) {
 			if (!live || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			this.records = {};
@@ -46,7 +60,7 @@ export class Replay {
 	save() {
 		if (!this.live) return;
 		const temporary = this.path + "." + process.pid + ".tmp";
-		writeFileSync(temporary, JSON.stringify(this.records, null, 2) + "\n", { mode: 0o600 });
+		writeFileSync(temporary, JSON.stringify({ provenance: this.provenance, records: this.records } satisfies Archive, null, 2) + "\n", { mode: 0o600 });
 		renameSync(temporary, this.path);
 	}
 
@@ -64,7 +78,14 @@ export class Replay {
 		dgram.Socket.prototype.send = function (...args: unknown[]) {
 			return guarded() ? miss("datagram") : Reflect.apply(send, this, args);
 		};
+		const restoreDns = [
+			guardDns(dns, false, guarded, miss), guardDns(dns.Resolver.prototype, false, guarded, miss),
+			guardDns(dnsPromises, true, guarded, miss), guardDns(dnsPromises.Resolver.prototype, true, guarded, miss),
+		];
+		syncBuiltinESMExports();
 		return () => {
+			for (const restore of restoreDns) restore();
+			syncBuiltinESMExports();
 			globalThis.fetch = fetch;
 			net.Socket.prototype.connect = connect;
 			dgram.Socket.prototype.send = send;
@@ -131,7 +152,7 @@ export class Replay {
 		const response = exa ? await this.network("https://mcp.exa.ai/mcp?tools=web_search_exa", {
 			method: "POST", headers, redirect: "error", signal: request.signal,
 			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "web_search_exa",
-				arguments: { query: rpc?.params?.arguments?.query, numResults: Math.max(8, Number(rpc?.params?.arguments?.numResults) || 0) } } }),
+				arguments: { query: rpc?.params?.arguments?.query, objective: rpc?.params?.arguments?.query, numResults: Math.max(8, Number(rpc?.params?.arguments?.numResults) || 0) } } }),
 		}) : await this.network(request, { headers, redirect: "error" });
 		const body = await response.text();
 		const contentType = response.headers.get("content-type") ?? "text/plain";
@@ -152,4 +173,18 @@ export class Replay {
 		}
 		return { status: response.status, contentType, body: scrub(body) };
 	}
+}
+
+function guardDns(target: object, promises: boolean, guarded: () => boolean, miss: (reason: string) => never) {
+	const methods = target as Record<string, (...args: unknown[]) => unknown>;
+	const originals = Object.fromEntries(Object.getOwnPropertyNames(target).filter((key) =>
+		/^(?:lookup(?:Service)?|reverse|resolve(?:[A-Z0-9][A-Za-z0-9]*)?)$/u.test(key) && typeof methods[key] === "function")
+		.map((key) => [key, methods[key]]));
+	for (const [name, original] of Object.entries(originals)) {
+		const invoke = function (this: unknown, ...args: unknown[]) {
+			return guarded() ? miss("DNS " + name) : Reflect.apply(original, this, args);
+		};
+		methods[name] = promises ? async function (this: unknown, ...args: unknown[]) { return invoke.apply(this, args); } : invoke;
+	}
+	return () => { Object.assign(target, originals); };
 }

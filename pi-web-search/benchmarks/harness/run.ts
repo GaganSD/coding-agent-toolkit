@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { ModelRegistry, ModelRuntime, getAgentDir, VERSION } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { CREDENTIAL_ENV_ALIASES } from "../../src/env.ts";
+import { approvedInput, checkPath, claimOutput, type Provenance } from "./provenance.ts";
 import { Replay, retrieve, scrub } from "./replay.ts";
 import { changeDeclaration, competitorPin, competitorTools, configure, makeSession, setup, taskReader, type Variant } from "./extension.ts";
 import { textContent, trial, trialFingerprint, type Task } from "./tasks.ts";
@@ -20,6 +21,7 @@ const { values: flags } = parseArgs({ args, options: {
 	model: { type: "string", multiple: true }, task: { type: "string", multiple: true },
 	cassette: { type: "string" }, revision: { type: "string" }, catalog: { type: "string" },
 } });
+const provenance: Provenance = flags.draft ? "draft" : "final";
 const variants: Variant[] = ["native", "baseline-fields", "string-first", "queries", "baseline-descriptions", "baseline-guideline", "no-filters"];
 if (flags.help) {
 	console.log(`npm run research:${mode} -- [--inputs=<dir>] [--draft] [--version=<lane>] [--output=<dir>]
@@ -45,11 +47,14 @@ async function main() {
 	if (!variants.includes(variant)) throw new Error("Unknown variant");
 	if (flags.only && !["context", "tasks"].includes(flags.only)) throw new Error("Use --only=context or --only=tasks");
 	if (flags.task?.length && (!flags.output || flags.only !== "tasks")) throw new Error("Task selection requires --only=tasks and a separate --output");
-	const inputs = resolve(flags.inputs ?? join(research, flags.draft ? "inputs-draft" : "inputs"));
-	if (!flags.draft && /(?:^|\/)[^/]*draft[^/]*(?:\/|$)/iu.test(inputs)) throw new Error("Use --draft with draft inputs");
-	const output = resolve(flags.output ?? join(research, flags.draft ? "draft-results" : "results"));
-	const raw = join(output, "raw", version);
+	const inputs = approvedInput(resolve(flags.inputs ?? join(research, flags.draft ? "inputs-draft" : "inputs")), provenance);
+	const output = claimOutput(resolve(flags.output ?? join(research, flags.draft ? "draft-results" : "results")), provenance);
+	const raw = checkPath(join(checkPath(join(output, "raw")), version));
 	mkdirSync(raw, { recursive: true, mode: 0o700 });
+	const state = checkPath(join(raw, "tables.json"));
+	const previous = existsSync(state) ? JSON.parse(readFileSync(state, "utf8")) : {};
+	if (existsSync(state) && previous.provenance !== provenance) throw new Error("Benchmark tables have missing or different provenance.");
+	const reportPath = checkPath(join(output, version + ".md"));
 	const extension = resolve(flags.extension ?? join(research, ".."));
 	const competitor = flags.competitor ? resolve(flags.competitor) : undefined;
 	let option = flags.revision;
@@ -60,10 +65,10 @@ async function main() {
 	}
 	const auth = getAgentDir();
 	const env = { ...process.env };
-	const root = mkdtempSync(join(tmpdir(), "pi-search-research-"));
+	if (previous.revision && previous.revision !== option) throw new Error("Choose another lane or output directory for a different revision");
 	const cassette = resolve(flags.cassette ?? join(output, "responses.json"));
-	mkdirSync(dirname(cassette), { recursive: true, mode: 0o700 });
-	const replay = mode === "urls" ? undefined : new Replay(cassette, mode === "record");
+	const replay = mode === "urls" ? undefined : new Replay(cassette, mode === "record", provenance);
+	const root = mkdtempSync(join(tmpdir(), "pi-search-research-"));
 	const restore = replay?.install(mode === "offline" ? "deny" : "model");
 	try {
 		process.env.HOME = root;
@@ -120,16 +125,16 @@ async function main() {
 						throw new Error("Choose pinned model IDs with --model=<provider>/<model>; repeat for each vendor");
 					}
 					const labelsPath = join(inputs, "completed.json");
-					const labels = !flags.draft && existsSync(labelsPath) ? JSON.parse(readFileSync(labelsPath, "utf8")) as Record<string, boolean> : {};
+					const labels = !flags.draft && existsSync(labelsPath) ? JSON.parse(readFileSync(approvedInput(labelsPath, provenance), "utf8")) as Record<string, boolean> : {};
 					for (const name of models) {
 						const lane = other ? "pi-web-access" : version;
-						const dir = join(raw, trialFingerprint([lane, name, variant]).slice(0, 16));
+						const dir = checkPath(join(raw, trialFingerprint([lane, name, variant]).slice(0, 16)));
 						mkdirSync(dir, { recursive: true, mode: 0o700 });
 						const reports = [];
 						for (const task of tasks) {
 							replay!.errors.length = 0;
 							replay!.misses.length = 0;
-							const file = join(dir, task.id + ".model.json");
+							const file = checkPath(join(dir, task.id + ".model.json"));
 							const [provider, ...rest] = name.split("/");
 							const model = (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).model
 								: (catalog?.find(provider, rest.join("/")) ?? registry.find(provider, rest.join("/")))) as Model<Api> | undefined;
@@ -138,7 +143,7 @@ async function main() {
 							}
 							const session = await makeSession(root, loaded, runtime, names, model);
 							const declaration = session.agent.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
-							const fingerprint = trialFingerprint({ revision: other ? competitorPin : option, variant, version: VERSION,
+							const fingerprint = trialFingerprint({ revision: other ? competitorPin : option, provenance, variant, version: VERSION,
 								model: name, task, declaration, prompt: session.systemPrompt.replaceAll(root, "<root>") });
 							const report = await trial(session, model, task, file, mode === "record", fingerprint, replay!);
 							const transcript = join(dir, task.id + ".json");
@@ -158,21 +163,19 @@ async function main() {
 						const completions = reports.map(({ task }) => labels[[lane, name, variant, task].join("/")]);
 						rows.push([lane + " / " + variant + " / " + name, tasks.length,
 							first + "/" + tasks.length + (noCalls ? " (" + noCalls + " no call)" : ""),
-							reports.reduce((sum, row) => sum + row.toolCalls, 0), reports.reduce((sum, row) => sum + row.totalTokens, 0),
+							reports.reduce((sum, row) => sum + row.attemptedToolCalls, 0), reports.reduce((sum, row) => sum + row.toolCalls, 0),
+							reports.reduce((sum, row) => sum + row.totalTokens, 0),
 							known ? multi.filter((row) => row.arrayCalls).length + "/" + multi.length : "Awaiting multi-part labels",
 							completions.every((label) => typeof label === "boolean") ? completions.filter(Boolean).length + "/" + tasks.length : "Awaiting owner review",
 							reports.filter((row) => row.failure).length, "[Transcripts](" + relative(output, dir) + ")"]);
 					}
 				}
-				sections.tasks = table(["Lane / variant / model", "Tasks (one run each)", "Valid first calls", "Calls", "Total tokens",
+				sections.tasks = table(["Lane / variant / model", "Tasks (one run each)", "Valid first calls", "Attempted calls", "Executed calls", "Total tokens",
 					"Multi-part tasks using an array", "Completed", "Failed trials", "Raw", "Why it matters"],
 					rows.map((row) => [...row, "Correct first calls and fewer turns reduce the time and tokens to reach an answer."]));
 			}
 		}
-		const state = join(raw, "tables.json");
-		const previous = existsSync(state) ? JSON.parse(readFileSync(state, "utf8")) : {};
-		if (previous.revision && previous.revision !== option) throw new Error("Choose another lane or output directory for a different revision");
-		const all = { ...previous, ...sections, revision: option };
+		const all = { ...previous, ...sections, revision: option, provenance };
 		writeJson(state, all);
 		const markdown = ["# Search benchmark " + version, "", flags.draft ? "**Draft owner inputs. Private evaluation only.**" : "",
 			...(all.context ? ["## Context cost", "", all.context] : []),
@@ -181,9 +184,8 @@ async function main() {
 			"Context cost counts o200k_base declaration tokens plus Pi's system-prompt delta and direct result text.",
 			"Real tasks use the selected models' reported total tokens and replay URL retrieval through Jina where supported.",
 			"URL-reading route percentages use all submitted URLs as the denominator.", ""] .join("\n");
-		const report = join(output, version + ".md");
-		writeFileSync(report, markdown, { mode: 0o600 });
-		console.log("Saved benchmark report to " + report);
+		writeFileSync(reportPath, markdown, { mode: 0o600 });
+		console.log("Saved benchmark report to " + reportPath);
 		if (incomplete) process.exitCode = 1;
 	} finally {
 		try { replay?.save(); }
@@ -219,7 +221,7 @@ function readTasks(inputs: string): Task[] {
 
 function lines(path: string): string[] {
 	if (!existsSync(path)) throw new Error("Owner input missing: " + path);
-	return readFileSync(path, "utf8").split(/\r?\n/u).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+	return readFileSync(approvedInput(path, provenance), "utf8").split(/\r?\n/u).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
 }
 
 function table(headers: string[], rows: (number | string)[][]) {
@@ -227,7 +229,7 @@ function table(headers: string[], rows: (number | string)[][]) {
 	return [join(headers), join(headers.map(() => "---")), ...rows.map(join)].join("\n");
 }
 
-function writeJson(path: string, data: unknown) { writeFileSync(path, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 }); }
+function writeJson(path: string, data: unknown) { writeFileSync(checkPath(path), JSON.stringify(data, null, 2) + "\n", { mode: 0o600 }); }
 
 async function contextCost(inputs: string, root: string, runtime: ModelRuntime, extension: string, competitor: string | undefined,
 	variant: Variant, baselineSchema: Parameters<typeof changeDeclaration>[2], replay: Replay) {
@@ -286,7 +288,7 @@ async function urls(inputs: string, raw: string, root: string, extension: string
 		if (/\.pdf(?:\/|$)|^\/pdf\//iu.test(url.pathname)) throw new Error("Remove PDF URL from owner input row " + (index + 1));
 	}
 	const labelsFile = join(inputs, flags.draft ? "url-labels.draft.json" : "url-labels.json");
-	const labels = existsSync(labelsFile) ? JSON.parse(readFileSync(labelsFile, "utf8")) as Record<string, string> : {};
+	const labels = existsSync(labelsFile) ? JSON.parse(readFileSync(approvedInput(labelsFile, provenance), "utf8")) as Record<string, string> : {};
 	if (!flags.draft && targets.some((url) => typeof labels[url] !== "string" || !labels[url].trim())) {
 		throw new Error("Owner URL labels missing: supply one exact phrase per URL");
 	}
