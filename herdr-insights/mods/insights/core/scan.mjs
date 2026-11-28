@@ -977,7 +977,9 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats, options = {}
   try {
     // Never open an external source writable, including on recovery errors.
     db = new sqlite.DatabaseSync(filePath, { readOnly: true });
-    const records = db.prepare("SELECT session_id, id, time_created, data FROM message").iterate();
+    // Node 22.15 iterators do not keep their prepared statement alive across GC.
+    const query = db.prepare("SELECT session_id, id, time_created, data FROM message");
+    const records = Object.assign(query.iterate(), { statementOwner: query });
     resetFileEntry(store, entry);
     delete entry.state.unsupported;
     for (const record of records) {

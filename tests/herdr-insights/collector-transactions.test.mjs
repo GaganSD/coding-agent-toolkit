@@ -28,6 +28,7 @@ import {
 } from "../../herdr-insights/mods/insights/core/store.mjs";
 import { scanSources } from "../../herdr-insights/mods/insights/core/scan.mjs";
 import { CODEX_PARSER_VERSION } from "../../herdr-insights/mods/insights/core/codex-spend.mjs";
+import { produceCodexRetry } from "./fixtures/codex-producer-model.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -387,8 +388,12 @@ test("real v9 retry preserves accepted history despite null, blank, or corrupt r
 test("real v9 indexes retain newly appended keys, revision values and task time through retries", async (t) => {
   const { samples } = JSON.parse(await readFile(path.join(here, "fixtures", "codex-retry-v9.json"), "utf8"));
   const damageLast = (body) => body.replace(/[^\n]+\n$/, (line) => "!".repeat(line.length - 1) + "\n");
+  const generated = Object.fromEntries(Array.from({ length: 8 }, (_, i) =>
+    [`first-history-seed-${i + 1}`, produceCodexRetry(i + 1, samples.downgrade.rollouts.at(-1), 30)]));
   for (const [variant, expected] of Object.entries({ downgrade: [30, 2, 0], revision: [25, 1, 0], task: [10, 1, 3000],
-    "missing-index": [30, 2, 0], "missing-cursor": [30, 2, 0], "false-witness": [30, 2, 0], "first-history": [35, 3, 0] })) {
+    "missing-index": [30, 2, 0], "missing-cursor": [30, 2, 0], "false-witness": [30, 2, 0],
+    "first-history": [35, 3, 0], "first-history-repeat": [35, 3, 0],
+    ...Object.fromEntries(Object.entries(generated).map(([key, { input }]) => [key, [input, 3, 0]])) })) {
     await t.test(variant, async (sub) => {
       const home = await realpath(await mkdtemp(path.join(tmpdir(), "codex-v9-values-")));
       sub.after(() => rm(home, { recursive: true, force: true }));
@@ -420,10 +425,11 @@ test("real v9 indexes retain newly appended keys, revision values and task time 
       if (variant === "false-witness") Object.values(snapshot.files)[0].state.codexUpgradeEvidence = [];
       await install(snapshot);
       if (variant === "missing-index") assert.deepEqual(value(await gather()), [expected]);
-      const firstHistory = variant === "first-history" ? JSON.stringify({
+      const repeat = variant === "first-history-repeat" ? rollouts.at(-1).trimEnd().split("\n").at(-1) + "\n" : "";
+      const firstHistory = generated[variant]?.tail ?? (variant.startsWith("first-history") ? repeat + JSON.stringify({
         timestamp: "2026-11-01T10:01:00Z", type: "event_msg", payload: { type: "token_count",
           info: { total_token_usage: { input_tokens: 35 }, last_token_usage: { input_tokens: 5 } } },
-      }) + "\n" : "";
+      }) + "\n" : "");
       let corrupted = damageLast(rollouts.at(-1)) + firstHistory;
       if (variant === "false-witness") corrupted = rollouts[0] + JSON.stringify({
         timestamp: "2026-11-01T10:01:00Z", type: "event_msg", payload: { type: "token_count", response_id: "b",

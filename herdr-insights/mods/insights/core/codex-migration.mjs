@@ -21,15 +21,32 @@ export function codexTailContext(file, accept, acceptTask) {
     toNonNegInt(scope?.pendingCovered?.[key]));
   const read = delta("cacheRead");
   const write = delta("cacheWrite");
+  const observed = scope?.modernObserved ?? prior.modernObserved;
+  const aliases = scope?.responseKeys ?? prior.responseKeys;
   return {
     file,
     state: { session: prior.session, project: prior.project, provider: prior.provider, timestamp: prior.timestamp,
       codexSpend: { [session]: { historyTotal: baseline, model: scope?.model ?? prior.model,
-        responses: { ...(!Array.isArray(scope?.responses) ? scope?.responses : {}) },
+        responses: { ...(isPlainObject(scope?.responses) ? scope.responses : {}) },
         recordDelta: scope?.recordDelta ?? [delta("input") + read + write, read, write, delta("output"), delta("reasoning")],
         pendingRecords: scope?.pendingRecords && { ...scope.pendingRecords },
+        // Keep the interval's retained boundary evidence paired with its
+        // ledger; these values are read or replaced, never mutated in place.
+        legacyLast: scope?.legacyLast, windowFill: scope?.windowFill,
+        pendingTurn: scope?.pendingTurn, pendingTurnCompleted: scope?.pendingTurnCompleted,
+        previousPending: scope?.previousPending, activeTurnId: scope?.activeTurnId,
+        pendingCounter: scope?.pendingCounter, reorderedPending: scope?.reorderedPending,
+        legacyHistoryResponses: scope?.legacyHistoryResponses && { ...scope.legacyHistoryResponses },
       } } },
     warn() {},
+    // Older keys are one-way hashes and their vectors store net input.
+    // Look them up on arrival and translate to the raw interval layout.
+    retainedCodexResponse(key, responseId) {
+      const values = observed?.[key] ?? (responseId && observed?.[aliases?.[`:${responseId}`] ?? aliases?.[responseId]]);
+      if (!Array.isArray(values)) return undefined;
+      const [input, output, cacheRead, cacheWrite, reasoning] = values.map(toNonNegInt);
+      return [input + cacheRead + cacheWrite, cacheRead, cacheWrite, output, reasoning];
+    },
     addCodexTask(usageKey, key, duration, taskSession) {
       if (taskSession === session) acceptTask(usageKey, key, duration, taskSession);
     },

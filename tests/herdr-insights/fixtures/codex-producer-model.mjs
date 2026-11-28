@@ -212,6 +212,8 @@ export function produceCodex(seed) {
         last = amount;
         if (i === count - 1) revision = { id, item };
       }
+      const repeat = interval === 4 && seed % 11 === 0;
+      if (repeat && seed % 2 === 0) rows.push(copiedRecord); // Byte-identical append, same carrier timestamp.
       // Incomplete without an ID adds to history, but neither writes a
       // record nor replaces the last response carried by the snapshot.
       if (!control && pick(3) === 0) {
@@ -220,6 +222,7 @@ export function produceCodex(seed) {
         entry(extra);
       }
       const snapshot = publish();
+      if (repeat && seed % 2 !== 0) emit("token_usage_record", copiedRecord.payload);
       if (interval === 1) revisionStart = rows.length - 1;
       if (flattened && interval === 1 && which === 0) clips.push(seed % 5 ? [liveContext, snapshot] : [snapshot]);
       if (flattened && interval === 4 && which === 1) clips.push(seed % 7 ? [liveContext, copiedRecord] : [copiedRecord]);
@@ -230,11 +233,14 @@ export function produceCodex(seed) {
       if (!control && interval === 1) {
         const before = revision.item.amount;
         const after = [before[0], before[1] + 1 + pick(5), before[2], before[3], before[4]];
-        record(revision.id, after, minus(after, before));
+        const update = record(revision.id, after, minus(after, before));
+        if (seed % 7 === 2) rows.push(update);
         revision.item.amount = after;
         history = plus(history, minus(after, before));
         last = after;
         publish();
+        if (seed % 7 === 3) rows.push(update);
+        else if (seed % 7 === 4) emit("token_usage_record", update.payload);
       }
       if (!control && interval === 3) {
         const compaction = arbitrary();
@@ -315,4 +321,19 @@ export function produceCodex(seed) {
   for (const task of tasks) rowFor(task)[9] += task.duration_ms;
   return { records, rollouts, expected: order([...rows.values()]), clips: clips.map((clip) => [clip.owner ?? header, ...(clip.rows ?? clip)]),
     splitAt: 1 + pick(records.length - 1) };
+}
+
+// Generate a suffix from a genuine historical prefix indexed before its
+// first snapshot. Repetition doesn't spend; the unpublished response does.
+export function produceCodexRetry(seed, prefix, indexedInput) {
+  const pick = rng(seed);
+  const last = JSON.parse(prefix.trimEnd().split("\n").at(-1));
+  const input = 1 + pick(20);
+  const timestamp = (ordinal) => new Date(Date.parse(last.timestamp) + ordinal * 1000).toISOString();
+  const repeats = Array.from({ length: 1 + pick(3) }, (_, i) =>
+    seed % 2 ? last : { ...last, timestamp: timestamp(i + 1) });
+  const snapshot = { timestamp: timestamp(10), type: "event_msg", payload: { type: "token_count",
+    info: { total_token_usage: raw([indexedInput + input, 0, 0, 0, 0]), last_token_usage: raw([input, 0, 0, 0, 0]) } } };
+  return { tail: [...repeats, snapshot].map((record) => JSON.stringify(record) + "\n").join(""),
+    input: indexedInput + input };
 }

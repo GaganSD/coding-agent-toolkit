@@ -1039,6 +1039,8 @@ function resolveCodexCharges(store) {
   for (const file of files) {
     for (const scope of Object.values(file.state.codexSpend ?? {})) {
       for (const [key, delta] of Object.entries(scope.revisionCarriers ?? {})) {
+        // A retained pre-upgrade scope may still contain a duplicate's zero.
+        if (!delta.some(Boolean)) continue;
         const old = revisions.get(key);
         if (!old || delta[0] + delta[3] < old[0] + old[3]) revisions.set(key, delta);
       }

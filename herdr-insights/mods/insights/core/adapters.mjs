@@ -670,11 +670,13 @@ function parseCodex(record, ctx, embedded = false) {
     if (!tokens.nonzero) return;
     const key = responseId ? makeDedupKey("codex", "response", responseId)
       : makeDedupKey("codex", "turn", session, turnId, timeKey, ...vector);
+    const oldKey = !responseId && (ctx.observeCodexLegacyKey || ctx.retainedCodexResponse)
+      ? makeDedupKey("codex", "turn", session, turnId, timeKey,
+        tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite, tokens.reasoning) : key;
     if (ctx.observeCodexLegacyKey) {
       const value = [vector[0], tokens.output, tokens.reasoning, tokens.cacheRead, tokens.cacheWrite];
       ctx.observeCodexLegacyKey(key, value, Boolean(responseId && !state.forkReplay));
-      if (!responseId) ctx.observeCodexLegacyKey(makeDedupKey("codex", "turn", session, turnId, timeKey,
-        tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite, tokens.reasoning), value);
+      if (oldKey !== key) ctx.observeCodexLegacyKey(oldKey, value);
     }
     if (state.forkReplay) {
       codexReplayLast(state, scope, "record", key, vector, rawTimestamp, responseId);
@@ -698,15 +700,29 @@ function parseCodex(record, ctx, embedded = false) {
     // observations; the response ID is still the spend ledger identity.
     const known = scope.responses?.[responseKey];
     const coalescedRevision = scope.pendingRecords?.[responseKey];
-    const delta = recordCodexSpend(scope, responseKey, vector, scope.legacyHistoryResponses?.[responseKey]);
-    if (scope.recordDelta && activeTurn) {
-      scope.pendingTurn = activeTurn;
-      scope.pendingTurnCompleted = false;
+    const prior = scope.legacyHistoryResponses?.[responseKey] ?? ctx.retainedCodexResponse?.(oldKey, responseId);
+    const delta = recordCodexSpend(scope, responseKey, vector, prior);
+    if (delta.some(Boolean)) {
+      if (activeTurn) {
+        scope.pendingTurn = activeTurn;
+        scope.pendingTurnCompleted = false;
+      }
+      const carrier = makeDedupKey("codex", "record-carrier", key, timeKey, ...vector);
+      if (known) (scope.revisionCarriers ??= {})[carrier] ??= delta;
+      if (coalescedRevision && scope.pendingCarriers) delete scope.pendingCarriers[responseKey];
+      else (scope.pendingCarriers ??= {})[responseKey] = carrier;
+
+      // For an imported inversion, use adjacency in the response counter,
+      // not equality between the independent history and response totals.
+      const previous = scope.pendingCounter;
+      const thread = !known && !prior && responseId && isPlainObject(payload.thread_token_usage)
+        ? codexRawVector(payload.thread_token_usage) : null;
+      const before = previous && scope.pendingRecords[previous[0]];
+      delete scope.reorderedPending;
+      if (thread && before && thread.every((n, i) => n + before[i] === previous[1][i]) &&
+        delta.every((n, i) => n <= thread[i])) scope.reorderedPending = [responseKey, previous[0]];
+      scope.pendingCounter = thread ? [responseKey, thread] : undefined;
     }
-    const carrier = makeDedupKey("codex", "record-carrier", key, timeKey, ...vector);
-    if (known) (scope.revisionCarriers ??= {})[carrier] = delta;
-    if (coalescedRevision && scope.pendingCarriers) delete scope.pendingCarriers[responseKey];
-    else if (delta?.some(Boolean)) (scope.pendingCarriers ??= {})[responseKey] = carrier;
     if (scope.legacyHistoryResponses) delete scope.legacyHistoryResponses[responseKey];
     codexTarget(scope, activeTurn, context, key);
     scope.lastCarrierKey = key;
@@ -810,6 +826,11 @@ function parseCodex(record, ctx, embedded = false) {
       scope.historyTotal = settled.next.historyTotal;
       scope.windowFill = settled.next.windowFill;
       if (settled.next.close) {
+        const [earlier, later] = scope.reorderedPending ?? [];
+        const covered = earlier && scope.pendingRecords?.[earlier];
+        const deferred = later && scope.pendingRecords?.[later];
+        const retainLater = !old && !scope.previousPending && !referenced && !windowFill && !charge?.some(Boolean) && covered && deferred &&
+          covered.every((n, i) => n === lastVector?.[i] && n === vector[i] - (input.baseline?.[i] ?? 0));
         if (old) {
           const remaining = { ...scope.pendingRecords };
           for (const [id, prior] of Object.entries(old.records ?? {})) {
@@ -821,7 +842,15 @@ function parseCodex(record, ctx, embedded = false) {
           }
           scope.pendingRecords = remaining;
           scope.recordDelta = (scope.recordDelta ?? [0, 0, 0, 0, 0]).map((n, i) => n - (old.delta?.[i] ?? 0));
-        } else clearCodexPending(scope);
+        } else {
+          const carrier = retainLater && scope.pendingCarriers?.[later];
+          clearCodexPending(scope);
+          if (retainLater) {
+            scope.recordDelta = deferred;
+            scope.pendingRecords = { [later]: deferred };
+            if (carrier) scope.pendingCarriers = { [later]: carrier };
+          }
+        }
         delete scope.previousPending;
         delete scope.resumeBoundary;
       }

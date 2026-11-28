@@ -139,7 +139,7 @@ for (const carrier of ["modern-mixed", "modern-thread-prefix", "modern-only", "m
     assert.deepEqual((await collectSnapshot("snapshot", { home: root, store })).rows, oracle.rows);
     const saved = JSON.parse(await readFile(store, "utf8"));
     const entry = Object.values(saved.files)[0];
-    assert.equal(entry.state.codexParserVersion, 20);
+    assert.equal(entry.state.codexParserVersion, 21);
     entry.state.codexParserVersion = 16;
     entry.rows[0].input += 2500; // Draft contributions can be rebuilt; inconsistent genuine v9 rows are retained.
     await writeFile(store, JSON.stringify(saved));

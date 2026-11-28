@@ -1,6 +1,6 @@
 import { isPlainObject, toNonNegInt } from "./util.mjs";
 
-export const CODEX_PARSER_VERSION = 20;
+export const CODEX_PARSER_VERSION = 21;
 export const codexResponseIdKey = (id) => `:${id}`;
 
 const FIELDS = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];
@@ -57,6 +57,8 @@ export function clearCodexPending(scope) {
   delete scope.pendingTurn;
   delete scope.pendingTurnCompleted;
   delete scope.pendingCarriers;
+  delete scope.pendingCounter;
+  delete scope.reorderedPending;
 }
 
 function codexIntervalResidual(increase, pending = ZERO, records) {

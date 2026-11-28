@@ -88,7 +88,9 @@ cache split of an unrecorded residual may be unknowable after reclassification.
 Older prefixes without records still use legacy accounting. Imported logs that
 publish a snapshot before its record, or move a later record ahead of an older
 snapshot, can miscount: equal vectors and nearby timestamps are not enough to
-identify an echo. When carrier timestamps disagree with rollout order, the
+identify an echo. If adjacent response counters prove the records are inverted
+and history advances by exactly the earlier response, the later response stays
+pending for the next interval. When carrier timestamps disagree with rollout order, the
 collector reports a bounded warning without changing its accounting. It also
 warns on a possible snapshot-first import at the legacy-to-record transition.
 For identical snapshots in prefix and suffix copies, the prefix with more usage

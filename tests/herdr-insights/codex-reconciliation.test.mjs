@@ -40,6 +40,33 @@ async function setup(t) {
   return { sessions, store, gather };
 }
 
+test("an older snapshot leaves whole out-of-order records for the next history interval", async (t) => {
+  const { sessions, gather } = await setup(t);
+  const file = path.join(sessions, "older-snapshot.jsonl");
+  await writeFile(file, lines([header, turn(), modern("b", 20, 30), modern("a", 10, 10), snapshot(10, 10)]));
+  assert.deepEqual(amounts(await gather()), [30, 2]);
+  await appendFile(file, lines([{ ...snapshot(null, 35), timestamp: "2026-11-01T10:01:00Z" }]));
+  assert.deepEqual(amounts(await gather()), [35, 3]);
+});
+
+for (const revision of [false, true]) {
+  for (const withinInterval of [false, true]) {
+    test(`an identical ${revision ? "revision" : "initial record"} cannot erase interval evidence (${withinInterval ? "pending" : "settled"})`, async (t) => {
+      const { sessions, gather } = await setup(t);
+      const file = path.join(sessions, "repeated-record.jsonl");
+      const carrier = { ...modern("r", revision ? 15 : 10, revision ? 15 : 10), timestamp: "2026-11-01T10:00:05Z" };
+      const history = { ...snapshot(null, 20), timestamp: "2026-11-01T10:00:06Z" };
+      const prefix = [header, turn(), ...(revision ? [modern("r", 10, 10), snapshot(10, 10)] : []), carrier];
+      const tail = withinInterval ? [carrier, history] : [history, carrier];
+      await writeFile(file, lines(prefix));
+      await gather();
+      await appendFile(file, lines(tail));
+      assert.deepEqual(amounts(await gather()), [20, 2]);
+      assert.deepEqual(amounts(await gather()), [20, 2]);
+    });
+  }
+}
+
 test("an ordinal-bearing paginated root uses the full history increase", async (t) => {
   const { sessions, gather } = await setup(t);
   const paginated = { ...header, payload: { ...header.payload, history_mode: "paginated" } };
