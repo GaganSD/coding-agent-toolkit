@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readOptionalText, resolveWriteTarget, withFileLock, writeAtomicText } from "../file-write.ts";
 
+import { OFF_TOPIC_CALIBRATION } from "../classifier/offtopic.ts";
 import { agentDirectory } from "../env.ts";
 import {
 	PROVIDER_KINDS,
@@ -57,6 +58,7 @@ export interface ResolvedSettings {
 	code: FamilyChain;
 	researchEnabled: boolean;
 	classifier: ClassifierSettings;
+	offTopicFallback?: typeof OFF_TOPIC_CALIBRATION;
 	brave?: { mode: "context" | "web" };
 	searxng?: { url: string };
 	fetch?: { jinaFallback: boolean };
@@ -82,7 +84,7 @@ export interface ConfigIssue {
 export interface WebSearchConfig {
 	timeoutMs?: number;
 	maxResults?: number;
-	web?: Partial<FamilyChain>;
+	web?: Partial<FamilyChain> & { fallbackOnOffTopic?: boolean };
 	code?: Partial<FamilyChain>;
 	research?: { enabled?: boolean };
 	brave?: { mode?: "context" | "web" };
@@ -187,13 +189,19 @@ export function parseWebSearchConfig(parsed: unknown, configPath: string, raw?: 
 	for (const key of ["web", "code"] as const) {
 		if (!(key in parsed)) continue;
 		const block = parsed[key];
-		const message = `"${key}" must contain only a valid provider and/or fallback array: ${quotedList(PROVIDER_KINDS)}.`;
+		const message = key === "web"
+			? `"web" accepts provider, fallback, and boolean fallbackOnOffTopic. Providers: ${quotedList(PROVIDER_KINDS)}.`
+			: `"code" must contain only a valid provider and/or fallback array: ${quotedList(PROVIDER_KINDS)}.`;
 		if (!isPlainObject(block)) return fail(message, [key]);
 		const allowed = new Set(["provider", "fallback"]);
+		if (key === "web") allowed.add("fallbackOnOffTopic");
 		const [extra] = unknownKeys(block, allowed);
 		if (extra !== undefined) return fail(message, [key, extra], { allowed, object: block });
 		if ("provider" in block && (typeof block.provider !== "string" || !PROVIDER_KIND_SET.has(block.provider))) return fail(message, [key, "provider"]);
 		if ("fallback" in block && (!Array.isArray(block.fallback) || !isProviderKindList(block.fallback))) return fail(message, [key, "fallback"]);
+		if (key === "web" && "fallbackOnOffTopic" in block && typeof block.fallbackOnOffTopic !== "boolean") {
+			return fail(message, [key, "fallbackOnOffTopic"]);
+		}
 		config[key] = block as Partial<FamilyChain>;
 	}
 
@@ -251,6 +259,10 @@ export function parseWebSearchConfig(parsed: unknown, configPath: string, raw?: 
 		}
 		config.classifier = classifier as WebSearchConfig["classifier"];
 	}
+	if (config.web?.fallbackOnOffTopic && !offTopicCalibration(config)) {
+		return fail(`To use "web.fallbackOnOffTopic", explicitly set "classifier.provider" to "${OFF_TOPIC_CALIBRATION.provider}" and "classifier.model" to "${OFF_TOPIC_CALIBRATION.model}", or set "web.fallbackOnOffTopic" to false.`,
+			["web", "fallbackOnOffTopic"]);
+	}
 	return { status: "ok", path: configPath, config };
 }
 
@@ -299,6 +311,9 @@ export async function configureJudgment(
 		} else {
 			config.classifier = { ...config.classifier, enabled: true, provider: action.provider, model: action.id };
 		}
+		if (config.web?.fallbackOnOffTopic && (action === "off" || !offTopicCalibration(config))) {
+			config.web.fallbackOnOffTopic = false;
+		}
 	}, path);
 }
 
@@ -324,7 +339,7 @@ export async function saveSearchSetting(edit: SearchSettingEdit): Promise<boolea
 		const index = fallback.indexOf(provider);
 		if (edit.kind === "promote") {
 			if (index >= 0) fallback[index] = chain.provider;
-			config[family] = { provider, fallback };
+			config[family] = { ...config[family], provider, fallback };
 			return;
 		}
 		if (edit.kind === "include" && index < 0) fallback.push(provider);
@@ -467,6 +482,14 @@ function pinnedClassifier(
 	return provider.length > 0 && model.length > 0 ? { provider, model } : undefined;
 }
 
+function offTopicCalibration(config: WebSearchConfig): typeof OFF_TOPIC_CALIBRATION | undefined {
+	if (config.web?.fallbackOnOffTopic !== true) return;
+	const pin = pinnedClassifier(config.classifier);
+	if (pin?.provider === OFF_TOPIC_CALIBRATION.provider && pin.model === OFF_TOPIC_CALIBRATION.model) {
+		return OFF_TOPIC_CALIBRATION;
+	}
+}
+
 export async function resolveSettings(
 	path?: string,
 ): Promise<ResolvedSettings | { error: InvalidConfigError }> {
@@ -484,6 +507,7 @@ export function applyConfig(
 	const notices: string[] = [];
 	const web = resolveFamilyChain("web", config, notices);
 	const code = resolveFamilyChain("code", config, notices);
+	const offTopicFallback = offTopicCalibration(config);
 
 	return {
 		timeoutMs: normalizeTimeoutMs(config.timeoutMs),
@@ -493,6 +517,7 @@ export function applyConfig(
 		code,
 		researchEnabled: config.research?.enabled === true,
 		classifier: applyClassifierConfig(config.classifier, notices),
+		...(offTopicFallback ? { offTopicFallback } : {}),
 		brave: { mode: config.brave?.mode ?? "context" },
 		...(config.searxng ? { searxng: config.searxng } : {}),
 		fetch: { jinaFallback: config.fetch?.jinaFallback !== false },

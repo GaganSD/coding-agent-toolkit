@@ -54,7 +54,8 @@
     "research:ergonomics": "node --experimental-strip-types benchmarks/ergonomics.ts",
     "research:offline": "node --experimental-strip-types benchmarks/run.ts",
     "research:offtopic": "node --experimental-strip-types benchmarks/offtopic.ts",
-    "research:urls": "node --experimental-strip-types benchmarks/live-url-reading.ts"
+    "research:urls": "node --experimental-strip-types benchmarks/live-url-reading.ts",
+    "research:brave": "node --experimental-strip-types benchmarks/live-brave.ts"
   },
   "dependencies": {
     "@mixmark-io/domino": "2.2.0",

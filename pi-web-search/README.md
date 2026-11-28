@@ -56,7 +56,7 @@ args = ["-y", "@gagansd/pi-web-search"]
 }
 ```
 
-The server reads `PI_WEB_SEARCH_CONFIG` first, then `PI_CODING_AGENT_DIR/web-search.json`, then `~/.pi/agent/web-search.json`. It checks environment variables, literal keys in `auth.json` beside that config, and the GitHub CLI login for GitHub. Thorough search works without Pi and reports that classifier judgment is unavailable. Parallel uses its direct client. Evidence refs expire with their server process.
+The server reads `PI_WEB_SEARCH_CONFIG` first, then `PI_CODING_AGENT_DIR/web-search.json`, then `~/.pi/agent/web-search.json`. It checks environment variables, literal keys in `auth.json` beside that config, and the GitHub CLI login for GitHub. Thorough searches and fast web searches with off-topic fallback enabled still retrieve evidence and warn that classifier judgment requires Pi. Parallel uses its direct client. Evidence refs expire with their server process.
 
 ## Classifier API
 
@@ -192,6 +192,19 @@ All fields are optional. Merge changes into the existing file. Network operation
 
 See the [configuration resolver](src/providers/config.ts) for validation details.
 
+### Optional off-topic fallback
+
+To let fast web search try the next configured provider when the current response is off-topic, merge these settings into `web-search.json`:
+
+```json
+{
+  "web": { "fallbackOnOffTopic": true },
+  "classifier": { "provider": "vercel-ai-gateway", "model": "typesafe-ai/jev" }
+}
+```
+
+The feature is off by default. The exact pin is required and uses Pi authentication. A check sends the query and up to ten result titles, URLs, and excerpts to this billed classifier. A classifier failure or timeout keeps the current response with a warning. If fallback yields no usable response, the first off-topic response is returned with warnings. Code searches, URL reads, and ref reads make no off-topic classifier calls. Selecting **None** under `/web-search classifier` or switching to a different classifier disables fast off-topic fallback. [Calibration results](https://github.com/GaganSD/coding-agent-toolkit/blob/main/pi-web-search/benchmarks/results/offtopic.md)
+
 ### Optional thorough search and Jev
 
 1. Run `/web-search` to identify the config path.
@@ -272,13 +285,13 @@ Select `context7` in `code.provider` or `code.fallback` to resolve library names
 
 ## Timeouts, fallback, and errors
 
-Retrieval and judgment share a default **20-second** budget. Cleanup can take longer. Jev failures return unjudged evidence with warnings. Retrieval deadline expiry or caller cancellation fails the call.
+Retrieval and judgment share a default **20-second** budget. Cleanup can take longer. Jev failures return unjudged evidence with warnings. If the deadline expires during optional judgment or off-topic fallback, the tool keeps the evidence it already retrieved. Caller cancellation stops the search.
 
 Check warnings and `/web-search`. Use `/mcp` for Parallel connection issues.
 
 ## Data handling
 
-Search providers receive the queries routed to them. Optional Jev receives candidate titles, URLs, and excerpts before output clipping.
+Search providers receive the queries routed to them. Optional Jev receives the query and candidate titles, URLs, and excerpts. Fast off-topic fallback sends at most ten excerpts of up to 400 characters each, within the classifier state limit.
 
 URL reading sends requests from your machine to each public URL. The tool reads text, HTML, PDFs, and supported GitHub pages, validates redirect targets, and blocks private and local network addresses. Eligible failures can send the original URL to Jina Reader. Set `fetch.jinaFallback` to `false` to keep URL reading direct. GitHub requests may use GitHub credentials for public repository metadata and limits.
 

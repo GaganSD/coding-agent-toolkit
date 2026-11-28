@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { assessOffTopic } from "../src/classifier/offtopic.ts";
 import { formatResult, type WebSearchDetails } from "../src/format.ts";
 import { CONFIG_PATH_ENV_VAR } from "../src/providers/config.ts";
 import { providerError, type StreamResult } from "../src/providers/types.ts";
@@ -40,6 +41,199 @@ function document(providerKind: StreamResult["providerKind"], url = "https://exa
 		sources: [{ title: `${providerKind} evidence`, url }],
 	};
 }
+
+const pinnedClassifier = { provider: "vercel-ai-gateway", model: "typesafe-ai/jev" };
+const relevanceSettings = { web: { fallbackOnOffTopic: true }, classifier: pinnedClassifier };
+const relevanceUsage = {
+	input: 10, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 11,
+	cost: { input: 0.0001, output: 0.001, cacheRead: 0, cacheWrite: 0, total: 0.0011 },
+};
+type RelevanceState = { query: string; candidates: Array<{ index: number; title: string; url: string; excerpt: string }> };
+
+function relevanceContext(
+	score: (state: RelevanceState, signal: AbortSignal) => number | Promise<number>,
+	forcedChoice?: "off_topic" | "addresses",
+): ExtensionContext {
+	const model = { provider: pinnedClassifier.provider, id: pinnedClassifier.model };
+	return {
+		sessionManager: { getSessionId: () => "off-topic-test" },
+		modelRegistry: {
+			findOfType: (type: string, provider: string, id: string) => {
+				assert.deepEqual([type, provider, id], ["classifier", model.provider, model.id]);
+				return model;
+			},
+			getAvailableOfType: async () => [model],
+			classify: async (_model: unknown, { state, questions }: { state: RelevanceState; questions: Record<string, { type: string }> }, { signal }: { signal: AbortSignal }) => {
+				assert.deepEqual(Object.keys(questions), ["relevance"]);
+				assert.equal(questions.relevance.type, "choice");
+				const offTopic = await score(state, signal);
+				const choice = forcedChoice ?? (offTopic >= 0.5 ? "off_topic" : "addresses");
+				return { stopReason: "stop", usage: relevanceUsage, answers: {
+					relevance: { type: "choice", choice, confidence: 0.99, probabilities: { off_topic: offTopic, addresses: 1 - offTopic } },
+				} };
+			},
+		},
+	} as unknown as ExtensionContext;
+}
+
+const relevanceTransports = {
+	availability: { exa: true, parallel: true },
+	transports: {
+		exa: async () => document("exa", "https://exa.example/evidence"),
+		parallel: async () => document("parallel", "https://parallel.example/evidence"),
+	},
+};
+
+test("off-topic fallback classifies the provider response, then stores only the selected evidence", () => withSettings(relevanceSettings, async () => {
+	const calls: RelevanceState[] = [];
+	const owner = relevanceContext((state) => { calls.push(state); return calls.length === 1 ? 0.85 : 0.84; });
+	const result = await search("call", { query: "fast query" }, undefined, undefined, owner, relevanceTransports);
+	assert.equal(result.isError, false);
+	assert.deepEqual(calls.map(({ candidates }) => candidates.map(({ url }) => url)), [
+		["https://exa.example/evidence"], ["https://parallel.example/evidence"],
+	]);
+	assert.deepEqual(calls[0], { query: "fast query", candidates: [{
+		index: 0, title: "exa evidence", url: "https://exa.example/evidence", excerpt: "exa cited text",
+	}] });
+	assert.equal(result.details.provider, "parallel");
+	assert.deepEqual(result.details.attempted, ["exa", "parallel"]);
+	assert.deepEqual(result.details.contributors, ["parallel"]);
+	assert.match(result.details.warnings?.join(" ") ?? "", /judged exa's results off-topic/);
+	assert.equal(result.usage?.totalTokens, 22);
+	assert.equal(result.details.storedCount, 1);
+	const ref = result.details.searchResults?.[0].ref;
+	assert.ok(ref);
+	const continued = await search("call", { ref }, undefined, undefined, owner);
+	assert.match(textOf(continued), /parallel cited text/);
+	assert.doesNotMatch(textOf(continued), /exa cited text/);
+	assert.equal(calls.length, 2);
+}));
+
+test("off-topic fallback keeps below-threshold evidence and limits the judge to ten citations", () => withSettings(relevanceSettings, async () => {
+	const owner = relevanceContext(({ candidates }) => {
+		assert.equal(candidates.length, 10);
+		assert.equal(candidates[0].excerpt.length, 400);
+		assert.deepEqual(candidates.map(({ index }) => index), Array.from({ length: 10 }, (_, i) => i));
+		return 0.849;
+	});
+	const result = await search("call", { query: "test search" }, undefined, undefined, owner, {
+		...relevanceTransports,
+		transports: {
+			...relevanceTransports.transports,
+			exa: async () => ({ providerKind: "exa", text: "", searchResults: Array.from({ length: 11 }, (_, i) => ({
+				url: `https://example.test/hit/${i}`, title: "result", citedText: "a".repeat(800),
+			})) }),
+		},
+	});
+	assert.equal(result.isError, false);
+	assert.deepEqual(result.details.attempted, ["exa"]);
+	assert.equal(result.usage?.totalTokens, 11);
+}));
+
+test("off-topic fallback keeps the first response after an off-topic, empty, or failed backup", () => withSettings(relevanceSettings, async () => {
+	const owner = relevanceContext(() => 0.95);
+	for (const parallel of [
+		relevanceTransports.transports.parallel,
+		async () => ({ providerKind: "parallel" as const, text: "", searchResults: [] }),
+		async () => { throw providerError("http_error", "fixture denied", { retryable: false }); },
+	]) {
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, {
+			...relevanceTransports, transports: { ...relevanceTransports.transports, parallel },
+		});
+		assert.equal(result.isError, false);
+		assert.equal(result.details.provider, "exa");
+		assert.deepEqual(result.details.contributors, ["exa"]);
+		assert.match(result.details.warnings?.join(" ") ?? "", /Returning the first response from exa/);
+	}
+}));
+
+test("off-topic fallback fails open on malformed or failed classifier responses without leaking errors", () => withSettings(relevanceSettings, async () => {
+	for (const owner of [
+		relevanceContext(() => Number.NaN),
+		relevanceContext(() => { throw new Error("credential-fixture-value"); }),
+		relevanceContext(() => 0.95, "addresses"),
+	]) {
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, relevanceTransports);
+		assert.equal(result.isError, false);
+		assert.deepEqual(result.details.attempted, ["exa"]);
+		assert.match(textOf(result), /off-topic checking was unavailable/);
+		assert.doesNotMatch(textOf(result), /credential-fixture-value/);
+	}
+}));
+
+test("the fast-web classifier leaves code, URL reads and thorough retrieval alone", () => withSettings({
+	...relevanceSettings, research: { enabled: true },
+}, async () => {
+	let calls = 0;
+	const owner = relevanceContext(() => { calls++; return 0.95; });
+	const tests: Parameters<typeof search>[1][] = [
+		{ query: "fast query", scope: "code" },
+		{ query: "thorough query", effort: "thorough" },
+		{ urls: ["https://exa.example/evidence"] },
+	];
+	for (const params of tests) {
+		const result = await search("call", params, undefined, undefined, owner, {
+			...relevanceTransports,
+			availability: { ...relevanceTransports.availability, grep: true },
+			transports: { ...relevanceTransports.transports, grep: async () => document("grep") },
+			readUrls: relevanceTransports.transports.exa,
+		});
+		assert.equal(result.isError, false);
+	}
+	assert.equal(calls, 0);
+}));
+
+test("off-topic fallback honors the state cap and the standalone path makes no classifier call", () => withSettings({
+	...relevanceSettings, classifier: { ...pinnedClassifier, maxStateChars: 12 },
+}, async () => {
+	for (const standalone of [true, false]) {
+		let calls = 0;
+		const owner = relevanceContext(() => { calls++; return 0.99; });
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, { ...relevanceTransports, standalone });
+		assert.equal(result.isError, false);
+		assert.deepEqual(result.details.attempted, ["exa"]);
+		assert.match(textOf(result), standalone ? /Classifier unavailable without Pi/ : /12-character classifier limit/);
+		assert.equal(calls, 0);
+	}
+}));
+
+test("off-topic classifier timeout preserves retrieved evidence and prevents fallback", async () => {
+	const owner = relevanceContext(() => new Promise<number>(() => {}));
+	const assessment = await assessOffTopic("query", document("exa"), 1000, {
+		...pinnedClassifier, modelRegistry: owner.modelRegistry, timeoutMs: 20,
+	});
+	assert.equal(assessment.offTopic, undefined);
+	assert.match(assessment.warning ?? "", /classifier timed out/);
+});
+
+test("off-topic search deadline keeps evidence during judging or fallback retrieval", () => withSettings({
+	...relevanceSettings, timeoutMs: 1000,
+}, async () => {
+	for (const inClassifier of [true, false]) {
+		const owner = relevanceContext(() => inClassifier ? new Promise<number>(() => {}) : 0.95);
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, {
+			...relevanceTransports,
+			transports: { ...relevanceTransports.transports, parallel: () => new Promise(() => {}) },
+		});
+		assert.equal(result.isError, false);
+		assert.equal(result.details.provider, "exa");
+		assert.deepEqual(result.details.attempted, inClassifier ? ["exa"] : ["exa", "parallel"]);
+		assert.match(textOf(result), /search deadline reached/i);
+	}
+}));
+
+test("cancelling the off-topic check propagates abort without trying a backup", () => withSettings(relevanceSettings, async () => {
+	const caller = new AbortController();
+	const owner = relevanceContext((_state, signal) => {
+		caller.abort();
+		assert.equal(signal.aborted, true);
+		return new Promise(() => {});
+	});
+	const result = await search("call", { query: "fast query" }, caller.signal, undefined, owner, relevanceTransports);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error?.code, "aborted");
+	assert.deepEqual(result.details.attempted, ["exa"]);
+}));
 
 test("unified search exposes one flat schema with documented defaults", () => {
 	assert.deepEqual(Object.keys(SearchSchema.properties).sort(), [

@@ -1,4 +1,5 @@
 import { braveApiKey, githubToken, parallelApiKey } from "../env.ts";
+import type { OffTopicAssessment } from "../classifier/offtopic.ts";
 import { type ResolvedSettings } from "./config.ts";
 import { applyDomainFilter, type WebFilters } from "./filters.ts";
 import { awaitWithSignal } from "./http.ts";
@@ -58,6 +59,8 @@ export interface RunSearchOptions {
 	family?: ProviderFamily;
 	/** Standalone MCP supports thorough retrieval without Pi judgment. */
 	standalone?: boolean;
+	/** Optional fast-web check, supplied by the Pi tool runner. */
+	reviewRelevance?: (result: StreamResult) => Promise<OffTopicAssessment>;
 }
 
 /**
@@ -171,11 +174,17 @@ export async function runSearch(
 	);
 	const notes: string[] = [];
 	let lastEmpty: StreamResult | undefined;
+	let firstOffTopic: { kind: ProviderKind; result: StreamResult } | undefined;
 
 	for (let i = 0; i < chain.length; i++) {
 		const kind = chain[i];
 		if (isAborted(req.signal)) {
-			throw abortReason(req.signal?.reason);
+			const error = abortReason(req.signal?.reason);
+			if (error.code === "timeout" && firstOffTopic) {
+				notes.push("Search deadline reached before fallback completed.");
+				break;
+			}
+			throw error;
 		}
 		const transport = transports[kind];
 		if (!transport) {
@@ -197,22 +206,47 @@ export async function runSearch(
 				req.onRetrieval?.(outcome(kind, result, true));
 				continue;
 			}
+			if (firstOffTopic && (result.unreadable || result.searchResults?.every((hit) => hit.type === "unparsed") && !result.sources?.length && !result.text.trim())) {
+				notes.push(`${kind} returned an unreadable response.`);
+				req.onRetrieval?.(outcome(kind, result));
+				continue;
+			}
+			if (webSearch && options.reviewRelevance && (firstOffTopic || chain.slice(i + 1).some((next) => transports[next]))) {
+				const assessment = await options.reviewRelevance(result);
+				if (assessment.warning) notes.push(assessment.warning);
+				if (assessment.offTopic) {
+					firstOffTopic ??= { kind, result };
+					notes.push(`The classifier judged ${kind}'s results off-topic.`);
+					continue;
+				}
+			}
 			req.onRetrieval?.(outcome(kind, result));
 			return notes.length > 0 ? withNotes(result, notes) : result;
 		} catch (error) {
 			if (isAborted(req.signal)) {
-				throw abortReason(req.signal?.reason);
+				const reason = abortReason(req.signal?.reason);
+				if (reason.code === "timeout" && firstOffTopic) {
+					req.onRetrieval?.(retrievalFailure(kind, reason));
+					notes.push(`Search deadline reached while waiting for ${kind}.`);
+					break;
+				}
+				throw reason;
 			}
 			const providerErr = toProviderError(error);
 			req.onRetrieval?.(retrievalFailure(kind, providerErr));
-			if (providerErr.code === "aborted" || providerErr.retryable !== true) {
-				throw providerErr;
-			}
+			if (providerErr.code === "aborted") throw providerErr;
+			if (providerErr.retryable !== true && !firstOffTopic) throw providerErr;
 			lastError = providerErr;
 			notes.push(`${kind} failed (${providerErr.code}): ${providerErr.message}`);
+			if (providerErr.retryable !== true) break;
 		}
 	}
 
+	if (firstOffTopic) {
+		const { kind, result } = firstOffTopic;
+		req.onRetrieval?.(outcome(kind, result));
+		return withNotes(result, [...notes, `Returning the first response from ${kind} after trying fallback.`]);
+	}
 	if (lastEmpty) {
 		return withNotes(lastEmpty, notes);
 	}

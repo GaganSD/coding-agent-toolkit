@@ -88,7 +88,7 @@ export class WebSearchPanel implements Component, Focusable {
 	get settings() { return "error" in this.current ? applyConfig(this.current.error.configPath, {}) : this.current; }
 	get pin() {
 		const { enabled, provider, model } = this.settings.classifier;
-		return enabled && provider && model ? `${provider}/${model}` : undefined;
+		return (enabled || this.settings.offTopicFallback) && provider && model ? `${provider}/${model}` : undefined;
 	}
 	get login() {
 		if (!this.pin) return;
@@ -247,7 +247,7 @@ export class WebSearchPanel implements Component, Focusable {
 					: model.available === undefined ? { tone: "dim", text: "untested" } : undefined;
 				return { id, label: id, current: this.pin === id, hint, run: () => this.save(() => configureJudgment(model), writeFailed) };
 			})];
-		if (!settings.researchEnabled && this.pin) options.push({
+		if (!settings.researchEnabled && settings.classifier.enabled && this.pin) options.push({
 			id: "multi-source", label: "▲ Turn on Multi-source to use it", run: () => {
 				this.leaveRight();
 				this.selectRow("thorough");

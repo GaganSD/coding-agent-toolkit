@@ -143,7 +143,10 @@ function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session
 	}
 	if (transport === "exa-rest") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, highlights: [text] })) });
 	if (transport === "brave") return json({ web: { results: evidence.map(({ title, url, text }) => ({ title, url, description: text })) } });
-	if (transport === "brave-context") return json({ grounding: { generic: evidence.map(({ title, url, text }) => ({ title, url, snippets: [text] })) } });
+	if (transport === "brave-context") return json({
+		grounding: { generic: evidence.map(({ title, url, text }) => ({ title, url, snippets: [text] })), map: [] },
+		sources: Object.fromEntries(evidence.map(({ title, url }) => [url, { title, hostname: new URL(url).hostname, age: [] }])),
+	});
 	if (transport === "searxng") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, content: text })) });
 	if (transport === "context7") {
 		if (url.pathname === "/api/v2/libs/search") return json({ results: [{ id: "/public-example/library" }] });

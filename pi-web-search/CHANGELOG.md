@@ -4,6 +4,7 @@
 
 - Read HTML, text, PDFs, and public GitHub pages directly. Jina Reader is a configurable fallback.
 - Search up to three queries per call and apply web recency and domain filters. Previews select passages that match each query.
+- Fast web search can opt into off-topic fallback with the calibrated Pi classifier.
 - Use the same `search` tool in Pi or as a standalone stdio MCP server.
 - Try Brave LLM Context, a SearXNG instance, or versioned library documentation from Context7.
 - Run the wrapper benchmarks against an offline replay corpus.

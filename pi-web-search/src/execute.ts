@@ -11,6 +11,7 @@ import { evidenceOwner, evidenceStore } from "./evidence.ts";
 import { evidenceKey, extractedDocuments, extractionUrlKey, mergeStreamResults, previewEvidence, uniqueEvidence } from "./providers/results.ts";
 import { EXCERPT_MAX_CHARS, type WebSearchDetails, formatWebSearchResult } from "./format.ts";
 import { augmentResults, type AugmentedStreamResult } from "./classifier/augment.ts";
+import { assessOffTopic } from "./classifier/offtopic.ts";
 import { resolveSettings } from "./providers/config.ts";
 import { awaitWithSignal, withTimeout } from "./providers/http.ts";
 import { retrievalProgress } from "./ui/search-progress.ts";
@@ -193,6 +194,9 @@ export async function executeSearch(
 			const availability = options.availability ?? providerAvailability(family, resolved);
 			const urlOnly = params.fetchOnly && (options.readUrls || options.fetchUrls || (!options.transports && !options.loadTransports));
 			const wantJudge = params.judge && resolved.classifier.enabled && !options.standalone;
+			const offTopicPin = !params.parallel && family === "web" && !params.fetchOnly
+				? resolved.offTopicFallback : undefined;
+			const classifierUnavailable = options.standalone && (params.judge || offTopicPin !== undefined);
 			const transportLimit = batched ? Math.floor(6 / queries.length) : undefined;
 			const retrieveQuery = async (original: string): Promise<QueryResult> => {
 				const trimmed = trimQuery(original);
@@ -203,14 +207,29 @@ export async function executeSearch(
 					...parsed,
 					...(!parsed.library && trimmed !== original ? { objective: original } : {}),
 				};
+				let fastClassifierUsage: Usage | undefined;
+				const reviewRelevance: RunSearchOptions["reviewRelevance"] = offTopicPin && !options.standalone
+					? async (result) => {
+						const assessment = await assessOffTopic(req.query, result, resolved.classifier.maxStateChars, {
+							provider: offTopicPin.provider, model: offTopicPin.model,
+							modelRegistry: ctx.modelRegistry, signal: composed.signal,
+						});
+						if (assessment.usage) {
+							fastClassifierUsage = fastClassifierUsage ? sumUsage(fastClassifierUsage, assessment.usage) : assessment.usage;
+						}
+						return assessment;
+					}
+					: undefined;
 				const raw = urlOnly
 					? await runUrlOnly(req, options, availability)
 					: params.parallel
 					? await runParallelSearch(req, { ...options, family, availability, transportLimit })
-					: await runSearch(req, { ...options, family: family ?? "web", availability });
-				if (composed.signal.aborted) throw abortedError(composed.signal.reason);
+					: await runSearch(req, { ...options, family: family ?? "web", availability, reviewRelevance });
+				const deadlineExpired = () => composed.signal.aborted &&
+					isProviderError(composed.signal.reason) && composed.signal.reason.code === "timeout";
+				if (composed.signal.aborted && !(reviewRelevance && deadlineExpired())) throw abortedError(composed.signal.reason);
 
-				const withScope = { ...raw, scope: params.scope };
+				const withScope = { ...raw, scope: params.scope, classifierUsage: fastClassifierUsage };
 				const judged = wantJudge ? await augmentResults(req, withScope, {
 					signal: composed.signal,
 					modelRegistry: ctx.modelRegistry,
@@ -218,7 +237,7 @@ export async function executeSearch(
 					model: resolved.classifier.model,
 				}) : withScope;
 				// Preserve retrieved evidence if optional judging exhausted the deadline.
-				if (composed.signal.aborted && !(wantJudge && isProviderError(composed.signal.reason) && composed.signal.reason.code === "timeout")) {
+				if (composed.signal.aborted && !((wantJudge || reviewRelevance) && deadlineExpired())) {
 					throw abortedError(composed.signal.reason);
 				}
 				return { raw, judged, query: parsed.query };
@@ -268,7 +287,7 @@ export async function executeSearch(
 					...resolved.notices,
 					...urls.warnings,
 					...(dropped ? [dropped] : []),
-					...(options.standalone && params.judge ? ["Classifier unavailable without Pi."] : []),
+					...(classifierUnavailable ? ["Classifier unavailable without Pi."] : []),
 					...(preview.warnings ?? []),
 				],
 				classifierStatus: options.standalone && params.judge ? "unavailable" : classifierStatus(wantJudge, judged),

@@ -118,10 +118,11 @@ export function renderPanel(panel: WebSearchPanel, th: Theme, width: number, row
 		return [field("Key", acct.source === "gh" ? "gh auth" : "No key")];
 	};
 	const ranking = () => [
+		...(settings.offTopicFallback ? [status("dim", "Fast web off-topic fallback is on.")] : []),
 		...(panel.login ? [status("warning", `▲ Run /login ${panel.login} to use this`)] : []),
 		...(panel.pin && !panel.login ? panel.classifierAvailable === undefined ? [status("dim", "○ Classifier untested")]
 			: panel.classifierAvailable === false ? [status("warning", "▲ Pinned classifier unavailable")]
-				: settings.researchEnabled ? [gutter + status("success", ready)] : [] : []),
+				: settings.researchEnabled || settings.offTopicFallback ? [gutter + status("success", ready)] : [] : []),
 	];
 	const notes = (columns: number) => {
 		if (isAccount(row)) return accountLines(columns);

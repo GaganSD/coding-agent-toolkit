@@ -15,7 +15,7 @@ The tool returns a compact preview and, when available, `resultId`, a per-hit `r
 - `find` locates the first case-insensitive literal match with nearby context and reports the total match count. It cannot combine with `cursor`, and a miss means only “not found in stored excerpt,” not “absent from the full page.” No fuzzy matching, embeddings, or model call is involved.
 - Missing/expired handles and invalid refs return structured errors. Reading never refetches silently.
 
-Ref reads are local: they perform no network request, do not resolve provider settings, and are unaffected by a malformed `web-search.json`. Only post-judgment, admitted evidence enters the store. Suppressed passages cannot be recovered by continuation. Every continuation still passes through Pi's normal tool pipeline. Ordinary searches do not classify evidence; optional classification remains a heuristic, not a security boundary.
+Ref reads are local: they perform no network request, do not resolve provider settings, and are unaffected by a malformed `web-search.json`. Only evidence selected for return enters the store. Every continuation still passes through Pi's normal tool pipeline.
 
 Storage is memory-only and session-scoped: no document files or session JSONL copies. Successful reads refresh a 10-minute idle expiry, capped at 60 minutes from creation. The store has 32-entry and 8 MiB aggregate limits, at most 256 results per entry, 64,000 characters per passage and 256,000 passage characters per entry. Non-URL metadata is capped at 1,000 characters per field. Least-recently-used entries are evicted first. `storedClipped` reports local clipping; entries too large to fit are not stored. Shutdown clears that session's entries. Reload, restart and fork do not restore handles. Existing branches within a session share its handle namespace.
 
@@ -24,6 +24,10 @@ Stored evidence is bounded by the text each provider returns and the 64,000-char
 ## Bounded thorough fan-out
 
 `effort: "thorough"` is deliberately bounded. It runs at most **two actual transports per family** in configured order; missing transports do not consume a slot, and `both` therefore runs at most four. Configuration order still wins, but a long fallback list cannot turn one thorough call into an unbounded provider sweep. Each query runs through a sequential chain in fast mode. A batch can run its queries concurrently and limits overall transport concurrency to six.
+
+## Fast web fallback
+
+Fast web search moves to the next configured provider after an empty or retryable response. Enable `web.fallbackOnOffTopic` with the calibrated classifier pin to also check the relevance of a nonempty response before falling back. The check uses the pinned model's off-topic probability at a threshold of **0.85** and shares the operation deadline. A request with a single runnable provider skips the check. Each check sends up to ten cited hits with excerpts of up to 400 characters within `classifier.maxStateChars`. [Setup and data handling](../README.md#optional-off-topic-fallback)
 
 ## One global preview budget
 

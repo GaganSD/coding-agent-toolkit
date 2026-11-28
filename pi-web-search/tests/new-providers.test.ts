@@ -26,9 +26,13 @@ test("Brave LLM Context stores bounded cited evidence and maps freshness", async
 		return Response.json({ grounding: { generic: [
 			{ title: "Documentation", url: "https://docs.example.com/guide", snippets: ["First passage.", "Second passage."] },
 			{ title: "Notes", url: "https://example.com/notes", snippets: ["Notes."] },
-		] } });
+		], map: [] }, sources: {
+			"https://docs.example.com/guide": { title: "Documentation", hostname: "docs.example.com", age: [] },
+			"https://example.com/notes": { title: "Notes", hostname: "example.com", age: [] },
+		} });
 	} });
 	assert.deepEqual(evidence.searchResults?.map((hit) => hit.citedText), ["First passage.\n\nSecond passage.", "Notes."]);
+	assert.deepEqual(evidence.sources?.map(({ url }) => url), ["https://docs.example.com/guide", "https://example.com/notes"]);
 	assert.equal((await braveSearch(req, { fetchImpl: async () => Response.json({ grounding: { generic: [] } }) })).searchResults?.length, 0);
 	await assert.rejects(braveSearch(req, { fetchImpl: async () => new Response("a".repeat(1_048_577)) }), (error) => isProviderError(error) && error.code === "parse_error");
 	for (const [status, code] of [[403, "missing_credentials"], [402, "http_error"], [429, "rate_limited"]] as const) {
