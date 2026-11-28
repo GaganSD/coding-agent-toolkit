@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { formatWebSearchResult, type WebSearchDetails } from "../src/format.ts";
 import { formatSearchError } from "../src/utils.ts";
 import { githubSearch } from "../src/providers/github.ts";
@@ -66,6 +66,26 @@ test("expanded rows are built from cited details, with code gutter and a single 
 	].join("\n"));
 	for (const width of [1, 5, 20]) assert.ok(output(details, {}, true).render(width).every((line) => visibleWidth(line) <= width));
 	assert.doesNotMatch(show({ searchResults: [{ title: "x\x1b[31m\ny", citedText: "reading" }] }, {}, true), /\x1b|secret|Read: search|## Results/);
+});
+
+test("an empty grep.app search explains how to retry only when expanded", () => {
+	const args = { scope: "code", query: "needle repo:example/project" } as const;
+	const { details } = formatWebSearchResult({ providerKind: "grep", scope: "code", text: "", searchResults: [], warnings: [
+		"grep.app found no matches in repo:example/project. That repository may not be indexed; retry without the repo: qualifier, or with a shorter literal identifier.",
+	] });
+	assert.doesNotMatch(show(details, args), /indexed|retry/);
+	assert.match(output(details, args, true).render(80).join("\n"), /via grep\.app\n.*may not be indexed; retry without (?:the )?repo:/i);
+});
+
+test("expanded warnings deduplicate before the cap and never repeat covered diagnostics", () => {
+	const details: WebSearchDetails = { provider: "grep", unreadableProviders: ["grep"], failedProviders: ["github"], warnings: [
+		"grep.app replied with content this tool could not parse: RAW BODY", "github failed (http_error): RAW BODY",
+		"First\nwarning", "First warning", "\x1b[31mSecond\x1b[0m", "界".repeat(30), "Fourth", "Fifth", "Fourth",
+	] };
+	const lines = output(details, {}, true).render(20);
+	assert.deepEqual(lines.slice(-4).map(stripTerminalSequences), ["First warning", "Second", "界".repeat(9) + "…", "+2 more"]);
+	assert.ok(lines.every((line) => visibleWidth(line) <= 20));
+	assert.doesNotMatch(lines.join("\n"), /RAW BODY|Fourth|Fifth|\x1b\[31m/);
 });
 
 test("partial and terminal errors never print model diagnostics", () => {

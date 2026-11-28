@@ -1,5 +1,5 @@
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { WebSearchDetails } from "../format.ts";
 import { EXCERPT_MAX_CHARS } from "../format.ts";
 import { CREDENTIAL_PROVIDER_IDS } from "../env.ts";
@@ -92,6 +92,40 @@ function unusual(details: WebSearchDetails, showWithheld = true) {
 		details.incompleteSearch && "Search incomplete",
 		showWithheld && details.withheldMatches && "Non-public or unverifiable matches withheld",
 		details.classifier?.suppressed ? `${details.classifier.suppressed} hidden as unsafe` : undefined];
+}
+
+// Use only formatted warnings. Some diagnostics append a provider reply after
+// the colon; keep the condition, never the quoted reply, even on older results.
+function expandedWarnings(details: WebSearchDetails): string[] {
+	const covered = new Set(unusual(details));
+	const lines = new Set<string>();
+	for (const raw of details.warnings ?? []) {
+		let line = plainLine(raw).replace(/\s+/gu, " ").trim();
+		if (/^grep\.app found no matches in repo:.* That repository may not be indexed;/u.test(line)) {
+			line = "Repository may not be indexed; retry without repo: or use a shorter identifier.";
+		} else if (details.withheldMatches) {
+			// Free-form diagnostics have no per-hit provenance.
+			continue;
+		} else if (/^grep\.app (?:replied with content this tool could not parse:|returned an empty reply)/u.test(line)) {
+			if (details.unreadableProviders?.includes("grep")) continue;
+			line = "Couldn’t interpret grep.app’s response";
+		} else if (/^(?:Sourcegraph search was incomplete:|GitHub code search returned incomplete results)/u.test(line)) {
+			line = "Search incomplete";
+		} else if (/^classifier (?:skipped|judging unavailable):/u.test(line)) {
+			line = "ranking skipped";
+		} else if (line === "Reused session evidence (at most 30 seconds old).") {
+			line = "cached";
+		} else if (/^(?:\w+ failed \(\w+\)|(?:URL fetch|parallel fetch) failed(?: \(\w+\))?|Exa fetch failed for .*?):/u.test(line)) {
+			if (details.failedProviders?.some((id) => line.startsWith(`${id} failed (`))) continue;
+			line = "Provider request failed.";
+		} else {
+			if (details.classifier?.suppressed && /^classifier (?:suppressed|withheld) /u.test(line)) continue;
+			if (details.excerptsShortened && line.startsWith("Result excerpts truncated for ")) continue;
+			if ((details.urlsRequested ?? 0) > (details.urlsRead ?? 0) && /^Jina URL \d+ failed \(/u.test(line)) continue;
+		}
+		if (line && !covered.has(line)) lines.add(line);
+	}
+	return [...lines];
 }
 
 function unreadableNotice(details: WebSearchDetails) {
@@ -196,6 +230,7 @@ export function renderResult(result: AgentToolResult<WebSearchDetails>, { expand
 	const passageProviders = details.passageSource?.split(", ").filter((tag): tag is EvidenceProvider => Object.hasOwn(providerName, tag));
 	const via = passageProviders?.length ? passageProviders : details.contributors ?? details.providers ?? (details.provider ? [details.provider] : []);
 	const unparsedOmitted = details.unparsedReply && !hits.some((hit, i) => isUnparsed(details, hit, i));
+	const warnings = expandedWarnings(details);
 	const footer = joined(unparsedOmitted && rows.length > 0 && unparsedNotice, via.length > 0 && `via ${via.map((kind) => providerName[kind]).join(" + ")}`, ...(rows.length ? unusual(details) : []),
 		rows.length > 0 && duration(details.durationMs), details.excerptsShortened ? `${countOf(details.excerptsShortened, "excerpt")} shortened` : undefined);
 	return {
@@ -227,6 +262,10 @@ export function renderResult(result: AgentToolResult<WebSearchDetails>, { expand
 			if (!rows.length || details.passage) body.unshift(...wrapTextWithAnsi(theme.fg("muted", summary), width));
 			if (footer) body.push(...wrapTextWithAnsi(theme.fg("dim", footer), width));
 			else if (rows.length) body.pop();
+			for (const warning of warnings.slice(0, 3)) {
+				body.push(theme.fg("dim", visibleWidth(warning) > width ? truncateToWidth(warning, width, "…") : warning));
+			}
+			if (warnings.length > 3) body.push(theme.fg("dim", `+${warnings.length - 3} more`));
 			return body.map((line) => truncateToWidth(line, width));
 		},
 		invalidate() {},
