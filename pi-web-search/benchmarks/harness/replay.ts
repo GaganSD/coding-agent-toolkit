@@ -111,6 +111,13 @@ export class Replay {
 			const body = JSON.parse(raw) as Rpc;
 			if (body.method && (body as { jsonrpc?: string }).jsonrpc === "2.0") rpc = body;
 		}
+		const parallelArguments = url.hostname === "search.parallel.ai" && rpc?.params?.arguments;
+		if (parallelArguments) {
+			// Pi supplies attribution metadata per session and model. Evidence
+			// replay keys depend on retrieval parameters, which survive a new session.
+			delete parallelArguments.session_id;
+			delete parallelArguments.model_name;
+		}
 		if (rpc?.method === "initialize") {
 			const version = (rpc.params as { protocolVersion?: string } | undefined)?.protocolVersion ?? "2025-03-26";
 			return Response.json({ jsonrpc: "2.0", id: rpc.id, result: { protocolVersion: version, capabilities: { tools: {} }, serverInfo: { name: "recording", version: "1" } } });
@@ -129,7 +136,7 @@ export class Replay {
 			if (!this.live) return this.miss(url.hostname + " " + (rpc?.params?.name ?? rpc?.method ?? request.method));
 			let pending = this.inFlight.get(key);
 			if (!pending) {
-				pending = this.record(request, rpc, exa).finally(() => this.inFlight.delete(key));
+				pending = this.record(request, rpc, exa, Boolean(parallelArguments)).finally(() => this.inFlight.delete(key));
 				this.inFlight.set(key, pending);
 			}
 			record = this.records[key] = await pending;
@@ -146,14 +153,14 @@ export class Replay {
 		return retrievalScope.run(false, () => this.original(input, init));
 	}
 
-	private async record(request: Request, rpc: Rpc | undefined, exa: boolean): Promise<Recording> {
+	private async record(request: Request, rpc: Rpc | undefined, exa: boolean, normalizedParallel: boolean): Promise<Recording> {
 		const headers = new Headers(request.headers);
 		headers.delete("mcp-session-id");
 		const response = exa ? await this.network("https://mcp.exa.ai/mcp?tools=web_search_exa", {
 			method: "POST", headers, redirect: "error", signal: request.signal,
 			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "web_search_exa",
 				arguments: { query: rpc?.params?.arguments?.query, objective: rpc?.params?.arguments?.query, numResults: Math.max(8, Number(rpc?.params?.arguments?.numResults) || 0) } } }),
-		}) : await this.network(request, { headers, redirect: "error" });
+		}) : await this.network(request, { headers, redirect: "error", ...(normalizedParallel ? { body: JSON.stringify(rpc) } : {}) });
 		const body = await response.text();
 		const contentType = response.headers.get("content-type") ?? "text/plain";
 		if (rpc && response.ok) {

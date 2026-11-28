@@ -141,6 +141,10 @@ async function main() {
 							if (!model || (mode === "record" && !existsSync(file) && !registry.hasConfiguredAuth(model))) {
 								throw new Error("Pi model is missing or lacks auth: " + name);
 							}
+							if (mode === "offline" && !runtime.hasConfiguredAuth(model.provider)) {
+								// Pi checks auth before starting a session even when its stream is replayed locally.
+								await runtime.setRuntimeApiKey(model.provider, "offline-replay-placeholder");
+							}
 							const session = await makeSession(root, loaded, runtime, names, model);
 							const declaration = session.agent.state.tools.map(({ name, description, parameters }) => ({ name, description, parameters }));
 							const fingerprint = trialFingerprint({ revision: other ? competitorPin : option, provenance, variant, version: VERSION,
