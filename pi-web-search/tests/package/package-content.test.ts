@@ -14,7 +14,7 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		files: [...packageAllowlist],
 		keywords: ["pi-package"],
 		pi: { extensions: ["./src/index.ts"] },
-		dependencies: { "proper-lockfile": "4.1.2" },
+		dependencies: { "cross-spawn": "7.0.6", "proper-lockfile": "4.1.2" },
 		peerDependenciesMeta: {
 			"@earendil-works/pi-ai": { optional: true },
 			"@earendil-works/pi-coding-agent": { optional: true },

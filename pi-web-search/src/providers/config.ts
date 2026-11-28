@@ -228,9 +228,8 @@ function unknownKeys(object: Record<string, unknown>, allowed: ReadonlySet<strin
 export async function configureJudgment(
 	action: JudgmentAction,
 	available: readonly AvailableClassifier[] | (() => Promise<readonly AvailableClassifier[]>) = [],
-): Promise<{ path: string; note?: string }> {
+): Promise<void> {
 	const path = defaultWebSearchConfigPath();
-	let note: string | undefined;
 	let candidates: readonly AvailableClassifier[] = typeof available === "function" ? [] : available;
 	if (action === "on" && typeof available === "function") {
 		const current = await readWebSearchConfig(path);
@@ -251,16 +250,11 @@ export async function configureJudgment(
 				const selected = preferred ?? (candidates.length === 1 ? candidates[0] : undefined)
 					?? { provider: DEFAULT_CLASSIFIER_SETTINGS.provider, id: DEFAULT_CLASSIFIER_SETTINGS.model };
 				config.classifier = { ...config.classifier, enabled: true, provider: selected.provider, model: selected.id };
-				if (!candidates.some((entry) => entry.provider === selected.provider && entry.id === selected.id)) {
-					note = `Default Jev selected; authenticate with /login ${selected.provider} before using judgment.`;
-				}
 			}
 		} else {
-			config.research = { ...config.research, enabled: true };
 			config.classifier = { ...config.classifier, enabled: true, provider: action.provider, model: action.id };
 		}
 	}, path);
-	return { path, note };
 }
 
 export type SearchSettingEdit =

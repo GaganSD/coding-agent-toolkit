@@ -1,4 +1,4 @@
-import { VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { VERSION, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { handleWebSearchCommand, WEB_SEARCH_COMMAND, webSearchCompletions } from "./command.ts";
 import { enableStoredCredentials } from "./env.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
@@ -55,12 +55,12 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		renderResult,
 	});
 
-	const command = {
+	const panel = { first: true };
+	pi.registerCommand(WEB_SEARCH_COMMAND, {
 		description: "Search settings, provider keys, or classifier pin",
 		getArgumentCompletions: webSearchCompletions,
-		handler: (args: string, ctx: ExtensionContext) => handleWebSearchCommand(args, ctx, pi),
-	};
-	pi.registerCommand(WEB_SEARCH_COMMAND, command);
+		handler: (args, ctx) => handleWebSearchCommand(args, ctx, pi, panel),
+	});
 }
 
-export { availableClassifiers } from "./command.ts";
+export { availableClassifiers } from "./ui/classifiers.ts";

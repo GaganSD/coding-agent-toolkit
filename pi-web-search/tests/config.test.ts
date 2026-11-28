@@ -226,7 +226,7 @@ test("concurrent setup preserves settings and existing config symlinks", () => w
 		if (alias !== path) assert.equal((await lstat(alias)).isSymbolicLink(), true);
 		const saved = JSON.parse(await readFile(path, "utf8"));
 		assert.equal(saved.maxResults, 3);
-		assert.equal(saved.research.enabled, true);
+		assert.equal(saved.research, undefined);
 		assert.deepEqual(saved.classifier.weights, { answers: 0.9 });
 		assert.equal(saved.classifier.safetyThreshold, 0.8);
 		assert.ok(["openrouter", "typesafe"].includes(saved.classifier.provider));

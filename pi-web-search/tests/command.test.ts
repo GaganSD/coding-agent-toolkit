@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type { WebSearchPanel } from "../src/ui/panel.ts";
+import { bindings, plainTheme, terminal } from "./fixtures/panel.ts";
 
 import {
 	parseWebSearchArgs,
@@ -54,12 +56,12 @@ interface Harness {
 }
 
 interface CommandCtx {
+	mode?: "tui" | "print";
 	hasUI: boolean;
 	ui: {
 		notify: (message: string) => void;
-		select?: (title: string, options: string[]) => Promise<string | undefined>;
-		input?: (title: string) => Promise<string | undefined>;
-		confirm?: (title: string, message: string) => Promise<boolean>;
+		custom?: (factory: (tui: typeof terminal, theme: typeof plainTheme, keys: ReturnType<typeof bindings>, done: () => void) => WebSearchPanel) => Promise<void>;
+		theme?: typeof plainTheme;
 	};
 	modelRegistry?: {
 		getModelsOfType?: (type: string) => Array<{ provider: string; id: string }>;
@@ -105,34 +107,21 @@ async function withCommand(
 	}
 }
 
-test("interactive menu stores a provider key in auth.json and never echoes it", async () => {
-	const previous = process.env.EXA_API_KEY;
-	delete process.env.EXA_API_KEY;
-	try {
-		await withCommand(async ({ handler, dir }) => {
-			const notes: string[] = [];
-			await handler("provider exa", {
-				hasUI: true,
-				ui: {
-					notify: (message) => { notes.push(message); },
-					input: async (title) => {
-						assert.match(title, /dashboard\.exa\.ai/);
-						return "  exa-secret-value  ";
-					},
-					confirm: async () => true,
-				},
-			});
-			const auth = JSON.parse(await readFile(join(dir, "auth.json"), "utf8"));
-			assert.deepEqual(auth.exa, { type: "api_key", key: "exa-secret-value" });
-			assert.deepEqual(auth.openai, { type: "api_key", key: "keep-me" });
-			assert.match(notes.join("\n"), /dashboard\.exa\.ai/);
-			assert.match(notes.join("\n"), /Saved exa API key/);
-			assert.doesNotMatch(notes.join("\n"), /exa-secret-value|keep-me/);
-		}, { openai: { type: "api_key", key: "keep-me" } });
-	} finally {
-		if (previous === undefined) delete process.env.EXA_API_KEY;
-		else process.env.EXA_API_KEY = previous;
-	}
+test("one custom panel opens Accounts first, then Search, and honors subcommand focus", async () => {
+	await withCommand(async ({ handler }) => {
+		const focused: string[] = [];
+		const ctx: CommandCtx = { mode: "tui", hasUI: true, ui: {
+			theme: plainTheme, notify: () => assert.fail("unexpected notification"),
+			custom: async (factory) => {
+				const panel = factory(terminal, plainTheme, bindings(), () => {});
+				focused.push(panel.selected);
+				assert.match(panel.render(88).join("\n"), /Settings [0-9]+\/10/);
+				await panel.handleInput("\x1b");
+			},
+		} };
+		for (const args of ["", "", "provider parallel", "provider grep", "classifier"]) await handler(args, ctx);
+		assert.deepEqual(focused, ["exa", "web", "parallel", "code", "classifier"]);
+	});
 });
 
 test("a remove argument is usage and does not change auth.json", async () => {
@@ -151,7 +140,7 @@ test("a pasted key after provider is usage, not storage", async () => {
 	await withCommand(async ({ handler, dir }) => {
 		let report = "";
 		await handler("provider exa pasted-secret", {
-			hasUI: true,
+			mode: "tui", hasUI: true,
 			ui: { notify: (message) => { report = message; } },
 		});
 		assert.equal(report, WEB_SEARCH_USAGE);
@@ -160,106 +149,44 @@ test("a pasted key after provider is usage, not storage", async () => {
 	});
 });
 
-test("keyless providers do not open a key prompt", async () => {
-	await withCommand(async ({ handler }) => {
-		let report = "";
-		await handler("provider grep", {
-			hasUI: true,
-			ui: {
-				notify: (message) => { report = message; },
-				input: async () => { throw new Error("must not collect a key"); },
-			},
+test("status and the default command have the concise print summary", async () => {
+	await withCommand(async ({ handler, messages }) => {
+		for (const args of ["", "status"]) await handler(args, {
+			mode: "print", hasUI: false, ui: { notify: () => assert.fail("not interactive") },
 		});
-		assert.match(report, /grep: keyless/);
+		assert.equal(messages.length, 2);
+		assert.equal(messages[0].content, messages[1].content);
+		assert.equal(messages[0].content, [
+			"Web search", "Web     Exa", "Backup  Parallel", "Code    grep.app → Sourcegraph → GitHub",
+			"Multi-source  Off     Classifier  None", "", "Exa ○  Parallel ○  GitHub ○  Brave ○",
+			"Open /web-search in the terminal UI to change these.",
+		].join("\n"));
 	});
 });
 
-test("classifier picker lists Pi models plus None and can disable judgment", async () => {
-	await withCommand(async ({ handler, dir }) => {
-		await writeFile(join(dir, "web-search.json"), JSON.stringify({
-			research: { enabled: true },
-			classifier: { enabled: true, provider: "typesafe", model: "jev-latest" },
-		}));
-		const offered: string[][] = [];
-		let report = "";
-		await handler("classifier", {
-			hasUI: true,
-			ui: {
-				notify: (message) => { report = message; },
-				select: async (_title, options) => {
-					offered.push(options);
-					return "None";
-				},
-			},
-			modelRegistry: {
-				getModelsOfType: () => [
-					{ provider: "typesafe", id: "jev-latest" },
-					{ provider: "openai", id: "gpt-6-luna" },
-				],
-				getAvailableOfType: async () => [{ provider: "typesafe", id: "jev-latest" }],
-			},
-		});
-		assert.deepEqual(offered[0]?.[0], "None");
-		assert.ok(offered[0]?.some((option) => option.includes("typesafe/jev-latest")));
-		assert.ok(offered[0]?.some((option) => option.includes("openai/gpt-6-luna") && option.includes("login required")));
-		const saved = JSON.parse(await readFile(join(dir, "web-search.json"), "utf8"));
-		assert.equal(saved.classifier.enabled, false);
-		assert.match(report, /Classifier disabled\. Saved to .* — run \/reload to apply\./);
-	});
-});
-
-test("failed classifier discovery marks rows untested, not login required", async () => {
-	await withCommand(async ({ handler }) => {
-		const offered: string[][] = [];
-		await handler("classifier", {
-			hasUI: true,
-			ui: {
-				notify: () => {},
-				select: async (_title, options) => {
-					offered.push(options);
-					return "None";
-				},
-			},
-			modelRegistry: {
-				getModelsOfType: () => [
-					{ provider: "typesafe", id: "jev-latest" },
-					{ provider: "openai", id: "gpt-6-luna" },
-				],
-				getAvailableOfType: async () => { throw new Error("discovery blew up"); },
-			},
-		});
-		const rows = offered[0] ?? [];
-		assert.ok(rows.some((option) => option.startsWith("typesafe/jev-latest")));
-		assert.ok(rows.every((option) => !option.includes("login required")));
-		assert.ok(rows.some((option) => option.includes("untested")));
-	});
-});
-
-test("status report says auth status unknown when the registry cannot answer", async () => {
-	await withCommand(async ({ handler, dir }) => {
-		await writeFile(join(dir, "web-search.json"), JSON.stringify({
-			classifier: { enabled: true, provider: "opencode", model: "jev-1.13" },
-		}));
-		let report = "";
-		await handler("status", {
-			hasUI: true,
-			ui: { notify: (message) => { report = message; } },
-			modelRegistry: {},
-		});
-		assert.match(report, /opencode\/jev-1\.13: auth status unknown; registration unknown\./);
-	});
-});
-
-test("pinning a classifier without Pi credentials says how to log in", async () => {
+test("pinning a classifier without credentials keeps Thorough off and gives the login step", async () => {
 	await withCommand(async ({ handler }) => {
 		let report = "";
 		await handler("classifier opencode/jev-1.13", {
-			hasUI: true,
-			ui: { notify: (message) => { report = message; } },
-			modelRegistry: {
-				getProviderAuthStatus: () => ({ configured: false }),
-			},
+			mode: "tui", hasUI: true, ui: { notify: (message) => { report = message; } },
+			modelRegistry: { getProviderAuthStatus: () => ({ configured: false }) },
 		});
-		assert.match(report, /Pi has no opencode credentials\. Run \/login opencode, then \/reload\./);
+		assert.match(report, /✓ Saved — applies to the next search/);
+		assert.match(report, /▲ Turn on Multi-source to use it/);
+		assert.match(report, /▲ Run \/login opencode to use this/);
+		assert.doesNotMatch(report, /\/reload/);
+	});
+});
+
+test("enabling Thorough shows login for the default classifier selected by the command", async () => {
+	await withCommand(async ({ handler }) => {
+		let report = "", checked = "";
+		await handler("on", {
+			mode: "tui", hasUI: true, ui: { notify: (message) => { report = message; } },
+			modelRegistry: { getAvailableOfType: async () => [], getProviderAuthStatus: (provider: string) => { checked = provider; return { configured: false }; } },
+		});
+		assert.ok(checked);
+		assert.ok(report.includes(`▲ Run /login ${checked} to use this`));
+		assert.doesNotMatch(report, /Turn on Multi-source/);
 	});
 });

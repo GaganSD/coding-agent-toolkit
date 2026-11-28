@@ -29,7 +29,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	assert.ok(manifest.keywords.includes("pi-package"));
 	assert.deepEqual(manifest.files, packageAllowlist);
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
-	assert.deepEqual(manifest.dependencies, { "proper-lockfile": "4.1.2" }, "Unexpected runtime dependencies");
+	assert.deepEqual(manifest.dependencies, { "cross-spawn": "7.0.6", "proper-lockfile": "4.1.2" }, "Unexpected runtime dependencies");
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
 		assert.equal(manifest.scripts?.[hook], undefined, `Consumers must not run lifecycle hook ${hook}`);
 	}
