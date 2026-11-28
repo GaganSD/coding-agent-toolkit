@@ -83,7 +83,7 @@ test("SearXNG uses the configured origin and fixed route, with clear JSON setup 
 	assert.deepEqual(thorough.warnings ?? [], []);
 });
 
-test("Context7 pins versions, caches resolves, and always cites documentation", async (t) => {
+test("Context7 searches the full query, preserves version pins, and cites documentation", async (t) => {
 	const old = process.env.CONTEXT7_API_KEY;
 	delete process.env.CONTEXT7_API_KEY;
 	t.after(() => {
@@ -96,26 +96,42 @@ test("Context7 pins versions, caches resolves, and always cites documentation", 
 		requests.push(url);
 		assert.equal(url.origin, "https://context7.com");
 		assert.equal(init.headers?.Authorization, process.env.CONTEXT7_API_KEY ? "Bearer fixture-context7-key" : undefined);
-		if (url.pathname.endsWith("/libs/search")) {
-			assert.equal(url.searchParams.get("libraryName"), "React");
-			return Response.json({ results: [{ id: "/facebook/react" }] });
+		if (url.pathname === "/api/v3/search") {
+			assert.equal(url.searchParams.get("query"), "configure middleware in next.js");
+			assert.equal(url.searchParams.get("type"), "json");
+			assert.deepEqual([...url.searchParams.keys()], ["query", "type"]);
+			// Reduced from a keyless response; both documentation indexes were returned.
+			return Response.json({
+				infoSnippets: [{ libraryId: "/vercel/next.js", content: "Proxy file convention", rank: 6 }],
+				codeSnippets: [{
+					libraryId: "/websites/nextjs",
+					codeId: "https://nextjs.org/docs/messages/middleware-upgrade-guide",
+					codeList: [{ code: "export function middleware() {}" }],
+					rank: 1,
+				}],
+			});
 		}
 		assert.equal(url.pathname, "/api/v2/context");
 		return Response.json({
 			libraryId: url.searchParams.get("libraryId"),
 			infoSnippets: [{ content: "Documentation", rank: 1 }],
-			codeSnippets: [{ codeId: "https://react.dev/docs", codeList: [{ code: "const example = 1;" }], rank: 2 }],
+			codeSnippets: [],
 		});
 	};
-	const first = await context7Search(search("React hooks", { reuseScope: "context7-fixture" }), { fetchImpl });
-	assert.deepEqual(first.searchResults?.map((hit) => hit.url), ["https://context7.com/facebook/react", "https://react.dev/docs"]);
-	await context7Search(search("React state", { reuseScope: "context7-fixture" }), { fetchImpl });
-	assert.deepEqual(requests.map((url) => url.pathname), ["/api/v2/libs/search", "/api/v2/context", "/api/v2/context"]);
+	const first = await context7Search(search("configure middleware in next.js"), { fetchImpl });
+	assert.deepEqual(requests.map(({ pathname }) => pathname), ["/api/v3/search"]);
+	assert.deepEqual(first.searchResults?.map((hit) => hit.url), [
+		"https://nextjs.org/docs/messages/middleware-upgrade-guide",
+		"https://context7.com/vercel/next.js",
+	]);
 	process.env.CONTEXT7_API_KEY = "fixture-context7-key";
-	await context7Search(search("routing", { library: "/vercel/next.js@v15" }), { fetchImpl });
+	const pinned = await context7Search(search("routing", { library: "/vercel/next.js@v15" }), { fetchImpl });
+	assert.deepEqual(requests.map(({ pathname }) => pathname), ["/api/v3/search", "/api/v2/context"]);
 	assert.equal(requests.at(-1)?.searchParams.get("libraryId"), "/vercel/next.js@v15");
-	const missing = await context7Search(search("Unknown"), { fetchImpl: async () => Response.json({ error: "no_libraries_found" }, { status: 404 }) });
-	assert.match(missing.warnings?.join() ?? "", /no library matched/);
+	assert.equal(pinned.searchResults?.[0]?.url, "https://context7.com/vercel/next.js@v15");
+	const missing = await context7Search(search("Unknown"), { fetchImpl: async () => Response.json({ error: "no_documentation_found" }, { status: 404 }) });
+	assert.deepEqual(missing.searchResults, []);
+	await assert.rejects(context7Search(search("Unknown"), { fetchImpl: async () => new Response(null, { status: 404 }) }), /HTTP 404/);
 	const substituted = await context7Search(search("v15 docs", { library: "/vercel/next.js@v15" }), {
 		fetchImpl: async () => Response.json({ version: { requested: "v15", served: "v16", status: "unverified" }, infoSnippets: [], codeSnippets: [] }),
 	});
