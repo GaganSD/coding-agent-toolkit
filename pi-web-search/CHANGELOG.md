@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Apply native web filters through keyless Exa and search Context7 with the full documentation query.
+- Read PDFs up to 25 MiB and show search guidance to MCP clients.
 - Show per-query counts and provider names, make saved refs and continuation easier to copy, and mark previews when text was shortened. Scope conflicts and blocked private addresses have distinct error codes.
 - Use Pi’s shared TypeBox runtime for the extension and include TypeBox in the standalone MCP bundle.
 

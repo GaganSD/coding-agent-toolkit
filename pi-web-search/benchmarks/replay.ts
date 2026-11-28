@@ -5,6 +5,7 @@ import dgram from "node:dgram";
 import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { EXA_ADVANCED_MCP_URL } from "../src/providers/exa.ts";
 import { timeoutError } from "../src/providers/http.ts";
 import type { EvidenceProvider } from "../src/providers/types.ts";
 
@@ -12,16 +13,17 @@ export const directory = fileURLToPath(new URL(".", import.meta.url));
 export const routes = {
 	exa: "https://mcp.exa.ai/mcp",
 	"exa-rest": "https://api.exa.ai/search",
+	"exa-advanced": EXA_ADVANCED_MCP_URL,
 	parallel: "https://search.parallel.ai/mcp",
 	grep: "https://mcp.grep.app/",
 	sourcegraph: "https://sourcegraph.com/.api/search/stream",
 	github: "https://api.github.com/search/code",
 	brave: "https://api.search.brave.com/res/v1/web/search",
 	"brave-context": "https://api.search.brave.com/res/v1/llm/context",
-	context7: "https://context7.com/api/v2/context",
+	context7: "https://context7.com/api/v3/search",
 	searxng: "http://127.0.0.1:7987/search",
 	jina: "https://r.jina.ai/",
-} satisfies Partial<Record<EvidenceProvider | "exa-rest" | "brave-context", string>>;
+} satisfies Partial<Record<EvidenceProvider | "exa-rest" | "exa-advanced" | "brave-context", string>>;
 
 export type Transport = keyof typeof routes;
 export interface Evidence { title: string; url: string; text: string }
@@ -32,6 +34,7 @@ export interface Fixture {
 	evidence: Evidence[];
 	query?: string;
 	target?: string;
+	library?: string;
 	fault?: Fault;
 	once?: boolean;
 	onRequest?: (url: URL, init: RequestInit | undefined) => void;
@@ -75,7 +78,7 @@ export function evidenceFor(id: string, step: number, category: string, transpor
 	});
 }
 
-const mcpTools = { exa: "web_search_exa", parallel: "web_search", grep: "searchGitHub" } as const;
+const mcpTools = { exa: "web_search_exa", "exa-advanced": "web_search_advanced_exa", parallel: "web_search", grep: "searchGitHub" } as const;
 function isMcp(transport: Transport): transport is keyof typeof mcpTools {
 	return Object.hasOwn(mcpTools, transport);
 }
@@ -89,21 +92,23 @@ function literalCodeQuery(query: string | undefined): string | undefined {
 }
 
 function match(fixture: Fixture, url: URL, method: string, rpc: Request): boolean {
-	const { transport, target, query } = fixture;
+	const { transport, target, query, library } = fixture;
 	const endpoint = new URL(routes[transport]);
 	if (transport === "jina") return method === "GET" && target !== undefined && url.href === endpoint.href + target;
 	if (url.origin !== endpoint.origin) return false;
-	if (transport === "context7" && url.pathname === "/api/v2/libs/search") {
-		return method === "GET" && url.searchParams.get("query") === query;
+	if (transport === "context7") {
+		return url.pathname === (library ? "/api/v2/context" : endpoint.pathname) && method === "GET"
+			&& url.searchParams.get("type") === "json" && url.searchParams.get("query") === query
+			&& url.searchParams.get("libraryId") === (library ?? null);
 	}
 	if (url.pathname !== endpoint.pathname) return false;
-	if (transport === "context7") return method === "GET" && url.searchParams.get("query") === query;
 	if (transport === "searxng") {
 		const q = url.searchParams.get("q");
 		return method === "GET" && url.searchParams.get("format") === "json" && (q === query || q?.startsWith(query + " ") === true);
 	}
 
 	if (isMcp(transport)) {
+		if (url.search !== endpoint.search) return false;
 		if (method === "DELETE") return true;
 		if (method !== "POST" || rpc.jsonrpc !== "2.0") return false;
 		if (rpc.method === "initialize" || rpc.method === "notifications/initialized") return true;
@@ -122,7 +127,7 @@ function match(fixture: Fixture, url: URL, method: string, rpc: Request): boolea
 	return method === "GET" && url.searchParams.get("q") === query;
 }
 
-function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session: number, url: URL): Response {
+function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session: number): Response {
 	const { transport, evidence } = fixture;
 	if (isMcp(transport)) {
 		if (method === "DELETE" || rpc.method === "notifications/initialized") return new Response(null, { status: 202 });
@@ -132,16 +137,14 @@ function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session
 		}
 		const result = transport === "parallel"
 			? { content: [], structuredContent: { results: evidence.map(({ title, url, text }) => ({ title, url, excerpts: [text] })) } }
-			: { content: [{ type: "text", text: transport === "exa"
-				? evidence.map(({ title, url, text }) => `Title: ${title}\nURL: ${url}\nHighlights:\n${text}`).join("\n\n")
-				: evidence.map(({ url, text }) => `Repository: public-example/replay\nPath: ${url.split("/").at(-1)}\nURL: ${url}\n--- Snippet 1 (Line 1) ---\n${text}`).join("\n") }] };
+			: { content: [{ type: "text", text: mcpEvidence(transport, evidence) }] };
 		return json({ jsonrpc: "2.0", id: rpc.id, result });
 	}
 	if (transport === "jina") {
 		const { title, text } = evidence[0];
 		return json({ data: { title, url: fixture.target, content: text, httpStatus: 200 } });
 	}
-	if (transport === "exa-rest") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, highlights: [text] })) });
+	if (transport === "exa-rest") return json(exaEvidence(evidence));
 	if (transport === "brave") return json({ web: { results: evidence.map(({ title, url, text }) => ({ title, url, description: text })) } });
 	if (transport === "brave-context") return json({
 		grounding: { generic: evidence.map(({ title, url, text }) => ({ title, url, snippets: [text] })), map: [] },
@@ -149,9 +152,10 @@ function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session
 	});
 	if (transport === "searxng") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, content: text })) });
 	if (transport === "context7") {
-		if (url.pathname === "/api/v2/libs/search") return json({ results: [{ id: "/public-example/library" }] });
-		return json({ libraryId: url.searchParams.get("libraryId"), codeSnippets: [],
-			infoSnippets: evidence.map(({ title, url, text }) => ({ breadcrumb: title, pageId: url, content: text })) });
+		return json({ ...(fixture.library ? { libraryId: fixture.library } : {}), codeSnippets: [],
+			infoSnippets: evidence.map(({ title, url, text }) => ({
+				libraryId: fixture.library ?? "/public-example/library", breadcrumb: title, pageId: url, content: text,
+			})) });
 	}
 	if (transport === "github") return json({ items: evidence.map(({ url, text }) => ({
 		html_url: url, path: url.split("/").at(-1), repository: { full_name: "public-example/replay", private: false },
@@ -162,6 +166,18 @@ function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session
 		lineMatches: [{ line: text }],
 	}));
 	return new Response(`event: matches\ndata: ${JSON.stringify(matches)}\n\nevent: progress\ndata: {"done":true}\n\n`);
+}
+
+function exaEvidence(evidence: Evidence[]) {
+	return { results: evidence.map(({ title, url, text }) => ({ title, url, highlights: [text] })) };
+}
+
+function mcpEvidence(transport: "exa" | "exa-advanced" | "grep", evidence: Evidence[]): string {
+	if (transport === "exa-advanced") return JSON.stringify(exaEvidence(evidence));
+	if (transport === "exa") {
+		return evidence.map(({ title, url, text }) => `Title: ${title}\nURL: ${url}\nHighlights:\n${text}`).join("\n\n");
+	}
+	return evidence.map(({ url, text }) => `Repository: public-example/replay\nPath: ${url.split("/").at(-1)}\nURL: ${url}\n--- Snippet 1 (Line 1) ---\n${text}`).join("\n");
 }
 
 function faultResponse(fault: Fault, signal?: AbortSignal | null): Response {
@@ -214,14 +230,13 @@ export class Replay {
 			const isCall = !isMcp(fixture.transport) || rpc.method === "tools/call";
 			if (isCall) {
 				fixture.onRequest?.(url, init);
-				const libraryLookup = fixture.transport === "context7" && url.pathname.endsWith("/libs/search");
-				if (!libraryLookup && fixture.fault && !(fixture.once && this.usedFaults.has(fixture))) {
+				if (fixture.fault && !(fixture.once && this.usedFaults.has(fixture))) {
 					this.usedFaults.add(fixture);
 					return faultResponse(fixture.fault, init?.signal);
 				}
 			}
 			if (rpc.method === "initialize") this.session++;
-			return fixtureResponse(fixture, rpc, method, this.session, url);
+			return fixtureResponse(fixture, rpc, method, this.session);
 		} finally {
 			this.replayMs += performance.now() - start;
 		}

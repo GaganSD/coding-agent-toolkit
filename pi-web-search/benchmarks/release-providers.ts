@@ -43,12 +43,24 @@ export async function measureReleaseProviders(search: Search, replay: Replay, co
 		delete process.env.EXA_API_KEY;
 	}
 	clearRetrievalCache();
-	const keyless = docs("exa", query);
+	const keyless = docs("exa-advanced", query);
+	keyless.evidence = exa.evidence;
+	keyless.onRequest = (_url, init) => {
+		const { params: { arguments: args, name } } = JSON.parse(String(init?.body));
+		assert.equal(name, "web_search_advanced_exa");
+		assert.ok(Number.isFinite(Date.parse(args.startPublishedDate)), "Missing keyless Exa native recency");
+		assert.deepEqual(args.includeDomains, ["example.org"]);
+		assert.deepEqual(args.excludeDomains, ["discard.example.org"]);
+		assert.equal(args.enableHighlights, true);
+		mappedFilters++;
+	};
 	replay.use([keyless]);
-	const unsupported = await search({ query, recency: "day" });
+	const advanced = await search({ query, domains: ["example.org", "-discard.example.org"], recency: "day" });
 	replay.assertClean();
-	assert.equal(unsupported.isError, false);
-	hasWarning(unsupported, /Exa keyless MCP cannot apply recency/u);
+	assert.equal(advanced.isError, false);
+	assert.equal(callCount(replay), 1);
+	assert.deepEqual(advanced.details.searchResults?.map(({ url }) => url), [retainedUrl]);
+	providerCitations += auditCitations(advanced, [keyless], "Keyless Exa domains and recency").hits;
 
 	const objective = "how do I cancel a fetch request after 5 seconds in node";
 	const parallel = docs("parallel", objective);
@@ -106,24 +118,24 @@ export async function measureReleaseProviders(search: Search, replay: Replay, co
 	writeFileSync(configPath, JSON.stringify({ code: { provider: "context7", fallback: [] } }));
 	const first = docs("context7", "library configure option");
 	const second = docs("context7", "library read option", 1);
-	for (const [index, fixture] of [first, second].entries()) {
+	for (const fixture of [first, second]) {
 		replay.use([fixture]);
 		const context = await search({ scope: "code", query: fixture.query });
 		replay.assertClean();
 		assert.equal(context.isError, false);
-		assert.equal(replay.attempts.length, index === 0 ? 2 : 1, "Context7 library-resolution reuse changed");
-		providerCitations += auditCitations(context, [fixture], "Context7 resolution").hits;
+		assert.deepEqual(replay.attempts.map(({ path }) => path), ["/api/v3/search"], "Context7 must search the full query in one request");
+		providerCitations += auditCitations(context, [fixture], "Context7 document search").hits;
 	}
 	writeFileSync(configPath, "{}");
 	const pinned = docs("context7", "configure feature", 2);
-	pinned.onRequest = (url) => assert.equal(url.searchParams.get("libraryId"), "/public-example/library@v3");
+	pinned.library = "/public-example/library@v3";
 	replay.use([pinned]);
 	const versioned = await search({ scope: "code", query: "library:/public-example/library@v3 configure feature" });
 	replay.assertClean();
 	assert.equal(versioned.isError, false);
-	assert.equal(replay.attempts.length, 1);
+	assert.deepEqual(replay.attempts.map(({ path }) => path), ["/api/v2/context"]);
 	providerCitations += auditCitations(versioned, [pinned], "Context7 version pin").hits;
-	return { mappedFilters, recencyWarnings: 2, providerCitations, searxngOnlyRequests: 1, context7ResolutionRequests: [2, 1], context7PinnedRequests: 1 };
+	return { mappedFilters, recencyWarnings: 1, providerCitations, searxngOnlyRequests: 1, context7SearchRequests: [1, 1], context7PinnedRequests: 1 };
 }
 
 export async function measureReleaseEfficiency(search: Search, replay: Replay, configPath: string) {

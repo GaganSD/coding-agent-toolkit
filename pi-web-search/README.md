@@ -182,7 +182,7 @@ A missing file uses these defaults:
 }
 ```
 
-All fields are optional. Merge changes into the existing file. Network operations read config each time; ref reads stay local even when config is malformed. Reload after native MCP registration or credential changes.
+All fields are optional. Merge changes into the existing file. Network operations read config each time; ref reads stay local even when config is malformed.
 
 - `web` accepts `exa`, `parallel`, `brave`, and `searxng`. `code` accepts `grep`, `sourcegraph`, `github`, and `context7`.
 - `searxng.url` is the HTTP(S) origin of your SearXNG instance. `brave.mode` selects `context` or `web`. `fetch.jinaFallback` controls fallback from direct URL reading to Jina Reader.
@@ -203,7 +203,7 @@ To let fast web search try the next configured provider when the current respons
 }
 ```
 
-The feature is off by default. The exact pin is required and uses Pi authentication. A check sends the query and up to ten result titles, URLs, and excerpts to this billed classifier. A classifier failure or timeout keeps the current response with a warning. If fallback yields no usable response, the first off-topic response is returned with warnings. Code searches, URL reads, and ref reads make no off-topic classifier calls. Selecting **None** under `/web-search classifier` or switching to a different classifier disables fast off-topic fallback. [Calibration results](https://github.com/GaganSD/coding-agent-toolkit/blob/main/pi-web-search/benchmarks/results/offtopic.md)
+The feature is off by default and requires the calibrated `vercel-ai-gateway/typesafe-ai/jev` classifier through Pi authentication. A check sends the query and up to ten result titles, URLs, and excerpts to this billed classifier. A classifier failure or timeout keeps the current response with a warning. If fallback yields no usable response, the first off-topic response is returned with warnings. Code searches, URL reads, and ref reads make no off-topic classifier calls. Selecting **None** under `/web-search classifier` or switching to a different classifier disables fast off-topic fallback. [Calibration results](https://github.com/GaganSD/coding-agent-toolkit/blob/main/pi-web-search/benchmarks/results/offtopic.md)
 
 ### Optional thorough search and Jev
 
@@ -217,7 +217,7 @@ Jev requires a separate opt-in. Anonymous retrieval needs no classifier credenti
 
 ## Credentials
 
-Exa MCP, Parallel native MCP, grep.app, and Sourcegraph need no search key. Jina Reader is a keyless fallback for URL extraction. Brave requires its own key. Anonymous Parallel has lower server-controlled rate limits. A Parallel key is optional.
+Exa MCP, Parallel MCP, grep.app, and Sourcegraph need no search key. Jina Reader is a keyless fallback for URL extraction. Brave requires its own key. Anonymous Parallel has lower server-controlled rate limits. A Parallel key is optional.
 
 Search credentials use the first nonblank environment alias before `<agent-dir>/auth.json`. GitHub then tries an existing `gh auth login` token.
 
@@ -274,26 +274,27 @@ Enable `json` in your instance's `search.formats`. Web searches with this config
 
 ### Context7 documentation
 
-Select `context7` in `code.provider` or `code.fallback` to resolve library names from queries. To select an exact library and version, use `search({ query: "middleware API library:/vercel/next.js@v15", scope: "code" })`. An explicit library qualifier routes the code portion of the query to Context7.
+Select `context7` in `code.provider` or `code.fallback` to search documentation using the full query. To select an exact library and version, use `search({ query: "middleware API library:/vercel/next.js@v15", scope: "code" })`. An explicit library qualifier routes the code portion of the query to Context7 even outside the configured chain. Remove the qualifier and keep Context7 out of the code chain to use other code providers.
 
 ## Provider behavior and limits
 
 - Default chains: **Exa → Parallel** and **grep.app → Sourcegraph → GitHub**.
+- Keyless Exa uses native domain and publication-date filters on filtered calls. Anonymous Parallel uses site hints and applies domain filters locally. It warns when it cannot apply recency.
 - Empty results and retryable failures continue through the configured [provider chain](src/providers/index.ts). An empty provider is named in the warnings.
 - Results contain links and excerpts, not guaranteed full pages. Exact duplicate evidence is collapsed, while distinct passages and code anchors remain. Search snippets show up to 400 characters of query-relevant evidence in both outputs. The shared budget is 8,000 characters per output path, including batches. Oversized citations are omitted whole with a notice, never shortened. Stored passages can be read in bounded windows with refs and cursors. See [structured output](src/format.ts).
-- Direct HTTP retrieval has bounded 30-second session reuse and in-flight deduplication. Rate-limited providers enter a short cooldown. Parallel nested calls always execute through Pi so permission checks are never reused. See [efficiency and limits](docs/efficiency.md).
+- Direct HTTP retrieval has bounded 30-second session reuse and in-flight deduplication. Rate-limited providers enter a short cooldown. See [efficiency and limits](docs/efficiency.md).
 
 ## Timeouts, fallback, and errors
 
 Retrieval and judgment share a default **20-second** budget. Cleanup can take longer. Jev failures return unjudged evidence with warnings. If the deadline expires during optional judgment or off-topic fallback, the tool keeps the evidence it already retrieved. Caller cancellation stops the search.
 
-Check warnings and `/web-search`. Use `/mcp` for Parallel connection issues.
+Check warnings and the provider settings under `/web-search`.
 
 ## Data handling
 
-Search providers receive the queries routed to them. Optional Jev receives the query and candidate titles, URLs, and excerpts. Fast off-topic fallback sends at most ten excerpts of up to 400 characters each, within the classifier state limit.
+Search providers receive the queries routed to them. A `library:` qualifier sends the code query to Context7 even when it is outside the configured chain. Remove the qualifier and keep Context7 out of the code chain to avoid sending it. Optional Jev receives the query and candidate titles, URLs, and excerpts. Fast off-topic fallback sends at most ten excerpts of up to 400 characters each, within the classifier state limit.
 
-URL reading sends requests from your machine to each public URL. The tool reads text, HTML, PDFs, and supported GitHub pages, validates redirect targets, and blocks private and local network addresses. Eligible failures can send the original URL to Jina Reader. Set `fetch.jinaFallback` to `false` to keep URL reading direct. GitHub requests may use GitHub credentials for public repository metadata and limits.
+URL reading sends requests from your machine to each public URL. The tool validates redirect targets and blocks private and local network addresses. The download and decompression limits are 25 MiB for PDFs and 5 MiB for other pages. Eligible failures can send the original URL to Jina Reader. Set `fetch.jinaFallback` to `false` to keep URL reading direct. GitHub requests may use GitHub credentials for public repository metadata and limits.
 
 Retrieved content is untrusted. Jev is not a prompt-injection firewall or truth guarantee.
 
@@ -314,7 +315,7 @@ Queries, URLs, errors, and excerpts can contain sensitive text.
 
 Optional retrieval check: `npm run smoke:live`. It sends public test queries without your credentials. Optional decision-model check: `npm run smoke:classifier` makes four live calls to the default Jev model using your Pi authentication (billing applies). It verifies ranking, injection suppression, insufficient evidence, and ordinary code. To test another exact pair, use `npm run smoke:classifier -- <provider> <model>`. See [release checks and limits](docs/release-validation.md).
 
-SDK users must load Pi's MCP extension for native Parallel calls and call `bindExtensions()`. Codemode is optional; direct `search` calls support continuation too. See the [SDK example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
+SDK users call `bindExtensions()` to register `search`. Both direct and codemode calls support continuation.
 
 ## License
 

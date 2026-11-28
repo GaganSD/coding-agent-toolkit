@@ -5,7 +5,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { evidenceStore } from "./evidence.ts";
 import { clearRetrievalCache } from "./providers/reuse.ts";
 import { search, type SearchInput, type UnifiedSearchOptions } from "./search.ts";
-import { searchTool } from "./tool.ts";
+import { searchGuidelines, searchTool } from "./tool.ts";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_MESSAGE_CHARS = 128 * 1024;
@@ -56,7 +56,8 @@ export async function serveStdio(input: Readable, output: Writable, version: str
 			case "initialize": {
 				if (protocol || typeof params?.protocolVersion !== "string") { fail(id, -32602, "Invalid initialize parameters"); return; }
 				protocol = PROTOCOL_VERSIONS.includes(params.protocolVersion) ? params.protocolVersion : PROTOCOL_VERSIONS[0];
-				result(id, { protocolVersion: protocol, capabilities: { tools: {} }, serverInfo: { name: "@gagansd/pi-web-search", version } });
+				result(id, { protocolVersion: protocol, capabilities: { tools: {} }, serverInfo: { name: "@gagansd/pi-web-search", version },
+					instructions: searchGuidelines.join("\n") });
 				return;
 			}
 			case "ping": result(id, {}); return;

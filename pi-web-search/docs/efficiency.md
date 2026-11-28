@@ -2,7 +2,7 @@
 
 ## URL-only retrieval
 
-`search({ urls: ["https://example.com/docs"] })` reads HTTP(S) URLs directly. HTML is extracted to text, PDFs are parsed locally, and public GitHub pages use purpose-built readers. Connections use a validated address, each redirect is checked, and response bodies have a 5 MiB limit. Eligible HTTP failures or pages without usable text can fall back to Jina Reader. Use `fetch.jinaFallback: false` to disable this fallback.
+`search({ urls: ["https://example.com/docs"] })` reads HTTP(S) URLs directly. HTML is extracted to text, PDFs are parsed locally, and public GitHub pages use purpose-built readers. Connections use a validated address, each redirect is checked, and response bodies have a 25 MiB limit for PDFs and 5 MiB for other pages. Eligible HTTP failures or pages without usable text can fall back to Jina Reader. Use `fetch.jinaFallback: false` to disable this fallback.
 
 Query filters apply to web searches. Some providers apply recency on the server. With a domain filter, the tool checks the returned citation URLs against the requested hostnames and their subdomains.
 

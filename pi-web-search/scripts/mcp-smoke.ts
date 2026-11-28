@@ -36,6 +36,8 @@ const call = async (method: string, params = {}) => {
 try {
 	const initialized = await call("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "pack-check", version: "1" } });
 	assert.equal(initialized.protocolVersion, "2025-11-25");
+	assert.match(initialized.instructions, /Supply one of `query`, `urls`, or `ref`/u);
+	assert.match(initialized.instructions, /library:/u);
 	send("notifications/initialized", {});
 	const listed = await call("tools/list");
 	assert.deepEqual(listed.tools.map((tool: { name: string }) => tool.name), ["search"]);

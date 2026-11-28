@@ -118,7 +118,7 @@ export function renderPanel(panel: WebSearchPanel, th: Theme, width: number, row
 		return [field("Key", acct.source === "gh" ? "gh auth" : "No key")];
 	};
 	const ranking = () => [
-		...(settings.offTopicFallback ? [status("dim", "Fast web off-topic fallback is on.")] : []),
+		...(settings.offTopicFallback ? [status("dim", "Fast off-topic fallback requires vercel-ai-gateway/typesafe-ai/jev.")] : []),
 		...(panel.login ? [status("warning", `▲ Run /login ${panel.login} to use this`)] : []),
 		...(panel.pin && !panel.login ? panel.classifierAvailable === undefined ? [status("dim", "○ Classifier untested")]
 			: panel.classifierAvailable === false ? [status("warning", "▲ Pinned classifier unavailable")]
