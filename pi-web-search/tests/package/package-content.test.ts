@@ -79,6 +79,11 @@ test("package-content scanner progresses through hashes and template substitutio
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", prefix + 'import "./missing.ts";')), /missing local import/);
 });
 
+test("package-content distinguishes exported declarations from module re-exports", () => {
+	assert.doesNotThrow(() => validate(({ files }) => files.set("src/value.ts", "export function viewport(from: number) { return from; }")));
+	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'export type { X } from "./missing.ts";')), /missing local import/);
+});
+
 test("package-content rejects imports outside published source and nonliteral dynamic imports", () => {
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'export * from "../tests/helper.ts";')), /import escapes published source/);
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'const path = "./nested/other.ts"; import(path);')), /dynamic imports must use literal/);

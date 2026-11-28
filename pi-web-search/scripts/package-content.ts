@@ -91,7 +91,11 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 				continue;
 			}
 			if (token === SyntaxKind.ExportKeyword) {
-				declaration = "export";
+				let next = nextToken();
+				if (next === SyntaxKind.TypeKeyword) next = nextToken();
+				// Only re-export clauses can have a module specifier. An exported
+				// function may use `from` as an ordinary parameter name.
+				declaration = next === SyntaxKind.OpenBraceToken || next === SyntaxKind.AsteriskToken ? "export" : undefined;
 				continue;
 			}
 			if (token === SyntaxKind.FromKeyword && declaration !== undefined) {
