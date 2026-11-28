@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { discoverAndLoadExtensions, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { runCommand, runNpmCommand } from "../scripts/validation.ts";
-import { classifierRegistry } from "../tests/fixtures/native-classifier.ts";
-import { clearRetrievalCache } from "../src/providers/reuse.ts";
-import { search as executeSearch } from "../src/search.ts";
-import { assertHosts, auditCitations, directText, type Search } from "./corpus.ts";
+import { rmSync, writeFileSync } from "node:fs";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { classifierRegistry } from "../native-classifier.ts";
+import { clearRetrievalCache } from "../../../src/providers/reuse.ts";
+import { search as executeSearch } from "../../../src/search.ts";
+import { assertHosts, auditCitations, directText, type Search } from "./assertions.ts";
 import { evidenceFor, excerpts, faults, routes, type Fault, type Fixture, type Replay, type Transport } from "./replay.ts";
 
 const providers = ["exa", "exa-rest", "parallel", "brave", "grep", "sourcegraph", "github"] as const;
@@ -41,11 +39,6 @@ export function percentile(values: number[], quantile: number): number {
 export async function reliability(replay: Replay, search: Search, configPath: string) {
 	const timeoutMs = 1000;
 	const deadlines: number[] = [];
-	let cases = 0;
-	let retryableRecovered = 0;
-	let partialSuccess = 0;
-	let sessionRecovered = 0;
-	const observedErrors: Record<string, string> = {};
 	for (const transport of providers) {
 		const next = fallbackFor(transport);
 		const scope = family(transport);
@@ -70,11 +63,9 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 				replay.assertClean();
 				assertHosts(replay.attempts, [primary, secondary], query);
 				deadlines.push(elapsed);
-				cases++;
 				if (recoversSession) {
 					assert.equal(replay.attempts.filter(({ host, rpc }) => host === new URL(routes.parallel).host && rpc === "initialize").length, 2, query);
 					assert.equal(result.isError, false, query);
-					sessionRecovered++;
 					continue;
 				}
 				// Parallel 0.4.0 intentionally exposes these HTTP/pipeline failures
@@ -82,20 +73,16 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 				const retryable = transport !== "parallel" && (fault.retryable || transport === "sourcegraph" && fault.id === "malformed-json");
 				if (effort === "fast" && !retryable) {
 					assert.ok(result.isError && result.details.error?.retryable === false, `${query}: unexpected failure contract: ${directText(result)}`);
-					observedErrors[`${transport}/${fault.id}`] = result.details.error.code;
 					continue;
 				}
 				assert.equal(result.isError, false, `${query}: fallback lost evidence: ${directText(result)}`);
 				const actual = result.details.searchResults ?? [];
 				assert.ok(secondary.evidence.every(({ url }) => actual.some((hit) => hit.url === url)), `${query}: healthy results were lost`);
 				assert.ok(result.details.warnings?.some((warning) => warning.startsWith(`${provider(transport)} failed (`)), `${query}: missing provider failure warning`);
-				if (effort === "fast") retryableRecovered++;
-				else partialSuccess++;
 			}
 		}
 	}
 	const deadlineFault = faults.find(({ id }) => id === "slow-body")!;
-	let deadlineCases = 0;
 	for (const transport of providers) {
 		// Thorough includes a healthy sibling. The operation deadline is
 		// shared and remains fatal even if that sibling completed early.
@@ -116,7 +103,6 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 			assert.equal(timedOut.details.error?.code, "timeout", query);
 			assert.ok(elapsed >= timeoutMs * 0.9, `${query}: did not exercise a slow body`);
 			deadlines.push(elapsed);
-			deadlineCases++;
 		}
 	}
 
@@ -145,14 +131,12 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 	assert.ok(abortedAt > 0 && abortMs <= 100, `Abort took ${abortMs} ms`);
 	assert.equal(replay.attempts.length - attemptsAtAbort, 0, "Aborted REST search attempted more requests");
 	setCredentials();
-	return { cases: cases + deadlineCases, retryableRecovered, partialSuccess, sessionRecovered,
-		deadlineCases, timeoutMs, deadlineP99Ms, abortMs, outboundAfterAbort: 0, nonRetryableFastFailures: observedErrors };
+
 }
 
 export async function safety(replay: Replay, search: Search, configPath: string, context: ExtensionContext) {
 	writeFileSync(configPath, JSON.stringify({ web: { provider: "exa", fallback: [] } }));
 	setCredentials("exa-rest");
-	let credentialCases = 0;
 	for (const transport of ["exa-rest", "brave", "github", "parallel"] as const) {
 		const scope = family(transport);
 		setCredentials(transport);
@@ -167,7 +151,6 @@ export async function safety(replay: Replay, search: Search, configPath: string,
 		replay.assertClean();
 		assert.equal(result.isError, true);
 		assert.equal(JSON.stringify(result).includes(fakeKey), false, `${transport} leaked a key`);
-		credentialCases++;
 	}
 	setCredentials();
 	rmSync(configPath, { force: true });
@@ -185,71 +168,20 @@ export async function safety(replay: Replay, search: Search, configPath: string,
 	const without = await search({ urls: [pageUrl] });
 	replay.assertClean();
 	auditCitations(without, [page], "injection off");
-	const injectionWithoutClassifier = directText(without).includes(excerpts.injection);
+	assert.ok(directText(without).includes(excerpts.injection));
 	const query = "synthetic untrusted provider passage";
 	const web: Fixture = { ...fixture("exa", query), evidence: page.evidence };
 	const parallel: Fixture = { ...fixture("parallel", query), evidence: page.evidence };
 	// A deterministic verdict tests the wrapper routing and suppression. The
 	// result measures pass-through, never a model's attack susceptibility.
 	const verdict = { type: "choice" as const, choice: "prompt_injection", probabilities: { prompt_injection: 0.99 }, confidence: 0.99 };
-	const classifierContext = { ...context, modelRegistry: classifierRegistry({ answers: { c0_safety: verdict } }) };
+	const classifierContext = { ...context, modelRegistry: classifierRegistry({ answers: Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`c${index}_safety`, verdict])) }) };
 	writeFileSync(configPath, JSON.stringify({ web: { provider: "exa", fallback: [] }, research: { enabled: true },
 		classifier: { enabled: true, provider: "typesafe", model: "jev-latest" } }));
 	replay.use([web, parallel]);
 	const withClassifier = await executeSearch("fixture-classifier", { query, effort: "thorough" }, undefined, undefined, classifierContext);
 	replay.assertClean();
 	assert.equal(withClassifier.details.classifierStatus, "ran");
-	const injectionWithClassifier = directText(withClassifier).includes(excerpts.injection);
-	return { credentialCases, leakedKeys: 0, rejectedUnsafeUrlSyntax: 3, refEgress: 0,
-		directUrlAddressChecks: "not applicable to delegated extraction", injectionWithoutClassifier, injectionWithClassifier };
-}
-
-export async function setup(replay: Replay, search: Search, configPath: string, pkg: string) {
-	rmSync(configPath, { force: true });
-	const query = "zero configuration test";
-	const exa = fixture("exa", query);
-	replay.use([exa]);
-	const result = await search({ query });
-	replay.assertClean();
-	assert.equal(result.isError, false, "Zero-config search did not succeed");
-	auditCitations(result, [exa], "zero configuration");
-
-	let actionableErrors = 0;
-	for (const [config, pattern] of [
-		['{"maxResult":2}', /unsupported configuration keys.*use web\/code provider chains/iu],
-		['{"code":{"provider":"unknown"}}', /code.*must contain.*valid provider/iu],
-		['{"timeoutMs":"quick"}', /timeoutMs.*must be a finite number/iu],
-		['{"research":{"enabled":"yes"}}', /research.*must be an object.*boolean/iu],
-	] as const) {
-		writeFileSync(configPath, config);
-		replay.use([]);
-		const invalid = await search({ query });
-		replay.assertClean();
-		assert.equal(invalid.details.error?.code, "invalid_config");
-		assert.match(directText(invalid), pattern);
-		actionableErrors++;
-	}
-	rmSync(configPath, { force: true });
-	replay.use([]);
-	const disabled = await search({ query, effort: "thorough" });
-	assert.equal(disabled.details.error?.code, "invalid_config");
-	assert.match(directText(disabled), /Set "research": \{ "enabled": true \} in /u);
-	actionableErrors++;
-
-	const staging = join(dirname(configPath), "benchmark-artifact");
-	mkdirSync(staging);
-	const packed = JSON.parse(runNpmCommand(["pack", "--json", "--ignore-scripts", "--offline", "--pack-destination", staging], pkg, process.env));
-	const metadata = (Array.isArray(packed) ? packed : Object.values(packed))[0] as { filename: string; files: { path: string }[] };
-	assert.ok(metadata.files.every(({ path }) => !/^(research|benchmarks)\//u.test(path)), "Research files were published in the package");
-	// Package validation separately runs npm install. Here the network-free
-	// packed-source smoke confirms registration inside the isolated agent HOME.
-	runCommand("tar", ["-xzf", join(staging, metadata.filename), "-C", staging], pkg, process.env);
-	const artifact = join(staging, "package");
-	symlinkSync(join(pkg, "node_modules"), join(artifact, "node_modules"), "junction");
-	const loaded = await discoverAndLoadExtensions([artifact], artifact, dirname(configPath));
-	assert.deepEqual(loaded.errors, []);
-	assert.equal(loaded.extensions.length, 1);
-	assert.deepEqual([...loaded.extensions[0].tools.keys()], ["search"]);
-	replay.assertClean();
-	return { zeroConfigSearch: true, actionableErrors, cleanHomePackedLoad: true, excludedFromTarball: true };
+	assert.ok(withClassifier.details.classifier?.suppressed);
+	assert.ok(!directText(withClassifier).includes(excerpts.injection));
 }

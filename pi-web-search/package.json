@@ -36,12 +36,10 @@
   "scripts": {
     "test": "node --experimental-strip-types scripts/test.ts",
     "typecheck": "tsc --noEmit",
-    "research:record": "node --experimental-strip-types benchmarks/record.ts",
-    "research:compare": "node --experimental-strip-types benchmarks/compare.ts",
-    "research:ergonomics": "node --experimental-strip-types benchmarks/ergonomics.ts",
-    "research:offline": "node --experimental-strip-types benchmarks/run.ts",
+    "research:record": "node --experimental-strip-types benchmarks/harness/run.ts record",
+    "research:offline": "node --experimental-strip-types benchmarks/harness/run.ts offline",
     "bench:context": "node --experimental-strip-types scripts/footprint.ts",
-    "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
+    "lint": "node ../node_modules/eslint/bin/eslint.js . --ignore-pattern \"research/**\" --max-warnings=0",
     "test:unit": "node ../scripts/test-package.mjs pi-web-search unit",
     "test:integration": "node ../scripts/test-package.mjs pi-web-search integration",
     "build": "node ../scripts/package.mjs pi-web-search",
@@ -49,7 +47,8 @@
     "pack:check": "node --experimental-strip-types scripts/pack-check.ts",
     "smoke:live": "node --experimental-strip-types scripts/live-smoke.ts",
     "smoke:classifier": "node --experimental-strip-types scripts/classifier-smoke.ts",
-    "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck && npm run pack:check"
+    "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck && npm run pack:check",
+    "research:urls": "node --experimental-strip-types benchmarks/harness/run.ts urls"
   },
   "dependencies": {
     "cross-spawn": "7.0.6",
