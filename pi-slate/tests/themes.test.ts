@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { allSlateThemes, slateShikiTheme } from "../extensions/pi-slate/themes.ts";
+import { allSlateThemes, ensureUserTheme, slateShikiTheme } from "../extensions/pi-slate/themes.ts";
 import { diffAppearance, diffColors } from "../extensions/pi-slate/diff-config.ts";
 import { mixHex } from "../extensions/pi-slate/theme-palette.ts";
 import { stripVTControlCharacters } from "node:util";
@@ -85,6 +86,21 @@ test("selected rows and body text clear WCAG on every theme", () => {
     // swatches only, because accent-on-selection falls to ~1.45:1 on Latte.
     assert.ok(contrast(role(theme, "text"), role(theme, "selectedBg")) >= 3, `${theme.name}: selected row`);
     assert.ok(contrast(role(theme, "text"), theme.export.pageBg) >= 4.5, `${theme.name}: body text`);
+  }
+});
+
+test("selected Slate themes are copied to user themes and preserved", () => {
+  const directory = mkdtempSync(join(tmpdir(), "slate-theme-"));
+  try {
+    assert.equal(ensureUserTheme("tokyo-night", directory), true);
+    const path = join(directory, "tokyo-night.json");
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).name, "tokyo-night");
+    writeFileSync(path, "custom", "utf8");
+    assert.equal(ensureUserTheme("tokyo-night", directory), false);
+    assert.equal(readFileSync(path, "utf8"), "custom", "existing user theme wins");
+    assert.equal(ensureUserTheme("missing", directory), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

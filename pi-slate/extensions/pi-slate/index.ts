@@ -82,6 +82,7 @@ import { SlateHeader } from "./header.ts";
 import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
+import { ensureUserTheme } from "./themes.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { classifyKey, loadShortcutKeys, loadShortcuts, mergeShortcuts, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 import { openShortcutsPanel } from "./shortcuts-panel.ts";
@@ -470,7 +471,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     invalidateSession(); sidebarYielded = false;
     const mountedEpoch = sessionEpoch;
     currentContext = ctx;
-    if (ctx.mode === "tui") cachedTheme = ctx.ui.theme;
+    if (ctx.mode === "tui") {
+      cachedTheme = ctx.ui.theme;
+      ensureUserTheme(ctx.ui.theme.name);
+    }
     const mountedContext = (): ExtensionContext | undefined =>
       mountedEpoch === sessionEpoch ? liveContext() : undefined;
     const notify = (message: string, type: "info" | "warning" | "error"): void => {
@@ -911,6 +915,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       return false;
     }
     persistTheme(ctx.cwd, name);
+    ensureUserTheme(name);
     requestRender(true);
     ctx.ui.notify(`Theme set to ${name === SLATE_NATIVE_THEME ? "system default" : name}`, "info");
     return true;

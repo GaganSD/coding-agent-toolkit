@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { allCatppuccinThemes, THEME_SCHEMA, type CatppuccinThemeJson } from "./catppuccin.ts";
 import { effortPalette } from "./theme-palette.ts";
 
@@ -181,6 +184,25 @@ export function allSlateThemes(): SlateThemeJson[] {
 export function slateTheme(name: string | undefined): SlateThemeJson | undefined {
   if (!name) return undefined;
   return allSlateThemes().find((theme) => theme.name === name);
+}
+
+/**
+ * Copy a selected Slate theme into Pi's user themes directory, once.
+ * The package ships themes with the UI; this keeps the selected theme loadable
+ * if the package is later disabled or removed. Existing user files win.
+ */
+export function ensureUserTheme(name: string | undefined, directory = join(getAgentDir(), "themes")): boolean {
+  const theme = slateTheme(name);
+  if (!theme) return false;
+  try {
+    const path = join(directory, `${theme.name}.json`);
+    if (existsSync(path)) return false;
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path, `${JSON.stringify(theme, null, 2)}\n`, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Raw palette for a Slate theme, or undefined for external themes. */
