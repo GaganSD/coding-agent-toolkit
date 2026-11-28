@@ -5,7 +5,7 @@ import { SyntaxKind } from "typescript/unstable/ast";
 import { createScanner } from "typescript/unstable/ast/scanner";
 
 export const packageAllowlist = ["src", "README.md", "LICENSE", "llms.txt", "docs", "dist/mcp.js"];
-const hostPeers = ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"];
+const hostPeers = ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox"];
 
 export interface PackageManifest {
 	name: string;
@@ -37,14 +37,13 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 		"cross-spawn": "7.0.6",
 		"proper-lockfile": "4.1.2",
 		"turndown": "7.2.5",
-		"typebox": "1.3.37",
 		"unpdf": "2.2.3",
 	}, "Unexpected runtime dependencies");
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
 		assert.equal(manifest.scripts?.[hook], undefined, `Consumers must not run lifecycle hook ${hook}`);
 	}
 	for (const name of hostPeers) {
-		assert.equal(manifest.peerDependencies[name], "*", `${name} must be supplied by Pi, not bundled or version-resolved`);
+		assert.equal(manifest.peerDependencies[name], "*", `${name} must be supplied by the Pi host`);
 		assert.equal(manifest.peerDependenciesMeta?.[name]?.optional, true, `${name} must not install automatically for consumers`);
 	}
 	for (const required of ["package.json", "README.md", "LICENSE", "src/index.ts", "dist/mcp.js"]) {

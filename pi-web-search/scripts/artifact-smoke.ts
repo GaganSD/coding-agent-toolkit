@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { discoverAndLoadExtensions, getAgentDir, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, getAgentDir, SettingsManager, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 const packageRoot = resolve(process.argv[2]);
 const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
@@ -11,7 +11,18 @@ assert.ok(configPath, "Smoke load requires an isolated config path");
 globalThis.fetch = async () => { throw new Error("Package smoke validation must not access the network"); };
 for (const researchEnabled of [false, true]) {
 	writeFileSync(configPath, JSON.stringify({ research: { enabled: researchEnabled } }));
-	const loaded = await discoverAndLoadExtensions([packageRoot], packageRoot, getAgentDir());
+	const loader = new DefaultResourceLoader({
+		cwd: packageRoot,
+		agentDir: getAgentDir(),
+		settingsManager: SettingsManager.inMemory({ packages: [packageRoot] }),
+		disabledBuiltinExtensions: ["mcp"],
+		noSkills: true,
+		noPromptTemplates: true,
+		noThemes: true,
+		noContextFiles: true,
+	});
+	await loader.reload();
+	const loaded = loader.getExtensions();
 	assert.deepEqual(loaded.errors, [], "Pi must load the packed source entrypoint without compilation");
 	assert.deepEqual(loaded.warnings, []);
 	assert.equal(loaded.extensions.length, 1);

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use Pi’s shared TypeBox runtime for the extension and include TypeBox in the standalone MCP bundle.
+
 - Read HTML, text, PDFs, and public GitHub pages directly. Jina Reader is a configurable fallback.
 - Search up to three queries per call and apply web recency and domain filters. Previews select passages that match each query.
 - Fast web search can opt into off-topic fallback with the calibrated Pi classifier.

@@ -16,18 +16,20 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		pi: { extensions: ["./src/index.ts"] },
 		dependencies: {
 			"@mixmark-io/domino": "2.2.0", "@mozilla/readability": "0.6.0", "cross-spawn": "7.0.6",
-			"proper-lockfile": "4.1.2", turndown: "7.2.5", typebox: "1.3.37", unpdf: "2.2.3",
+			"proper-lockfile": "4.1.2", turndown: "7.2.5", unpdf: "2.2.3",
 		},
 		bin: { "pi-web-search": "dist/mcp.js" },
 		peerDependenciesMeta: {
 			"@earendil-works/pi-ai": { optional: true },
 			"@earendil-works/pi-coding-agent": { optional: true },
 			"@earendil-works/pi-tui": { optional: true },
+			typebox: { optional: true },
 		},
 		peerDependencies: {
 			"@earendil-works/pi-ai": "*",
 			"@earendil-works/pi-coding-agent": "*",
 			"@earendil-works/pi-tui": "*",
+			typebox: "*",
 		},
 	};
 	const files = new Map([
@@ -97,9 +99,10 @@ test("package-content requires declared host imports and accepts their subpaths"
 	assert.doesNotThrow(() => validate(({ files }) => files.set("src/value.ts", 'import "typebox/value"; import "fs";')));
 });
 
-test("package-content prevents bundling or separately version-resolving host packages", () => {
+test("package-content requires optional host peers without pinned consumer copies", () => {
 	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /Unexpected runtime dependencies/);
-	assert.throws(() => validate(({ manifest }) => { manifest.peerDependencies["@earendil-works/pi-ai"] = ">=0.99.0"; }), /must be supplied by Pi/);
+	assert.throws(() => validate(({ manifest }) => { manifest.peerDependencies["@earendil-works/pi-ai"] = ">=0.99.0"; }), /must be supplied by the Pi host/);
+	assert.throws(() => validate(({ manifest }) => { manifest.dependencies!.typebox = "1.3.37"; }), /Unexpected runtime dependencies/);
 	assert.throws(() => validate(({ manifest }) => { manifest.files.push("tests"); }));
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta["@earendil-works/pi-ai"].optional = false; }), /must not install automatically/);
 });

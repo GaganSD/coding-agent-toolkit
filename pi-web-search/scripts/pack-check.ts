@@ -62,7 +62,7 @@ withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 	runNpmCommand(["install", archive, "--omit=dev", "--ignore-scripts", "--prefer-offline", "--package-lock=false"], consumer,
 		{ ...env, npm_config_offline: process.env.npm_config_offline ?? "false" });
 	const modules = readdirSync(join(consumer, "node_modules"));
-	assert.ok(!modules.includes("@earendil-works"), "Installing the tarball must not install host peers");
+	assert.ok(!modules.includes("@earendil-works") && !modules.includes("typebox"), "Installing the tarball must not install host peers");
 	assert.equal(manifest.name, "@gagansd/pi-web-search");
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
 	const installed = join(consumer, "node_modules", manifest.name);

@@ -58,7 +58,7 @@ npm run smoke:live
 ```
 
 - Offline tests cover provider fallback, parsing, timeouts, cancellation, config changes, credentials, and classification.
-- Package checks install the tarball without host peers. Pi loads its TypeScript entrypoint without compilation. Tests also run against extracted source.
+- Package checks install the tarball without host peers. Pi loads the TypeScript entrypoint and supplies TypeBox. The standalone MCP binary includes its own TypeBox runtime. Tests also run against extracted source.
 - The live smoke uses an isolated home and agent directory. It does not use your keys or GitHub CLI login.
 - Live checks cover Exa, grep.app, scoped Sourcegraph, native Parallel, URL extraction, and multi-source code search through Pi's SDK.
 - Brave is key-required, so its live case runs only when you opt in with `BRAVE_API_KEY=... npm run smoke:live`. The key is forwarded to the isolated child process and is never printed. Without it the Brave case is skipped.
