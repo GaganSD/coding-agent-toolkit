@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "f12b20b0bd3120a006bafe909744eace1dc556cf",
-  "notes": "Automode 0.2.1\n\n- Add command and path permission rules with exact, glob, and restricted regex matching.\n- Add optional model review, locally confirmed reusable permissions, and inline settings.\n- Verify the extension and launcher against Pi 1.6.1.",
+  "sourceSha": "92506831b5cb36da65a84adbb7788bc6efa45140",
+  "notes": "- Add `/shortcuts` menu to assign keys to Slate actions.\n- Re-designed `/theme` and `/prompts` menu.\n- Show live MCP calls, recent failures, and per-server activity. Thanks @myplixa for the idea (#179, #181).\n- Put the thinking level beside the model in focused mode. Thanks @myplixa for the layout fix (#172).\n- Misc. bug fixes with Slate themes & speed/cache cards (#171, #177).",
   "packages": [
     {
-      "path": "pi-automode",
-      "name": "@gagansd/pi-automode",
-      "from": "0.2.0",
-      "to": "0.2.1",
+      "path": "pi-slate",
+      "name": "pi-slate",
+      "from": "0.4.1",
+      "to": "0.4.2",
       "bump": "patch"
     }
   ]
