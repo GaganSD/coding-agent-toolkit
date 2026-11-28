@@ -121,7 +121,7 @@ Use `search` for public documentation, current information, literal public-code 
 | `effort` | `fast` (default; one provider plus fallback) or `thorough` (concurrent sources, requires `research.enabled` in Pi). |
 | `find` / `cursor` | Refine a `ref` read with a literal passage search or continuation cursor. |
 
-Exactly one of `query`, `urls`, or `ref` is required. The tool reports invalid combinations and unknown fields.
+Exactly one of `query`, `urls`, or `ref` is required. Web filters apply to the web portion of a query. Incompatible scope and filter combinations return `scope_conflict` before retrieval. Each query in an array gets a labeled group with its own count, including zero results or a retrieval failure.
 
 Examples:
 
@@ -145,7 +145,7 @@ Use `repo:<owner/name>` and `language:<name>` for the common code-filter subset;
 
 ### Read more without another network request
 
-Searches return bounded previews plus a session-local `resultId` when evidence can be stored. Pass that handle as `ref` to list or read evidence through the same tool:
+Searches return bounded previews and a session-local `resultId` when evidence can be stored. The bare ID lists saved results. Each hit has a full ref such as `<resultId>:1` that reads its stored passage.
 
 ```js
 const index = await tools.search({ ref: "<returned handle>" });

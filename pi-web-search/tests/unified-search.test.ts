@@ -251,7 +251,7 @@ test("unified search exposes one flat schema with documented defaults", () => {
 });
 
 test("unified search rejects absent, multiple, unknown, and inappropriate selectors", async () => {
-	const cases: Array<[Record<string, unknown>, RegExp]> = [
+	const cases: Array<[Record<string, unknown>, RegExp, "scope_conflict"?]> = [
 		[{}, /Use exactly one of query, urls, or ref/],
 		[{ query: "one", urls: ["https://example.test"] }, /Use exactly one of query, urls, or ref/],
 		[{ query: "one", ref: "0:1" }, /Use exactly one of query, urls, or ref/],
@@ -261,17 +261,17 @@ test("unified search rejects absent, multiple, unknown, and inappropriate select
 		[{ query: "one", find: "needle" }, /find and cursor require ref/],
 		[{ urls: ["https://example.test"], cursor: "next" }, /find and cursor require ref/],
 		[{ query: "one", limit: 5 }, /Unknown parameter: limit/],
-		[{ urls: ["https://example.test"], scope: "code" }, /urls accept only web scope/],
+		[{ urls: ["https://example.test"], scope: "code" }, /urls accept only web scope/, "scope_conflict"],
 		[{ urls: ["https://example.test"], effort: "thorough" }, /urls do not accept effort/],
-		[{ ref: "0:1", scope: "web" }, /ref does not accept scope/],
+		[{ ref: "0:1", scope: "web" }, /ref does not accept scope/, "scope_conflict"],
 		[{ ref: "0:1", effort: "fast" }, /ref does not accept effort/],
-		[{ query: "one", scope: "both", effort: "fast" }, /scope both requires effort thorough/],
+		[{ query: "one", scope: "both", effort: "fast" }, /scope both requires effort thorough/, "scope_conflict"],
 	];
-	for (const [input, message] of cases) {
+	for (const [input, message, code = "invalid_input"] of cases) {
 		const result = await search("call", input, undefined, undefined, ctx);
 		assert.equal(result.isError, true, JSON.stringify(input));
-		assert.equal(result.details.error?.code, "unknown");
-		assert.match(result.details.error?.message ?? "", /^search failed \(unknown\): /);
+		assert.equal(result.details.error?.code, code);
+		assert.ok(result.details.error?.message.startsWith(`search failed (${code}): `));
 		assert.match(result.details.error?.message ?? "", message);
 	}
 });
@@ -386,10 +386,11 @@ test("ref reads stay local, pass find/cursor through, and ignore broken settings
 });
 
 test("web filters reject incompatible arguments with the field named", async () => {
+	const options = { transports: { exa: async () => assert.fail("Invalid filters reached retrieval") } };
 	for (const [filter, value] of [["recency", "week"], ["domains", ["python.org"]]] as const) {
 		for (const args of [{ urls: ["https://example.test"] }, { ref: "evidence:1" }, { query: "needle", scope: "code" as const }]) {
-			const result = await search("call", { ...args, [filter]: value }, undefined, undefined, ctx);
-			assert.equal(result.details.error?.message, `search failed (unknown): ${filter} requires query and web scope.`);
+			const result = await search("call", { ...args, [filter]: value }, undefined, undefined, ctx, options);
+			assert.equal(result.details.error?.message, `search failed (scope_conflict): ${filter} requires query and web scope.`);
 		}
 	}
 });
@@ -480,7 +481,7 @@ test("a single string keeps its regular result format", async () => {
 		const result = await search("call", { query: "exa" }, undefined, undefined, ctx, {
 			transports: { exa: async () => document("exa") },
 		});
-		assert.equal(textOf(result), "## Results\n\n1. [exa evidence](https://example.test/evidence)\n> exa cited text");
+		assert.equal(textOf(result), "## Results — Exa\n\n1. [exa evidence](https://example.test/evidence)\n> exa cited text");
 		assert.deepEqual(result.structuredContent, {
 			status: "success",
 			searchResults: [{ title: "exa evidence", url: "https://example.test/evidence", citedText: "exa cited text" }],
@@ -520,7 +521,7 @@ test("batches run three queries concurrently and preserve their order, refs, and
 		assert.equal((response.structuredContent as WebSearchDetails).searchResults?.[1].queryGroup, 2);
 	});
 	const rejected = await search("call", { query: ["a", "b", "c", "d"] }, undefined, undefined, ctx);
-	assert.equal(rejected.details.error?.message, "search failed (unknown): query accepts 1 to 3 strings.");
+	assert.equal(rejected.details.error?.message, "search failed (invalid_input): query accepts 1 to 3 strings.");
 });
 
 test("a batch shares the 8000-character budget with evidence from each query", async () => {
@@ -545,6 +546,24 @@ test("a batch shares the 8000-character budget with evidence from each query", a
 	});
 });
 
+test("empty and failed batch groups stay visible with their own counts", async () => {
+	await withSettings({ web: { provider: "exa", fallback: [] } }, async () => {
+		const result = await search("call", { query: ["first", "nothing"] }, undefined, undefined, ctx, {
+			transports: { exa: async ({ query }) => query === "nothing" ? { providerKind: "exa", text: "" } : document("exa") },
+		});
+		assert.equal(result.isError, false);
+		assert.match(textOf(result), /Query 1 — first\n\n1 result · Exa[\s\S]*Query 2 — nothing\n\n0 results · Exa/u);
+		assert.deepEqual(result.details.queryGroups?.map(({ resultCount, previewCount }) => [resultCount, previewCount]), [[1, 1], [0, 0]]);
+		const failure = await search("call", { query: ["first", "second"] }, undefined, undefined, ctx, {
+			transports: { exa: async () => { throw providerError("rate_limited", "Rate limited."); } },
+		});
+		assert.equal(failure.isError, true);
+		assert.equal(failure.details.error?.code, "rate_limited");
+		assert.match(textOf(failure), /Query 1 — first\n\n0 results\n\nQuery failed\.[\s\S]*Query 2 — second\n\n0 results\n\nQuery failed\./u);
+		assert.deepEqual(failure.details.queryGroups, ["first", "second"].map((query) => ({ query, failed: true, resultCount: 0, previewCount: 0 })));
+	});
+});
+
 test("thorough both uses at most six transports per batch and routes a pinned library only to Context7", async () => {
 	await withSettings({ research: { enabled: true }, classifier: { enabled: false } }, async () => {
 		const requests: [string, string, string | undefined, unknown][] = [];
@@ -565,6 +584,9 @@ test("thorough both uses at most six transports per batch and routes a pinned li
 		]);
 		assert.ok(requests.every(([, query]) => !query.includes("library:")));
 		assert.ok(requests.filter(([kind]) => kind === "grep").every((request) => request[3] === undefined));
+		assert.deepEqual(response.details.queryGroups?.[0].providers, ["exa", "context7"]);
+		assert.ok(response.details.providers?.includes("context7"));
+		assert.ok(response.details.providers?.includes("grep"));
 	});
 });
 

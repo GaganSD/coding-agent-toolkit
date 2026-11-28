@@ -125,10 +125,11 @@ export function mergeStreamResults(
 	const warnings: string[] = [...extraWarnings];
 	const usage: { name: string; count: number }[] = [];
 	const requestIds: string[] = [];
-	const kinds: EvidenceProvider[] = [];
+	const kinds = new Set<EvidenceProvider>();
 
 	for (const { kind, result } of parts) {
-		kinds.push(kind);
+		kinds.add(kind);
+		for (const provider of result.providers ?? []) kinds.add(provider);
 		searchResults.push(...(result.searchResults ?? []));
 		const contributed = result.sources?.length
 			? result.sources
@@ -153,8 +154,8 @@ export function mergeStreamResults(
 
 	return {
 		text: texts.join("\n\n"),
-		providerKind: kinds[0],
-		providers: kinds,
+		providerKind: parts[0].kind,
+		providers: [...kinds],
 		...(parts.every(({ result }) => result.cached) ? { cached: true } : {}),
 		searchResults,
 		sources,

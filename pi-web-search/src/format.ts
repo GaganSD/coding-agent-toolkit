@@ -3,6 +3,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { PREVIEW_PASSAGE_CHARS } from "./previews.ts";
 import { DEFAULT_MAX_LINES, truncateHead } from "./truncate.ts";
 import { isCodeSource, PROVIDER_KINDS, sourceFamily } from "./providers/types.ts";
+import { providerName } from "./ui/provider-names.ts";
 import type {
 	EvidenceProvider,
 	SearchResultDetail,
@@ -50,7 +51,7 @@ interface TranscriptDetails {
 	configIssue?: string;
 	urlsRequested?: number;
 	urlsRead?: number;
-	excerptsShortened?: number;
+	clippedExcerptRows?: number[];
 	thoroughOff?: boolean;
 	passageSource?: string;
 	unparsedRows?: number[];
@@ -59,12 +60,12 @@ interface TranscriptDetails {
 }
 
 const EvidenceDetailsSchema = Type.Object({
-	resultId: Type.Optional(Type.String()),
+	resultId: Type.Optional(Type.String({ description: "Pass this bare handle as ref to list stored results." })),
 	storedCount: Type.Optional(Type.Integer({ minimum: 0 })),
 	storedClipped: Type.Optional(Type.Boolean()),
 	ref: Type.Optional(Type.String()),
-	cursor: Type.Optional(Type.String()),
-	more: Type.Optional(Type.Boolean()),
+	cursor: Type.Optional(Type.String({ description: "Pass with the same ref to read the next page." })),
+	more: Type.Optional(Type.Boolean({ description: "Whether another page is available using cursor." })),
 	truncated: Type.Optional(Type.Boolean()),
 	matches: Type.Optional(Type.Integer({ minimum: 0 })),
 	passage: Type.Optional(Type.Object({ index: Type.Integer(), offset: Type.Integer(), nextOffset: Type.Optional(Type.Integer()), totalChars: Type.Integer(), matches: Type.Optional(Type.Integer()) })),
@@ -75,6 +76,9 @@ const EvidenceDetailsSchema = Type.Object({
 	sources: Type.Optional(Type.Array(Type.Object({ title: Type.String(), url: Type.String() }))),
 	queryGroups: Type.Optional(Type.Array(Type.Object({
 		query: Type.String(), duplicates: Type.Optional(Type.Integer()), failed: Type.Optional(Type.Boolean()),
+		resultCount: Type.Optional(Type.Integer({ minimum: 0 })),
+		previewCount: Type.Optional(Type.Integer({ minimum: 0 })),
+		providers: Type.Optional(Type.Array(ProviderSchema)),
 		text: Type.Optional(Type.String()),
 		sources: Type.Optional(Type.Array(Type.Object({ title: Type.String(), url: Type.String() }))),
 	}))),
@@ -83,7 +87,11 @@ const EvidenceDetailsSchema = Type.Object({
 		query: Type.Optional(Type.String()), source: Type.Optional(Type.String()),
 		pageAge: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 		citedText: Type.Optional(Type.String()), status: Type.Optional(Type.String()), type: Type.Optional(Type.String()),
-		ref: Type.Optional(Type.String()), queryGroup: Type.Optional(Type.Integer({ minimum: 0 })),
+		ref: Type.Optional(Type.String({ description: "Pass this numbered ref to read one stored result." })),
+		queryGroup: Type.Optional(Type.Integer({ minimum: 0 })),
+		preview: Type.Optional(Type.Object({
+			shownChars: Type.Integer({ minimum: 0 }), totalChars: Type.Integer({ minimum: 1 }),
+		})),
 	}))),
 	warnings: Type.Optional(Type.Array(Type.String())),
 	usage: Type.Optional(Type.Array(Type.Object({ name: Type.String(), count: Type.Number() }))),
@@ -101,6 +109,7 @@ const EvidenceDetailsSchema = Type.Object({
 }, { additionalProperties: false });
 
 export type WebSearchDetails = Static<typeof EvidenceDetailsSchema> & TranscriptDetails;
+type EvidenceHit = NonNullable<WebSearchDetails["searchResults"]>[number];
 
 export const SearchOutputSchema = Type.Object({
 	status: Type.Union([Type.Literal("success"), Type.Literal("error")]),
@@ -140,15 +149,16 @@ function structuredEvidence(details: WebSearchDetails, text: string) {
 	const hits = details.searchResults ?? [];
 	return JSON.parse(JSON.stringify({
 		status: "success",
-		...(hits.length ? { searchResults: hits.map(({ title, url, citedText, ref, source, type, queryGroup }) => ({
-			title, url, citedText, ref, source, type, queryGroup,
-		})) } : { text }),
+		...(hits.length ? { searchResults: hits.map(({ title, url, citedText, ref, source, type, queryGroup, preview }) => ({
+			title, url, citedText, ref, source, type, queryGroup, preview,
+		})) } : details.queryGroups ? {} : { text }),
 		// These citations are not attached to a hit; omitting them would lose
 		// evidence for scripts even though direct callers see the Sources block.
-		...(hits.length && details.sources?.length ? { sources: details.sources } : {}),
+		...((hits.length || details.queryGroups) && details.sources?.length ? { sources: details.sources } : {}),
 		...(hits.length ? { resultCount: hits.length } : {}),
 		...(details.queryGroups ? { queryGroups: details.queryGroups } : {}),
 		...(details.provider ? { provider: details.provider } : {}),
+		...(details.providers && details.providers.length > 1 ? { providers: details.providers } : {}),
 		...(details.resultId ? { resultId: details.resultId } : {}),
 		...(details.ref ? { ref: details.ref } : {}),
 		...(details.storedCount === undefined ? {} : { storedCount: details.storedCount }),
@@ -168,14 +178,19 @@ export function formatWebSearchResult(
 	continuation?: Pick<WebSearchDetails, "resultId" | "storedCount" | "storedClipped">,
 	maxBatchResults = 8,
 ): AgentToolResult<WebSearchDetails> {
-	const compact = compactResult(result, !!continuation?.resultId);
-	const hits = (compact.searchResults ?? []).map((hit, index) => ({
-		...hit,
-		...(hit.title ? { title: markedClip(hit.title, 120) } : {}),
-		...(hit.ref ? {} : continuation && index < (continuation.storedCount ?? 0)
-			? { ref: hitRef(continuation.resultId!, index) } : {}),
-		citedText: previewText(hit),
-	}));
+	const compact = compactResult(result);
+	const hits = (compact.searchResults ?? []).map((hit, index) => {
+		const original = result.searchResults![index];
+		const fullText = normalizedText(original.citedText ?? "", hit.source);
+		const text = original.previewText === undefined ? fullText : normalizedText(original.previewText, hit.source);
+		return {
+			...hit,
+			...(hit.title ? { title: markedClip(hit.title, 120) } : {}),
+			...(hit.ref ? {} : continuation?.resultId && index < (continuation.storedCount ?? 0)
+				? { ref: hitRef(continuation.resultId, index) } : {}),
+			...previewFields(text, Math.max(fullText.length, text.length), EXCERPT_MAX_CHARS),
+		};
+	});
 	const warnings = (compact.warnings ?? []).filter((warning) => !/ skipped: not available\.$/u.test(warning));
 	const notices: string[] = [];
 	let omitted = 0;
@@ -183,21 +198,32 @@ export function formatWebSearchResult(
 	const sources: Source[] = [];
 	// Reserve room for truthful omission notices and a continuation instruction.
 	const batchGroups = compact.queryGroups;
-	const groups = batchGroups?.map(({ query, duplicates, failed }) => ({
+	const groups = batchGroups?.map(({ query, duplicates, failed, providers, sources }, index) => ({
 		query: markedClip(query.replace(/\s+/gu, " "), 160), duplicates, failed,
+		providers: providers?.length ? [...new Set(providers)] : undefined,
+		resultCount: countGroupResults(hits, index) + (sources?.length ?? 0),
 		text: "", sources: [] as Source[],
 	}));
+	const providers = [...new Set(compact.providers?.length ? compact.providers : [compact.providerKind])];
+	const empty = !groups && !hits.length && !compact.sources?.length && !compact.text.trim();
+	const emptyStatus = !empty ? "" : compact.unreadable ? "Unreadable reply" : "0 results";
 	const budget = OUTPUT_BUDGET_CHARS - 600;
 	let prose = "";
 	const buildDetails = (): WebSearchDetails => ({
-		...continuation, provider: compact.providerKind,
+		...continuation, provider: compact.providerKind, providers,
 		...(continuation?.resultId ? { ref: continuation.resultId } : {}),
-		searchResults: selected, sources, warnings: notices, queryGroups: groups,
+		searchResults: selected, sources, warnings: notices,
+		queryGroups: groups?.map(({ text, sources, ...group }, index) => ({
+			...group,
+			previewCount: countGroupResults(selected, index) + sources.length,
+			...(text ? { text } : {}),
+			...(sources.length ? { sources } : {}),
+		})),
 	});
-	const render = () => renderEvidence(prose, selected, sources, notices, continuation?.resultId, groups);
 	const measure = () => {
-		const rendered = render();
-		return { text: rendered.length, lines: rendered.split("\n").length, json: JSON.stringify(structuredEvidence(buildDetails(), rendered)).length };
+		const details = buildDetails();
+		const rendered = renderEvidence(prose, details, emptyStatus);
+		return { text: rendered.length, lines: rendered.split("\n").length, json: JSON.stringify(structuredEvidence(details, rendered)).length };
 	};
 	const fits = (size = measure()) => size.text <= budget && size.lines < DEFAULT_MAX_LINES - 10 && size.json <= budget;
 	// Fit fixed fields too: JSON escaping counts, including text-only responses.
@@ -216,17 +242,16 @@ export function formatWebSearchResult(
 	}
 	// Reserve mixed-family records atomically. Only crowded previews use shorter
 	// snippets; a large first web hit must not silently consume the code slot.
-	let reduced = false;
+	const shorten = ({ citedText, preview }: (typeof hits)[number]) => previewFields(citedText, preview?.totalChars ?? citedText.length, 80);
 	if (!groups && compact.scope === "both") {
 		const representatives = ["web", "code"].map((family) => hits.find((hit) => sourceFamily(hit.source) === family)).filter((hit) => hit !== undefined);
 		if (representatives.length === 2) {
 			selected.push(...representatives);
 			if (!fits()) {
-				const originals = representatives.map((hit) => hit.citedText);
-				for (const hit of representatives) hit.citedText = markedClip(hit.citedText, 80);
-				if (fits()) reduced = true;
-				else {
-					representatives.forEach((hit, index) => { hit.citedText = originals[index]; });
+				const originals = representatives.map(({ citedText, preview }) => ({ citedText, preview }));
+				for (const hit of representatives) Object.assign(hit, shorten(hit));
+				if (!fits()) {
+					representatives.forEach((hit, index) => Object.assign(hit, originals[index]));
 					selected.length = 0;
 				}
 			}
@@ -249,14 +274,13 @@ export function formatWebSearchResult(
 				if (selected.includes(hit)) continue;
 				selected.push(hit);
 				if (!available()) {
-					const original = hit.citedText;
-					hit.citedText = markedClip(original, 80);
+					const original = { citedText: hit.citedText, preview: hit.preview };
+					Object.assign(hit, shorten(hit));
 					if (!available()) {
-						hit.citedText = original;
+						Object.assign(hit, original);
 						selected.pop();
 						continue;
 					}
-					reduced = true;
 				}
 				remainingSlots--;
 			}
@@ -298,23 +322,25 @@ export function formatWebSearchResult(
 		if (!fits()) { sources.pop(); omitted++; } else cited.add(source.url);
 	}
 	if (omitted) notices.push(`${omitted} result/citation(s) omitted to fit the output budget.`);
-	const clipped = reduced || prose !== compact.text || (compact.searchResults ?? []).some((hit) => normalizedText(hit).length > EXCERPT_MAX_CHARS);
-	const text = render();
+	const clipped = selected.some((hit) => hit.preview) || prose !== result.text ||
+		groups?.some(({ text }, index) => text !== (result.queryGroups?.[index].text ?? ""));
 	const visible = buildDetails();
-	visible.truncated = omitted > 0 || clipped || continuation?.storedClipped === true;
+	visible.truncated = omitted > 0 || !!clipped || continuation?.storedClipped === true;
+	const text = renderEvidence(prose, visible, emptyStatus);
+	const clippedExcerptRows = compact.searchResults?.flatMap((hit, index) =>
+		(hit.citedText?.length ?? 0) < (result.searchResults?.[index].citedText?.length ?? 0) ? [index] : []);
 	const output = formatResult(text, {
 		...visible,
 		// Rich renderer details never become another copy of the model evidence.
 		searchResults: compact.searchResults?.map(({ highlight: _highlight, previewText: _previewText, ...hit }, index) => ({
 			...hit, ...(hits[index]?.ref ? { ref: hits[index].ref } : {}),
 		})),
-		queryGroups: groups,
+		...(clippedExcerptRows?.length ? { clippedExcerptRows } : {}),
+		queryGroups: visible.queryGroups?.map((group, index) => ({ ...group, sources: batchGroups?.[index]?.sources })),
 		sources: compact.sources ?? [], warnings: compact.warnings ?? [],
-		providers: compact.providers, requestId: compact.requestId, usage: compact.usage,
+		requestId: compact.requestId, usage: compact.usage,
 		grounded: cited.size > 0, scope: compact.scope, classifier: compact.classifier, classifierStatus: compact.classifierStatus,
 		resultCount: selected.length || sources.length,
-		excerptsShortened: (compact.searchResults ?? []).filter((hit, index) =>
-			normalizedText(hit).length > EXCERPT_MAX_CHARS || (hits[index]?.citedText.length ?? 0) < previewText(hit).length).length,
 	}, limits);
 	output.structuredContent = structuredEvidence(visible, text);
 	return output;
@@ -324,13 +350,20 @@ function markedClip(text: string, limit: number): string {
 	return text.length > limit ? clipText(text, limit) + CLIP_MARKER : text;
 }
 
-function normalizedText(hit: SearchResultDetail): string {
-	const raw = hit.citedText ?? "";
-	return isCodeSource(hit.source) ? raw.trimEnd() : raw.replace(/\s+/gu, " ").trim();
+function normalizedText(text: string, source?: string): string {
+	return isCodeSource(source) ? text.trimEnd() : text.replace(/\s+/gu, " ").trim();
 }
 
-function previewText(hit: SearchResultDetail): string {
-	return markedClip(normalizedText(hit.previewText === undefined ? hit : { ...hit, citedText: hit.previewText }), EXCERPT_MAX_CHARS);
+function previewFields(text: string, totalChars: number, limit: number): { citedText: string; preview?: EvidenceHit["preview"] } {
+	const shown = clipText(text, limit);
+	return {
+		citedText: text.length > shown.length ? shown + CLIP_MARKER : shown,
+		preview: shown.length > 0 && shown.length < totalChars ? { shownChars: shown.length, totalChars } : undefined,
+	};
+}
+
+function countGroupResults(hits: EvidenceHit[], index: number): number {
+	return hits.filter(({ queryGroup, type }) => queryGroup === index && type !== "unparsed").length;
 }
 
 /** Preserve mixed-family coverage within each query while allocating its slots. */
@@ -345,35 +378,54 @@ function batchCandidates<T extends SearchResultDetail>(hits: T[], mixed: boolean
 	return [hits[0], hits[other], ...hits.slice(1, other), ...hits.slice(other + 1)];
 }
 
-function renderEvidence(
-	prose: string, hits: SearchResultDetail[], sources: Source[], warnings: string[], resultId?: string,
-	groups?: WebSearchDetails["queryGroups"],
-): string {
+export function renderQueryGroupHeading(query: string, index: number, resultCount: number, previewCount: number, providers?: EvidenceProvider[]): string {
+	const label = markedClip(query.replace(/\s+/gu, " "), 160);
+	const count = previewCount === resultCount
+		? `${resultCount} ${resultCount === 1 ? "result" : "results"}`
+		: `${previewCount} of ${resultCount} results shown`;
+	const via = providers?.length ? ` · ${providers.map((provider) => providerName[provider]).join(", ")}` : "";
+	return `## Query ${index + 1} — ${label}\n\n${count}${via}`;
+}
+
+function renderEvidence(prose: string, {
+	searchResults: hits = [], sources = [], warnings = [], resultId, storedCount, storedClipped, queryGroups: groups, providers = [],
+}: WebSearchDetails, emptyStatus: string): string {
+	const names = providers.map((provider) => providerName[provider]).join(", ");
+	const attribution = names ? ` — ${names}` : "";
 	const blocks = hits.map((hit, index) => {
 		const number = hit.ref?.split(":").at(-1) ?? String(index + 1);
-		const label = markedClip(hit.title?.trim() || (hit.url ? hit.url : `Result ${number}`), 120);
-		const heading = `${number}. ${hit.url ? `[${label}](${hit.url})` : label}${hit.ref ? ` ${hit.ref}` : ""}`;
+		const unparsed = hit.type === "unparsed";
+		const label = unparsed ? "Unparsed provider reply" : markedClip(hit.title?.trim() || hit.url || `Result ${number}`, 120);
+		const title = (unparsed ? "" : `${number}. `) + (hit.url ? `[${label}](${hit.url})` : label);
+		const heading = hit.ref ? `${title} ${hit.ref}` : title;
 		const code = isCodeSource(hit.source);
-		return hit.citedText ? heading + "\n" + (code ? "```\n" + hit.citedText + "\n```" : "> " + hit.citedText) : heading;
+		const excerpt = code ? "```\n" + hit.citedText + "\n```" : "> " + hit.citedText;
+		const hint = hit.preview ? `Preview: ${hit.preview.shownChars} of ${hit.preview.totalChars} chars` : "";
+		return [heading, hit.citedText && excerpt, hint].filter(Boolean).join("\n");
 	});
 	const results = groups
 		? groups.map((group, index) => {
 			const rows = blocks.filter((_, hitIndex) => hits[hitIndex].queryGroup === index);
 			const notes = [group.failed ? "Query failed." : "", group.duplicates ? `${group.duplicates} duplicate result(s) appeared earlier.` : ""];
-			return [`## Query ${index + 1} — ${group.query}`, group.text, ...rows,
+			const heading = renderQueryGroupHeading(group.query, index, group.resultCount ?? 0, group.previewCount ?? 0, group.providers);
+			return [heading, group.text, ...rows,
 				...((group.sources ?? []).map((source) => `[${source.title}](${source.url})`)), ...notes].filter(Boolean).join("\n\n");
 		}).join("\n\n")
-		: blocks.length ? RESULTS_HEADING + "\n\n" + blocks.join("\n\n") : "";
-	const citations = sources.length ? SOURCES_HEADING + "\n\n" + sources.map((source, index) => `${index + 1}. [${source.title}](${source.url})`).join("\n") : "";
+		: blocks.length ? RESULTS_HEADING + attribution + "\n\n" + blocks.join("\n\n") : "";
+	const citations = sources.length ? SOURCES_HEADING + (results ? "" : attribution) + "\n\n" + sources.map((source, index) => `${index + 1}. [${source.title}](${source.url})`).join("\n") : "";
 	const notes = warnings.length ? WARNINGS_HEADING + "\n\n" + warnings.map((warning) => "- " + warning).join("\n") : "";
-	const more = resultId ? `Read: search({ref: "${resultId}"})` : "";
-	return [prose && prose.trim() !== results ? prose : "", results, citations, notes, more].filter(Boolean).join("\n\n");
+	const savedPreviews = resultId ? hits.filter(({ ref }) => ref?.startsWith(`${resultId}:`)) : [];
+	const shown = !groups && storedCount !== undefined && savedPreviews.length < storedCount
+		? `${savedPreviews.length} of ${storedCount} stored results shown. ` : "";
+	const refs = resultId ? `${shown}List ref ${resultId} · Read id:N` : "";
+	const storage = storedClipped ? "Local storage limits clipped evidence." : "";
+	const lead = emptyStatus ? emptyStatus + attribution : prose && !results && !citations && names ? `Via ${names}` : "";
+	return [lead, prose && prose.trim() !== results ? prose : "", results, citations, notes, refs, storage].filter(Boolean).join("\n\n");
 }
 
-function compactResult(result: StreamResult, continuation = false): StreamResult {
+function compactResult(result: StreamResult): StreamResult {
 	let excerptBudget = STRUCTURED_EXCERPT_TOTAL_CHARS;
 	let metadataBudget = METADATA_TOTAL_CHARS;
-	let clippedExcerpts = 0;
 	let clippedMetadata = false;
 	const metadata = (value: string): string => {
 		const clipped = clipText(value, Math.min(METADATA_MAX_CHARS, metadataBudget));
@@ -387,7 +439,6 @@ function compactResult(result: StreamResult, continuation = false): StreamResult
 		if (entry.citedText !== undefined) {
 			compact.citedText = clipText(entry.citedText, Math.min(STRUCTURED_EXCERPT_MAX_CHARS, Math.floor(excerptBudget / (entries.length - index))));
 			excerptBudget -= compact.citedText.length;
-			if (normalizedText(entry).length > EXCERPT_MAX_CHARS) clippedExcerpts++;
 		}
 		for (const key of ["title", "query", "source", "pageAge", "status", "type"] as const) {
 			const value = entry[key];
@@ -400,7 +451,9 @@ function compactResult(result: StreamResult, continuation = false): StreamResult
 		}
 		return compact;
 	});
-	const sources = (result.sources ?? []).map((source) => ({ title: metadata(source.title), url: source.url }));
+	const compactSource = (source: Source) => ({ title: metadata(source.title), url: source.url });
+	const sources = (result.sources ?? []).map(compactSource);
+	const queryGroups = result.queryGroups?.map((group) => ({ ...group, sources: group.sources?.map(compactSource) }));
 	const requestId = result.requestId === undefined ? undefined : metadata(result.requestId);
 	const usage = result.usage?.map((item) => ({ name: metadata(item.name), count: item.count }));
 	const text = clipText(result.text, PROVIDER_TEXT_MAX_CHARS);
@@ -417,11 +470,10 @@ function compactResult(result: StreamResult, continuation = false): StreamResult
 		clippedWarnings ||= clipped.length < warning.length;
 		warnings.push(clipped);
 	}
-	if (clippedExcerpts) warnings.push(`Result excerpts truncated for ${clippedExcerpts} hit(s): previews capped at ${EXCERPT_MAX_CHARS} characters plus a marker. ${continuation ? "Use search({ref}) for stored evidence." : "Follow citation URLs for more evidence."}`);
 	if (text.length < result.text.length) warnings.push(`Provider prose truncated to ${PROVIDER_TEXT_MAX_CHARS} characters; use the cited results for evidence.`);
 	if (clippedMetadata) warnings.push(`Result metadata truncated to ${METADATA_MAX_CHARS} characters per field and ${METADATA_TOTAL_CHARS} in total; citation URLs are unchanged.`);
 	if (clippedWarnings) warnings.push("Provider warnings truncated (100 entries, 1000 characters each, 8000 in total).");
-	return { ...result, text, sources, searchResults, warnings, requestId, usage };
+	return { ...result, text, sources, queryGroups, searchResults, warnings, requestId, usage };
 }
 
 /** Do not split a surrogate pair when clipping a preview. */

@@ -56,7 +56,7 @@ export function publicHttpUrl(raw: string | URL): URL {
 }
 
 function blockedAddress() {
-	return providerError("parse_error", "URL reading blocked a non-public network address.");
+	return providerError("blocked_private_network", "URL reading blocked a non-public network address.");
 }
 
 async function publicAddress(url: URL, signal: AbortSignal, resolve: NonNullable<PageTransport["resolve"]>): Promise<Address> {

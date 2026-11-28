@@ -12,6 +12,7 @@ import { jinaFetch } from "../src/providers/jina.ts";
 import { parallelSearch } from "../src/providers/parallel.ts";
 import { applyConfig } from "../src/providers/config.ts";
 import { providerError, type StreamResult } from "../src/providers/types.ts";
+import { readUrls } from "../src/read/index.ts";
 import { search, type SearchInput } from "../src/search.ts";
 import { renderCall, renderResult, type TranscriptState } from "../src/ui/transcript.ts";
 import { plainTheme } from "./fixtures/panel.ts";
@@ -37,16 +38,16 @@ test("call line only labels non-default modes and never shows opaque refs", () =
 	assert.equal(body.render(80)[0], 'nodejs.org · characters 1–7 of 9000 · matched "timeout"');
 });
 
-test("summary orders count, top domains, unusual states and duration", () => {
+test("summary prioritizes result count and providers before destinations and duration", () => {
 	const details: WebSearchDetails = {
 		provider: "exa", providers: ["exa", "parallel"], durationMs: 1111,
 		searchResults: ["developer.mozilla.org", "nodejs.org", "github.com", "web.dev", "nodejs.org"].map((domain) => ({ url: `https://${domain}/x` })),
 		classifier: { suppressed: 2, suppressedUrls: ["https://unsafe.test"], sufficient: true, lowConfidence: false }, classifierStatus: "ran",
 	};
-	assert.equal(show(details), "5 results from 2 sources · developer.mozilla.org, nodejs.org, github.com +1 · ranked · 2 hidden as unsafe · 1.1s");
-	assert.equal(show({ ...details, cached: true, providers: undefined, classifier: undefined, classifierStatus: "disabled" }), "5 results · developer.mozilla.org, nodejs.org, github.com +1 · cached");
+	assert.equal(show(details), "5 results · via Exa + Parallel · ranked · 2 hidden as unsafe · developer.mozilla.org, nodejs.org, github.com +1 · 1.1s");
+	assert.equal(show({ ...details, cached: true, providers: undefined, classifier: undefined, classifierStatus: "disabled" }), "5 results · via Exa · cached · developer.mozilla.org, nodejs.org, github.com +1");
 	assert.equal(show({ urlsRequested: 3, urlsRead: 2, searchResults: [{ url: "https://nodejs.org" }, { url: "https://web.dev" }] }), "Read 2 of 3 pages · nodejs.org, web.dev · 1 couldn't be read");
-	assert.equal(show({ scope: "code", attempted: ["grep", "sourcegraph", "github"] }), "No matches · grep.app, Sourcegraph, GitHub · not proof the code doesn't exist");
+	assert.equal(show({ scope: "code", attempted: ["grep", "sourcegraph", "github"] }), "No matches · via grep.app + Sourcegraph + GitHub");
 	assert.equal(show({ scope: "code", durationMs: 801, searchResults: [
 		{ title: "vercel/next.js/packages/fetch.ts", url: "https://github.com/vercel/next.js/blob/main/packages/fetch.ts#L42" },
 		{ title: "vercel/next.js/packages/fetch.ts", url: "https://github.com/vercel/next.js/blob/main/packages/fetch.ts#L48" },
@@ -54,18 +55,114 @@ test("summary orders count, top domains, unusual states and duration", () => {
 	] }), "3 matches in 2 files · vercel/next.js · 0.8s");
 });
 
-test("expanded rows are built from cited details, with code gutter and a single provenance footer", () => {
-	const details: WebSearchDetails = { contributors: ["exa", "grep"], durationMs: 1100, excerptsShortened: 3, searchResults: [
-		{ title: "AbortSignal: timeout() static method", url: "https://developer.mozilla.org/a", citedText: "Returns an AbortSignal", ref: "secret:1" },
-		{ title: "vercel/next.js/packages/fetch.ts", url: "https://github.com/vercel/next.js/blob/main/packages/fetch.ts#L42", source: "grep", citedText: "const signal = AbortSignal.timeout(ms)\nawait fetch(url, { signal })", ref: "secret:2" },
-	] };
+test("expanded rows show stable refs, provenance, and code gutters", () => {
+	const details: WebSearchDetails = {
+		contributors: ["exa", "grep"], durationMs: 1100, warnings: ["Result excerpts truncated for 3 results.",
+			"Result metadata truncated to 1000 characters per field and 12000 in total; citation URLs are unchanged."],
+		searchResults: [
+			{ title: "AbortSignal: timeout() static method", url: "https://developer.mozilla.org/a", source: "exa", citedText: "Returns an AbortSignal", ref: "saved:1" },
+			{ title: "vercel/next.js/packages/fetch.ts", url: "https://github.com/vercel/next.js/blob/main/packages/fetch.ts#L42", source: "grep", citedText: "const signal = AbortSignal.timeout(ms)\nawait fetch(url, { signal })", ref: "saved:2" },
+		],
+	};
 	assert.equal(show(details, {}, true), [
-		"1  AbortSignal: timeout() static method", "   developer.mozilla.org", "   Returns an AbortSignal", "",
-		"2  vercel/next.js packages/fetch.ts:42", "   │ const signal = AbortSignal.timeout(ms)", "   │ await fetch(url, { signal })", "",
-		"via Exa + grep.app · 1.1s · 3 excerpts shortened",
+		"2 results · via Exa + grep.app · developer.mozilla.org, github.com · 1.1s", "",
+		"1  AbortSignal: timeout() static method", "   developer.mozilla.org · via Exa · ref saved:1", "   Returns an AbortSignal", "",
+		"2  vercel/next.js packages/fetch.ts:42", "   via grep.app · ref saved:2", "   │ const signal = AbortSignal.timeout(ms)", "   │ await fetch(url, { signal })",
 	].join("\n"));
 	for (const width of [1, 5, 20]) assert.ok(output(details, {}, true).render(width).every((line) => visibleWidth(line) <= width));
 	assert.doesNotMatch(show({ searchResults: [{ title: "x\x1b[31m\ny", citedText: "reading" }] }, {}, true), /\x1b|secret|Read: search|## Results/);
+});
+
+test("Context7 documentation is visible in a compact code search and retains its document title", () => {
+	const args = { scope: "code", query: "Next.js / routing" } as const;
+	const { details } = formatWebSearchResult({ providerKind: "context7", scope: "code", text: "", searchResults: [
+		{ title: "Router/Navigation", url: "https://nextjs.org/docs/routing", citedText: "Use the Link component.", source: "context7" },
+	] });
+	assert.match(output(details, args).render(46)[0], /^1 documentation result · via Context7/);
+	assert.match(show(details, args, true), /Router\/Navigation\n\s*nextjs\.org/);
+});
+
+test("an excerpt clipped by the display budget marks only that result", () => {
+	const details: WebSearchDetails = {
+		searchResults: [{ citedText: "a partial excerpt" }, { citedText: "another partial excerpt…" }, { citedText: "the complete excerpt" }],
+		clippedExcerptRows: [0, 1],
+	};
+	const expanded = show(details, {}, true);
+	assert.match(expanded, /a partial excerpt…\n/);
+	assert.match(expanded, /another partial excerpt…\n/);
+	assert.match(expanded, /the complete excerpt$/);
+});
+
+test("expanded batches group hits and citations with empty and failed queries", () => {
+	const args = { query: ["API", "empty", "failed"], scope: "both" } as const;
+	const { details } = formatWebSearchResult({
+		providerKind: "exa", scope: "both", text: "", warnings: ["Query 3 failed: upstream secret reply"],
+		searchResults: [{ queryGroup: 0, source: "context7", url: "https://docs.test/api", citedText: "Call it with one argument." }],
+		queryGroups: [
+			{ query: "API\x1b[31m\n docs\x1b[0m", providers: ["context7", "exa"], sources: [{ title: "Related citation", url: "https://example.test/api" }] },
+			{ query: "empty", providers: ["exa"], duplicates: 2 },
+			{ query: "failed", failed: true },
+		],
+	}, undefined, { resultId: "AbCDef123XYZ", storedCount: 1 });
+	assert.match(output(details, { ...args, query: [...args.query] }).render(52)[0], /^2 results · 3 queries · via Exa \+ Context7/);
+	const expanded = show(details, { ...args, query: [...args.query] }, true);
+	assert.match(expanded, /Query 1 · "API docs"\n2 results · via Context7 \+ Exa[\s\S]*ref AbCDef123XYZ:1[\s\S]*Related citation/);
+	assert.match(expanded, /Query 2 · "empty"\n0 results · via Exa · 2 duplicates from earlier queries/);
+	assert.match(expanded, /Query 3 · "failed"\nFailed · 0 results/);
+	assert.match(expanded, /List 1 saved result · search\(\{ref: "AbCDef123XYZ"\}\)/);
+	assert.doesNotMatch(expanded, /secret reply|Read: search|\x1b/);
+});
+
+test("failed batches retain all query rows in expanded errors", () => {
+	const details = { ...formatSearchError("search", providerError("network_error", "upstream error body")).details,
+		queryGroups: [{ query: "one", failed: true, resultCount: 0 }, { query: "two", failed: true, resultCount: 0 }] };
+	assert.match(show(details), /Check your connection\. · 2 queries$/);
+	const expanded = show(details, {}, true);
+	assert.match(expanded, /Query 1 · "one"\nFailed · 0 results\n\nQuery 2 · "two"\nFailed · 0 results/);
+	assert.doesNotMatch(expanded, /upstream error body/);
+});
+
+test("expanded saved results offer the exact listing and passage continuations", () => {
+	const id = "AbCDef123XYZ", cursor = "abc_DEF1234";
+	const details: WebSearchDetails = { ref: id, cursor, more: true, storedCount: 11, searchResults: [
+		{ ref: `${id}:10`, title: "Saved result" },
+		{ ref: "bad\x1b[31m:2", title: "Malformed ref" },
+	] };
+	assert.doesNotMatch(show(details, { ref: id }), /AbCDef123XYZ|abc_DEF1234/);
+	assert.match(show(details, { ref: id }), /11 saved results · more results/);
+	const listing = show(details, { ref: id }, true);
+	assert.match(listing, /10 {2}Saved result\n\s*ref AbCDef123XYZ:10/);
+	assert.match(listing, /Continue listing · search\(\{ref: "AbCDef123XYZ", cursor: "abc_DEF1234"\}\)/);
+	assert.doesNotMatch(listing, /bad|\x1b/);
+	const ref = `${id}:10`;
+	const passage = { ...details, ref, passage: { index: 10, offset: 4000, totalChars: 10000 } };
+	assert.match(show(passage, { ref }), /more text/);
+	const action = output(passage, { ref }, true).render(62);
+	assert.ok(action.includes(`search({ref: "${ref}", cursor: "${cursor}"})`));
+	assert.ok(action.includes("Continue reading"));
+	assert.doesNotMatch(show({ ...passage, cursor: `${cursor}\n` }, { ref }, true), /Continue reading/);
+});
+
+test("input and scope errors show the caller's remedy without suggesting provider setup", async () => {
+	for (const [args, expected] of [
+		[{ query: [] }, "query accepts 1 to 3 strings."],
+		[{ query: "setTimeout", scope: "code", recency: "day" }, "recency requires query and web scope."],
+		[{ urls: ["http://127.0.0.1/private"] }, "URL reading blocked a non-public network address."],
+	] as const) {
+		const input = ("urls" in args ? { urls: [...args.urls] } : { ...args, query: typeof args.query === "string" ? args.query : [...args.query] }) satisfies SearchInput;
+		const result = await search("test", input, undefined, undefined, ctx, {
+			readUrls: (req) => readUrls(req, {
+				transport: { connect: async () => assert.fail("Blocked URLs must not reach the network") },
+				jinaFetch: async () => assert.fail("Blocked URLs must not fall back to Jina"),
+			}),
+		});
+		for (const expanded of [false, true]) assert.equal(show(result.details, input, expanded), `✕ ${expected}`);
+	}
+	const details = formatSearchError("search", providerError("invalid_input", `Unknown parameter: \x1b[31m${"界".repeat(300)}\x1b[0m. Bad.`)).details;
+	const lines = output(details, {}, true).render(42);
+	assert.ok(lines.every((line) => visibleWidth(line) <= 42));
+	assert.ok(visibleWidth(lines.join("")) <= 222);
+	assert.doesNotMatch(lines.join(""), /\x1b|Bad|\/web-search/);
 });
 
 test("an empty grep.app search explains how to retry only when expanded", () => {

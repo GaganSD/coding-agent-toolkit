@@ -12,6 +12,7 @@ import {
 	STRUCTURED_EXCERPT_TOTAL_CHARS,
 	SearchOutputSchema,
 	formatWebSearchResult,
+	type WebSearchDetails,
 } from "../src/format.ts";
 import { executeSearch } from "../src/execute.ts";
 import { augmentResults } from "../src/classifier/augment.ts";
@@ -109,7 +110,9 @@ test("formatWebSearchResult bounds 10MB upstream evidence without losing hits or
 	assert.deepEqual(output.details.searchResults?.map((entry) => entry.url), input.searchResults?.map((entry) => entry.url));
 	assert.ok(output.details.searchResults?.every((entry) => (entry.citedText?.length ?? 0) <= STRUCTURED_EXCERPT_MAX_CHARS));
 	assert.equal(output.details.searchResults?.reduce((sum, entry) => sum + (entry.citedText?.length ?? 0), 0), STRUCTURED_EXCERPT_TOTAL_CHARS);
-	assert.match(output.details.warnings?.join(" ") ?? "", /excerpts truncated for 12 hit\(s\)/);
+	const data = output.structuredContent as WebSearchDetails;
+	assert.deepEqual(data.searchResults?.map((entry) => entry.preview), Array(12).fill({ shownChars: 400, totalChars: excerpt.length }));
+	assert.equal(textOf(output).split(`Preview: 400 of ${excerpt.length} chars`).length - 1, 12);
 	assert.ok(JSON.stringify(output.structuredContent).length < 100_000);
 	assert.equal(input.searchResults?.[0].citedText?.length, excerpt.length, "formatting must not mutate upstream evidence");
 });

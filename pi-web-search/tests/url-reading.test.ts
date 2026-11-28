@@ -257,7 +257,7 @@ test("Public-address validation blocks non-public literals and mixed DNS answers
 		"http://[::1]", "http://[fc00::1]", "http://[fe80::1]", "http://[::ffff:169.254.169.254]", "http://[64:ff9b::a9fe:a9fe]",
 		"http://[2002:7f00:1::]", "http://localhost", "http://host.local", origin,
 	]) {
-		await assert.rejects(readUrls(request([url]), fixture), /blocked a non-public network address/u, url);
+		await assert.rejects(readUrls(request([url]), fixture), { code: "blocked_private_network", message: /blocked a non-public network address/u }, url);
 	}
 	assert.deepEqual(fixture.requests, []);
 	assert.deepEqual(fixture.fallback, []);
@@ -283,12 +283,12 @@ test("Redirects revalidate each address, and the socket lookup uses only the val
 			return response("", "text/plain", 302, { location: "/next" });
 		},
 	};
-	await assert.rejects(fetchPinnedPage(new URL(origin), signal, transport), /blocked a non-public network address/u);
+	await assert.rejects(fetchPinnedPage(new URL(origin), signal, transport), { code: "blocked_private_network", message: /blocked a non-public network address/u });
 	assert.deepEqual(hits, [origin + "/"]);
 	assert.equal(lookups, 2, "the redirect DNS answer was validated independently");
 
 	const fixture = replay(async () => response("", "text/plain", 302, { location: "http://169.254.169.254/metadata" }));
-	await assert.rejects(readUrls(request([origin]), fixture), /blocked a non-public network address/u);
+	await assert.rejects(readUrls(request([origin]), fixture), { code: "blocked_private_network", message: /blocked a non-public network address/u });
 	assert.deepEqual(fixture.requests, [origin + "/"]);
 	assert.deepEqual(fixture.fallback, []);
 });

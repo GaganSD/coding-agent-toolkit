@@ -82,6 +82,7 @@ export interface QueryGroup {
 	query: string;
 	duplicates?: number;
 	failed?: boolean;
+	providers?: EvidenceProvider[];
 	text?: string;
 	sources?: Source[];
 }
@@ -119,6 +120,9 @@ export interface StreamResult {
 }
 
 const CODES = [
+	"invalid_input",
+	"scope_conflict",
+	"blocked_private_network",
 	"missing_credentials",
 	"invalid_config",
 	"http_error",

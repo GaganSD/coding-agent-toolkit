@@ -144,6 +144,7 @@ export async function executeSearch(
 	const retrieval = retrievalProgress((line) => progress.emit(line));
 	let configIssue: string | undefined;
 	let thoroughOff = false;
+	let failedQueries: string[] | undefined;
 	try {
 		if (signal?.aborted) throw abortedError(signal.reason);
 		const resolved = await resolveSettings();
@@ -175,7 +176,7 @@ export async function executeSearch(
 			throw abortedError(signal.reason);
 		}
 		if (params.fetchOnly && urls.urls.length === 0) {
-			throw providerError("unknown", "Supply a query or at least one valid HTTP(S) URL.");
+			throw providerError("invalid_input", "Supply a query or at least one valid HTTP(S) URL.");
 		}
 		const family = params.scope === "both" ? undefined : params.scope;
 		const composed = withTimeout(signal, resolved.timeoutMs);
@@ -201,7 +202,7 @@ export async function executeSearch(
 			const retrieveQuery = async (original: string): Promise<QueryResult> => {
 				const trimmed = trimQuery(original);
 				const parsed = family === "web" ? { query: trimmed } : parseLibraryQuery(trimmed);
-				if (parsed.library && !parsed.query) throw providerError("unknown", "library: requires search terms.");
+				if (parsed.library && !parsed.query) throw providerError("invalid_input", "library: requires search terms.");
 				const req: SearchRequest = {
 					...request,
 					...parsed,
@@ -242,9 +243,13 @@ export async function executeSearch(
 				}
 				return { raw, judged, query: parsed.query };
 			};
-			const result = batched
-				? combineQueryResults(queries, await Promise.allSettled(queries.map(retrieveQuery)))
-				: await retrieveQuery(queries[0]);
+			const settled = batched ? await Promise.allSettled(queries.map(retrieveQuery)) : undefined;
+			if (settled?.every((entry) => entry.status === "rejected")) {
+				if (signal?.aborted) throw abortedError(signal.reason);
+				failedQueries = queries.map(trimQuery);
+				throw settled[0].reason;
+			}
+			const result = settled ? combineQueryResults(queries, settled) : await retrieveQuery(queries[0]);
 			if (signal?.aborted) throw abortedError(signal.reason);
 
 			const { raw, judged } = result;
@@ -307,7 +312,7 @@ export async function executeSearch(
 		}
 	} catch (error) {
 		progress.finish();
-		const result = formatSearchError(params.tool, error);
+		const result = formatSearchError(params.tool, error, failedQueries);
 		Object.assign(result.details, retrieval.details(), { configIssue, thoroughOff,
 			...(isProviderError(error) && error.code === "missing_credentials" && error.message.endsWith(NO_WEB_PROVIDER_MESSAGE) ? { webUnavailable: true } : {}) });
 		return result;
@@ -323,7 +328,6 @@ interface QueryResult {
 
 function combineQueryResults(queries: string[], settled: PromiseSettledResult<QueryResult>[]): QueryResult {
 	const successful = settled.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
-	if (!successful.length) throw (settled[0] as PromiseRejectedResult).reason;
 
 	const groups: QueryGroup[] = [];
 	const hits: NonNullable<StreamResult["searchResults"]> = [];
@@ -341,6 +345,7 @@ function combineQueryResults(queries: string[], settled: PromiseSettledResult<Qu
 			continue;
 		}
 		const result = uniqueEvidence(entry.value.judged);
+		group.providers = result.providers?.length ? result.providers : [result.providerKind];
 		const attached = new Set<string>();
 		let duplicates = 0;
 		for (const hit of result.searchResults ?? []) {
