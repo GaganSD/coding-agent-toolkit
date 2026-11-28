@@ -121,14 +121,20 @@ export async function trial(session: AgentSession, model: Model<Api>, task: Task
 		const messages = session.agent.state.messages;
 		const totalTokens = messages.reduce((sum, message) => message.role === "assistant" ? sum + (message.usage?.totalTokens ?? 0) : sum, 0);
 		const assistantCalls = messages.flatMap((message) => message.role === "assistant" ? message.content.filter((part) => part.type === "toolCall") : []);
-		for (const tool of assistantCalls) {
-			if (!calls.some(({ id }) => id === tool.id)) calls.push({ id: tool.id, name: tool.name, array: Array.isArray(tool.arguments.query) || Array.isArray(tool.arguments.queries), executed: false, failed: true,
-				...(reachedBudget ? {} : { failure: { category: "validation" as const, text: scrub(tool.argumentsError ?? "Tool call did not execute") } }) });
-		}
+		const byId = new Map(calls.map((call) => [call.id, call]));
+		const ordered = assistantCalls.map((tool): Call => {
+			const recorded = byId.get(tool.id);
+			byId.delete(tool.id);
+			return recorded ?? { id: tool.id, name: tool.name, array: Array.isArray(tool.arguments.query) || Array.isArray(tool.arguments.queries),
+				executed: false, failed: true,
+				...(reachedBudget ? {} : { failure: { category: "validation", text: scrub(tool.argumentsError ?? "Tool call did not execute") } }) };
+		});
+		ordered.push(...byId.values());
 		if (!stored && !failure) writeFileSync(file, JSON.stringify(recording) + "\n", { mode: 0o600 });
-		return { task: task.id, firstValid: calls[0] ? calls[0].failed === false : undefined, attemptedToolCalls: calls.length, toolCalls: calls.filter(({ executed }) => executed).length, totalTokens,
-			multiPart: task.multiPart, arrayCalls: calls.filter(({ array }) => array).length, reachedBudget,
-			failure, calls, messages: clean(messages) };
+		return { task: task.id, firstValid: ordered[0] ? ordered[0].failed === false : undefined, attemptedToolCalls: ordered.length,
+			toolCalls: ordered.filter(({ executed }) => executed).length, totalTokens,
+			multiPart: task.multiPart, arrayCalls: ordered.filter(({ array }) => array).length, reachedBudget,
+			failure, calls: ordered, messages: clean(messages) };
 	} finally {
 		clearTimeout(timer);
 		unsubscribe();

@@ -78,3 +78,33 @@ test("draft output and cassettes cannot be reused as final, including through al
 	symlinkSync(draftInputs, inputAlias, "junction");
 	assert.throws(() => approvedInput(inputAlias, "final"), /Use --draft/u);
 });
+
+test("Parallel recordings omit session attribution and replay in a new model session", async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-parallel-replay-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const path = join(directory, "responses.json");
+	const call = (id: number, session: string, model: string) => ({
+		method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: {
+			name: "web_search", arguments: { objective: "unit test", session_id: session, model_name: model },
+		} }),
+	});
+	const original = t.mock.method(globalThis, "fetch", async (_input: Request, init: RequestInit) => {
+		assert.deepEqual(JSON.parse(String(init.body)).params.arguments, { objective: "unit test" });
+		return Response.json({ jsonrpc: "2.0", id: 1, result: { content: [], structuredContent: { results: [{ title: "Unit test" }] } } });
+	});
+	const writer = new Replay(path, true, "draft");
+	const restoreLive = writer.install("model");
+	try {
+		await retrieve(() => fetch("https://search.parallel.ai/mcp", call(1, "session-1", "model-1")));
+		writer.save();
+	} finally { restoreLive(); }
+
+	const reader = new Replay(path, false, "draft");
+	const restoreOffline = reader.install();
+	try {
+		const response = await fetch("https://search.parallel.ai/mcp", call(2, "session-2", "model-2"));
+		assert.equal((await response.json()).id, 2);
+		assert.deepEqual(reader.misses, []);
+		assert.equal(original.mock.callCount(), 1);
+	} finally { restoreOffline(); }
+});
