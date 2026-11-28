@@ -16,10 +16,16 @@ export function compactPicker(lines: string[], width: number, height: number): s
 
 export const sectionRow = (th: Theme, label: string) => th.fg("muted", `── ${label}`);
 
-export function selectedRow(th: Theme, text: string, selected: boolean, columns: number): string {
-  // Accent on selectedBg drops below 3:1 on light flavors.
-  const row = fit(`${selected ? "›" : " "} ${text}`, columns);
-  return selected ? th.style(row, { fg: "text", bg: "selectedBg", bold: true }) : row;
+/** A list row whose cursor stays visible in both panes: text when focused, dim when not. */
+export function focusRow(th: Theme, text: string, selected: boolean, focused: boolean, columns: number): string {
+  const marker = selected ? th.fg(focused ? "text" : "muted", "›") : " ";
+  const body = fit(text, Math.max(0, columns - 2));
+  const painted = selected ? th.style(body, { fg: "text", bold: focused }) : body;
+  const row = marker + " " + painted;
+  if (!selected) return row;
+  const paintedRow = th.style(row, { bg: "selectedBg" });
+  const bg = typeof th.getBgAnsi === "function" ? th.getBgAnsi("selectedBg") : "";
+  return bg ? paintedRow.replaceAll("\x1b[0m", `\x1b[0m${bg}`) : paintedRow;
 }
 
 export function viewport(th: Theme, title: string, position: number, total: number, selectedRowIndex: number,
@@ -30,6 +36,25 @@ export function viewport(th: Theme, title: string, position: number, total: numb
   const overflow = `${start ? ` ↑${start}` : ""}${end < rowCount ? ` ↓${rowCount - end}` : ""}`;
   return [th.fg("muted", fit(`${title} ${total ? position + 1 : 0}/${total}${overflow}`, columns)),
     ...Array.from({ length: rows - 1 }, (_, i) => start + i < end ? fit(row(start + i), columns) : fit("", columns))];
+}
+
+/** Viewport over sectioned rows; callers supply only the item renderer. */
+export function sectionedViewport<T extends { section?: string }>(th: Theme, title: string, items: readonly T[],
+  selectedIndex: number, columns: number, rowCount: number,
+  render: (item: T, index: number) => string): string[] {
+  const rows: (string | number)[] = [];
+  let current: string | undefined;
+  items.forEach((item, index) => {
+    const next = item.section;
+    if (next && next !== current) rows.push(next);
+    current = next;
+    rows.push(index);
+  });
+  const selectedRowIndex = Math.max(0, rows.indexOf(selectedIndex));
+  return viewport(th, title, selectedIndex, items.length, selectedRowIndex, rows.length, columns, rowCount, index => {
+    const row = rows[index]!;
+    return typeof row === "string" ? sectionRow(th, row) : render(items[row]!, row);
+  });
 }
 
 type Pane = (columns: number, rows: number) => string[];

@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Slate control panels: focus and alignment polish</title>
+<style>
+:root{
+  --bg:#16181d; --page:#101216; --term:#1f2228; --frame:#3a3e46; --rule:#2c3038;
+  --text:#d9dde5; --muted:#8b919b; --dim:#5f6570; --accent:#e3938b; --success:#5e9a93;
+  --warning:#d6b26e; --error:#d9757a; --sel:#121316; --chip:#15171b; --rowdim:#191b20;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Inter",sans-serif}
+main{max-width:1360px;margin:0 auto;padding:40px 28px 80px}
+h1{font-size:26px;margin:0 0 6px;font-weight:650}
+h2{font-size:19px;margin:56px 0 4px;font-weight:650;border-top:1px solid var(--rule);padding-top:28px}
+h3{font-size:14px;margin:30px 0 8px;color:var(--accent);font-weight:600;letter-spacing:.02em}
+p,li{color:#b9bec8;max-width:900px}
+.lede{color:var(--muted);margin:0 0 18px}
+code{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:12.5px;background:#1c1f25;padding:1px 5px;border-radius:4px;color:#cfd4dc}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+.grid2.tight{gap:14px}
+.cap{font-size:12px;color:var(--muted);margin:8px 2px 0}
+.label{font:600 11px/1 -apple-system,sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px 2px}
+.before{opacity:.8}
+
+/* terminal panels */
+.term{background:var(--term);border-radius:8px;padding:16px 18px;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;line-height:1.55;color:var(--text);overflow-x:auto}
+.term pre{margin:0;font:inherit;white-space:pre}
+.term.w100{font-size:10.5px}
+.term.w70{font-size:12px}
+.term.w50{font-size:13px}
+.m{color:var(--muted)}.d{color:var(--dim)}.a{color:var(--accent)}.s{color:var(--success)}.w{color:var(--warning)}.e{color:var(--error)}.b{font-weight:700}
+.chip{background:var(--chip);color:var(--accent);padding:1px 2px;white-space:pre}
+.selrow{background:var(--sel);font-weight:700}
+.dimrow{background:var(--rowdim);color:var(--dim)}
+.dimrow .a{color:var(--dim)}
+
+table.spec{border-collapse:collapse;width:100%;font-size:13px;margin-top:10px}
+table.spec td,table.spec th{border-bottom:1px solid var(--rule);padding:8px 10px;text-align:left;vertical-align:top}
+table.spec th{color:var(--muted);font-weight:600;font-size:12px}
+table.spec td:first-child{white-space:nowrap}
+.note{border-left:2px solid var(--accent);padding:8px 14px;margin:18px 0;background:#1b1d22;color:#c4c9d2}
+ul.compact{margin:8px 0 0;padding-left:20px}
+ul.compact li{margin:4px 0}
+
+@media (max-width:980px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>Slate control panels: focus and alignment polish</h1>
+<p class="lede">Mockups only. This is the Slate version of the polish shipped in pi-web-search PR 183: the same two-pane focus model, the same fixed detail layout, and the same data-built section rows. Scope is <code>/shortcuts</code> and <code>/theme</code>. The Slate picker frame stays canonical; the PR will note the web-search vendor resync.</p>
+
+<div class="note">
+  <b>One interaction model.</b> Left focus: ↑↓ moves, → or Enter opens, Esc closes. Right focus: ↑↓ moves the options, Enter or Space applies, ← or Esc returns to the same left row. Moving the cursor never saves. The unfocused pane keeps a dim › marker, so focus is always visible. Footer hints come from the same action table that handles input.
+</div>
+
+<h2>What changes</h2>
+<table class="spec">
+  <tr><th>Problem</th><th>Before</th><th>After</th></tr>
+  <tr><td>Navigation</td><td>One cursor. <code>/shortcuts</code> has a detail pane but no way to focus it. <code>/theme</code> changes palettes with ←→ while the cursor stays on the theme.</td><td>Left and right focus. The left row stays selected when focus moves right; its marker dims. Esc on the left closes; Esc on the right goes back.</td></tr>
+  <tr><td>Right pane</td><td>No stable right-pane contract. <code>/shortcuts</code> mixes detail, shortcut and status lines; <code>/theme</code> is only a palette viewport.</td><td>Title, description, blank line, options, status. The same lines stay in the same places in both focus states; only the cursor and highlight change.</td></tr>
+  <tr><td>Alignment</td><td>Status text starts at the pane edge. Wide keycaps and long labels can move it.</td><td>One fixed name and value column per pane; status text stays in the right pane. <code>visibleWidth</code>/<code>truncateToWidth</code> keep glyphs in place. Status lines align with option names.</td></tr>
+  <tr><td>Repeated labels</td><td><code>/shortcuts</code> sections live in a hard-coded map. Every Catppuccin row repeats the <code>Catppuccin</code> prefix.</td><td>Sections come from the action data: <code>── Layout</code>, <code>── Pickers</code>, <code>── Display</code>. Themes group the repeated family and tone: <code>── Catppuccin · Light</code>, <code>── Catppuccin · Dark</code>, <code>── Other</code>.</td></tr>
+  <tr><td>Wording</td><td>“PID display”, “Effort border color”, “Density”, “Composer metadata”, “Palettes 4/16”.</td><td>“Process ID”, “Effort border”, “Spacing”, “Composer details”. Short plain verbs: Open, Choose, Back, Close, Save, Remove.</td></tr>
+  <tr><td>Tiny terminals</td><td>The title and a hint can crowd out the active row.</td><td>The active choice, input or status wins the available lines. Hints are dropped before they are.</td></tr>
+</table>
+
+<!-- ======================================================= -->
+<h2><code>/shortcuts</code></h2>
+
+<h3>1 · 100×30, left focus</h3>
+<div class="grid2">
+  <div class="before">
+    <div class="label">Before</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Slate shortcuts                                                                                  │
+│                                                                                                  │
+│ Actions 1/7                                  │ Toggle sidebar                                    │
+│ ── Layout                                    │ Shows or hides the sidebar                        │
+│ <span class="selrow">› Toggle sidebar                     <span class="chip">Ctrl+B</span>  │</span> /slate focused                                    │
+│ ── Pickers                                   │                                                   │
+│   Prompt picker                           <span class="d">—</span>  │ <span class="chip">Shortcut</span>    <span class="chip">[ Ctrl+B ]</span>                            │
+│   Theme picker                            <span class="d">—</span>  │ <span class="e">✕ Used by Slate's editor</span>                          │
+│ ── Display                                   │                                                   │
+│   PID display                             <span class="d">—</span>  │                                                   │
+│   Effort border color                     <span class="d">—</span>  │                                                   │
+│   Density                                 <span class="d">—</span>  │                                                   │
+│   Composer metadata                       <span class="d">—</span>  │                                                   │
+│                                              │                                                   │
+│                                              │                                                   │
+│                                              │                                                   │
+│                                              │                                                   │
+│                                                                                                  │
+│  <span class="chip">↑↓</span> <span class="m">Move</span>    <span class="chip">Enter</span> <span class="m">Record</span>    <span class="chip">Del</span> <span class="m">Remove</span>    <span class="chip">Esc</span> <span class="m">Close</span>                                              │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">No pane focus. Enter records from wherever the cursor is. The status line starts at the pane edge, not under the option names.</p>
+  </div>
+  <div>
+    <div class="label">After: left focus</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Slate shortcuts                                                                                  │
+│                                                                                                  │
+│ <span class="m">Actions 1/7</span>                                  │ <span class="a b">Toggle sidebar</span>                                    │
+│ <span class="d">── Layout</span>                                    │ Shows or hides the sidebar.                       │
+│ <span class="selrow">› Toggle sidebar          Ctrl+B   </span>          │ <span class="d">/slate focused</span>                                    │
+│ <span class="d">── Pickers</span>                                   │                                                   │
+│   Prompt picker               <span class="d">—</span>              │ Shortcut  <span class="chip">[ Ctrl+B ]</span>                              │
+│   Theme picker                <span class="d">—</span>              │                                                   │
+│ <span class="d">── Display</span>                                   │ <span class="selrow">› Record shortcut         <span class="e">✕ In use</span></span>                │
+│   Process ID                  <span class="d">—</span>              │   Remove shortcut         Del                     │
+│   Effort border               <span class="d">—</span>              │                                                   │
+│   Spacing                     <span class="d">—</span>              │   <span class="e">✕</span> Used by Slate's editor                        │
+│   Composer details            <span class="d">—</span>              │                                                   │
+│                                              │                                                   │
+│                                              │                                                   │
+│                                                                                                  │
+│  <span class="chip">↑↓</span> <span class="m">Move</span>   <span class="chip">→</span> <span class="m">Open</span>   <span class="chip">Del</span> <span class="m">Remove</span>   <span class="chip">Esc</span> <span class="m">Close</span>                                                       │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">Left rows carry only the key in a fixed column; health stays in the right pane. The right pane is stable: name, description, command, blank, shortcut, options, status.</p>
+  </div>
+</div>
+
+<h3>2 · 100×30, right focus</h3>
+<div class="grid2">
+  <div>
+    <div class="label">After: right focus, option 1</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Slate shortcuts                                                                                  │
+│                                                                                                  │
+│ <span class="m">Actions 1/7</span>                                  │ <span class="a b">Toggle sidebar</span>                                    │
+│ <span class="d">── Layout</span>                                    │ Shows or hides the sidebar.                       │
+│ <span class="dimrow">› Toggle sidebar          Ctrl+B   </span>          │ <span class="d">/slate focused</span>                                    │
+│ <span class="d">── Pickers</span>                                   │                                                   │
+│   Prompt picker               <span class="d">—</span>              │ Shortcut  <span class="chip">[ Ctrl+B ]</span>                              │
+│   Theme picker                <span class="d">—</span>              │                                                   │
+│ <span class="d">── Display</span>                                   │ <span class="selrow">› Record shortcut         <span class="e">✕ In use</span></span>                │
+│   Process ID                  <span class="d">—</span>              │   Remove shortcut         Del                     │
+│   Effort border               <span class="d">—</span>              │                                                   │
+│   Spacing                     <span class="d">—</span>              │   <span class="e">✕</span> Used by Slate's editor                        │
+│   Composer details            <span class="d">—</span>              │                                                   │
+│                                              │                                                   │
+│                                              │                                                   │
+│                                                                                                  │
+│  <span class="chip">↑↓</span> <span class="m">Move</span>   <span class="chip">Enter</span> <span class="m">Choose</span>   <span class="chip">Del</span> <span class="m">Remove</span>   <span class="chip">←</span> <span class="m">Back</span>                                                    │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">The left row keeps the same place and dims its marker and text. Nothing in the right pane moves; only the right cursor and highlight change.</p>
+  </div>
+  <div>
+    <div class="label">After: option 2 (Remove)</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Slate shortcuts                                                                                  │
+│                                                                                                  │
+│ <span class="m">Actions 1/7</span>                                  │ <span class="a b">Toggle sidebar</span>                                    │
+│ <span class="d">── Layout</span>                                    │ Shows or hides the sidebar.                       │
+│ <span class="dimrow">› Toggle sidebar          Ctrl+B   </span>          │ <span class="d">/slate focused</span>                                    │
+│ <span class="d">── Pickers</span>                                   │                                                   │
+│   Prompt picker               <span class="d">—</span>              │ Shortcut  <span class="chip">[ Ctrl+B ]</span>                              │
+│   Theme picker                <span class="d">—</span>              │                                                   │
+│ <span class="d">── Display</span>                                   │   Record shortcut         <span class="e">✕ In use</span>                │
+│   Process ID                  <span class="d">—</span>              │ <span class="selrow">› Remove shortcut         Del</span>                     │
+│   Effort border               <span class="d">—</span>              │                                                   │
+│   Spacing                     <span class="d">—</span>              │   <span class="w">▲ Press Enter again to remove Ctrl+B</span>            │
+│   Composer details            <span class="d">—</span>              │                                                   │
+│                                              │                                                   │
+│                                              │                                                   │
+│                                                                                                  │
+│  <span class="chip">↑↓</span> <span class="m">Move</span>   <span class="chip">Enter</span> <span class="m">Confirm</span>   <span class="chip">Del</span> <span class="m">Remove</span>   <span class="chip">←</span> <span class="m">Back</span>                                                   │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">The existing press-twice removal is kept. Del still removes directly; Enter on the Remove row uses the same confirmation state.</p>
+  </div>
+</div>
+
+<h3>3 · 70×20, left focus</h3>
+<div class="grid2 tight">
+  <div>
+    <div class="label">After</div>
+    <div class="term w70"><pre>╭────────────────────────────────────────────────────────────────────╮
+│ <span class="m">Actions 1/7</span>                    │ <span class="a b">Toggle sidebar</span>                    │
+│ <span class="d">── Layout</span>                      │ Shows or hides the                │
+│ <span class="selrow">› <span class="a b">Toggle sidebar</span>  Ctrl+B      </span> │ sidebar.                          │
+│ <span class="d">── Pickers</span>                     │ <span class="d">/slate focused</span>                    │
+│   Prompt picker      <span class="d">—</span>         │                                   │
+│   Theme picker       <span class="d">—</span>         │ Shortcut  <span class="chip">[ Ctrl+B ]</span>              │
+│ <span class="d">── Display</span>                     │                                   │
+│   Process ID         <span class="d">—</span>         │ <span class="dimrow">› Record shortcut   <span class="e">✕ In use</span>      </span>│
+│   Effort border      <span class="d">—</span>         │   Remove shortcut   Del           │
+│   Spacing            <span class="d">—</span>         │                                   │
+│   Composer details   <span class="d">—</span>         │   <span class="e">✕</span> Used by Slate's editor        │
+│  <span class="chip">↑↓</span> <span class="m">Move</span>   <span class="chip">→</span> <span class="m">Open</span>   <span class="chip">Del</span> <span class="m">Remove</span>   <span class="chip">Esc</span> <span class="m">Close</span>                         │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">At 70 the right pane wraps only its description. The options and the status line stay put.</p>
+  </div>
+
+</div>
+
+<h3>4 · 50×6, both focus states</h3>
+<div class="grid2 tight">
+  <div>
+    <div class="label">Before</div>
+    <div class="term w50"><pre>Slate shortcuts
+<span class="selrow">› Toggle sidebar · <span class="chip">[ Ctrl+B ]</span></span>
+<span class="e">✕ Used by Slate's editor</span>
+ <span class="chip">↑↓</span>  <span class="chip">Enter</span>  <span class="chip">Del</span>  <span class="chip">Esc</span></pre></div>
+    <p class="cap">The status is present, but the active choice and hints compete for the last lines.</p>
+  </div>
+  <div>
+    <div class="label">After: left / right</div>
+    <div class="term w50"><pre><span class="m">Slate shortcuts</span>
+<span class="selrow">› Toggle sidebar · Ctrl+B</span>
+<span class="e">✕ Used by Slate's editor</span>
+<span class="d">↑↓ Move · → Open · Esc Close</span></pre></div>
+    <div class="term w50" style="margin-top:8px"><pre><span class="a b">Toggle sidebar</span>
+Shortcut <span class="chip">[ Ctrl+B ]</span>
+<span class="selrow">› Record shortcut · <span class="e">✕ In use</span></span>
+<span class="d">↑↓ Move · Enter Choose · ← Back</span></pre></div>
+    <p class="cap">Priority order: status or message, then the active choice or input, then the title, then hints. At height 4 all fit; at height 3 the title goes; at height 2 hints go; at height 1 the status or active choice goes.</p>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<h2><code>/theme</code></h2>
+
+<h3>5 · 100×30, left focus</h3>
+<div class="grid2">
+  <div class="before">
+    <div class="label">Before</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Slate themes                                                                                     │
+│                                                                                                  │
+│ Themes 5/7                                   │ Palettes 4/16 ↓2                                  │
+│   System default                             │   ████ Rosewater  #f5e0dc                         │
+│ ── Light                                     │   ████ Flamingo  #f2cdcd                          │
+│   Catppuccin Latte                           │   ████ Pink  #f5c2e7                              │
+│   Catppuccin Frappé                          │   ████ Mauve  #cba6f7                             │
+│ ── Dark                                      │   ████ Red  #f38ba8                               │
+│   Catppuccin Macchiato                       │   ████ Maroon  #eba0ac                            │
+│ <span class="selrow">› Catppuccin Mocha</span>                           │   ████ Peach  #fab387                             │
+│   Tokyo Night                                │   ████ Yellow  #f9e2af                            │
+│   Black Metal                                │   ████ Green  #a6e3a1                             │
+│                                              │   ████ Teal  #94e2d5                              │
+│                                              │   ████ Sky  #89dceb                               │
+│                                              │   ████ Sapphire  #74c7ec                          │
+│                                              │   ████ Blue  #89b4fa                              │
+│                                              │   ████ Lavender  #b4befe                          │
+│                                                                                                  │
+│ <span class="d">↑↓ theme ←→ palette</span>                                                                              │
+│ <span class="d">Enter save · Esc restore · Ctrl+C cancel</span>                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">←→ changes the palette while the cursor stays on the theme. The right pane is only a viewport; there is no focus state and no theme description.</p>
+  </div>
+  <div>
+    <div class="label">After: left focus</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ <span class="m">Themes 5/7                                  </span> │ <span class="a b">Catppuccin Mocha                                 </span> │
+│   System default            <span class="m">        Terminal</span> │ Dark · 16 palettes. Preview updates live.         │
+│ <span class="d">── Catppuccin · Light                       </span> │                                                   │
+│   Latte                     <span class="m">       Rosewater</span> │ <span class="m">Palettes 4/16 ↓1                                 </span> │
+│   Frappé                    <span class="m">        Flamingo</span> │   ████ Rosewater        <span class="d">#f5e0dc</span>                   │
+│ <span class="d">── Catppuccin · Dark                        </span> │   ████ Flamingo         <span class="d">#f2cdcd</span>                   │
+│   Macchiato                 <span class="m">       Rosewater</span> │   ████ Pink             <span class="d">#f5c2e7</span>                   │
+│ <span class="selrow">› Mocha                                Mauve</span> │ <span class="dimrow">› ████ Mauve            #cba6f7                  </span> │
+│ <span class="d">── Other                                    </span> │   ████ Red              <span class="d">#f38ba8</span>                   │
+│   Tokyo Night               <span class="m">         Default</span> │   ████ Maroon           <span class="d">#eba0ac</span>                   │
+│   Black Metal               <span class="m">         Default</span> │   ████ Peach            <span class="d">#fab387</span>                   │
+│                                              │   ████ Yellow           <span class="d">#f9e2af</span>                   │
+│                                              │   ████ Green            <span class="d">#a6e3a1</span>                   │
+│                                              │   ████ Teal             <span class="d">#94e2d5</span>                   │
+│                                              │        <span class="s">● Preview                                 </span> │
+│                                                                                                  │
+│  <span class="chip">↑↓</span> <span class="m">Theme</span>   <span class="chip">→</span> <span class="m">Palettes</span>   <span class="chip">Esc</span> <span class="m">Close</span>                                                               │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">The left list groups the repeated Catppuccin family and tone into section rows, so rows read <code>Latte</code>, <code>Mocha</code> and <code>Frappé</code>. Each row still shows its remembered palette in a fixed value column. The right pane has a title, description, blank line, palette options and status. The palette cursor is dim while the left pane has focus.</p>
+  </div>
+</div>
+
+<h3>6 · 100×30, right focus</h3>
+<div class="grid2">
+  <div>
+    <div class="label">After: right focus</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ <span class="m">Themes 5/7                                  </span> │ <span class="a b">Catppuccin Mocha                                 </span> │
+│   System default            <span class="m">        Terminal</span> │ Dark · 16 palettes. Preview updates live.         │
+│ <span class="d">── Catppuccin · Light                       </span> │                                                   │
+│   Latte                     <span class="m">       Rosewater</span> │ <span class="m">Palettes 4/16 ↓1                                 </span> │
+│   Frappé                    <span class="m">        Flamingo</span> │   ████ Rosewater        <span class="d">#f5e0dc</span>                   │
+│ <span class="d">── Catppuccin · Dark                        </span> │   ████ Flamingo         <span class="d">#f2cdcd</span>                   │
+│   Macchiato                 <span class="m">       Rosewater</span> │   ████ Pink             <span class="d">#f5c2e7</span>                   │
+│ <span class="dimrow">› Mocha                                Mauve</span> │ <span class="selrow">› ████ Mauve            #cba6f7                  </span> │
+│ <span class="d">── Other                                    </span> │   ████ Red              <span class="d">#f38ba8</span>                   │
+│   Tokyo Night               <span class="m">         Default</span> │   ████ Maroon           <span class="d">#eba0ac</span>                   │
+│   Black Metal               <span class="m">         Default</span> │   ████ Peach            <span class="d">#fab387</span>                   │
+│                                              │   ████ Yellow           <span class="d">#f9e2af</span>                   │
+│                                              │   ████ Green            <span class="d">#a6e3a1</span>                   │
+│                                              │   ████ Teal             <span class="d">#94e2d5</span>                   │
+│                                              │        <span class="s">● Preview                                 </span> │
+│                                                                                                  │
+│  <span class="chip">↑↓</span> <span class="m">Palette</span>   <span class="chip">Enter</span> <span class="m">Save</span>   <span class="chip">←</span> <span class="m">Back</span>                                                                │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">The left theme row dims in place. Only the palette cursor and highlight change. Enter or Space saves and closes; ← or Esc goes back without saving.</p>
+  </div>
+  <div>
+    <div class="label">After: error state, same geometry</div>
+    <div class="term w100"><pre>╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ <span class="m">Themes 5/7                                  </span> │ <span class="a b">Catppuccin Frappé                                </span> │
+│   System default            <span class="m">        Terminal</span> │ Light · 15 palettes. Preview updates live.        │
+│ <span class="d">── Catppuccin · Light                       </span> │                                                   │
+│   Latte                     <span class="m">       Rosewater</span> │ <span class="m">Palettes 2/15                                    </span> │
+│ <span class="selrow">› Frappé                            Flamingo</span> │   ████ Rosewater        <span class="d">#f2d5cf</span>                   │
+│ <span class="d">── Catppuccin · Dark                        </span> │ <span class="dimrow">› ████ Flamingo         #eebebe                  </span> │
+│   Macchiato                 <span class="m">       Rosewater</span> │   ████ Pink             <span class="d">#f4b8e4</span>                   │
+│   Mocha                     <span class="m">           Mauve</span> │   ████ Mauve            <span class="d">#ca9ee6</span>                   │
+│ <span class="d">── Other                                    </span> │   ████ Red              <span class="d">#e78284</span>                   │
+│   Tokyo Night               <span class="m">         Default</span> │   ████ Maroon           <span class="d">#ea999c</span>                   │
+│   Black Metal               <span class="m">         Default</span> │   ████ Peach            <span class="d">#ef9f76</span>                   │
+│                                              │   ████ Yellow           <span class="d">#e5c890</span>                   │
+│                                              │   ████ Green            <span class="d">#a6d189</span>                   │
+│                                              │   ████ Teal             <span class="d">#81c8be</span>                   │
+│                                              │        <span class="e">✕ Couldn't load</span>                            │
+│                                                                                                  │
+│  <span class="chip">↑↓</span> <span class="m">Theme</span>   <span class="chip">→</span> <span class="m">Palettes</span>   <span class="chip">Esc</span> <span class="m">Close</span>                                                               │
+│ <span class="e">✕ Could not load catppuccin-frappe-rosewater. Run /reload.</span>                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">Long errors keep a short status in the pane and put the full message in the footer, so the palette rows never move. Errors never add lines inside the right pane.</p>
+  </div>
+</div>
+
+<h3>7 · 70×20, left focus</h3>
+<div class="grid2 tight">
+  <div>
+    <div class="label">After</div>
+    <div class="term w70"><pre>╭────────────────────────────────────────────────────────────────────╮
+│ <span class="m">Themes 5/7                    </span> │ <span class="a b">Catppuccin Mocha                 </span> │
+│   System default               │ Dark · 16 palettes. Preview       │
+│ <span class="d">── Catppuccin · Light         </span> │ updates live.                     │
+│   Latte                        │                                   │
+│   Frappé                       │ <span class="m">Palettes 4/16 ↓2                 </span> │
+│ <span class="d">── Catppuccin · Dark          </span> │   ████ Rosewater        <span class="d">#f5e0dc</span>   │
+│   Macchiato                    │   ████ Flamingo         <span class="d">#f2cdcd</span>   │
+│ <span class="selrow">› Mocha                       </span> │   ████ Pink             <span class="d">#f5c2e7</span>   │
+│ <span class="d">── Other                      </span> │ <span class="dimrow">› ████ Mauve            #cba6f7  </span> │
+│   Tokyo Night                  │   ████ Red              <span class="d">#f38ba8</span>   │
+│   Black Metal                  │        <span class="s">● Preview                 </span> │
+│                                                                    │
+│  <span class="chip">↑↓</span> <span class="m">Theme</span>   <span class="chip">→</span> <span class="m">Palettes</span>   <span class="chip">Esc</span> <span class="m">Close</span>                                 │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯</pre></div>
+    <p class="cap">The right description wraps; the options, status and cursor columns do not move. The left value column drops below 100 columns.</p>
+  </div>
+
+</div>
+
+<h3>8 · 50×6, both focus states</h3>
+<div class="grid2 tight">
+  <div>
+    <div class="label">Before</div>
+    <div class="term w50"><pre><span class="a">Catppuccin Mocha</span>
+4/16 · Mauve
+Enter save · Esc restore
+<span class="d">↑↓ theme ←→ color</span></pre></div>
+    <p class="cap">The theme, palette and hints fit, but there is no active choice emphasis and the status line is not a real status.</p>
+  </div>
+  <div>
+    <div class="label">After: left / right</div>
+    <div class="term w50"><pre><span class="m">Slate themes</span>
+<span class="selrow">› Catppuccin Mocha · Mauve</span>
+<span class="s">● Preview</span>
+<span class="d">↑↓ Theme · → Palettes · Esc Close</span></pre></div>
+    <div class="term w50" style="margin-top:8px"><pre><span class="a b">Catppuccin Mocha</span>
+<span class="selrow">› 4/16 · Mauve</span>
+<span class="s">● Preview</span>
+<span class="d">↑↓ Palette · Enter Save · ← Back</span></pre></div>
+    <p class="cap">At 50×6 the active choice and status both survive. The title is dropped before either of them.</p>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<h2>Alignment and data rules</h2>
+<h3>9 · One name column, one status column</h3>
+<div class="term w70"><pre><span class="m">/shortcuts · right pane</span>
+Toggle sidebar
+Shows or hides the sidebar.
+<span class="d">/slate focused</span>
+
+Shortcut  <span class="chip">[ Ctrl+B ]</span>
+
+<span class="selrow">› Record shortcut         <span class="s">● Ready</span></span>
+  Remove shortcut         Del
+<span class="d">  │                       │</span>
+<span class="d">  └ name column           └ status column</span>
+  <span class="s">● Ready</span>
+<span class="d">  └ status line starts under the option name</span>
+
+<span class="m">/theme · right pane</span>
+Catppuccin Mocha
+Dark · 16 palettes. Preview updates live.
+
+<span class="m">Palettes 4/16 ↓1</span>
+  ████ Rosewater        <span class="d">#f5e0dc</span>
+<span class="selrow">› ████ Mauve            <span class="d">#cba6f7</span></span>
+  ████ Red              <span class="d">#f38ba8</span>
+       <span class="s">● Preview</span>
+<span class="d">       └ status line starts under the palette name</span></pre></div>
+<p class="cap">Rows are assembled from cells measured with <code>visibleWidth</code> and cut with <code>truncateToWidth</code>. Wide CJK or emoji labels cannot push the glyph column out; they get an ellipsis. The status glyph and its text are one cell, so they always move together.</p>
+
+<h3>10 · Sections come from data</h3>
+<div class="grid2 tight">
+  <div>
+    <div class="label">Before: hard-coded in the panel</div>
+    <div class="term w70"><pre><span class="m">const SECTIONS = {
+  sidebar: "Layout",
+  prompts: "Pickers",
+  pid: "Display",
+};</span></pre></div>
+  </div>
+  <div>
+    <div class="label">After: carried by the row data</div>
+    <div class="term w70"><pre><span class="m">{ id: "sidebar", section: "Layout", ... }
+{ id: "prompts", section: "Pickers", ... }
+{ id: "pid", section: "Display", ... }
+
+{ label: "Latte", family: "Catppuccin",
+  section: "Catppuccin · Light", ... }
+{ label: "Mocha", family: "Catppuccin",
+  section: "Catppuccin · Dark", ... }</span></pre></div>
+  </div>
+</div>
+<p class="cap">The list builder inserts a <code>── Section</code> whenever the section changes. Shortcut sections move into <code>SHORTCUT_ACTIONS</code>; theme labels, family and section move into <code>ThemeChoice</code>. No panel keeps its own label map.</p>
+
+<h2>Scope</h2>
+<ul class="compact">
+  <li><b>In:</b> <code>/shortcuts</code> and <code>/theme</code>; the Slate-owned <code>panel-focus.ts</code> helpers for focus markers, fixed columns and tiny-screen priority; tests for both focus states, alignment at 100×30, 70×20 and 50×6, and width safety.</li>
+  <li><b>Kept:</b> shortcut recording, conflict detection, press-twice removal, “Saved — applies when you close”, theme preview/restore, and all current keybindings.</li>
+  <li><b>Out:</b> README and docs; new features; the <code>/prompts</code> search overlay and read-only inspector, which have no two-pane control surface.</li>
+  <li><b>Frame note:</b> <code>picker-frame.ts</code> now owns the shared focus row. pi-web-search vendors a byte-identical copy and must resync its <code>frame.ts</code> and parity test before its next release.</li>
+</ul>
+</main>
+</body>
+</html>
