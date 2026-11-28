@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "gitRevision": "02499a87f85d",
+  "gitRevision": "c03f0d59388b",
   "node": "v24.22.1",
   "taskCount": 40,
   "context": {
-    "declarationTokens": 366,
-    "resultTokens": 14224,
-    "averageResultTokens": 355.6,
-    "evidenceDensity": 0.755691321724739,
+    "declarationTokens": 380,
+    "resultTokens": 14143,
+    "averageResultTokens": 353.575,
+    "evidenceDensity": 0.7598923569923693,
     "duplicateRate": 0
   },
   "citation": {
@@ -25,8 +25,8 @@
     "sessionRecovered": 2,
     "deadlineCases": 20,
     "timeoutMs": 1000,
-    "deadlineP99Ms": 1023.86,
-    "abortMs": 1.56,
+    "deadlineP99Ms": 1005.54,
+    "abortMs": 1.61,
     "outboundAfterAbort": 0,
     "nonRetryableFastFailures": {
       "exa/malformed-json": "parse_error",
@@ -70,10 +70,10 @@
   },
   "mcp": {
     "declaration": {
-      "piInputTokens": 290,
-      "mcpInputTokens": 290,
-      "mcpFullTokens": 316,
-      "piWithAnnotationsTokens": 316
+      "piInputTokens": 304,
+      "mcpInputTokens": 304,
+      "mcpFullTokens": 331,
+      "piWithAnnotationsTokens": 330
     },
     "citedHits": 97,
     "refChecks": 8,
@@ -116,16 +116,16 @@
     "excludedFromTarball": true
   },
   "overhead": {
-    "replayAdjustedP50Ms": 1.05,
-    "replayAdjustedP95Ms": 4.54,
-    "coldRegistrationMs": 1877.94,
-    "peakRssKiB": 304480
+    "replayAdjustedP50Ms": 0.39,
+    "replayAdjustedP95Ms": 1.99,
+    "coldRegistrationMs": 1016.87,
+    "peakRssKiB": 385520
   },
   "tasks": {
     "cal-01": {
       "calls": 1,
-      "resultTokens": 216,
-      "evidenceDensity": 0.6639629200463499,
+      "resultTokens": 217,
+      "evidenceDensity": 0.6608996539792388,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -133,8 +133,8 @@
     },
     "cal-02": {
       "calls": 1,
-      "resultTokens": 216,
-      "evidenceDensity": 0.6639629200463499,
+      "resultTokens": 217,
+      "evidenceDensity": 0.6608996539792388,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -142,8 +142,8 @@
     },
     "cal-03": {
       "calls": 1,
-      "resultTokens": 216,
-      "evidenceDensity": 0.6639629200463499,
+      "resultTokens": 217,
+      "evidenceDensity": 0.6608996539792388,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -151,8 +151,8 @@
     },
     "cal-04": {
       "calls": 1,
-      "resultTokens": 242,
-      "evidenceDensity": 0.6994818652849741,
+      "resultTokens": 243,
+      "evidenceDensity": 0.6965944272445821,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -160,8 +160,8 @@
     },
     "cal-05": {
       "calls": 1,
-      "resultTokens": 242,
-      "evidenceDensity": 0.6994818652849741,
+      "resultTokens": 243,
+      "evidenceDensity": 0.6965944272445821,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -169,8 +169,8 @@
     },
     "cal-06": {
       "calls": 1,
-      "resultTokens": 183,
-      "evidenceDensity": 0.36114911080711354,
+      "resultTokens": 185,
+      "evidenceDensity": 0.3567567567567568,
       "hits": 2,
       "egressByHost": {
         "mcp.grep.app": 4
@@ -178,8 +178,8 @@
     },
     "cal-07": {
       "calls": 1,
-      "resultTokens": 183,
-      "evidenceDensity": 0.36114911080711354,
+      "resultTokens": 185,
+      "evidenceDensity": 0.3567567567567568,
       "hits": 2,
       "egressByHost": {
         "mcp.grep.app": 4
@@ -187,8 +187,8 @@
     },
     "cal-08": {
       "calls": 1,
-      "resultTokens": 183,
-      "evidenceDensity": 0.36114911080711354,
+      "resultTokens": 185,
+      "evidenceDensity": 0.3567567567567568,
       "hits": 2,
       "egressByHost": {
         "mcp.grep.app": 4
@@ -196,8 +196,8 @@
     },
     "cal-09": {
       "calls": 1,
-      "resultTokens": 76,
-      "evidenceDensity": 0.5033112582781457,
+      "resultTokens": 77,
+      "evidenceDensity": 0.495114006514658,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -205,8 +205,8 @@
     },
     "cal-10": {
       "calls": 1,
-      "resultTokens": 70,
-      "evidenceDensity": 0.5448028673835126,
+      "resultTokens": 71,
+      "evidenceDensity": 0.5352112676056338,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -214,8 +214,8 @@
     },
     "cal-11": {
       "calls": 1,
-      "resultTokens": 70,
-      "evidenceDensity": 0.3971119133574007,
+      "resultTokens": 71,
+      "evidenceDensity": 0.3900709219858156,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -223,8 +223,8 @@
     },
     "cal-12": {
       "calls": 1,
-      "resultTokens": 79,
-      "evidenceDensity": 0.46178343949044587,
+      "resultTokens": 80,
+      "evidenceDensity": 0.45454545454545453,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -232,8 +232,8 @@
     },
     "cal-13": {
       "calls": 1,
-      "resultTokens": 58,
-      "evidenceDensity": 0.2987012987012987,
+      "resultTokens": 59,
+      "evidenceDensity": 0.2923728813559322,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -241,8 +241,8 @@
     },
     "cal-14": {
       "calls": 1,
-      "resultTokens": 71,
-      "evidenceDensity": 0.5,
+      "resultTokens": 72,
+      "evidenceDensity": 0.4912891986062718,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -250,8 +250,8 @@
     },
     "cal-15": {
       "calls": 1,
-      "resultTokens": 79,
-      "evidenceDensity": 0.5509554140127388,
+      "resultTokens": 80,
+      "evidenceDensity": 0.542319749216301,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -259,8 +259,8 @@
     },
     "cal-16": {
       "calls": 2,
-      "resultTokens": 282,
-      "evidenceDensity": 0.6274509803921569,
+      "resultTokens": 284,
+      "evidenceDensity": 0.6230088495575221,
       "hits": 4,
       "egressByHost": {
         "mcp.exa.ai": 8
@@ -268,8 +268,8 @@
     },
     "cal-17": {
       "calls": 3,
-      "resultTokens": 448,
-      "evidenceDensity": 0.5915966386554622,
+      "resultTokens": 452,
+      "evidenceDensity": 0.586015538290788,
       "hits": 6,
       "egressByHost": {
         "mcp.exa.ai": 8,
@@ -278,8 +278,8 @@
     },
     "cal-18": {
       "calls": 3,
-      "resultTokens": 1759,
-      "evidenceDensity": 0.9182193144645143,
+      "resultTokens": 1731,
+      "evidenceDensity": 0.9332176929748482,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -287,8 +287,8 @@
     },
     "cal-19": {
       "calls": 2,
-      "resultTokens": 1160,
-      "evidenceDensity": 0.9005393743257821,
+      "resultTokens": 1132,
+      "evidenceDensity": 0.9230429013710747,
       "hits": 2,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -296,8 +296,8 @@
     },
     "cal-20": {
       "calls": 1,
-      "resultTokens": 510,
-      "evidenceDensity": 0.6620892594409024,
+      "resultTokens": 519,
+      "evidenceDensity": 0.6502890173410405,
       "hits": 6,
       "egressByHost": {
         "search.parallel.ai": 4,
@@ -308,8 +308,8 @@
     },
     "hold-01": {
       "calls": 1,
-      "resultTokens": 218,
-      "evidenceDensity": 0.6593785960874569,
+      "resultTokens": 219,
+      "evidenceDensity": 0.6563573883161512,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -317,8 +317,8 @@
     },
     "hold-02": {
       "calls": 1,
-      "resultTokens": 218,
-      "evidenceDensity": 0.6593785960874569,
+      "resultTokens": 219,
+      "evidenceDensity": 0.6563573883161512,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -326,8 +326,8 @@
     },
     "hold-03": {
       "calls": 1,
-      "resultTokens": 218,
-      "evidenceDensity": 0.6593785960874569,
+      "resultTokens": 219,
+      "evidenceDensity": 0.6563573883161512,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -335,8 +335,8 @@
     },
     "hold-04": {
       "calls": 1,
-      "resultTokens": 243,
-      "evidenceDensity": 0.6951596292481977,
+      "resultTokens": 244,
+      "evidenceDensity": 0.6923076923076923,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -344,8 +344,8 @@
     },
     "hold-05": {
       "calls": 1,
-      "resultTokens": 243,
-      "evidenceDensity": 0.6951596292481977,
+      "resultTokens": 244,
+      "evidenceDensity": 0.6923076923076923,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -353,8 +353,8 @@
     },
     "hold-06": {
       "calls": 1,
-      "resultTokens": 243,
-      "evidenceDensity": 0.6951596292481977,
+      "resultTokens": 244,
+      "evidenceDensity": 0.6923076923076923,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -362,8 +362,8 @@
     },
     "hold-07": {
       "calls": 1,
-      "resultTokens": 184,
-      "evidenceDensity": 0.35918367346938773,
+      "resultTokens": 186,
+      "evidenceDensity": 0.3548387096774194,
       "hits": 2,
       "egressByHost": {
         "mcp.grep.app": 4
@@ -371,8 +371,8 @@
     },
     "hold-08": {
       "calls": 1,
-      "resultTokens": 184,
-      "evidenceDensity": 0.35918367346938773,
+      "resultTokens": 186,
+      "evidenceDensity": 0.3548387096774194,
       "hits": 2,
       "egressByHost": {
         "mcp.grep.app": 4
@@ -380,8 +380,8 @@
     },
     "hold-09": {
       "calls": 1,
-      "resultTokens": 184,
-      "evidenceDensity": 0.35918367346938773,
+      "resultTokens": 186,
+      "evidenceDensity": 0.3548387096774194,
       "hits": 2,
       "egressByHost": {
         "mcp.grep.app": 4
@@ -389,8 +389,8 @@
     },
     "hold-10": {
       "calls": 1,
-      "resultTokens": 82,
-      "evidenceDensity": 0.4662576687116564,
+      "resultTokens": 83,
+      "evidenceDensity": 0.459214501510574,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -398,8 +398,8 @@
     },
     "hold-11": {
       "calls": 1,
-      "resultTokens": 73,
-      "evidenceDensity": 0.37800687285223367,
+      "resultTokens": 74,
+      "evidenceDensity": 0.3716216216216216,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -407,8 +407,8 @@
     },
     "hold-12": {
       "calls": 1,
-      "resultTokens": 73,
-      "evidenceDensity": 0.4965753424657534,
+      "resultTokens": 75,
+      "evidenceDensity": 0.4882154882154882,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -416,8 +416,8 @@
     },
     "hold-13": {
       "calls": 1,
-      "resultTokens": 58,
-      "evidenceDensity": 0.30131004366812225,
+      "resultTokens": 59,
+      "evidenceDensity": 0.2948717948717949,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -425,8 +425,8 @@
     },
     "hold-14": {
       "calls": 1,
-      "resultTokens": 73,
-      "evidenceDensity": 0.4828767123287671,
+      "resultTokens": 75,
+      "evidenceDensity": 0.47474747474747475,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -434,8 +434,8 @@
     },
     "hold-15": {
       "calls": 1,
-      "resultTokens": 80,
-      "evidenceDensity": 0.5440251572327044,
+      "resultTokens": 81,
+      "evidenceDensity": 0.5356037151702786,
       "hits": 1,
       "egressByHost": {
         "r.jina.ai": 1
@@ -443,8 +443,8 @@
     },
     "hold-16": {
       "calls": 3,
-      "resultTokens": 426,
-      "evidenceDensity": 0.6230088495575221,
+      "resultTokens": 429,
+      "evidenceDensity": 0.6186291739894552,
       "hits": 6,
       "egressByHost": {
         "mcp.exa.ai": 12
@@ -452,8 +452,8 @@
     },
     "hold-17": {
       "calls": 2,
-      "resultTokens": 347,
-      "evidenceDensity": 0.5094066570188133,
+      "resultTokens": 350,
+      "evidenceDensity": 0.5046594982078854,
       "hits": 4,
       "egressByHost": {
         "mcp.exa.ai": 4,
@@ -462,8 +462,8 @@
     },
     "hold-18": {
       "calls": 3,
-      "resultTokens": 1760,
-      "evidenceDensity": 0.9176972281449893,
+      "resultTokens": 1732,
+      "evidenceDensity": 0.9326784166425889,
       "hits": 3,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -471,8 +471,8 @@
     },
     "hold-19": {
       "calls": 2,
-      "resultTokens": 1160,
-      "evidenceDensity": 0.89995687796464,
+      "resultTokens": 1132,
+      "evidenceDensity": 0.9224309392265193,
       "hits": 2,
       "egressByHost": {
         "mcp.exa.ai": 4
@@ -480,8 +480,8 @@
     },
     "hold-20": {
       "calls": 3,
-      "resultTokens": 1814,
-      "evidenceDensity": 0.9187698248517446,
+      "resultTokens": 1786,
+      "evidenceDensity": 0.9331839193164309,
       "hits": 3,
       "egressByHost": {
         "r.jina.ai": 1
