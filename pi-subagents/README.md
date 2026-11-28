@@ -21,7 +21,7 @@ Tiny yet powerful, benchmarked sub-agents for Pi
 These frozen figures are from a prior measured campaign, not measurements or a
 rebenchmark of this new release's changed artifact. Both models ran through the
 same five dynamic workflow tasks using different subagents packages. See the
-[benchmark methodology](https://github.com/GaganSD/coding-agent-toolkit/blob/main/benchmarks/README.md).
+[benchmark methodology](https://github.com/GaganSD/coding-agent-toolkit/blob/main/benchmarks/pi-subagents/README.md).
 
 ## Installation
 

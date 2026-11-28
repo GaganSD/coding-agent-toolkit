@@ -52,7 +52,7 @@ independent post-change review is claimed.
 
 Repository-wide `npm run lint` still traverses ignored benchmark caches and
 research. Tracked-file lint isolates 12 existing errors in
-`benchmarks/preflight-guard.cjs`; unrelated files were not changed.
+`benchmarks/pi-subagents/preflight-guard.cjs`; unrelated files were not changed.
 
 ## Historical beta verification
 
