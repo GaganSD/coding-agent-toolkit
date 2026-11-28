@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { applyConfig } from "../src/providers/config.ts";
 import {
+	EXA_ADVANCED_MCP_URL,
 	EXA_CONTENTS_URL,
 	EXA_MCP_URL,
 	EXA_SEARCH_URL,
@@ -15,6 +16,7 @@ import {
 import { type FetchLike, type ResponseLike } from "../src/providers/http.ts";
 import { MCP_PROTOCOL_VERSION } from "../src/providers/mcp.ts";
 import type { SearchRequest } from "../src/providers/index.ts";
+import { exaAdvanced } from "./fixtures/exa-advanced.ts";
 
 const maxResults = 5;
 const settings = applyConfig("/tmp/web-search.json", {
@@ -1023,12 +1025,53 @@ test("Exa REST passes native publication date and include/exclude domain filters
 	assert.equal(result.warnings, undefined);
 });
 
-test("Exa keyless leaves native filter arguments off and reports unsupported recency", async () => {
-	const { fetchImpl, requests } = mcpFetch([MCP_SEARCH_TEXT]);
+test("keyless Exa sends native domain filters and parses the recorded advanced response", async () => {
+	const { fetchImpl, requests } = mcpFetch([JSON.stringify(exaAdvanced.domain), "# Requested\nURL: https://github.blog/example\nBody."]);
 	const result = await withoutKey(() => exaSearch(request({
-		filters: { recency: "day", domains: ["example.com"] },
+		query: "GitHub Copilot release changelog",
+		filters: { domains: ["github.blog", "-docs.github.com"] },
+		urls: ["https://github.blog/example"],
+	}), { fetchImpl }));
+	assert.ok(requests.every(({ url }) => url === EXA_ADVANCED_MCP_URL));
+	const [search, fetch] = requests.filter(({ body }) => body.method === "tools/call");
+	assert.equal((search.body.params as { name: string }).name, "web_search_advanced_exa");
+	const args = (search.body.params as { arguments: Record<string, unknown> }).arguments;
+	assert.equal(args.numResults, maxResults);
+	assert.equal(args.enableHighlights, true);
+	assert.equal(args.objective, undefined);
+	assert.deepEqual(args.includeDomains, ["github.blog"]);
+	assert.deepEqual(args.excludeDomains, ["docs.github.com"]);
+	assert.equal(args.startPublishedDate, undefined);
+	assert.equal((fetch.body.params as { name: string }).name, "web_fetch_exa");
+	assert.deepEqual(result.searchResults?.map(({ url }) => url), [...exaAdvanced.domain.results.map(({ url }) => url), "https://github.blog/example"]);
+	assert.equal(result.searchResults?.[0].citedText, exaAdvanced.domain.results[0].highlights[0]);
+	assert.equal(result.requestId, exaAdvanced.domain.requestId);
+	assert.equal(result.warnings, undefined);
+});
+
+test("keyless Exa applies native recency and preserves recorded publication dates", async (t) => {
+	const now = Date.parse("2026-11-28T00:00:00.000Z");
+	t.mock.method(Date, "now", () => now);
+	const { fetchImpl, requests } = mcpFetch([JSON.stringify(exaAdvanced.recency)]);
+	const result = await withoutKey(() => exaSearch(request({
+		query: "GitHub Copilot release changelog",
+		filters: { recency: "month" },
 	}), { fetchImpl }));
 	const call = requests.find(({ body }) => body.method === "tools/call")!;
-	assert.deepEqual(Object.keys((call.body.params as { arguments: object }).arguments).sort(), ["numResults", "objective", "query"]);
-	assert.deepEqual(result.warnings, ['Exa keyless MCP cannot apply recency "day".']);
+	const args = (call.body.params as { arguments: Record<string, unknown> }).arguments;
+	assert.equal(args.startPublishedDate, "2026-10-28T00:00:00.000Z");
+	assert.deepEqual(result.searchResults?.map(({ pageAge }) => pageAge), exaAdvanced.recency.results.map(({ publishedDate }) => publishedDate));
+	assert.ok(result.searchResults?.every(({ pageAge }) => Date.parse(pageAge ?? "") >= Date.parse(String(args.startPublishedDate))));
+	assert.equal(result.warnings, undefined);
+});
+
+test("keyless Exa advanced search distinguishes empty results from an unreadable reply", async () => {
+	const empty = mcpFetch(['{"results":[]}']);
+	const input = request({ filters: { recency: "day" } });
+	const result = await withoutKey(() => exaSearch(input, { fetchImpl: empty.fetchImpl }));
+	assert.deepEqual(result.searchResults, []);
+	assert.equal(result.warnings, undefined);
+	const malformed = mcpFetch(["Unexpected provider text"]);
+	await assert.rejects(withoutKey(() => exaSearch(input, { fetchImpl: malformed.fetchImpl })), { code: "parse_error", retryable: true });
+	assert.equal(malformed.requests.filter(({ body }) => body.method === "tools/call").length, 1);
 });

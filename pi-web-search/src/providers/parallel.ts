@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { parallelApiKey } from "../env.ts";
 import type { FetchLike, JsonRequestOptions } from "./http.ts";
 import { collectTextContent, type McpClient, withMcpSession } from "./mcp.ts";
-import { domainPolicy, recencyStart, recencyWarning, type WebFilters } from "./filters.ts";
+import { domainMatcher, domainPolicy, recencyStart, recencyWarning, type WebFilters } from "./filters.ts";
 import { PREVIEW_PASSAGE_CHARS } from "../previews.ts";
 import { searchTerms } from "../search-terms.ts";
 import type { SearchRequest } from "./index.ts";
@@ -70,7 +70,9 @@ async function retrieve(req: SearchRequest, client: McpClient, authenticated: bo
 	const metadata = requestMetadata(req);
 	const objective = req.objective ?? req.query;
 	const terms = searchTerms(objective);
-	const searchQueries = [terms.length > 6 ? terms.slice(0, 6).join(" ") : objective];
+	const baseQuery = terms.length > 6 ? terms.slice(0, 6).join(" ") : objective;
+	const domains = req.filters?.domains;
+	const searchQueries = !authenticated && domains?.length ? anonymousSearchQueries(baseQuery, domains) : [baseQuery];
 	// Observe both promises immediately; search and URL extraction are independent.
 	const [searchOutcome, fetchOutcome] = await Promise.allSettled([
 		req.fetchOnly ? Promise.resolve<Record<string, unknown>>({ results: [] }) : callParallel(client, SEARCH_TOOL, {
@@ -81,14 +83,20 @@ async function retrieve(req: SearchRequest, client: McpClient, authenticated: bo
 		req.urls?.length ? callParallel(client, FETCH_TOOL, {
 			urls: req.urls.slice(0, MAX_FETCH_URLS),
 			objective: objective.slice(0, 200) || "Extract the requested pages.",
-			search_queries: req.fetchOnly ? [] : searchQueries,
+			search_queries: req.fetchOnly ? [] : [baseQuery],
 			full_content: false,
 			...metadata,
 		}, req.signal) : Promise.resolve(undefined),
 	]);
 	if (searchOutcome.status === "rejected") throw searchOutcome.reason;
 	const search = searchOutcome.value;
-	const hits = requireResults(search, "web_search").slice(0, req.settings.maxResults);
+	let hits = requireResults(search, "web_search");
+	// Anonymous web_search has a fixed result window. Consider every returned hit before capping.
+	if (domains?.length) {
+		const allows = domainMatcher(domains);
+		hits = hits.filter((hit) => allows(hit.url));
+	}
+	hits = hits.slice(0, req.settings.maxResults);
 	const searchResults = hits.map((hit) => toDetail(hit));
 	const sources = hits.map(toSource);
 	const warnings = normalizeWarnings(search.warnings);
@@ -120,6 +128,17 @@ async function retrieve(req: SearchRequest, client: McpClient, authenticated: bo
 		...(usage.length ? { usage } : {}),
 		...(warnings.length ? { warnings } : {}),
 	};
+}
+
+function anonymousSearchQueries(query: string, domains: string[]): string[] {
+	const { includes, excludes } = domainPolicy(domains);
+	const exclusionHints = excludes.map((domain) => `-site:${domain}`);
+	const scoped = (domain: string) => [query, `site:${domain}`, ...exclusionHints].join(" ");
+	const broad = [query, ...exclusionHints].join(" ");
+	// The hosted schema recommends at most three focused query variants.
+	// Keep a broad variant when more than three domains are eligible.
+	return includes.length > 3 ? [...includes.slice(0, 2).map(scoped), broad]
+		: includes.length > 0 ? includes.map(scoped) : [broad];
 }
 
 function requestMetadata({ sessionId, modelId }: SearchRequest): Record<string, string> {

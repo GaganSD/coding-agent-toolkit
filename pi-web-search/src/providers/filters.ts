@@ -15,8 +15,8 @@ type FilterCapability = "native" | "local" | "unsupported";
 export const WEB_FILTER_CAPABILITIES = {
 	// https://exa.ai/docs/reference/search
 	"Exa REST": { recency: "native", domains: "native" },
-	// https://github.com/exa-labs/exa-mcp-server/blob/master/src/tools/webSearch.ts
-	"Exa keyless MCP": { recency: "unsupported", domains: "local" },
+	// https://exa.ai/docs/reference/exa-mcp
+	"Exa keyless MCP": { recency: "native", domains: "native" },
 	// https://docs.parallel.ai/integrations/mcp/search-mcp#configure-search-behavior
 	"Parallel authenticated MCP": { recency: "native", domains: "native" },
 	"Parallel anonymous MCP": { recency: "unsupported", domains: "local" },
@@ -62,10 +62,9 @@ export function domainPolicy(domains: readonly string[] = []): { includes: strin
 	return { includes, excludes };
 }
 
-export function applyDomainFilter(result: StreamResult, domains?: string[]): StreamResult {
-	if (!domains?.length) return result;
+export function domainMatcher(domains: readonly string[]): (value?: string) => boolean {
 	const { includes, excludes } = domainPolicy(domains);
-	const allows = (value?: string): boolean => {
+	return (value) => {
 		if (!value) return false;
 		try {
 			const url = new URL(value);
@@ -75,6 +74,11 @@ export function applyDomainFilter(result: StreamResult, domains?: string[]): Str
 			return !excludes.some(matches) && (includes.length === 0 || includes.some(matches));
 		} catch { return false; }
 	};
+}
+
+export function applyDomainFilter(result: StreamResult, domains?: string[]): StreamResult {
+	if (!domains?.length) return result;
+	const allows = domainMatcher(domains);
 	return {
 		...result,
 		// Provider summaries are not individually bound to an allowed source.

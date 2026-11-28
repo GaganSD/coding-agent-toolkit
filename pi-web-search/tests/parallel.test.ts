@@ -247,3 +247,25 @@ test("authenticated Parallel pins native source policy, anonymous Parallel repor
 	assert.equal(headers[0], null);
 	assert.deepEqual(anonymous.warnings, ['Parallel anonymous MCP cannot apply recency "month".']);
 });
+
+test("anonymous Parallel scopes queries and filters the full result window before trimming", async (t) => {
+	const previous = process.env.PARALLEL_API_KEY;
+	delete process.env.PARALLEL_API_KEY;
+	t.after(() => { if (previous !== undefined) process.env.PARALLEL_API_KEY = previous; });
+	const fixture = parallelHttp(() => ({ structuredContent: { results: [
+		{ url: "https://elsewhere.test/one", excerpts: ["off domain"] },
+		{ url: "https://hidden.example.test/one", excerpts: ["excluded subdomain"] },
+		{ url: "https://docs.example.test/one", excerpts: ["keep"] },
+		{ url: "https://another.test/one", excerpts: ["past result cap"] },
+	] } }));
+	const input = request({ filters: { domains: ["example.test", "another.test", "-hidden.example.test"] } });
+	input.settings.maxResults = 1;
+	const output = await parallelSearch(input, { fetchImpl: fixture.fetch });
+	assert.deepEqual(fixture.calls[0].arguments.search_queries, [
+		`${query} site:example.test -site:hidden.example.test`,
+		`${query} site:another.test -site:hidden.example.test`,
+	]);
+	assert.equal(fixture.calls[0].arguments.max_results, undefined);
+	assert.deepEqual(output.searchResults?.map(({ url }) => url), ["https://docs.example.test/one"]);
+	assert.deepEqual(output.sources?.map(({ url }) => url), ["https://docs.example.test/one"]);
+});
