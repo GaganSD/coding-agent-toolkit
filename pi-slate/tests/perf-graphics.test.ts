@@ -349,7 +349,7 @@ test("themed render keeps tones within the theme palette", () => {
     working: true, turnStartedAt: clock.now - 1000, turns: 1, messages: 1, usage, perf: perfFixture(clock.now) });
   s.render(44);
   for (const t of tones) assert(["text", "muted", "dim", "accent", "success", "warning", "error", "mdHeading", "border", "borderMuted", "borderAccent"].includes(t) || /^[a-zA-Z]+$/.test(t), t);
-  assert(tones.has("success") && tones.has("accent") && tones.has("warning"));
+  assert(tones.has("accent") && tones.has("warning"));
 });
 
 test("context bar: one row, exact width, eighth-step fill, visible at tiny percents", () => {

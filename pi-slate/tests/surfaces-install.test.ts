@@ -1092,7 +1092,7 @@ test("SPEED follows persistence, not token deltas or an unrelated model selectio
     id === "producer" ? { promptCache: { short: 300, long: 3600 } } : undefined } });
   f.manager.appendMessage(reply);
   await f.emit("agent_start");
-  assert.match(capture(), /● Working/); assert.doesNotMatch(capture(), /Working · turn/);
+  assert.doesNotMatch(capture(), /● Working|○ Idle/);
   Object.assign(f.ctx, { model: { id: "virtual", provider: "fixture", promptCache: { short: 30 } } });
   const scans = t.mock.method(f.manager, "getBranch");
   await f.emit("model_select");

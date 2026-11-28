@@ -67,7 +67,7 @@ test("growing usage and money keep a stable label lane and value edge with the r
       const rows = sidebar.render(width).map(stripVTControlCharacters);
       assert(rows.every(row => visibleWidth(row) === width), `bounded rows at ${width} for ${value}`);
       const status = rows[1]!;
-      if (value !== null && value > 0) assert(status.includes(sidebarCost(value)), `${sidebarCost(value)} on the status line`);
+      if (value !== null) assert(status.includes(sidebarCost(value)), `${sidebarCost(value)} on the status line`);
       else assert(!status.includes("$"));
     }
   }
