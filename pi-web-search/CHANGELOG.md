@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added an offline wrapper benchmark with replayed provider evidence, a 40-task baseline, and CI gates for context, reliability, citations, safety, and setup.
 - Search shows provider progress, compact result summaries, and a readable expanded view without changing model-facing evidence.
 - `/web-search` opens a settings panel for provider order, thorough search, results, accounts, and classifier pins. Changes apply to the next search.
 - Parallel runs directly behind `search`, without a separate Pi MCP registration.

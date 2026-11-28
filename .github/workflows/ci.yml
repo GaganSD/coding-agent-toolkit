@@ -108,6 +108,9 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install package
         run: npm ci --prefix "${{ matrix.package }}" --ignore-scripts --no-audit --no-fund
+      - if: matrix.package == 'pi-web-search'
+        name: Install pinned benchmark tokenizer
+        run: npm ci --prefix pi-web-search/benchmarks --ignore-scripts --no-audit --no-fund
       - name: Lint
         run: npm run lint --prefix "${{ matrix.package }}"
       - name: Typecheck

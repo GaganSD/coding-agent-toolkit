@@ -1,0 +1,8 @@
+{
+  "name": "pi-web-search-research",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "js-tiktoken": "1.0.21"
+  }
+}

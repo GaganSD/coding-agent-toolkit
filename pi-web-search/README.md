@@ -245,7 +245,8 @@ Queries, URLs, errors, and excerpts can contain sensitive text.
 4. Run `npm run typecheck`.
 5. Run `npm run audit:prod`.
 6. Run `npm run pack:check`.
-7. Run `npm run bench:context` for offline context-footprint measurements (character-proxy estimates, not billed tokenizer counts).
+7. Run `npm run bench:context` for offline context-footprint estimates.
+8. Run the [research harness](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-web-search/benchmarks) with owner-approved inputs to measure context cost, URL reading, and task completion.
 
 Optional retrieval check: `npm run smoke:live`. It sends public test queries without your credentials. Optional decision-model check: `npm run smoke:classifier` makes four live calls to the default Jev model using your Pi authentication (billing applies). It verifies ranking, injection suppression, insufficient evidence, and ordinary code. To test another exact pair, use `npm run smoke:classifier -- <provider> <model>`. See [release checks and limits](docs/release-validation.md).
 
