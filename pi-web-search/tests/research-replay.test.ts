@@ -108,3 +108,34 @@ test("Parallel recordings omit session attribution and replay in a new model ses
 		assert.equal(original.mock.callCount(), 1);
 	} finally { restoreOffline(); }
 });
+
+test("Sourcegraph captures request and body failures and replays their exact GET keys", async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-sourcegraph-replay-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const path = join(directory, "responses.json");
+	const url = (query: string) => new URL("https://sourcegraph.com/.api/search/stream?q=" + encodeURIComponent(query));
+	const original = t.mock.method(globalThis, "fetch", async (input: Request) => {
+		if (new URL(input.url).searchParams.get("q") === "test request") throw new TypeError("Raw transport diagnostic");
+		return new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("Raw body diagnostic")); } }));
+	});
+	const writer = new Replay(path, true, "draft");
+	const restoreLive = writer.install("model");
+	try {
+		await assert.rejects(retrieve(() => fetch(url("test request"))), /transport network \(request\)/u);
+		const response = await retrieve(() => fetch(url("test body")));
+		await assert.rejects(response.text(), /transport network \(body\)/u);
+		writer.save();
+	} finally { restoreLive(); }
+	assert.doesNotMatch(readFileSync(path, "utf8"), /test request|test body|Raw .* diagnostic/u);
+
+	const reader = new Replay(path, false, "draft");
+	const restoreOffline = reader.install();
+	try {
+		await assert.rejects(fetch(url("test request")), /transport network \(request\)/u);
+		const response = await fetch(url("test body"));
+		await assert.rejects(response.text(), /transport network \(body\)/u);
+		assert.equal(reader.misses.length, 0);
+		assert.equal(original.mock.callCount(), 2);
+		await assert.rejects(fetch(url("other key")), /Replay miss: sourcegraph.com GET/u);
+	} finally { restoreOffline(); }
+});
