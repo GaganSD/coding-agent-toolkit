@@ -5,6 +5,7 @@ import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { bigDigits, contextBar, contextRows, formatCountdown, formatRate, perfRows, stackedBar, stackedPerfRows, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
 import { branchPerf, EMPTY_PERF, type SidebarPerf } from "../extensions/pi-slate/perf-stats.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
+import { sidebarPerfColumns } from "../extensions/pi-slate/sidebar-layout.ts";
 import { sidebarUsage, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { perfFixture } from "./perf-fixture.ts";
 
@@ -244,13 +245,26 @@ test("two-column height is stable across speed and cache activity", () => {
 });
 
 test("cards put SPEED and CACHE side by side with one aligned stat per row", () => {
-  assert.equal(perfRows(input(perfFixture(1000), 27, "compact")).length, 2, "27 columns stack");
+  assert.equal(perfRows(input(perfFixture(1000), 27, "compact")).length, 1, "27 columns stay side by side");
   const [full] = perfRows(input(perfFixture(1000), 28, "full"));
   assert.deepEqual(full, ["SPEED          CACHE", "14.6 tok/s     84.03% hit", "▆▇▇█▇▆▅▆▅▄▅▆▃  ━━━━━━━━━━━━━",
     "avg  26.7      read  1.3M", "peak 45.0      new   141k", null]);
   const [empty] = perfRows(input(EMPTY_PERF, 28, "compact", 1000, sidebarUsage([])));
   assert.deepEqual(empty, ["SPEED          CACHE", "— tok/s        —% hit", "─────────────  ─────────────",
     "avg  —         read  0", "peak —         new   0", null]);
+});
+
+test("narrow rails keep SPEED and CACHE equal and side by side", () => {
+  for (const inner of [23, 24, 25, 26, 27, 28]) {
+    const columns = sidebarPerfColumns(inner)!;
+    assert.equal(columns.speed, columns.cache, `${inner} equal halves`);
+    assert.equal(columns.speed + columns.gap.length + columns.cache, inner, `${inner} full width`);
+    const [rows] = perfRows(input(perfFixture(1000), inner, "full"));
+    assert.match(rows[0]!, /SPEED +CACHE/, `${inner} side by side`);
+  }
+  const [stackedRows] = perfRows(input(perfFixture(1000), 22, "full"));
+  assert.doesNotMatch(stackedRows[0]!, /CACHE/, "22 columns stack");
+  assert.doesNotMatch(stackedRows.join("\n"), /█▀█/, "stacked rail uses text, not huge digits");
 });
 
 test("cards keep empty and populated heights equal and stay within width", () => {
@@ -303,6 +317,13 @@ test("every tier and width keeps rows bounded, during working turns and long ses
     assert.equal(lines.length, rows);
     assert(lines.every(l => visibleWidth(l) <= width), `${width}x${rows}`);
   }
+});
+
+test("narrow sidebars keep SPEED and CACHE side by side", () => {
+  const clock = { now: 1_000_000 };
+  const text = sidebarWith(30, perfFixture(clock.now), clock).render(27).map(strip).join("\n");
+  assert.match(text, /SPEED +CACHE/);
+  assert.doesNotMatch(text, /█▀█/);
 });
 
 test("details distinguish branch and last-request cache rates", () => {

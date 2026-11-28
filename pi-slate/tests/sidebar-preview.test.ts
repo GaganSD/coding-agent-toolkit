@@ -13,6 +13,7 @@ import { sidebarUsage, SidebarMcpFiles, type SidebarResources, type SidebarSessi
 import { WAVE_STEP_MS } from "../extensions/pi-slate/working-wave.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
 import { dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
+import { sidebarPerfColumns } from "../extensions/pi-slate/sidebar-layout.ts";
 
 const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
 const toneCodes: Record<string, number> = { accent: 36, warning: 33, success: 32, error: 31, muted: 90, dim: 2, text: 37, mdHeading: 35 };
@@ -839,7 +840,7 @@ test("the first reply does not shift MCP at 100×30 with a preview", () => {
   sidebar.setSession({ ...session, usage: sidebarUsage([]), perf: EMPTY_PERF });
   const mcp = row(sidebar, "MCP", width);
   sidebar.setSession(session);
-  assert(row(sidebar, "read 48k", width) > 0);
+  assert(row(sidebar, "read  48k", width) > 0);
   assert.equal(row(sidebar, "MCP", width), mcp);
 });
 
@@ -869,12 +870,12 @@ const perfPreviewSession: SidebarSession = { ...session, working: false, lastTur
   perf: { timedReplies: 10, rates: [9, 16, 12, 20, 21, 17, 24, 20, 27.2, 22.4], peak: 27.2,
     turn: { output: 1700, rate: 20.9 }, cache: { lastHit: 0.74 } } };
 
-test("performance cards switch at 28 inner columns and align within the painted rails", () => {
+test("performance cards switch at 23 inner columns and align within the painted rails", () => {
   const { sidebar } = fixture(38);
   const populated = perfPreviewSession;
   const empty: SidebarSession = { ...session, working: false, lastTurnMs: null, turns: 0, usage: sidebarUsage([]), perf: EMPTY_PERF };
   const dividers = new Map<number, number>();
-  for (const inner of [24, 27, 28, 32, 40]) for (const [state, data] of [["empty", empty], ["populated", populated]] as const) {
+  for (const inner of [23, 24, 27, 28, 32, 40]) for (const [state, data] of [["empty", empty], ["populated", populated]] as const) {
     sidebar.setSession(data);
     const painted = sidebar.render(inner + 4);
     assert(painted.every(line => visibleWidth(line) === inner + 4));
@@ -882,23 +883,17 @@ test("performance cards switch at 28 inner columns and align within the painted 
     const speed = lines.findIndex(line => line.startsWith("SPEED"));
     const cache = lines.findIndex(line => line.includes("CACHE"));
     const track = state === "empty" ? "─" : "━";
-    if (inner < 28) {
-      assert(cache > speed);
-      assert.equal(lines[cache - 1], "");
-      assert.equal(lines[cache + 1], track.repeat(inner));
-    } else {
-      const left = Math.floor((inner - 2) / 2);
-      const offset = left + 2;
-      const half = (row: number) => [lines[speed + row]!.slice(0, left).trimEnd(), lines[speed + row]!.slice(offset)];
-      assert.equal(cache, speed);
-      assert.equal(lines[speed]!.indexOf("CACHE"), offset);
-      assert.deepEqual(half(1), state === "empty" ? ["— tok/s", "—% hit"] : ["22.4 tok/s", "74% hit"]);
-      assert.match(half(2)[0]!, state === "empty" ? /^─+$/ : /^[▁-█]+$/);
-      assert.equal(half(2)[1], track.repeat(inner - offset));
-      assert.deepEqual([3, 4].map(half), state === "empty"
-        ? [["avg  —", "read  0"], ["peak —", "new   0"]]
-        : [["avg  20.9", "read  87.6k"], ["peak 27.2", "new   30.2k"]]);
-    }
+    const columns = sidebarPerfColumns(inner)!;
+    const left = columns.speed, offset = left + columns.gap.length;
+    const half = (row: number) => [lines[speed + row]!.slice(0, left).trimEnd(), lines[speed + row]!.slice(offset)];
+    assert.equal(cache, speed);
+    assert.equal(lines[speed]!.indexOf("CACHE"), offset);
+    assert.deepEqual(half(1), state === "empty" ? ["— tok/s", "—% hit"] : ["22.4 tok/s", "74% hit"]);
+    assert.match(half(2)[0]!, state === "empty" ? /^─+$/ : /^[▁-█]+$/);
+    assert.equal(half(2)[1], track.repeat(inner - offset));
+    assert.deepEqual([3, 4].map(half), state === "empty"
+      ? [["avg  —", "read  0"], ["peak —", "new   0"]]
+      : [["avg  20.9", "read  87.6k"], ["peak 27.2", "new   30.2k"]]);
     const divider = lines.findIndex(line => line.startsWith("├"));
     if (state === "empty") dividers.set(inner, divider);
     else assert.equal(divider, dividers.get(inner), `header height at ${inner}`);
@@ -906,6 +901,14 @@ test("performance cards switch at 28 inner columns and align within the painted 
     assert.notEqual(lines[divider - 2], "");
     assert.doesNotMatch(lines.slice(speed, divider).join("\n"), /\bwrite\b/);
   }
+  const narrow = fixture(38);
+  narrow.sidebar.setSession(populated);
+  const stacked = plain(narrow.sidebar.render(22 + 4));
+  const narrowSpeed = stacked.findIndex(line => line.startsWith("SPEED"));
+  const narrowCache = stacked.findIndex(line => line.includes("CACHE"));
+  assert(narrowCache > narrowSpeed, "22 inner columns stack");
+  assert.equal(stacked[narrowCache - 1], "");
+  assert.equal(stacked[narrowCache + 1], "━".repeat(22));
 });
 
 test("full-tier performance previews show no cache savings estimate", () => {

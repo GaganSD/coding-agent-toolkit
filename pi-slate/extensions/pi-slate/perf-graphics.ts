@@ -267,7 +267,7 @@ function cacheCard(i: PerfInput): string[] {
 /** Null is a droppable separator; empty strings are reserved content rows. */
 export function perfRows(i: PerfInput): Array<Array<string | null>> {
   const columns = sidebarPerfColumns(i.inner);
-  if (!columns) return stackedPerfRows(i);
+  if (!columns) return stackedPerfRows({ ...i, tier: "compact" });
   const speed = speedCard({ ...i, inner: columns.speed });
   const cache = cacheCard({ ...i, inner: columns.cache });
   const rows = Array.from({ length: Math.max(speed.length, cache.length) }, (_, row) => {

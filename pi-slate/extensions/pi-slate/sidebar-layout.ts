@@ -1,15 +1,15 @@
 export type SidebarSlots = { frame: number; header: number; middle: number; image: number };
 export type SidebarTier = "full" | "compact";
 
-// Columns hold one stat per row, so 13 cells fit "99.99% hit" with room to spare.
-const PERF_MIN_COLUMN = 13;
-const PERF_COLUMN_GAP = "  ";
+// 11 cells fit "read  87.6k" and "14.6 tok/s"; one or two spaces keep the halves equal.
+const PERF_MIN_COLUMN = 11;
 
 export function sidebarPerfColumns(inner: number): { speed: number; cache: number; gap: string } | undefined {
-  const space = inner - PERF_COLUMN_GAP.length;
+  const gap = inner % 2 === 0 ? 2 : 1;
+  const space = inner - gap;
   if (space < 2 * PERF_MIN_COLUMN) return undefined;
-  const speed = Math.floor(space / 2);
-  return { speed, cache: space - speed, gap: PERF_COLUMN_GAP };
+  const speed = space / 2;
+  return { speed, cache: speed, gap: " ".repeat(gap) };
 }
 
 /** Budget borders, content and hit regions together. Shed header gaps before squeezing a preview. */
