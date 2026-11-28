@@ -1,7 +1,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, isKeyRepeat, matchesKey, parseKey, visibleWidth, wrapTextWithAnsi, type Component, type KeyId, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { compactPicker, fit, focusRow, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY, sectionedViewport } from "./picker-frame.ts";
-import { aligned, cycle, footerHints, moveAction, panelAction, priorityLines, rightAlign, selectionKeys, type PanelAction, type SelectionKeys } from "./panel-focus.ts";
+import { compactPicker, fit, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY } from "./picker-frame.ts";
+import { aligned, cycle, focusRow, footerHints, moveAction, panelAction, priorityLines, rightAlign, sectionedViewport, selectionKeys, type PanelAction, type SelectionKeys } from "./panel-focus.ts";
 import { changedShortcuts, classifyKey, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type KeyClassification, type RecordedShortcut, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 
 type Options = { ownsEditor: boolean };

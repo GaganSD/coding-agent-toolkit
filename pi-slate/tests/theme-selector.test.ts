@@ -129,7 +129,6 @@ test("selector wraps, cancels, and keeps labels and controls bounded after resiz
   f.selector.handleInput(down);
   assert.equal(f.previews.at(-1), "catppuccin-latte-rosewater");
   assert.match(f.selector.render(58).join("\n"), /Catppuccin Latte · Rosewater/);
-  assert.match(f.selector.render(58).join("\n"), /● Preview/);
   assert.match(f.selector.render(58).join("\n"), /Esc\s+Close/);
   assert.match(f.selector.render(18).join("\n"), /↑↓/);
   assert.match(f.selector.render(18).join("\n"), /Esc/);
@@ -172,7 +171,6 @@ test("stacked frames keep the selected palette visible at three detail rows", ()
     f.selector.handleInput(down);
     const text = f.selector.render(58).join("\n");
     assert.match(text, /Mauve/, `${rows} rows lost the selected palette`);
-    assert.match(text, /● Preview/, `${rows} rows lost the status`);
   }
 });
 
@@ -400,7 +398,7 @@ test("tiny errors use one status slot and keep the active choice", () => {
   assert.deepEqual(done, [], "a held Down does not save");
 });
 
-test("right pane layout is identical in both focus states and its status aligns with palette names", () => {
+test("right pane layout is identical in both focus states", () => {
   for (const [width, rows] of [[100, 30], [70, 20]] as const) {
     const f = fixture();
     f.terminal.rows = rows;
@@ -408,9 +406,7 @@ test("right pane layout is identical in both focus states and its status aligns 
     f.selector.handleInput(right);
     const after = pane(f.selector, width).join("\n");
     assert.equal(after, before, `${width}x${rows}`);
-    const option = after.split("\n").find(line => line.includes("Mauve"))!;
-    const status = after.split("\n").find(line => line.includes("Current"))!;
-    assert.equal(visibleWidth(option.slice(0, option.indexOf("Mauve"))), visibleWidth(status.slice(0, status.indexOf("●"))));
+    assert.doesNotMatch(after, /● Current|● Preview/);
   }
 });
 
@@ -423,13 +419,12 @@ test("description wrapping does not move the palette viewport", () => {
     return {
       header: cells.findIndex(cell => cell.includes("Palettes")),
       option: cells.findIndex(cell => /^\s*[› ]\s*████/.test(cell)),
-      status: cells.findIndex(cell => /^\s*[●✕]/.test(cell)),
     };
   };
   assert.deepEqual(slots("tokyo-night"), slots("catppuccin-mocha-mauve"));
 });
 
-test("wide theme and palette names keep the value, hex and status columns fixed", () => {
+test("wide theme and palette names keep the value and hex columns fixed", () => {
   const choices: ThemeChoice[] = [{
     label: "界🌙é".repeat(30), family: "Family", section: "Family · Dark",
     variants: [{ name: "wide", label: "界🌙é".repeat(30), color: "#f38ba8" }],
@@ -440,28 +435,26 @@ test("wide theme and palette names keep the value, hex and status columns fixed"
     const text = stripVTControlCharacters(selector.render(width).join("\n"));
     assert(text.split("\n").every(line => visibleWidth(line) <= width));
     assert.match(text, /#f38ba8/);
-    assert.match(text, /● Current/);
+    assert.doesNotMatch(text, /● Current|● Preview/);
   }
 });
 
-test("tiny terminals keep the active theme or palette and status", () => {
+test("tiny terminals keep the active theme or palette", () => {
   const f = fixture();
   f.terminal.rows = 6;
   const leftText = f.selector.render(50).join("\n");
   assert.match(leftText, /Slate themes/);
   assert.match(leftText, /› Catppuccin Mocha · Pink/);
-  assert.match(leftText, /● Current/);
   assert.match(leftText, /↑↓/);
   f.selector.handleInput(right);
   const rightText = f.selector.render(50).join("\n");
   assert.match(rightText, /Catppuccin Mocha/);
   assert.match(rightText, /› 3\/16 · Pink/);
-  assert.match(rightText, /● Current/);
   assert.match(rightText, /↑↓/);
   for (const rows of [5, 4, 3, 2, 1]) {
     f.terminal.rows = rows;
     const lines = f.selector.render(50);
-    assert.ok(lines.some(line => /Catppuccin Mocha|3\/16|Current/.test(line)), `${rows} rows lost the active state`);
+    assert.ok(lines.some(line => /Catppuccin Mocha|3\/16/.test(line)), `${rows} rows lost the active state`);
   }
 });
 
@@ -630,7 +623,7 @@ test("geometry is fixed across valid, error, empty-palette and empty-catalog sta
   }
 });
 
-test("preview errors and missing palettes block save, keep their status slot, and allow recovery or cancel", () => {
+test("preview errors and missing palettes block save, keep their error visible, and allow recovery or cancel", () => {
   const done: Array<string | undefined> = [];
   const selector = new ThemeSelector([
     { label: "Empty", variants: [] },
@@ -644,7 +637,6 @@ test("preview errors and missing palettes block save, keep their status slot, an
   selector.handleInput(left);
   selector.handleInput(down);
   assert.match(selector.render(88).join("\n"), /Could not load missing/);
-  assert.match(selector.render(88).join("\n"), /Couldn't load/);
   assert.match(selector.render(88).join("\n"), /\/reload/);
   selector.handleInput(right);
   selector.handleInput(enter); assert.deepEqual(done, []);

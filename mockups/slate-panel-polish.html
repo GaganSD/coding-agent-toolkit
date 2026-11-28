@@ -50,7 +50,7 @@ ul.compact li{margin:4px 0}
 <body>
 <main>
 <h1>Slate control panels: focus and alignment polish</h1>
-<p class="lede">Mockups only. This is the Slate version of the polish shipped in pi-web-search PR 183: the same two-pane focus model, the same fixed detail layout, and the same data-built section rows. Scope is <code>/shortcuts</code> and <code>/theme</code>. The Slate picker frame stays canonical; the PR will note the web-search vendor resync.</p>
+<p class="lede">Mockups only. This is the Slate version of the polish shipped in pi-web-search PR 183: the same two-pane focus model, the same fixed detail layout, and the same data-built section rows. Scope is <code>/shortcuts</code> and <code>/theme</code>. The Slate picker frame is unchanged; the shared focus and section helpers live in Slate’s panel module.</p>
 
 <div class="note">
   <b>One interaction model.</b> Left focus: ↑↓ moves, → or Enter opens, Esc closes. Right focus: ↑↓ moves the options, Enter or Space applies, ← or Esc returns to the same left row. Moving the cursor never saves. The unfocused pane keeps a dim › marker, so focus is always visible. Footer hints come from the same action table that handles input.
@@ -440,7 +440,7 @@ Dark · 16 palettes. Preview updates live.
   <li><b>In:</b> <code>/shortcuts</code> and <code>/theme</code>; the Slate-owned <code>panel-focus.ts</code> helpers for focus markers, fixed columns and tiny-screen priority; tests for both focus states, alignment at 100×30, 70×20 and 50×6, and width safety.</li>
   <li><b>Kept:</b> shortcut recording, conflict detection, press-twice removal, “Saved — applies when you close”, theme preview/restore, and all current keybindings.</li>
   <li><b>Out:</b> README and docs; new features; the <code>/prompts</code> search overlay and read-only inspector, which have no two-pane control surface.</li>
-  <li><b>Frame note:</b> <code>picker-frame.ts</code> now owns the shared focus row. pi-web-search vendors a byte-identical copy and must resync its <code>frame.ts</code> and parity test before its next release.</li>
+  <li><b>Frame note:</b> <code>picker-frame.ts</code> is unchanged. The focused row and section viewport live in Slate’s panel module, so pi-web-search needs no vendor resync.</li>
 </ul>
 </main>
 </body>

@@ -1,7 +1,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, isKeyRepeat, matchesKey, parseColor, visibleWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
-import { compactPicker, fit, focusRow, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY, sectionedViewport, viewport } from "./picker-frame.ts";
-import { aligned, cycle, footerHints, moveAction, panelAction, priorityLines, rightAlign, selectionKeys, type PanelAction, type PanelKeys, type SelectionKeys } from "./panel-focus.ts";
+import { compactPicker, fit, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY, viewport } from "./picker-frame.ts";
+import { aligned, cycle, focusRow, footerHints, moveAction, panelAction, priorityLines, rightAlign, sectionedViewport, selectionKeys, type PanelAction, type PanelKeys, type SelectionKeys } from "./panel-focus.ts";
 import {
   buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTION,
   FLAVORS, STYLE_LABELS, stylesFor,
@@ -53,7 +53,6 @@ export class ThemeSelector implements Component {
   private variants: number[];
   private error = "";
   private closed = false;
-  private readonly initial?: string;
 
   private choices: ThemeChoice[];
   private tui: Pick<TUI, "requestRender" | "terminal">;
@@ -70,7 +69,7 @@ export class ThemeSelector implements Component {
     done: (name: string | undefined) => void,
   ) {
     this.choices = choices; this.tui = tui; this.theme = theme; this.controls = selectionKeys(keys);
-    this.preview = preview; this.done = done; this.initial = initial;
+    this.preview = preview; this.done = done;
     this.variants = choices.map(choice => Math.max(0, choice.variants.findIndex(variant => variant.name === initial)));
     this.selected = Math.max(0, choices.findIndex(choice => choice.variants.some(variant => variant.name === initial)));
   }
@@ -128,17 +127,6 @@ export class ThemeSelector implements Component {
     return actions;
   }
 
-  private statusLine(th: Theme, columns: number, gutter: number): string {
-    const choice = this.choice(), current = this.current();
-    const status = !choice ? { text: "No themes available", tone: "error" as const }
-      : !current ? { text: "No palettes available", tone: "error" as const }
-        : this.error ? { text: "Couldn't load", tone: "error" as const }
-          : current.name === this.initial ? { text: "Current", tone: "success" as const }
-            : { text: "Preview", tone: "success" as const };
-    const glyph = status.tone === "error" ? "✕" : "●";
-    return " ".repeat(Math.max(0, gutter)) + fit(th.fg(status.tone, `${glyph} ${status.text}`), Math.max(0, columns - gutter));
-  }
-
   private describe(choice: ThemeChoice): string {
     const count = choice.variants.length;
     if (!count) return "No palettes available.";
@@ -180,7 +168,9 @@ export class ThemeSelector implements Component {
     const current = this.current();
     const actions = this.actions();
     const index = this.variants[this.selected] ?? 0;
-    const footer = this.error && choice && current ? th.fg("error", `✕ ${this.error}`) : "";
+    const footer = !choice ? th.fg("error", "✕ No themes available")
+      : !current ? th.fg("error", "✕ No palettes available")
+        : this.error ? th.fg("error", `✕ ${this.error}`) : "";
 
     if (tiny) {
       const titleLine = this.right ? th.style(themeTitle(choice), { fg: "accent", bold: true }) : th.fg("muted", "Slate themes");
@@ -193,11 +183,10 @@ export class ThemeSelector implements Component {
       const active = this.right
         ? focusRow(th, visibleWidth(compactLabel) <= width - 2 ? compactLabel : compactFallback, true, true, width)
         : focusRow(th, visibleWidth(fullLabel) <= width - 2 ? fullLabel : shortLabel, true, true, width);
-      const statusPriority = this.error || !current ? 8 : 6;
       return compactPicker(priorityLines([
         { text: titleLine, priority: 2 },
         { text: active, priority: 7 },
-        ...(footer ? [{ text: footer, priority: 9 }] : [{ text: this.statusLine(th, width, 0), priority: statusPriority }]),
+        ...(footer ? [{ text: footer, priority: 9 }] : []),
         { text: footerHints(th, actions, width), priority: 5 },
       ], height), width, height);
     }
@@ -215,14 +204,13 @@ export class ThemeSelector implements Component {
       });
     };
     const detail = (columns: number, rows: number) => {
-      if (!choice) return compactPicker([this.statusLine(th, columns, 0)], columns, rows);
+      if (!choice) return compactPicker([footer], columns, rows);
       const titleLine = th.style(themeTitle(choice), { fg: "accent", bold: true });
       const description = columns > 0 ? wrapTextWithAnsi(th.fg("text", this.describe(choice)), columns) : [];
-      const statusLine = this.statusLine(th, columns, Math.min(7, Math.max(0, columns - 1)));
-      if (rows < 5) return compactPicker([titleLine, this.paletteRow(th, columns, index), statusLine], columns, rows);
+      if (rows < 5) return compactPicker([titleLine, this.paletteRow(th, columns, index)], columns, rows);
       const desc = Array.from({ length: rows >= 9 ? 2 : rows >= 6 ? 1 : 0 }, (_, i) => description[i] ?? "");
-      const paletteRows = rows - 3 - desc.length;
-      const lines = [titleLine, ...desc, "", ...this.paletteViewport(th, columns, paletteRows), statusLine];
+      const paletteRows = rows - 2 - desc.length;
+      const lines = [titleLine, ...desc, "", ...this.paletteViewport(th, columns, paletteRows)];
       return compactPicker(lines, columns, rows);
     };
     const body = pickerBody(th, width, inner, bodyHeight, themeViewport, detail);

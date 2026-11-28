@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, visibleWidth, type KeyId, type KeybindingsManager } from "@earendil-works/pi-tui";
-import { fit } from "./picker-frame.ts";
+import { fit, sectionRow, viewport } from "./picker-frame.ts";
 import { keysOverlap, parseShortcut, shortcutLabel } from "./shortcuts.ts";
 
 /** Right-align one cell inside a fixed column. */
@@ -16,6 +16,38 @@ export function aligned(left: string, right: string, columns: number, gap: numbe
   const gapWidth = rightCol ? gap : 0;
   const leftCol = Math.max(0, width - rightCol - gapWidth);
   return fit(left, leftCol) + " ".repeat(gapWidth) + fit(right, rightCol);
+}
+
+
+/** A list row whose cursor stays visible in both panes: text when focused, muted when not. */
+export function focusRow(th: Theme, text: string, selected: boolean, focused: boolean, columns: number): string {
+  const marker = selected ? th.fg(focused ? "text" : "muted", "›") : " ";
+  const body = fit(text, Math.max(0, columns - 2));
+  const painted = selected ? th.style(body, { fg: "text", bold: focused }) : body;
+  const row = marker + " " + painted;
+  if (!selected) return row;
+  const paintedRow = th.style(row, { bg: "selectedBg" });
+  const bg = typeof th.getBgAnsi === "function" ? th.getBgAnsi("selectedBg") : "";
+  return bg ? paintedRow.replaceAll("\x1b[0m", `\x1b[0m${bg}`) : paintedRow;
+}
+
+/** Viewport over sectioned rows; callers supply only the item renderer. */
+export function sectionedViewport<T extends { section?: string }>(th: Theme, title: string, items: readonly T[],
+  selectedIndex: number, columns: number, rowCount: number,
+  render: (item: T, index: number) => string): string[] {
+  const rows: (string | number)[] = [];
+  let current: string | undefined;
+  items.forEach((item, index) => {
+    const next = item.section;
+    if (next && next !== current) rows.push(next);
+    current = next;
+    rows.push(index);
+  });
+  const selectedRowIndex = Math.max(0, rows.indexOf(selectedIndex));
+  return viewport(th, title, selectedIndex, items.length, selectedRowIndex, rows.length, columns, rowCount, index => {
+    const row = rows[index]!;
+    return typeof row === "string" ? sectionRow(th, row) : render(items[row]!, row);
+  });
 }
 
 /** Keep the highest-priority lines that fit, in their original order. */
