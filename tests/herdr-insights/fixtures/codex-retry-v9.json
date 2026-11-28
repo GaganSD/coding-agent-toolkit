@@ -1,0 +1,789 @@
+{
+  "main": "8ec1106ee71e11fbdd6a91a07b5baa19de1010d3",
+  "samples": {
+    "downgrade": {
+      "rollouts": [
+        "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"round7\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"t\",\"model\":\"m\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"a\",\"usage\":{\"input_tokens\":10}}}\n",
+        "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"round7\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"t\",\"model\":\"m\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"a\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"b\",\"usage\":{\"input_tokens\":20}}}\n"
+      ],
+      "stores": [
+        {
+          "version": 1,
+          "config": {
+            "profile": {
+              "name": "Developer",
+              "handle": "",
+              "avatar": ""
+            },
+            "palette": "blue",
+            "includeCache": true,
+            "weekStartsOn": 0,
+            "refreshSeconds": 60,
+            "sources": [
+              {
+                "id": "pi",
+                "label": "Pi",
+                "adapter": "pi",
+                "enabled": true,
+                "roots": [
+                  "~/.pi/agent/sessions"
+                ]
+              },
+              {
+                "id": "codex",
+                "label": "Codex",
+                "adapter": "codex",
+                "enabled": true,
+                "roots": [
+                  "~/.codex/sessions",
+                  "~/.codex/archived_sessions"
+                ]
+              },
+              {
+                "id": "opencode",
+                "label": "OpenCode",
+                "adapter": "opencode",
+                "enabled": true,
+                "roots": [
+                  "~/.local/share/opencode"
+                ]
+              },
+              {
+                "id": "claude",
+                "label": "Claude Code",
+                "adapter": "claude",
+                "enabled": true,
+                "roots": [
+                  "~/.claude/projects"
+                ]
+              },
+              {
+                "id": "antigravity",
+                "label": "Antigravity",
+                "adapter": "antigravity",
+                "enabled": true,
+                "roots": [
+                  "~/.gemini/antigravity-cli/conversations",
+                  "~/.gemini/antigravity-cli/brain"
+                ]
+              }
+            ]
+          },
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000rollout.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 317,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 317,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:round7",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "m",
+                  "project": "unknown",
+                  "input": 10,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "round7",
+                "project": "unknown",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "m",
+                "turns": {
+                  "t": {
+                    "model": "m",
+                    "provider": "unknown",
+                    "project": "unknown",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 10,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527200000,
+                    "thread": null,
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": ""
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {},
+          "lastScanAt": "2026-11-28T07:16:06.533Z",
+          "lastCompletedScanAt": "2026-11-28T07:16:06.533Z"
+        },
+        {
+          "version": 1,
+          "config": {
+            "profile": {
+              "name": "Developer",
+              "handle": "",
+              "avatar": ""
+            },
+            "palette": "blue",
+            "includeCache": true,
+            "weekStartsOn": 0,
+            "refreshSeconds": 60,
+            "sources": [
+              {
+                "id": "pi",
+                "label": "Pi",
+                "adapter": "pi",
+                "enabled": true,
+                "roots": [
+                  "~/.pi/agent/sessions"
+                ]
+              },
+              {
+                "id": "codex",
+                "label": "Codex",
+                "adapter": "codex",
+                "enabled": true,
+                "roots": [
+                  "~/.codex/sessions",
+                  "~/.codex/archived_sessions"
+                ]
+              },
+              {
+                "id": "opencode",
+                "label": "OpenCode",
+                "adapter": "opencode",
+                "enabled": true,
+                "roots": [
+                  "~/.local/share/opencode"
+                ]
+              },
+              {
+                "id": "claude",
+                "label": "Claude Code",
+                "adapter": "claude",
+                "enabled": true,
+                "roots": [
+                  "~/.claude/projects"
+                ]
+              },
+              {
+                "id": "antigravity",
+                "label": "Antigravity",
+                "adapter": "antigravity",
+                "enabled": true,
+                "roots": [
+                  "~/.gemini/antigravity-cli/conversations",
+                  "~/.gemini/antigravity-cli/brain"
+                ]
+              }
+            ]
+          },
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000rollout.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 444,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 444,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:round7",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "m",
+                  "project": "unknown",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "round7",
+                "project": "unknown",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "m",
+                "turns": {
+                  "t": {
+                    "model": "m",
+                    "provider": "unknown",
+                    "project": "unknown",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "2a56c54908fa1d80a09c7e06": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527200000,
+                    "thread": null,
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": ""
+                  },
+                  {
+                    "key": "2a56c54908fa1d80a09c7e06",
+                    "tokens": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527200000,
+                    "thread": null,
+                    "turn": null,
+                    "responseId": "b",
+                    "turnId": ""
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {},
+          "lastScanAt": "2026-11-28T07:16:06.549Z",
+          "lastCompletedScanAt": "2026-11-28T07:16:06.549Z"
+        }
+      ]
+    },
+    "revision": {
+      "rollouts": [
+        "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"round7\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"t\",\"model\":\"m\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"a\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"a\",\"usage\":{\"input_tokens\":25}}}\n"
+      ],
+      "stores": [
+        {
+          "version": 1,
+          "config": {
+            "profile": {
+              "name": "Developer",
+              "handle": "",
+              "avatar": ""
+            },
+            "palette": "blue",
+            "includeCache": true,
+            "weekStartsOn": 0,
+            "refreshSeconds": 60,
+            "sources": [
+              {
+                "id": "pi",
+                "label": "Pi",
+                "adapter": "pi",
+                "enabled": true,
+                "roots": [
+                  "~/.pi/agent/sessions"
+                ]
+              },
+              {
+                "id": "codex",
+                "label": "Codex",
+                "adapter": "codex",
+                "enabled": true,
+                "roots": [
+                  "~/.codex/sessions",
+                  "~/.codex/archived_sessions"
+                ]
+              },
+              {
+                "id": "opencode",
+                "label": "OpenCode",
+                "adapter": "opencode",
+                "enabled": true,
+                "roots": [
+                  "~/.local/share/opencode"
+                ]
+              },
+              {
+                "id": "claude",
+                "label": "Claude Code",
+                "adapter": "claude",
+                "enabled": true,
+                "roots": [
+                  "~/.claude/projects"
+                ]
+              },
+              {
+                "id": "antigravity",
+                "label": "Antigravity",
+                "adapter": "antigravity",
+                "enabled": true,
+                "roots": [
+                  "~/.gemini/antigravity-cli/conversations",
+                  "~/.gemini/antigravity-cli/brain"
+                ]
+              }
+            ]
+          },
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000rollout.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 444,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 444,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:round7",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "m",
+                  "project": "unknown",
+                  "input": 25,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "round7",
+                "project": "unknown",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "m",
+                "turns": {
+                  "t": {
+                    "model": "m",
+                    "provider": "unknown",
+                    "project": "unknown",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    25,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 25,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527200000,
+                    "thread": null,
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": ""
+                  },
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      25,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      15,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527200000,
+                    "thread": null,
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": ""
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              25,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {},
+          "lastScanAt": "2026-11-28T07:16:06.563Z",
+          "lastCompletedScanAt": "2026-11-28T07:16:06.563Z"
+        }
+      ]
+    },
+    "task": {
+      "rollouts": [
+        "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"round7\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"t\",\"model\":\"m\"}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"a\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"t\",\"duration_ms\":3000}}\n"
+      ],
+      "stores": [
+        {
+          "version": 1,
+          "config": {
+            "profile": {
+              "name": "Developer",
+              "handle": "",
+              "avatar": ""
+            },
+            "palette": "blue",
+            "includeCache": true,
+            "weekStartsOn": 0,
+            "refreshSeconds": 60,
+            "sources": [
+              {
+                "id": "pi",
+                "label": "Pi",
+                "adapter": "pi",
+                "enabled": true,
+                "roots": [
+                  "~/.pi/agent/sessions"
+                ]
+              },
+              {
+                "id": "codex",
+                "label": "Codex",
+                "adapter": "codex",
+                "enabled": true,
+                "roots": [
+                  "~/.codex/sessions",
+                  "~/.codex/archived_sessions"
+                ]
+              },
+              {
+                "id": "opencode",
+                "label": "OpenCode",
+                "adapter": "opencode",
+                "enabled": true,
+                "roots": [
+                  "~/.local/share/opencode"
+                ]
+              },
+              {
+                "id": "claude",
+                "label": "Claude Code",
+                "adapter": "claude",
+                "enabled": true,
+                "roots": [
+                  "~/.claude/projects"
+                ]
+              },
+              {
+                "id": "antigravity",
+                "label": "Antigravity",
+                "adapter": "antigravity",
+                "enabled": true,
+                "roots": [
+                  "~/.gemini/antigravity-cli/conversations",
+                  "~/.gemini/antigravity-cli/brain"
+                ]
+              }
+            ]
+          },
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000rollout.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 445,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 445,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:round7",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "m",
+                  "project": "unknown",
+                  "input": 10,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "bf57eb63083f2770a771c347"
+              ],
+              "state": {
+                "session": "round7",
+                "project": "unknown",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "m",
+                "turns": {
+                  "t": {
+                    "model": "m",
+                    "provider": "unknown",
+                    "project": "unknown",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 10,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527200000,
+                    "thread": null,
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": ""
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "bf57eb63083f2770a771c347": [
+              1,
+              0,
+              3000,
+              1,
+              "27caece6d42963e82783e7a2"
+            ]
+          },
+          "lastScanAt": "2026-11-28T07:16:06.577Z",
+          "lastCompletedScanAt": "2026-11-28T07:16:06.577Z"
+        }
+      ]
+    }
+  }
+}

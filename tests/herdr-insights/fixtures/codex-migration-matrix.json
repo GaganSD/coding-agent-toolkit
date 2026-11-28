@@ -1,0 +1,2546 @@
+{
+  "rollouts": {
+    "history": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"matrix\",\"cwd\":\"/matrix\",\"cli_version\":\"0.152.0\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"turn\",\"model\":\"model\"}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"last_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:03.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":30},\"last_token_usage\":{\"input_tokens\":20,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":20}}}}\n",
+    "records": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"matrix\",\"cwd\":\"/matrix\",\"cli_version\":\"0.152.0\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"turn\",\"model\":\"model\"}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"a\",\"turn_id\":\"turn\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"thread_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:03.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"last_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:04.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"b\",\"turn_id\":\"turn\",\"usage\":{\"input_tokens\":20,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":20},\"thread_token_usage\":{\"input_tokens\":30,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":30}}}\n{\"timestamp\":\"2026-11-01T10:00:05.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":30},\"last_token_usage\":{\"input_tokens\":20,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":20}}}}\n"
+  },
+  "suffix": {
+    "history": "{\"timestamp\":\"2026-11-01T10:00:06.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":35,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":35},\"last_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5}}}}\n",
+    "records": "{\"timestamp\":\"2026-11-01T10:00:06.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"c\",\"turn_id\":\"turn\",\"usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"thread_token_usage\":{\"input_tokens\":35,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":35}}}\n{\"timestamp\":\"2026-11-01T10:00:07.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":35,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":35},\"last_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5}}}}\n"
+  },
+  "parsers": {
+    "5": {
+      "commit": "83a4e9a",
+      "samples": {
+        "history": {
+          "version": 1,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1067,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1067,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "0ff95134fa3544d001f7e692",
+                  "tokens": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793527203000,
+                  "cumulative": [
+                    30,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "e024602921bbc863386945f5": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "0ff95134fa3544d001f7e692": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "records": {
+          "version": 1,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1905,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1905,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "2a56c54908fa1d80a09c7e06": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527202000,
+                    "thread": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": "turn"
+                  },
+                  {
+                    "key": "2a56c54908fa1d80a09c7e06",
+                    "tokens": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527204000,
+                    "thread": [
+                      30,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "b",
+                    "turnId": "turn"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        }
+      }
+    },
+    "6": {
+      "commit": "16d81c8",
+      "samples": {
+        "history": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1067,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1067,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "0ff95134fa3544d001f7e692",
+                  "tokens": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793527203000,
+                  "cumulative": [
+                    30,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 6
+              }
+            }
+          },
+          "dedup": {
+            "e024602921bbc863386945f5": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "0ff95134fa3544d001f7e692": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "records": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1905,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1905,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "2a56c54908fa1d80a09c7e06": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527202000,
+                    "thread": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": "turn"
+                  },
+                  {
+                    "key": "2a56c54908fa1d80a09c7e06",
+                    "tokens": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527204000,
+                    "thread": [
+                      30,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "b",
+                    "turnId": "turn"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 6
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        }
+      }
+    },
+    "7": {
+      "commit": "fda4836",
+      "samples": {
+        "history": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1067,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1067,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "0ff95134fa3544d001f7e692",
+                  "tokens": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793527203000,
+                  "cumulative": [
+                    30,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 7
+              }
+            }
+          },
+          "dedup": {
+            "e024602921bbc863386945f5": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "0ff95134fa3544d001f7e692": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "records": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1905,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1905,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "2a56c54908fa1d80a09c7e06": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527202000,
+                    "thread": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": "turn"
+                  },
+                  {
+                    "key": "2a56c54908fa1d80a09c7e06",
+                    "tokens": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527204000,
+                    "thread": [
+                      30,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "b",
+                    "turnId": "turn"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 7
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        }
+      }
+    },
+    "8": {
+      "commit": "125d623",
+      "samples": {
+        "history": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1067,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1067,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "0ff95134fa3544d001f7e692",
+                  "tokens": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793527203000,
+                  "cumulative": [
+                    30,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 8
+              }
+            }
+          },
+          "dedup": {
+            "e024602921bbc863386945f5": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "0ff95134fa3544d001f7e692": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "records": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1905,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1905,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "2a56c54908fa1d80a09c7e06": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527202000,
+                    "thread": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": "turn"
+                  },
+                  {
+                    "key": "2a56c54908fa1d80a09c7e06",
+                    "tokens": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527204000,
+                    "thread": [
+                      30,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "b",
+                    "turnId": "turn"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 8
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        }
+      }
+    },
+    "9": {
+      "commit": "8ec1106",
+      "samples": {
+        "history": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1067,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1067,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "810302e874290d6f13bad6b8",
+                  "tokens": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793527203000,
+                  "cumulative": [
+                    30,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "20fd20c549cfa857fa97ba82": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "810302e874290d6f13bad6b8": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "records": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1905,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1905,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "2a56c54908fa1d80a09c7e06": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "legacyTwinKeys": {
+                  "20fd20c549cfa857fa97ba82": "7c51293f56ac5f547591d2e9",
+                  "810302e874290d6f13bad6b8": "2a56c54908fa1d80a09c7e06"
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        }
+      }
+    },
+    "10": {
+      "commit": "de9eb79",
+      "samples": {
+        "history": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1067,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1067,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastUsageKey": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "810302e874290d6f13bad6b8",
+                  "tokens": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793527203000,
+                  "cumulative": [
+                    30,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": "",
+                  "session": "codex:matrix"
+                },
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastUsageKey": "810302e874290d6f13bad6b8",
+                "codexSpend": {
+                  "codex:matrix": {
+                    "ids": {},
+                    "pairs": {},
+                    "echoes": {},
+                    "usage": {},
+                    "legacy": {
+                      "10,0,0,0,0/10,0,0,0,0": {
+                        "key": "20fd20c549cfa857fa97ba82",
+                        "responseId": "",
+                        "turnId": ""
+                      },
+                      "30,0,0,0,0/20,0,0,0,0": {
+                        "key": "810302e874290d6f13bad6b8",
+                        "responseId": "",
+                        "turnId": ""
+                      }
+                    },
+                    "legacyIds": {}
+                  }
+                },
+                "codexParserVersion": 10
+              }
+            }
+          },
+          "dedup": {
+            "20fd20c549cfa857fa97ba82": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "810302e874290d6f13bad6b8": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "records": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1905,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1905,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastUsageKey": "2a56c54908fa1d80a09c7e06"
+                  }
+                },
+                "codexSpend": {
+                  "codex:matrix": {
+                    "ids": {
+                      ":a": {
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 1
+                      },
+                      ":b": {
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 2
+                      }
+                    },
+                    "pairs": {
+                      "10,0,0,0,0/10,0,0,0,0": {
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 1
+                      },
+                      "30,0,0,0,0/20,0,0,0,0": {
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 2
+                      }
+                    },
+                    "echoes": {
+                      "10,0,0,0,0/10,0,0,0,0": {
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 1
+                      },
+                      "30,0,0,0,0/20,0,0,0,0": {
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 2
+                      }
+                    },
+                    "usage": {
+                      "10,0,0,0,0": {
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 1
+                      },
+                      "20,0,0,0,0": {
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 2
+                      }
+                    },
+                    "legacy": {},
+                    "legacyIds": {},
+                    "latest": {
+                      "responseId": "b",
+                      "turnId": "turn",
+                      "usage": [
+                        20,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "total": [
+                        30,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "seq": 2
+                    },
+                    "anchor": {
+                      "modern": [
+                        30,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "snapshot": [
+                        30,
+                        0,
+                        0,
+                        0,
+                        0
+                      ]
+                    }
+                  }
+                },
+                "modernObserved": {
+                  "7c51293f56ac5f547591d2e9": [
+                    10,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "2a56c54908fa1d80a09c7e06": [
+                    20,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "7c51293f56ac5f547591d2e9",
+                    "tokens": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527202000,
+                    "thread": [
+                      10,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "a",
+                    "turnId": "turn",
+                    "session": "codex:matrix"
+                  },
+                  {
+                    "key": "2a56c54908fa1d80a09c7e06",
+                    "tokens": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "delta": [
+                      20,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793527204000,
+                    "thread": [
+                      30,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": null,
+                    "responseId": "b",
+                    "turnId": "turn",
+                    "session": "codex:matrix"
+                  }
+                ],
+                "lastUsageKey": "2a56c54908fa1d80a09c7e06",
+                "legacyTotals": {
+                  "input_tokens": 30,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 10
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        }
+      }
+    },
+    "11": {
+      "commit": "c06813a",
+      "samples": {
+        "history": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1067,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1067,
+              "lineNo": 4,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 30,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastUsageKey": null
+                  }
+                },
+                "codexSpend": {
+                  "codex:matrix": {
+                    "pendingTwin": {
+                      "key": "810302e874290d6f13bad6b8",
+                      "tokens": [
+                        20,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "amount": {
+                        "input": 20,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                        "reasoning": 0,
+                        "nonzero": true
+                      },
+                      "perResponse": true,
+                      "timestamp": 1793527203000,
+                      "cumulative": [
+                        30,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "responseId": "",
+                      "turnId": "",
+                      "session": "codex:matrix"
+                    },
+                    "legacyTotals": {
+                      "input_tokens": 30,
+                      "cached_input_tokens": 0,
+                      "cache_write_input_tokens": 0,
+                      "output_tokens": 0,
+                      "reasoning_output_tokens": 0
+                    },
+                    "snapshotTargets": {
+                      "20fd20c549cfa857fa97ba82": "20fd20c549cfa857fa97ba82",
+                      "810302e874290d6f13bad6b8": "810302e874290d6f13bad6b8"
+                    },
+                    "lastUsageKey": "810302e874290d6f13bad6b8",
+                    "snapshotPairs": {
+                      "10,0,0,0,0/10,0,0,0,0": {
+                        "key": "20fd20c549cfa857fa97ba82",
+                        "tokens": {
+                          "input": 10,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0,
+                          "nonzero": true
+                        },
+                        "responseId": "",
+                        "turnId": "",
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ]
+                      },
+                      "30,0,0,0,0/20,0,0,0,0": {
+                        "key": "810302e874290d6f13bad6b8",
+                        "tokens": {
+                          "input": 20,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0,
+                          "nonzero": true
+                        },
+                        "responseId": "",
+                        "turnId": "",
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ]
+                      }
+                    }
+                  }
+                },
+                "codexParserVersion": 11
+              }
+            }
+          },
+          "dedup": {
+            "20fd20c549cfa857fa97ba82": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "810302e874290d6f13bad6b8": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "records": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000matrix.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "matrix.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1905,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1905,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix",
+                  "input": 60,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 4
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "matrix",
+                "project": "/matrix",
+                "provider": "unknown",
+                "timestamp": 1793527200000,
+                "model": "model",
+                "turns": {
+                  "turn": {
+                    "model": "model",
+                    "provider": "unknown",
+                    "project": "/matrix",
+                    "lastUsageKey": "2a56c54908fa1d80a09c7e06"
+                  }
+                },
+                "codexSpend": {
+                  "codex:matrix": {
+                    "pendingTwin": null,
+                    "seq": 2,
+                    "ids": {
+                      ":a": {
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "key": "7c51293f56ac5f547591d2e9",
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 1,
+                        "through": {
+                          "input": 10,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      },
+                      ":b": {
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "key": "2a56c54908fa1d80a09c7e06",
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 2,
+                        "through": {
+                          "input": 30,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      }
+                    },
+                    "latest": {
+                      "responseId": "b",
+                      "turnId": "turn",
+                      "key": "2a56c54908fa1d80a09c7e06",
+                      "usage": [
+                        20,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "total": [
+                        30,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "seq": 2,
+                      "through": {
+                        "input": 30,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0,
+                        "reasoning": 0
+                      }
+                    },
+                    "pairs": {
+                      "10,0,0,0,0/10,0,0,0,0": {
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "key": "7c51293f56ac5f547591d2e9",
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 1,
+                        "through": {
+                          "input": 10,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      },
+                      "30,0,0,0,0/20,0,0,0,0": {
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "key": "2a56c54908fa1d80a09c7e06",
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 2,
+                        "through": {
+                          "input": 30,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      }
+                    },
+                    "totals": {
+                      "10,0,0,0,0": {
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "key": "7c51293f56ac5f547591d2e9",
+                        "usage": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 1,
+                        "through": {
+                          "input": 10,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      },
+                      "30,0,0,0,0": {
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "key": "2a56c54908fa1d80a09c7e06",
+                        "usage": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "total": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "seq": 2,
+                        "through": {
+                          "input": 30,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      }
+                    },
+                    "byUsage": {
+                      "10,0,0,0,0": [
+                        {
+                          "responseId": "a",
+                          "turnId": "turn",
+                          "key": "7c51293f56ac5f547591d2e9",
+                          "usage": [
+                            10,
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "total": [
+                            10,
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "seq": 1,
+                          "through": {
+                            "input": 10,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                            "reasoning": 0
+                          }
+                        }
+                      ],
+                      "20,0,0,0,0": [
+                        {
+                          "responseId": "b",
+                          "turnId": "turn",
+                          "key": "2a56c54908fa1d80a09c7e06",
+                          "usage": [
+                            20,
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "total": [
+                            30,
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "seq": 2,
+                          "through": {
+                            "input": 30,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                            "reasoning": 0
+                          }
+                        }
+                      ]
+                    },
+                    "modernObserved": {
+                      "7c51293f56ac5f547591d2e9": [
+                        10,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "2a56c54908fa1d80a09c7e06": [
+                        20,
+                        0,
+                        0,
+                        0,
+                        0
+                      ]
+                    },
+                    "pendingTotal": {
+                      "input": 30,
+                      "output": 0,
+                      "cacheRead": 0,
+                      "cacheWrite": 0,
+                      "reasoning": 0
+                    },
+                    "modernRecent": [
+                      {
+                        "key": "7c51293f56ac5f547591d2e9",
+                        "tokens": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "delta": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "timestamp": 1793527202000,
+                        "thread": [
+                          10,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "turn": null,
+                        "responseId": "a",
+                        "turnId": "turn",
+                        "session": "codex:matrix",
+                        "through": {
+                          "input": 10,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      },
+                      {
+                        "key": "2a56c54908fa1d80a09c7e06",
+                        "tokens": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "delta": [
+                          20,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "timestamp": 1793527204000,
+                        "thread": [
+                          30,
+                          0,
+                          0,
+                          0,
+                          0
+                        ],
+                        "turn": null,
+                        "responseId": "b",
+                        "turnId": "turn",
+                        "session": "codex:matrix",
+                        "through": {
+                          "input": 30,
+                          "output": 0,
+                          "cacheRead": 0,
+                          "cacheWrite": 0,
+                          "reasoning": 0
+                        }
+                      }
+                    ],
+                    "lastUsageKey": "2a56c54908fa1d80a09c7e06",
+                    "anchor": {
+                      "seq": 2,
+                      "modern": [
+                        30,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "snapshot": [
+                        30,
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "last": [
+                        20,
+                        0,
+                        0,
+                        0,
+                        0
+                      ]
+                    },
+                    "legacyTotals": {
+                      "input_tokens": 30,
+                      "cached_input_tokens": 0,
+                      "cache_write_input_tokens": 0,
+                      "output_tokens": 0,
+                      "reasoning_output_tokens": 0
+                    },
+                    "pendingCovered": {
+                      "input": 30,
+                      "output": 0,
+                      "cacheRead": 0,
+                      "cacheWrite": 0,
+                      "reasoning": 0
+                    },
+                    "snapshotTargets": {
+                      "20fd20c549cfa857fa97ba82": "20fd20c549cfa857fa97ba82",
+                      "810302e874290d6f13bad6b8": "810302e874290d6f13bad6b8"
+                    }
+                  }
+                },
+                "codexParserVersion": 11
+              }
+            }
+          },
+          "dedup": {
+            "7c51293f56ac5f547591d2e9": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "20fd20c549cfa857fa97ba82": [
+              1,
+              0,
+              10,
+              0,
+              0,
+              0,
+              0,
+              {
+                "copies": [],
+                "meta": {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix"
+                },
+                "echo": {
+                  "key": "7c51293f56ac5f547591d2e9"
+                }
+              }
+            ],
+            "2a56c54908fa1d80a09c7e06": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0
+            ],
+            "810302e874290d6f13bad6b8": [
+              1,
+              0,
+              20,
+              0,
+              0,
+              0,
+              0,
+              {
+                "copies": [],
+                "meta": {
+                  "day": "2026-11-01",
+                  "session": "codex:matrix",
+                  "harness": "codex",
+                  "provider": "unknown",
+                  "model": "model",
+                  "project": "/matrix"
+                },
+                "echo": {
+                  "key": "2a56c54908fa1d80a09c7e06"
+                }
+              }
+            ]
+          },
+          "tasks": {}
+        }
+      }
+    }
+  }
+}

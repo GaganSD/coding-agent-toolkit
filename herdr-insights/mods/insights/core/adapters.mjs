@@ -1,5 +1,9 @@
 import { antigravityConversation } from "./antigravity.mjs";
 import {
+  codexRawVector, codexResponseIdKey, codexSpendScope,
+  clearCodexPending, excludeCodexCompaction, isCodexWindowFill, recordCodexSpend, settleCodexInterval,
+} from "./codex-spend.mjs";
+import {
   MAX_TURN_MS,
   asString,
   hashKey,
@@ -446,15 +450,20 @@ function codexSession(state, ctx) {
   return `codex-file:${ctx.file.path}`;
 }
 
-function codexRecordSession(state, ctx, payload) {
-  const threadId = asString(
+function codexPayloadThread(payload) {
+  return asString(
     payload.thread_id ??
       payload.session_id ??
       payload.threadId ??
       payload.sessionId,
     "",
   );
+}
+
+function codexRecordSession(state, ctx, payload) {
+  const threadId = codexPayloadThread(payload);
   if (threadId) return `codex:${threadId}`;
+  if (payload.type === "token_count" && state.codexImportThread) return state.codexImportThread;
   return codexSession(state, ctx);
 }
 
@@ -469,609 +478,440 @@ function codexUuidV7Ms(id) {
 // Conservatively exclude that prefix and retain a scanner diagnostic rather
 // than guessing from record timestamps (which can be rewritten during a copy).
 function codexEndsForkReplay(state, record, payload) {
+  // Some copied rollouts have a cutoff that includes already-owned history.
+  // Explicit child ownership is stronger than that conflicting cutoff.
+  if (payload.thread_id === state.session && ((record.type === "event_msg" && payload.type === "thread_settings_applied") ||
+    (state.codexFirstChildOrdinal !== undefined && record.type === "token_usage_record"))) return true;
+  const hasOrdinal = Number.isSafeInteger(state.codexFirstChildOrdinal) && Number.isSafeInteger(record.ordinal);
+  if (hasOrdinal) {
+    if (record.ordinal >= state.codexFirstChildOrdinal) return true;
+    if (!state.codexLegacyForkOrdinal) return false;
+  }
   if (record.type !== "turn_context" && !(record.type === "event_msg" && payload.type === "task_started")) {
     return false;
   }
   const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
   const turnMs = codexUuidV7Ms(turnId);
-  if (turnMs === null || turnMs === state.forkStartMs) state.forkBoundaryAmbiguous = true;
+  if (!hasOrdinal && (turnMs === null || turnMs === state.forkStartMs)) state.forkBoundaryAmbiguous = true;
   return turnMs !== null && turnMs > state.forkStartMs;
 }
 
-function codexContext(state, turnId) {
-  if (!isPlainObject(state.turns)) state.turns = {};
-  if (turnId && isPlainObject(state.turns[turnId])) return state.turns[turnId];
-  return {
-    model: state.model,
-    provider: state.provider,
-    project: state.project,
-    lastRow: state.lastRow ?? null,
+function codexTurn(state, scope, id) {
+  const key = codexResponseIdKey(id);
+  return scope.turns?.[key] ?? {
+    model: scope.model ?? "unknown", provider: state.provider, project: scope.project ?? state.project, lastUsageKey: null,
+    ...state.codexTurnMetadata?.[key],
   };
 }
 
-function codexNormalized(raw) {
-  const inputRaw = toNonNegInt(raw.input_tokens);
-  const cached = toNonNegInt(raw.cached_input_tokens);
-  const cacheWrite = toNonNegInt(raw.cache_write_input_tokens);
-  return normalizeTokens({
-    input: Math.max(0, inputRaw - cached - cacheWrite),
-    output: raw.output_tokens,
-    cacheRead: cached,
-    cacheWrite,
-    reasoning: raw.reasoning_output_tokens,
-  });
+function codexTarget(scope, id, context, key) {
+  if (id) ((scope.turns ??= {})[codexResponseIdKey(id)] = context).lastUsageKey = key;
+  scope.lastUsageKey = key;
 }
 
-// Both modern thread_token_usage and legacy total_token_usage use raw Codex
-// counters: input includes cache, output includes reasoning. Never store the
-// normalized (cache-subtracted) vector as the legacy cumulative baseline.
-function codexRawTotals(raw) {
-  return {
-    input_tokens: toNonNegInt(raw.input_tokens),
-    cached_input_tokens: toNonNegInt(raw.cached_input_tokens),
-    cache_write_input_tokens: toNonNegInt(raw.cache_write_input_tokens),
-    output_tokens: toNonNegInt(raw.output_tokens),
-    reasoning_output_tokens: toNonNegInt(raw.reasoning_output_tokens),
-  };
+function codexNormalized([input, read, write, output, reasoning]) {
+  read = Math.min(input, read);
+  write = Math.min(input - read, write);
+  return normalizeTokens({ input: input - read - write, cacheRead: read, cacheWrite: write, output, reasoning });
 }
 
-const CODEX_TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "reasoning"];
-const CODEX_TWIN_WINDOW_MS = 5 * 60 * 1000;
-
-function codexZeroTokens() {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
+// Only old copied prefixes use last-only carriers. They are not a reliable
+// cumulative baseline unless their copied response or raw timestamp agrees.
+function codexReplayLast(state, scope, kind, key, vector, timestamp, responseId) {
+  const previous = scope.replayLast;
+  const sameId = responseId && responseId === previous?.responseId;
+  const sameTime = Number.isFinite(timestamp) && timestamp === previous?.timestamp;
+  const sameVector = String(previous?.vector) === String(vector);
+  const compatible = !(previous?.responseId && responseId) && sameVector;
+  const twin = previous && previous.kind !== kind && (sameId || compatible);
+  const repeat = previous && previous.kind === kind && (sameId || (sameTime && compatible));
+  if ((!Number.isFinite(timestamp) && !responseId) || (twin && !sameId && !sameTime)) state.forkUsageAmbiguous = true;
+  if (scope.historyTotal && kind === "last" && !sameId && !sameTime) state.forkUsageAmbiguous = true;
+  const identity = twin || repeat ? previous.key : key;
+  if (!scope.historyTotal && !scope.replayThreadTotal) recordCodexSpend(scope, identity, vector);
+  scope.replayLast = { kind, key: identity, vector, timestamp, responseId: responseId || ((twin || repeat) && previous.responseId) || "" };
 }
 
-function codexTokenVector(tokens) {
-  return CODEX_TOKEN_FIELDS.map((field) => toNonNegInt(tokens[field]));
-}
-
-function codexSameTokens(left, right) {
-  return (
-    Array.isArray(left) &&
-    Array.isArray(right) &&
-    left.length === right.length &&
-    left.every((value, index) => value === right[index])
-  );
-}
-
-function codexCloseInTime(left, right) {
-  if (!Number.isFinite(left) || !Number.isFinite(right)) return true;
-  return Math.abs(left - right) <= CODEX_TWIN_WINDOW_MS;
-}
-
-function codexPendingTokens(state) {
-  if (!isPlainObject(state.modernPending)) state.modernPending = codexZeroTokens();
-  for (const field of CODEX_TOKEN_FIELDS) {
-    state.modernPending[field] = toNonNegInt(state.modernPending[field]);
+function codexBeginTurn(scope, turnId) {
+  if (!turnId) return;
+  if (scope.pendingTurn && scope.pendingTurn !== turnId && !scope.pendingTurnCompleted) {
+    scope.previousPending = { turn: scope.pendingTurn, delta: scope.recordDelta, records: { ...scope.pendingRecords } };
   }
-  return state.modernPending;
+  scope.activeTurnId = turnId;
 }
 
-function codexAddPending(state, tokens) {
-  const pending = codexPendingTokens(state);
-  for (const field of CODEX_TOKEN_FIELDS) {
-    pending[field] = toNonNegInt(pending[field] + tokens[field]);
-  }
-}
-
-// Local per-file request state. Global dedup only reports the delta a copy adds
-// to the store, which is zero for a copied file; the legacy cumulative counter
-// in that file still has to subtract everything the file itself observed.
-function codexObserveModern(state, key, tokens) {
-  if (!isPlainObject(state.modernObserved)) state.modernObserved = {};
-  const previous = Array.isArray(state.modernObserved[key])
-    ? state.modernObserved[key]
-    : [];
-  const vector = codexTokenVector(tokens);
-  const next = vector.map((value, index) =>
-    Math.max(value, toNonNegInt(previous[index])),
-  );
-  const added = codexZeroTokens();
-  for (let index = 0; index < CODEX_TOKEN_FIELDS.length; index += 1) {
-    added[CODEX_TOKEN_FIELDS[index]] = toNonNegInt(next[index] - toNonNegInt(previous[index]));
-  }
-  state.modernObserved[key] = next;
-  return added;
-}
-
-function codexCumulativeVector(raw) {
-  return isPlainObject(raw) ? codexTokenVector(codexNormalized(raw)) : null;
-}
-
-function codexKnownCumulative(entry) {
-  if (Array.isArray(entry.thread)) return entry.thread;
-  if (Array.isArray(entry.turn)) return entry.turn;
-  return null;
-}
-
-// Cumulative counters are the strong identity. The vector/time fallback is
-// only used for older payloads where either side lacks those counters.
-function codexCumulativeTwin(entry, cumulative) {
-  const known = codexKnownCumulative(entry);
-  if (!Array.isArray(known) || !Array.isArray(cumulative)) return true;
-  return codexSameTokens(known, cumulative);
-}
-
-// Replay-only fallback matches are not proof of a shared response. Keep the
-// existing twin policy, but expose uncertain attribution instead of claiming
-// exact accounting for carrier shapes without a shared identity.
-function codexNoteReplayTwin(state, candidate, timestamp, responseId) {
-  if (state?.forkReplay && !(responseId && responseId === candidate.responseId)
-    && !(Number.isFinite(timestamp) && timestamp === candidate.timestamp)) {
-    state.forkUsageAmbiguous = true;
-  }
-}
-
-function codexPendingTwinKey(
-  pending,
-  tokens,
-  timestamp,
-  cumulative,
-  responseId,
-  turnId,
-  state,
-) {
-  if (
-    !isPlainObject(pending) ||
-    typeof pending.key !== "string" ||
-    !codexSameTokens(pending.tokens, codexTokenVector(tokens)) ||
-    !codexCloseInTime(pending.timestamp, timestamp)
-  ) {
-    return null;
-  }
-  if (responseId && pending.responseId && responseId !== pending.responseId) {
-    return null;
-  }
-  if (
-    Array.isArray(pending.cumulative) &&
-    Array.isArray(cumulative) &&
-    !codexSameTokens(pending.cumulative, cumulative)
-  ) {
-    return null;
-  }
-  if (turnId && pending.turnId && turnId !== pending.turnId) return null;
-  codexNoteReplayTwin(state, pending, timestamp, responseId);
-  return pending.key;
-}
-
-function codexSubtract(tokens, represented) {
-  const out = { ...tokens };
-  for (const field of CODEX_TOKEN_FIELDS) {
-    out[field] = Math.max(0, tokens[field] - toNonNegInt(represented[field]));
-  }
-  out.nonzero = CODEX_TOKEN_FIELDS.some((field) => out[field] > 0);
-  return out;
-}
-
-function codexRememberModern(state, key, tokens, timestamp, identity, delta) {
-  if (!Array.isArray(state.modernRecent)) state.modernRecent = [];
-  state.modernRecent.push({
-    key,
-    tokens: codexTokenVector(tokens),
-    delta: delta ? codexTokenVector(delta) : null,
-    timestamp,
-    thread: identity.thread,
-    turn: identity.turn,
-    responseId: identity.responseId,
-    turnId: identity.turnId,
-  });
-  if (state.modernRecent.length > 8) state.modernRecent.shift();
-}
-
-function codexTakeModernTwin(
-  state,
-  tokens,
-  timestamp,
-  cumulative,
-  responseId,
-  turnId,
-  perResponse,
-) {
-  if (!Array.isArray(state.modernRecent)) return null;
-  const vector = codexTokenVector(tokens);
-  for (let index = state.modernRecent.length - 1; index >= 0; index -= 1) {
-    const candidate = state.modernRecent[index];
-    if (!isPlainObject(candidate)) continue;
-    // A legacy snapshot may report only the increment of a revised modern
-    // response. Require matching cumulative counters for that weaker match.
-    const sameDelta = perResponse && codexSameTokens(candidate.delta, vector)
-      && codexSameTokens(codexKnownCumulative(candidate), cumulative);
-    if (
-      typeof candidate.key === "string" &&
-      (codexSameTokens(candidate.tokens, vector) || sameDelta) &&
-      codexCloseInTime(candidate.timestamp, timestamp) &&
-      codexCumulativeTwin(candidate, cumulative) &&
-      (!responseId || !candidate.responseId || responseId === candidate.responseId) &&
-      (!turnId || !candidate.turnId || turnId === candidate.turnId)
-    ) {
-      state.modernRecent.splice(index, 1);
-      codexNoteReplayTwin(state, candidate, timestamp, responseId);
-      return candidate.key;
-    }
-  }
-  return null;
-}
-
-function parseCodex(record, ctx) {
+function parseCodex(record, ctx, embedded = false) {
   if (!isPlainObject(record)) return;
   const state = ctx.state;
+  if (ctx.lineNo === undefined && !embedded) state.codexOrdinal = (state.codexOrdinal ?? 0) + 1;
+  const ordinal = ctx.lineNo ?? state.codexOrdinal;
   const payload = isPlainObject(record.payload) ? record.payload : {};
-  const timestamp =
-    parseTimestamp(record.timestamp) ?? state.timestamp ?? null;
-  // A header timestamp is an emission fallback, not an exact carrier identity.
-  const twinTimestamp = state.forkReplay ? parseTimestamp(record.timestamp) : timestamp;
+  const rawTimestamp = parseTimestamp(record.timestamp);
+  const timestamp = rawTimestamp ?? state.timestamp ?? null;
   if (state.forkReplay && codexEndsForkReplay(state, record, payload)) {
     state.forkReplay = false;
-    // Copied twins must never absorb an equal-sized child response.
-    state.pendingTwin = null;
-    state.modernRecent = [];
+    delete state.codexReplayParent;
+    const copied = state.codexReplaySpend;
+    if (copied) {
+      const child = codexSpendScope(state, codexSession(state, ctx));
+      // Restored history wins even if the independent record counter was
+      // later replayed. No copied response identity is inherited.
+      child.historyTotal = copied.historyTotal;
+      child.copiedHistory = Boolean(copied.historyTotal);
+      if (!child.historyTotal) {
+        if (copied.replayThreadTotal) child.forkHistoryUnknown = true;
+        else child.recordDelta = copied.recordDelta; // Last-only compatibility.
+      }
+      delete state.codexReplaySpend;
+    }
   }
-
   if (record.type === "session_meta") {
-    const threadId = asString(
-      payload.id ?? payload.session_id ?? payload.thread_id,
-      "",
-    );
-    const firstHeader = !state.session;
-    if (threadId && firstHeader) {
-      state.session = threadId;
-      const forkStartMs = codexUuidV7Ms(threadId);
-      // Without a time-ordered thread id there is no safe boundary; keep
-      // the previous behavior rather than risk dropping the child's usage.
-      if (forkStartMs !== null && asString(payload.forked_from_id ?? payload.parent_thread_id, "")) {
+    const id = asString(payload.id ?? payload.session_id ?? payload.thread_id, "");
+    if (!state.session || (id && id !== state.session && state.forkStartMs === undefined)) {
+      if (id) state.session = id;
+      delete state.codexTurnMetadata;
+      state.project = asString(payload.cwd, "unknown");
+      state.provider = asString(payload.model_provider, "unknown");
+      state.timestamp = parseTimestamp(payload.timestamp ?? record.timestamp);
+      const base = payload.history_base;
+      state.codexPhysicalId = /-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl(?:\.zst)?$/i.exec(ctx.file.path)?.[1] ?? id;
+      if (isPlainObject(base) && typeof base.thread_id === "string" && base.thread_id !== state.codexPhysicalId &&
+        Number.isSafeInteger(base.end_ordinal_exclusive) && base.end_ordinal_exclusive > 0 &&
+        Number.isSafeInteger(base.end_byte_offset) && base.end_byte_offset > 0) {
+        state.codexHistoryBase = [base.thread_id, base.end_ordinal_exclusive, base.end_byte_offset];
+      }
+      state.codexPaginated = payload.history_mode === "paginated";
+      const forkParent = asString(payload.forked_from_id ?? payload.parent_thread_id, "");
+      if (Number.isSafeInteger(payload.subagent_history_start_ordinal) && payload.subagent_history_start_ordinal >= 0) {
+        state.codexFirstChildOrdinal = payload.subagent_history_start_ordinal;
+        const version = typeof payload.cli_version === "string" && /^0\.(\d+)\.(\d+)/.exec(payload.cli_version);
+        // Before record-bearing releases, copied agent rollouts could include
+        // already-owned turns below the stored cutoff. Retain the legacy
+        // turn boundary for those releases only.
+        state.codexLegacyForkOrdinal = Boolean(version && (+version[1] < 153 || (+version[1] === 153 && +version[2] < 4)));
+      }
+      // A referenced inherited-session agent inherits context, not the
+      // parent's TokenCount events. A later revert can reference the agent's
+      // own already-published history beyond the parent boundary.
+      const inheritedSession = typeof payload.session_id === "string" && payload.session_id !== id;
+      const cutoff = payload.forked_from_ordinal_exclusive;
+      const projectsAncestor = state.codexHistoryBase && inheritedSession &&
+        (Number.isSafeInteger(cutoff) ? base.end_ordinal_exclusive <= cutoff : base.thread_id === payload.forked_from_id);
+      const copiedProjection = !state.codexHistoryBase && state.codexPaginated && state.codexFirstChildOrdinal !== undefined;
+      state.codexPaginatedFork = state.codexPaginated && Boolean(forkParent || copiedProjection);
+      state.codexFilteredHistory = Boolean(state.codexPaginated && (projectsAncestor || copiedProjection));
+      const forkStartMs = codexUuidV7Ms(id);
+      if (!state.codexHistoryBase && (copiedProjection || (forkParent && forkStartMs !== null))) {
         state.forkReplay = true;
         state.forkStartMs = forkStartMs;
+        if (forkParent && ctx.observeCodexTask) state.codexReplayParent = `codex:${forkParent}`;
+      }
+    } else if (!state.forkReplay && id && id === state.session) {
+      const scope = codexSpendScope(state, codexSession(state, ctx));
+      clearCodexPending(scope);
+      delete scope.previousPending;
+      scope.resumeBoundary = true;
+    }
+    return;
+  }
+
+  if (!["turn_context", "compacted", "token_usage_record"].includes(record.type) &&
+    !(record.type === "event_msg" && ["token_count", "task_started", "task_complete"].includes(payload.type))) return;
+  const session = codexRecordSession(state, ctx, payload);
+  const responseId = asString(payload.response_id, "");
+  const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
+  const scope = codexSpendScope(state, session);
+  const activeTurn = turnId || scope.activeTurnId || "";
+  const context = codexTurn(state, scope, activeTurn);
+  const timeKey = record.timestamp ?? ctx.lineHash ?? timestamp;
+  if (record.type === "turn_context") {
+    const meta = { model: asString(payload.model, scope.model ?? "unknown"),
+      provider: asString(state.provider), project: asString(payload.cwd, scope.project ?? state.project ?? "unknown") };
+    Object.assign(scope, meta);
+    if (turnId) {
+      const key = codexResponseIdKey(turnId);
+      (scope.turns ??= {})[key] = { ...meta, lastUsageKey: scope.turns?.[key]?.lastUsageKey ?? null };
+      codexBeginTurn(scope, turnId);
+      if (!codexPayloadThread(payload)) delete state.codexImportThread;
+      if (!payload.thread_id && !payload.session_id && !payload.threadId && !payload.sessionId) {
+        (state.codexTurnMetadata ??= {})[key] = meta;
       }
     }
-    if (firstHeader || !state.project) {
-      state.project = asString(payload.cwd, state.project ?? "unknown");
-    }
-    if (firstHeader || !state.provider) {
-      state.provider = asString(
-        payload.model_provider,
-        state.provider ?? "unknown",
-      );
-    }
-    if (firstHeader || state.timestamp === undefined) {
-      state.timestamp = parseTimestamp(payload.timestamp ?? record.timestamp);
-    }
-    if (!state.model) state.model = "unknown";
     return;
   }
-
-  if (record.type === "turn_context") {
-    const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
-    const context = {
-      model: asString(payload.model, state.model ?? "unknown"),
-      provider: asString(state.provider),
-      project: asString(payload.cwd, state.project ?? "unknown"),
-      lastRow: null,
-    };
-    if (!isPlainObject(state.turns)) state.turns = {};
-    if (turnId) {
-      const previous = state.turns[turnId];
-      if (previous?.lastRow) context.lastRow = previous.lastRow;
-      state.turns[turnId] = context;
-    }
-    state.model = context.model;
-    state.project = context.project;
+  if (record.type === "event_msg" && payload.type === "task_started") {
+    codexBeginTurn(scope, turnId);
+    if (!codexPayloadThread(payload)) delete state.codexImportThread;
     return;
   }
-
+  if (record.type === "compacted") {
+    const id = asString(payload.compaction_response_id, "");
+    const usage = payload.latest_token_usage_record;
+    const latestId = isPlainObject(usage) ? asString(usage.response_id, "") : "";
+    if (!state.forkReplay && latestId && (!codexPayloadThread(usage) || codexRecordSession(state, ctx, usage) === session)) {
+      const known = scope.responses?.[codexResponseIdKey(latestId)];
+      parseCodex({ type: "token_usage_record", timestamp: record.timestamp, payload: usage }, ctx, true);
+      if (!known && latestId !== id) excludeCodexCompaction(scope, latestId);
+    }
+    if (id) excludeCodexCompaction(scope, id);
+    return;
+  }
   if (record.type === "token_usage_record") {
-    state.modern = true;
-    // A raw copied baseline does not require an emit-ready per-turn record.
-    if (state.forkReplay && isPlainObject(payload.thread_token_usage)) {
-      state.legacyTotals = codexRawTotals(payload.thread_token_usage);
-      state.modernPending = codexZeroTokens();
-    }
+    const usage = isPlainObject(payload.usage) ? payload.usage : null;
+    if (state.forkReplay && isPlainObject(payload.thread_token_usage)) scope.replayThreadTotal = true;
     if (timestamp === null) {
-      if (state.forkReplay && !isPlainObject(payload.thread_token_usage)) state.forkUsageAmbiguous = true;
+      if (state.forkReplay && !scope.replayThreadTotal) state.forkUsageAmbiguous = true;
       ctx.warn("Codex token usage record has no usable timestamp; skipped");
       return;
     }
-    const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
-    const context = codexContext(state, turnId);
-    const session = codexRecordSession(state, ctx, payload);
-    const usage = isPlainObject(payload.usage) ? payload.usage : null;
     if (!usage) return;
-    const tokens = codexNormalized(usage);
+    const vector = codexRawVector(usage);
+    const tokens = codexNormalized(vector);
     if (!tokens.nonzero) return;
-    const responseId = asString(payload.response_id, "");
-    const thread = codexCumulativeVector(payload.thread_token_usage);
-    const turn = codexCumulativeVector(payload.turn_token_usage);
-    const cumulative = thread ?? turn;
-    const identity = responseId
-      ? ["response", responseId]
-      : [
-          "turn",
-          session,
-          turnId,
-          record.timestamp ?? ctx.lineHash,
-          tokens.input,
-          tokens.output,
-          tokens.cacheRead,
-          tokens.cacheWrite,
-          tokens.reasoning,
-        ];
-    let dedupKey = makeDedupKey("codex", ...identity);
-    let mergedTwin = false;
-    const twinKey = codexPendingTwinKey(
-      state.pendingTwin,
-      tokens,
-      twinTimestamp,
-      cumulative,
-      responseId,
-      turnId,
-      state,
-    );
-    if (
-      responseId &&
-      isPlainObject(state.responseKeys) &&
-      typeof state.responseKeys[responseId] === "string"
-    ) {
-      dedupKey = state.responseKeys[responseId];
-      mergedTwin = true;
-    } else if (twinKey) {
-      // A token_count twin can precede its token_usage_record. Reuse the
-      // token_count contribution instead of counting the turn twice.
-      dedupKey = twinKey;
-      mergedTwin = true;
-      if (responseId) {
-        if (!isPlainObject(state.responseKeys)) state.responseKeys = {};
-        state.responseKeys[responseId] = dedupKey;
-      }
+    const key = responseId ? makeDedupKey("codex", "response", responseId)
+      : makeDedupKey("codex", "turn", session, turnId, timeKey, ...vector);
+    const oldKey = !responseId && (ctx.observeCodexLegacyKey || ctx.retainedCodexResponse)
+      ? makeDedupKey("codex", "turn", session, turnId, timeKey,
+        tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite, tokens.reasoning) : key;
+    if (ctx.observeCodexLegacyKey) {
+      const value = [vector[0], tokens.output, tokens.reasoning, tokens.cacheRead, tokens.cacheWrite];
+      ctx.observeCodexLegacyKey(key, value, Boolean(responseId && !state.forkReplay));
+      if (oldKey !== key) ctx.observeCodexLegacyKey(oldKey, value);
     }
     if (state.forkReplay) {
-      const observed = codexObserveModern(state, dedupKey, tokens);
-      // Thread baselines already cover the observation; turn counters do not.
-      if (!isPlainObject(payload.thread_token_usage) && !twinKey) codexAddPending(state, observed);
-      state.pendingTwin = null;
-      codexRememberModern(state, dedupKey, tokens, twinTimestamp, { thread, turn, responseId, turnId });
+      codexReplayLast(state, scope, "record", key, vector, rawTimestamp, responseId);
       return;
     }
-    const result = ctx.addUsage(
-      metaFor(
-        "codex",
-        session,
-        timestamp,
-        context.project,
-        context.provider,
-        context.model,
-      ),
-      tokens,
-      dedupKey,
-    );
-    const observed = codexObserveModern(state, dedupKey, tokens);
-    if (!twinKey) codexAddPending(state, observed);
-    state.pendingTwin = null;
-    codexRememberModern(state, dedupKey, tokens, timestamp, {
-      thread,
-      turn,
-      responseId,
-      turnId,
-    }, observed);
-    if (turnId) {
-      if (!isPlainObject(state.turns)) state.turns = {};
-      const entry = state.turns[turnId] ?? context;
-      entry.lastRow = { fileId: result.fileId, rowIdx: result.rowIdx };
-      state.turns[turnId] = entry;
+    if (!responseId) state.codexAmbiguousEcho = true;
+    if (turnId && session !== codexSession(state, ctx) &&
+      state.codexSpend?.[codexSession(state, ctx)]?.activeTurnId === turnId) state.codexImportThread = session;
+    scope.carrierDepth = (scope.carrierDepth ?? 0) + 1;
+    if (!scope.responses && activeTurn && scope.legacyLastTurn === activeTurn && String(scope.legacyLast) === String(vector)) {
+      state.codexPossibleSnapshotFirst = true;
     }
-    state.lastRow = { fileId: result.fileId, rowIdx: result.rowIdx };
-    if (mergedTwin) state.modern = true;
+    // Diagnostic only: timestamps do not participate in interval matching.
+    if (rawTimestamp !== null) {
+      if (rawTimestamp < (scope.latestSnapshotAt ?? -Infinity)) state.codexCarrierOrderAmbiguous = true;
+      scope.latestRecordAt = Math.max(rawTimestamp, scope.latestRecordAt ?? -Infinity);
+    }
+    ctx.addCodexUsage(metaFor("codex", session, timestamp, context.project, context.provider, context.model), tokens, key);
+    const responseKey = responseId ? codexResponseIdKey(responseId) : key;
+    // Save raw carrier identity only for revisions and their overlapping
+    // observations; the response ID is still the spend ledger identity.
+    const known = scope.responses?.[responseKey];
+    const coalescedRevision = scope.pendingRecords?.[responseKey];
+    const prior = scope.legacyHistoryResponses?.[responseKey] ?? ctx.retainedCodexResponse?.(oldKey, responseId);
+    const delta = recordCodexSpend(scope, responseKey, vector, prior);
+    if (delta.some(Boolean)) {
+      if (activeTurn) {
+        scope.pendingTurn = activeTurn;
+        scope.pendingTurnCompleted = false;
+      }
+      const carrier = makeDedupKey("codex", "record-carrier", key, timeKey, ...vector);
+      if (known) (scope.revisionCarriers ??= {})[carrier] ??= delta;
+      if (coalescedRevision && scope.pendingCarriers) delete scope.pendingCarriers[responseKey];
+      else (scope.pendingCarriers ??= {})[responseKey] = carrier;
+
+      // For an imported inversion, use adjacency in the response counter,
+      // not equality between the independent history and response totals.
+      const previous = scope.pendingCounter;
+      const thread = !known && !prior && responseId && isPlainObject(payload.thread_token_usage)
+        ? codexRawVector(payload.thread_token_usage) : null;
+      const before = previous && scope.pendingRecords[previous[0]];
+      delete scope.reorderedPending;
+      if (thread && before && thread.every((n, i) => n + before[i] === previous[1][i]) &&
+        delta.every((n, i) => n <= thread[i])) scope.reorderedPending = [responseKey, previous[0]];
+      scope.pendingCounter = thread ? [responseKey, thread] : undefined;
+    }
+    if (scope.legacyHistoryResponses) delete scope.legacyHistoryResponses[responseKey];
+    codexTarget(scope, activeTurn, context, key);
+    scope.lastCarrierKey = key;
     return;
   }
-
-  if (
-    record.type === "event_msg" &&
-    payload.type === "token_count"
-  ) {
+  if (record.type === "event_msg" && payload.type === "token_count") {
     const info = isPlainObject(payload.info) ? payload.info : {};
-    const totals = isPlainObject(info.total_token_usage)
-      ? info.total_token_usage
-      : null;
+    const total = isPlainObject(info.total_token_usage) ? info.total_token_usage : null;
     const last = isPlainObject(info.last_token_usage) ? info.last_token_usage : null;
-    const responseId = asString(payload.response_id, "");
-    const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
-    const session = codexRecordSession(state, ctx, payload);
-    if (state.forkReplay && totals) {
-      // Baselines need neither a usable timestamp nor per-response usage.
-      state.legacyTotals = codexRawTotals(totals);
-      state.modernPending = codexZeroTokens();
-      state.pendingTwin = null;
-      if (last) {
-        const tokens = codexNormalized(last);
-        const key = makeDedupKey("codex", session, "legacy", record.timestamp ?? ctx.lineHash,
-          ...Object.values(state.legacyTotals));
-        const identity = { thread: codexCumulativeVector(totals), turn: null, responseId, turnId };
-        codexRememberModern(state, key, tokens, twinTimestamp, identity);
-        state.pendingTwin = { key, tokens: codexTokenVector(tokens), timestamp: twinTimestamp,
-          cumulative: identity.thread, responseId: identity.responseId, turnId: identity.turnId };
-      }
-      return;
+    if (!total && !last) return;
+    const vector = total ? codexRawVector(total) : null;
+    const lastVector = last ? codexRawVector(last) : null;
+    const windowFill = total && isCodexWindowFill(info, total, last) ? `${total.total_tokens}/${last.total_tokens}` : null;
+    if (total && !windowFill && !vector.some(Boolean) && toNonNegInt(total.total_tokens)) return;
+    const key = makeDedupKey("codex", session, "history", timeKey, responseId, turnId, vector, lastVector);
+    if (total && session === codexSession(state, ctx)) {
+      const physicalOrdinal = Number.isSafeInteger(record.ordinal) ? record.ordinal + 1 :
+        ordinal + (state.codexHistoryBase?.[1] ?? 0);
+      (state.codexHistoryPoints ??= []).push([physicalOrdinal, ctx.lineEnd ?? 0, vector]);
     }
-    if (timestamp === null) {
-      if (state.forkReplay && last) state.forkUsageAmbiguous = true;
-      return;
-    }
-    state.pendingTwin = null;
-    const context = codexContext(state, asString(payload.turn_id, ""));
-    const perResponse = Boolean(totals && last);
-    let raw;
-    let identityTail;
-    let reset = false;
-
-    if (totals && last) {
-      // Concurrent chains can interleave, and paginated forks can inherit a
-      // cumulative baseline. Account for just this response. Without a response
-      // ID, use the available turn ID and both counters. Identical snapshots
-      // with no distinguishing metadata are treated as re-emissions.
-      const current = codexRawTotals(totals);
-      raw = last;
-      state.legacyTotals = current;
-      identityTail = [
-        "legacy-response",
-        turnId,
-        ...Object.values(current),
-        ...Object.values(codexRawTotals(last)),
-      ];
-    } else if (totals) {
-      const current = codexRawTotals(totals);
-      const previous = isPlainObject(state.legacyTotals)
-        ? state.legacyTotals
-        : null;
-      // A reset belongs to the whole counter vector, not just the fields that
-      // decreased. Other fields may already exceed their old values on restart.
-      reset = Boolean(previous && Object.keys(current).some((key) => current[key] < toNonNegInt(previous[key])));
-      raw = {};
-      for (const key of Object.keys(current)) {
-        raw[key] = !previous || reset ? current[key] : current[key] - toNonNegInt(previous[key]);
-      }
-      state.legacyTotals = current;
-      identityTail = [
-        "legacy",
-        record.timestamp ?? ctx.lineHash,
-        current.input_tokens,
-        current.cached_input_tokens,
-        current.cache_write_input_tokens,
-        current.output_tokens,
-        current.reasoning_output_tokens,
-      ];
-    } else if (last) {
-      raw = last;
-      identityTail = [
-        "legacy-last",
-        record.timestamp ?? ctx.lineHash,
-        raw.input_tokens,
-        raw.cached_input_tokens,
-        raw.cache_write_input_tokens,
-        raw.output_tokens,
-        raw.reasoning_output_tokens,
-      ];
-    } else {
-      return;
-    }
-
-    let tokens = codexNormalized(raw);
-    let cumulative = null;
-    if (totals) {
-      cumulative = codexCumulativeVector(totals);
-      if (!reset && !perResponse) tokens = codexSubtract(tokens, codexPendingTokens(state));
-      state.modernPending = codexZeroTokens();
-    }
-    if (!tokens.nonzero) return;
-
-    const observationKey = responseId && (perResponse || state.forkReplay)
-      ? makeDedupKey("codex", "response", responseId)
-      : makeDedupKey("codex", session, ...identityTail);
-    let modernKey = null;
-    if (perResponse) {
-      const rememberedKey = state.legacyTwinKeys?.[observationKey]
-        ?? (responseId && state.responseKeys?.[responseId]);
-      if (typeof rememberedKey === "string") modernKey = rememberedKey;
-    }
-    if (!modernKey && !reset) {
-      modernKey = codexTakeModernTwin(
-        state, tokens, twinTimestamp, cumulative, responseId, turnId, perResponse,
-      );
-    }
-    const dedupKey = modernKey || observationKey;
-    const usedModernTwin = Boolean(modernKey);
-    // Keep aliases after the recent-match window expires and across appends.
-    if (perResponse && dedupKey !== observationKey) {
-      if (!isPlainObject(state.legacyTwinKeys)) state.legacyTwinKeys = {};
-      state.legacyTwinKeys[observationKey] = dedupKey;
-      if (responseId) {
-        if (!isPlainObject(state.responseKeys)) state.responseKeys = {};
-        state.responseKeys[responseId] = dedupKey;
-      }
+    const alias = responseId && total && last ? makeDedupKey("codex", "response", responseId)
+      : total && last ? makeDedupKey("codex", session, "legacy-response", turnId, ...vector, ...lastVector)
+      : makeDedupKey("codex", session, total ? "legacy" : "legacy-last", timeKey, ...(vector ?? lastVector));
+    const namedAlias = Boolean(responseId && total && last);
+    const modern = Boolean(scope.responses);
+    const legacyKey = !modern && responseId && last ? makeDedupKey("codex", "snapshot-response", session, responseId) : key;
+    // Historical v5–v8 knew only timestamp-and-cumulative identities. v9
+    // added per-response aliases without changing the historical scheme.
+    const historical = total && last ? makeDedupKey("codex", session, "legacy", timeKey, ...vector) : null;
+    const rawLast = !total && last && [last.input_tokens, last.cached_input_tokens, last.cache_write_input_tokens,
+      last.output_tokens, last.reasoning_output_tokens];
+    const historicalLast = rawLast && rawLast.every((value) => value !== undefined)
+      ? makeDedupKey("codex", session, "legacy-last", timeKey, ...rawLast) : null;
+    // A copied carrier can prove a prior index entry without being spend
+    // of this thread. Named snapshots still cannot witness standalone
+    // records merely by naming them; only their history identity is here.
+    if (timestamp !== null && ctx.observeCodexLegacyKey) {
+      if (historical) ctx.observeCodexLegacyKey(historical);
+      if (historicalLast) ctx.observeCodexLegacyKey(historicalLast);
+      if (!namedAlias) ctx.observeCodexLegacyKey(alias);
+      if (legacyKey !== alias) ctx.observeCodexLegacyKey(legacyKey);
     }
     if (state.forkReplay) {
-      const observed = codexObserveModern(state, dedupKey, tokens);
-      // Remember the exact legacy identity too, so repeated echoes remain
-      // observed after the consumable cross-carrier twin has been taken.
-      if (usedModernTwin && observationKey !== dedupKey) codexObserveModern(state, observationKey, tokens);
-      if (!usedModernTwin && CODEX_TOKEN_FIELDS.some((field) => observed[field] > 0)) {
-        if (isPlainObject(state.legacyTotals)) {
-          // Without a matching last/response identity this may already be in
-          // the copied total. Preserve that baseline, do not subtract twice.
-          state.forkUsageAmbiguous = true;
-        } else {
-          codexAddPending(state, observed);
+      if (total) {
+        const mark = String(vector);
+        if (!vector.some(Boolean) && scope.historyTotal?.some(Boolean)) delete scope.replayHistory;
+        const seen = scope.replayHistory ??= {};
+        if (!seen[mark] || String(scope.historyTotal) === mark) {
+          scope.historyTotal = vector;
+          seen[mark] = true;
+          delete scope.recordDelta;
+          delete scope.pendingRecords;
+          if (lastVector?.some(Boolean)) scope.replayLast = { kind: "last", key, vector: lastVector, timestamp: rawTimestamp, responseId };
         }
+      } else if (lastVector.some(Boolean)) {
+        const lastKey = responseId ? makeDedupKey("codex", "response", responseId) : key;
+        codexReplayLast(state, scope, "last", lastKey, lastVector, rawTimestamp, responseId);
       }
-      // Keep a consumed copied twin available for a later modern echo too.
-      state.pendingTwin = { key: dedupKey, tokens: codexTokenVector(tokens), timestamp: twinTimestamp,
-        cumulative, responseId, turnId };
       return;
     }
-    const result = ctx.addUsage(
-      metaFor(
-        "codex",
-        session,
-        timestamp,
-        context.project,
-        context.provider,
-        context.model,
-      ),
-      tokens,
-      dedupKey,
-    );
-    state.lastRow = { fileId: result.fileId, rowIdx: result.rowIdx };
-    if (!usedModernTwin) {
-      // Keep this contribution available if the matching token_usage_record
-      // appears immediately after the token_count record.
-      state.pendingTwin = {
-        key: dedupKey,
-        tokens: codexTokenVector(tokens),
-        timestamp,
-        cumulative,
-        responseId,
-        turnId,
-      };
+    if (timestamp === null) return;
+    const legacySignature = !modern && last && total
+      ? makeDedupKey("codex", session, "legacy-response", scope.legacyEpoch ?? 0, turnId, responseId, ...vector, ...lastVector) : key;
+    const identifiedLegacy = !modern && Boolean(responseId && last);
+    const target = metaFor("codex", session, timestamp, context.project, context.provider, context.model);
+    const referenced = total && !scope.historyTotal && state.codexHistoryBase && session === codexSession(state, ctx);
+    const boundary = referenced ? "referenced" : !scope.historyTotal && state.codexFilteredHistory ? "projected-fork"
+      : scope.copiedHistory ? "copied" : scope.resumeBoundary ? "resume"
+      : !scope.historyTotal && state.codexPaginatedFork ? "clipped-paginated"
+        : !scope.historyTotal && state.codexPaginated && modern ? "paginated-root" : modern ? "modern" : "legacy";
+    let charge;
+    if (total) {
+      if (scope.forkHistoryUnknown) {
+        state.forkUsageAmbiguous = true;
+        delete scope.forkHistoryUnknown;
+      }
+      if (!windowFill && (scope.intervals?.[key] !== undefined || scope.historySeen?.[legacySignature])) return;
+      if (rawTimestamp !== null) {
+        if (rawTimestamp < (scope.latestRecordAt ?? -Infinity)) state.codexCarrierOrderAmbiguous = true;
+        scope.latestSnapshotAt = Math.max(rawTimestamp, scope.latestSnapshotAt ?? -Infinity);
+      }
+      if (!modern && !vector.some(Boolean) && scope.historyTotal?.some(Boolean)) scope.legacyEpoch = (scope.legacyEpoch ?? 0) + 1;
+      const old = turnId && scope.previousPending?.turn === turnId ? scope.previousPending : null;
+      const input = { boundary, baseline: scope.historyTotal, total: vector, last: lastVector,
+        inheritance: (referenced || boundary === "projected-fork") && state.codexFilteredHistory ? "filtered" : undefined,
+        priorLast: scope.legacyLast, fill: windowFill, priorFill: scope.windowFill,
+        interrupted: !old ? scope.previousPending?.delta : undefined,
+        interruptedRecords: !old ? scope.previousPending?.records : undefined,
+        pending: old?.delta ?? scope.recordDelta, records: old?.records ?? scope.pendingRecords };
+      if (!scope.historyTotal && !modern) scope.startedWithoutRecord = true;
+      const settled = settleCodexInterval({ ...input, target });
+      charge = settled.charge;
+      if (referenced && !windowFill) {
+        state.codexReferencedInterval = { key: legacyKey, input: { ...input, target: settled.target } };
+        scope.copiedHistory = true;
+      }
+      if (scope.pendingCarriers && !old && settled.next.close && !windowFill &&
+        (charge?.some(Boolean) || scope.startedWithoutRecord)) {
+        (scope.intervalInputs ??= {})[referenced ? legacyKey : key] = [{ ...input, target }, scope.pendingCarriers];
+      }
+      scope.historyTotal = settled.next.historyTotal;
+      scope.windowFill = settled.next.windowFill;
+      if (settled.next.close) {
+        const [earlier, later] = scope.reorderedPending ?? [];
+        const covered = earlier && scope.pendingRecords?.[earlier];
+        const deferred = later && scope.pendingRecords?.[later];
+        const retainLater = !old && !scope.previousPending && !referenced && !windowFill && !charge?.some(Boolean) && covered && deferred &&
+          covered.every((n, i) => n === lastVector?.[i] && n === vector[i] - (input.baseline?.[i] ?? 0));
+        if (old) {
+          const remaining = { ...scope.pendingRecords };
+          for (const [id, prior] of Object.entries(old.records ?? {})) {
+            if (!remaining[id]) continue;
+            const delta = remaining[id].map((n, i) => n - prior[i]);
+            if (delta.some(Boolean)) remaining[id] = delta;
+            else delete remaining[id];
+            if (scope.pendingCarriers) delete scope.pendingCarriers[id];
+          }
+          scope.pendingRecords = remaining;
+          scope.recordDelta = (scope.recordDelta ?? [0, 0, 0, 0, 0]).map((n, i) => n - (old.delta?.[i] ?? 0));
+        } else {
+          const carrier = retainLater && scope.pendingCarriers?.[later];
+          clearCodexPending(scope);
+          if (retainLater) {
+            scope.recordDelta = deferred;
+            scope.pendingRecords = { [later]: deferred };
+            if (carrier) scope.pendingCarriers = { [later]: carrier };
+          }
+        }
+        delete scope.previousPending;
+        delete scope.resumeBoundary;
+      }
+      if (!modern) (scope.historySeen ??= {})[legacySignature] = true;
+      scope.legacyLast = lastVector;
+      scope.legacyLastTurn = activeTurn;
+      const responseKey = identifiedLegacy && codexResponseIdKey(responseId);
+      const prior = responseKey && scope.legacyHistoryResponses?.[responseKey];
+      if (responseKey && settled.next.useLast) (scope.legacyHistoryResponses ??= {})[responseKey] = lastVector;
+      if (!charge && prior && lastVector && prior[0] === lastVector[0] && prior[3] === lastVector[3]) {
+        ctx.addCodexUsage(target, codexNormalized(lastVector), legacyKey);
+      }
+      const tokens = charge && codexNormalized(charge);
+      scope.carrierDepth = (scope.carrierDepth ?? 0) + 1;
+      const intervalKey = referenced ? legacyKey : key;
+      (scope.intervals ??= {})[intervalKey] = [scope.carrierDepth, tokens?.nonzero
+        ? [tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite, tokens.reasoning] : 0];
+      if (scope.lastCarrierKey && !tokens?.nonzero) (scope.intervalTargets ??= {})[intervalKey] = scope.lastCarrierKey;
+      if (tokens?.nonzero && target.model !== "unknown") (scope.intervalRows ??= {})[intervalKey] = settled.target;
+      if (referenced && !windowFill) codexTarget(scope, activeTurn, context, legacyKey);
     } else {
-      state.pendingTwin = null;
+      if (!lastVector.some(Boolean)) return;
+      if (modern) state.codexAmbiguousEcho = true;
+      charge = settleCodexInterval({ boundary, last: lastVector, target }).charge;
     }
-    if (payload.turn_id) {
-      if (!isPlainObject(state.turns)) state.turns = {};
-      const entry = state.turns[payload.turn_id] ?? context;
-      entry.lastRow = state.lastRow;
-      state.turns[payload.turn_id] = entry;
+    const tokens = charge && codexNormalized(charge);
+    if (!tokens?.nonzero) return;
+    if (namedAlias) ctx.observeCodexLegacyKey?.(alias, [charge[0], tokens.output, tokens.reasoning, tokens.cacheRead, tokens.cacheWrite]);
+    ctx.addCodexUsage(target, tokens, legacyKey);
+    if (state.codexReferencedInterval?.key !== legacyKey) {
+      (state.codexLegacyAliases ??= {})[legacyKey] = historical || historicalLast ? [alias, historical ?? historicalLast] : alias;
     }
+    if (identifiedLegacy) ctx.linkCodexSnapshot(legacyKey, makeDedupKey("codex", "response", responseId));
+    codexTarget(scope, activeTurn, context, legacyKey);
     return;
   }
-
   if (record.type === "event_msg" && payload.type === "task_complete") {
-    const turnId = asString(payload.turn_id ?? payload.root_turn_id, "");
-    const context = codexContext(state, turnId);
-    let duration = Number.isFinite(payload.duration_ms)
-      ? toNonNegInt(payload.duration_ms)
-      : 0;
+    let duration = Number.isFinite(payload.duration_ms) ? toNonNegInt(payload.duration_ms) : 0;
     if (!duration) {
       const started = Number(payload.started_at);
       const completed = Number(payload.completed_at);
-      if (Number.isFinite(started) && Number.isFinite(completed) && completed >= started) {
-        duration = toNonNegInt((completed - started) * 1000);
-      }
+      if (Number.isFinite(started) && Number.isFinite(completed) && completed >= started) duration = toNonNegInt((completed - started) * 1000);
     }
-    if (duration <= 0) return;
-    const target = context.lastRow ?? state.lastRow;
-    if (!target) return;
-    const session = codexRecordSession(state, ctx, payload);
-    ctx.addTask(
-      target.fileId,
-      target.rowIdx,
-      taskKeyFor(
-        "codex",
-        "task",
-        session,
-        turnId || record.timestamp || payload.completed_at || duration,
-      ),
-      duration,
-      session,
-      true,
-    );
+    // Like main, a no-spend completion uses the thread's previous usage
+    // bucket when available, including a turn with its own context.
+    const target = context.lastUsageKey ?? scope.lastUsageKey;
+    if (activeTurn && activeTurn === scope.pendingTurn) scope.pendingTurnCompleted = true;
+    if (activeTurn && activeTurn === scope.activeTurnId) delete scope.activeTurnId;
+    if (!duration) return;
+    const carrier = turnId || record.timestamp || payload.completed_at;
+    const taskKey = taskKeyFor("codex", "task", session, carrier || activeTurn || duration);
+    const legacyKey = carrier || !activeTurn ? taskKey : taskKeyFor("codex", "task", session, duration);
+    if (state.forkReplay) {
+      const parent = state.codexReplayParent;
+      const parentKey = parent && taskKeyFor("codex", "task", parent, carrier || duration);
+      ctx.observeCodexTask?.(legacyKey, duration, { parentKey, parent });
+    } else {
+      if (target) ctx.addCodexTask(target, taskKey, duration, session);
+      ctx.observeCodexTask?.(taskKey, duration);
+      if (legacyKey !== taskKey) ctx.observeCodexTask?.(legacyKey, duration, null, taskKey);
+    }
   }
 }
 
