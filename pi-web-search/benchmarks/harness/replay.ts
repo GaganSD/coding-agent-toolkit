@@ -13,7 +13,8 @@ export const retrieve = <T>(run: () => T): T => retrievalScope.run(true, run);
 
 type Rpc = { id?: number; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
 type Archive = { provenance: Provenance; records: Record<string, Recording> };
-type Recording = { status: number; contentType: string; body: string; rpc?: boolean };
+type RecordedFailure = { transportError: "timeout" | "aborted" | "network"; phase: "request" | "body" };
+type Recording = RecordedFailure | { status: number; contentType: string; body: string; rpc?: boolean };
 const providers = new Set(["mcp.exa.ai", "mcp.grep.app", "search.parallel.ai", "sourcegraph.com", "r.jina.ai", "context7.com"]);
 const privateToken = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16})\b|\bBearer\s+[A-Za-z0-9._~-]{16,})/giu;
 export const digest = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -141,6 +142,14 @@ export class Replay {
 			}
 			record = this.records[key] = await pending;
 		}
+		if ("transportError" in record) {
+			const detail = "Recorded transport " + record.transportError + " (" + record.phase + ")";
+			this.errors.push(url.hostname + " " + detail);
+			const error = record.transportError === "network" ? new TypeError(detail)
+				: Object.assign(new Error(detail), { code: record.transportError, retryable: record.transportError === "timeout" });
+			if (record.phase === "request" || record.transportError !== "network") throw error;
+			return new Response(new ReadableStream({ start(controller) { controller.error(error); } }));
+		}
 		if (record.status >= 400) this.errors.push(url.hostname + " HTTP " + record.status);
 		if (record.rpc && /"error":\s*\{|"isError":true/u.test(record.body)) this.errors.push(url.hostname + " RPC tool error");
 		const body = record.rpc ? JSON.stringify({ ...JSON.parse(record.body), id: rpc?.id }) : record.body;
@@ -156,12 +165,17 @@ export class Replay {
 	private async record(request: Request, rpc: Rpc | undefined, exa: boolean, normalizedParallel: boolean): Promise<Recording> {
 		const headers = new Headers(request.headers);
 		headers.delete("mcp-session-id");
-		const response = exa ? await this.network("https://mcp.exa.ai/mcp?tools=web_search_exa", {
+		let response: Response;
+		try {
+			response = exa ? await this.network("https://mcp.exa.ai/mcp?tools=web_search_exa", {
 			method: "POST", headers, redirect: "error", signal: request.signal,
 			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "web_search_exa",
 				arguments: { query: rpc?.params?.arguments?.query, objective: rpc?.params?.arguments?.query, numResults: Math.max(8, Number(rpc?.params?.arguments?.numResults) || 0) } } }),
 		}) : await this.network(request, { headers, redirect: "error", ...(normalizedParallel ? { body: JSON.stringify(rpc) } : {}) });
-		const body = await response.text();
+		} catch (error) { return transportFailure(request, error, "request"); }
+		let body: string;
+		try { body = await response.text(); }
+		catch (error) { return transportFailure(request, error, "body"); }
 		const contentType = response.headers.get("content-type") ?? "text/plain";
 		if (rpc && response.ok) {
 			const data = contentType.includes("text/event-stream") ? body.split("\n").filter((line) => line.startsWith("data:"))
@@ -194,4 +208,12 @@ function guardDns(target: object, promises: boolean, guarded: () => boolean, mis
 		methods[name] = promises ? async function (this: unknown, ...args: unknown[]) { return invoke.apply(this, args); } : invoke;
 	}
 	return () => { Object.assign(target, originals); };
+}
+
+function transportFailure(request: Request, error: unknown, phase: RecordedFailure["phase"]): RecordedFailure {
+	const reason = request.signal.aborted ? request.signal.reason : error;
+	const record = reason as { code?: string; name?: string } | undefined;
+	const transportError = record?.code === "timeout" || record?.name === "TimeoutError" ? "timeout"
+		: record?.code === "aborted" || record?.name === "AbortError" ? "aborted" : "network";
+	return { transportError, phase };
 }
