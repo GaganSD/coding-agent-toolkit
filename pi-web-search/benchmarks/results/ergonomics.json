@@ -1,0 +1,688 @@
+{
+  "startedAt": "2026-11-28 14:11 UTC",
+  "createdAt": "2026-11-28 14:43 UTC",
+  "corpusSha256": "a2d1e3e8a6d8310b37bf505be2aa3285051e0e7d7a7e84c43c245b2efacd1186",
+  "protocol": {
+    "piVersion": "1.3.0",
+    "models": [
+      "opencode-go/deepseek-v4.1-flash"
+    ],
+    "tasks": [
+      "cal-01",
+      "cal-02",
+      "cal-03",
+      "cal-04",
+      "cal-05",
+      "cal-06",
+      "cal-07",
+      "cal-08",
+      "cal-09",
+      "cal-10",
+      "cal-11",
+      "cal-12",
+      "cal-13",
+      "cal-14",
+      "cal-15",
+      "cal-16",
+      "cal-17",
+      "cal-18",
+      "cal-19",
+      "cal-20",
+      "hold-01",
+      "hold-02",
+      "hold-03",
+      "hold-04",
+      "hold-05",
+      "hold-06",
+      "hold-07",
+      "hold-08",
+      "hold-09",
+      "hold-10",
+      "hold-11",
+      "hold-12",
+      "hold-13",
+      "hold-14",
+      "hold-15",
+      "hold-16",
+      "hold-17",
+      "hold-18",
+      "hold-19",
+      "hold-20"
+    ],
+    "trialsPerTask": 3,
+    "callBudget": 8,
+    "timeoutMs": 90000,
+    "maxOutputTokens": 800,
+    "retryDelayMs": [
+      12000,
+      30000
+    ],
+    "thinking": "off",
+    "toolExecution": "sequential",
+    "urlReplay": "jina"
+  },
+  "expectedPerArm": 120,
+  "paired": 120,
+  "complete": true,
+  "gates": {
+    "overallFirstCallValidity": false,
+    "multipartCallReduction": 0.13636363636363635,
+    "multipartFirstCallValidity": true,
+    "multipartGate": false,
+    "fewerRefFollowups": true
+  },
+  "summaries": [
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "All tasks",
+      "metric": "firstValid",
+      "pairs": 120,
+      "baseline": {
+        "mean": 0.8583333333333334,
+        "interval95": [
+          0.7666666666666667,
+          0.9416666666666667
+        ],
+        "tasks": 40
+      },
+      "feature": {
+        "mean": 0.8,
+        "interval95": [
+          0.7083333333333333,
+          0.8833333333333334
+        ],
+        "tasks": 40
+      },
+      "delta": {
+        "mean": -0.05833333333333333,
+        "interval95": [
+          -0.13333333333333333,
+          0.016666666666666666
+        ],
+        "tasks": 40
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "All tasks",
+      "metric": "calls",
+      "pairs": 120,
+      "baseline": {
+        "mean": 4.733333333333333,
+        "interval95": [
+          4.258333333333334,
+          5.225
+        ],
+        "tasks": 40
+      },
+      "feature": {
+        "mean": 5.266666666666667,
+        "interval95": [
+          4.741666666666666,
+          5.791666666666666
+        ],
+        "tasks": 40
+      },
+      "delta": {
+        "mean": 0.5333333333333333,
+        "interval95": [
+          0.024999999999999994,
+          1.05
+        ],
+        "tasks": 40
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "All tasks",
+      "metric": "refReads",
+      "pairs": 120,
+      "baseline": {
+        "mean": 0.9333333333333333,
+        "interval95": [
+          0.6416666666666666,
+          1.2666666666666666
+        ],
+        "tasks": 40
+      },
+      "feature": {
+        "mean": 0.5583333333333333,
+        "interval95": [
+          0.3083333333333333,
+          0.8583333333333334
+        ],
+        "tasks": 40
+      },
+      "delta": {
+        "mean": -0.375,
+        "interval95": [
+          -0.5416666666666667,
+          -0.21666666666666665
+        ],
+        "tasks": 40
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "All tasks",
+      "metric": "repeatBadCalls",
+      "pairs": 120,
+      "baseline": {
+        "mean": 0.0,
+        "interval95": [
+          0.0,
+          0.0
+        ],
+        "tasks": 40
+      },
+      "feature": {
+        "mean": 0.0,
+        "interval95": [
+          0.0,
+          0.0
+        ],
+        "tasks": 40
+      },
+      "delta": {
+        "mean": 0.0,
+        "interval95": [
+          0.0,
+          0.0
+        ],
+        "tasks": 40
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "All tasks",
+      "metric": "recoveryTurns",
+      "pairs": 120,
+      "baseline": {
+        "mean": 1.0765765765765767,
+        "interval95": [
+          1.027027027027027,
+          1.135135135135135
+        ],
+        "tasks": 37
+      },
+      "feature": {
+        "mean": 1.3108108108108107,
+        "interval95": [
+          1.1576576576576578,
+          1.4864864864864864
+        ],
+        "tasks": 37
+      },
+      "delta": {
+        "mean": 0.23039215686274508,
+        "interval95": [
+          0.03921568627450981,
+          0.46078431372549017
+        ],
+        "tasks": 34
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "All tasks",
+      "metric": "hitCallBudget",
+      "pairs": 120,
+      "baseline": {
+        "mean": 0.14166666666666666,
+        "interval95": [
+          0.05833333333333333,
+          0.2333333333333333
+        ],
+        "tasks": 40
+      },
+      "feature": {
+        "mean": 0.21666666666666665,
+        "interval95": [
+          0.125,
+          0.31666666666666665
+        ],
+        "tasks": 40
+      },
+      "delta": {
+        "mean": 0.075,
+        "interval95": [
+          -0.025,
+          0.175
+        ],
+        "tasks": 40
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "Multipart",
+      "metric": "calls",
+      "pairs": 12,
+      "baseline": {
+        "mean": 5.5,
+        "interval95": [
+          3.6666666666666665,
+          7.333333333333334
+        ],
+        "tasks": 4
+      },
+      "feature": {
+        "mean": 4.75,
+        "interval95": [
+          2.4166666666666665,
+          6.333333333333334
+        ],
+        "tasks": 4
+      },
+      "delta": {
+        "mean": -0.7500000000000001,
+        "interval95": [
+          -1.8333333333333335,
+          0.33333333333333337
+        ],
+        "tasks": 4
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "Multipart",
+      "metric": "firstValid",
+      "pairs": 12,
+      "baseline": {
+        "mean": 0.6666666666666666,
+        "interval95": [
+          0.41666666666666663,
+          0.9166666666666666
+        ],
+        "tasks": 4
+      },
+      "feature": {
+        "mean": 0.8333333333333333,
+        "interval95": [
+          0.6666666666666666,
+          1.0
+        ],
+        "tasks": 4
+      },
+      "delta": {
+        "mean": 0.16666666666666666,
+        "interval95": [
+          0.0,
+          0.3333333333333333
+        ],
+        "tasks": 4
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "Beyond preview",
+      "metric": "refReads",
+      "pairs": 15,
+      "baseline": {
+        "mean": 3.2666666666666666,
+        "interval95": [
+          2.8666666666666663,
+          3.733333333333333
+        ],
+        "tasks": 5
+      },
+      "feature": {
+        "mean": 2.466666666666667,
+        "interval95": [
+          1.6,
+          3.1333333333333337
+        ],
+        "tasks": 5
+      },
+      "delta": {
+        "mean": -0.8,
+        "interval95": [
+          -1.4666666666666668,
+          -0.13333333333333333
+        ],
+        "tasks": 5
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "Beyond preview",
+      "metric": "calls",
+      "pairs": 15,
+      "baseline": {
+        "mean": 7.2666666666666675,
+        "interval95": [
+          6.6,
+          7.8
+        ],
+        "tasks": 5
+      },
+      "feature": {
+        "mean": 7.533333333333333,
+        "interval95": [
+          7.066666666666667,
+          7.9333333333333345
+        ],
+        "tasks": 5
+      },
+      "delta": {
+        "mean": 0.2666666666666667,
+        "interval95": [
+          -0.6666666666666666,
+          1.1333333333333333
+        ],
+        "tasks": 5
+      }
+    },
+    {
+      "models": "DeepSeek V4.1 Flash",
+      "scope": "Beyond preview",
+      "metric": "firstValid",
+      "pairs": 15,
+      "baseline": {
+        "mean": 1.0,
+        "interval95": [
+          1.0,
+          1.0
+        ],
+        "tasks": 5
+      },
+      "feature": {
+        "mean": 0.8,
+        "interval95": [
+          0.6666666666666666,
+          0.9333333333333333
+        ],
+        "tasks": 5
+      },
+      "delta": {
+        "mean": -0.2,
+        "interval95": [
+          -0.3333333333333333,
+          -0.06666666666666667
+        ],
+        "tasks": 5
+      }
+    }
+  ],
+  "arms": {
+    "baseline": {
+      "sourceHead": "772ca57f235333a9c2fb7ae12b6b6a6fc58250d3",
+      "benchmarkFingerprint": "783a7342de6ef75fb318ebc311cc519cb8c35648b8f45c50da95bcfbe65e3870",
+      "completed": 120,
+      "lastRunFailures": {
+        "model HTTP 429": 3
+      },
+      "trials": [
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-01","split": "calibration","trial": 1,"firstValid": 1,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-01","split": "calibration","trial": 2,"firstValid": 1,"calls": 6,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-01","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-02","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-02","split": "calibration","trial": 2,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-02","split": "calibration","trial": 3,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-03","split": "calibration","trial": 1,"firstValid": 1,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-03","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-03","split": "calibration","trial": 3,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-04","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-04","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-04","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-05","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-05","split": "calibration","trial": 2,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-05","split": "calibration","trial": 3,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-06","split": "calibration","trial": 1,"firstValid": 0,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-06","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-06","split": "calibration","trial": 3,"firstValid": 0,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-07","split": "calibration","trial": 1,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-07","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-07","split": "calibration","trial": 3,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-08","split": "calibration","trial": 1,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-08","split": "calibration","trial": 2,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-08","split": "calibration","trial": 3,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-09","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-09","split": "calibration","trial": 2,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-09","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-10","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-10","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-10","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-11","split": "calibration","trial": 1,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-11","split": "calibration","trial": 2,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-11","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-12","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-12","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-12","split": "calibration","trial": 3,"firstValid": 1,"calls": 2,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-13","split": "calibration","trial": 1,"firstValid": 0,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-13","split": "calibration","trial": 2,"firstValid": 0,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-13","split": "calibration","trial": 3,"firstValid": 0,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-14","split": "calibration","trial": 1,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-14","split": "calibration","trial": 2,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-14","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-15","split": "calibration","trial": 1,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-15","split": "calibration","trial": 2,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-15","split": "calibration","trial": 3,"firstValid": 1,"calls": 7,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-16","split": "calibration","trial": 1,"firstValid": 0,"calls": 5,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-16","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-16","split": "calibration","trial": 3,"firstValid": 0,"calls": 5,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-17","split": "calibration","trial": 1,"firstValid": 1,"calls": 7,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-17","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-17","split": "calibration","trial": 3,"firstValid": 0,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-18","split": "calibration","trial": 1,"firstValid": 1,"calls": 8,"refReads": 4,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-18","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 5,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-18","split": "calibration","trial": 3,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-19","split": "calibration","trial": 1,"firstValid": 1,"calls": 5,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-19","split": "calibration","trial": 2,"firstValid": 1,"calls": 5,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-19","split": "calibration","trial": 3,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-20","split": "calibration","trial": 1,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-20","split": "calibration","trial": 2,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-20","split": "calibration","trial": 3,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-01","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-01","split": "holdout","trial": 2,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-01","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-02","split": "holdout","trial": 1,"firstValid": 1,"calls": 7,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-02","split": "holdout","trial": 2,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-02","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-03","split": "holdout","trial": 1,"firstValid": 1,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-03","split": "holdout","trial": 2,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-03","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-04","split": "holdout","trial": 1,"firstValid": 1,"calls": 5,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-04","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-04","split": "holdout","trial": 3,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-05","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-05","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-05","split": "holdout","trial": 3,"firstValid": 1,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-06","split": "holdout","trial": 1,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-06","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-06","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-07","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-07","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-07","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-08","split": "holdout","trial": 1,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-08","split": "holdout","trial": 2,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-08","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-09","split": "holdout","trial": 1,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-09","split": "holdout","trial": 2,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-09","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-10","split": "holdout","trial": 1,"firstValid": 0,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-10","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-10","split": "holdout","trial": 3,"firstValid": 0,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-11","split": "holdout","trial": 1,"firstValid": 0,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-11","split": "holdout","trial": 2,"firstValid": 0,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-11","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-12","split": "holdout","trial": 1,"firstValid": 0,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-12","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-12","split": "holdout","trial": 3,"firstValid": 1,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-13","split": "holdout","trial": 1,"firstValid": 0,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-13","split": "holdout","trial": 2,"firstValid": 0,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-13","split": "holdout","trial": 3,"firstValid": 0,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-14","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-14","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-14","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-15","split": "holdout","trial": 1,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-15","split": "holdout","trial": 2,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-15","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-16","split": "holdout","trial": 1,"firstValid": 1,"calls": 5,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-16","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-16","split": "holdout","trial": 3,"firstValid": 0,"calls": 1,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-17","split": "holdout","trial": 1,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-17","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-17","split": "holdout","trial": 3,"firstValid": 1,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-18","split": "holdout","trial": 1,"firstValid": 1,"calls": 7,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-18","split": "holdout","trial": 2,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-18","split": "holdout","trial": 3,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-19","split": "holdout","trial": 1,"firstValid": 1,"calls": 7,"refReads": 5,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-19","split": "holdout","trial": 2,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-19","split": "holdout","trial": 3,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-20","split": "holdout","trial": 1,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-20","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-20","split": "holdout","trial": 3,"firstValid": 1,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true}
+      ]
+    },
+    "feature": {
+      "sourceHead": "266417a29711044c0035386efb08be5e1595b8ef",
+      "benchmarkFingerprint": "f567c215e8347d39e66633ff495151396df48fbda639aa99485eff8eefa71fc2",
+      "completed": 120,
+      "lastRunFailures": {
+        "model HTTP 429": 3
+      },
+      "trials": [
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-01","split": "calibration","trial": 1,"firstValid": 1,"calls": 7,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-01","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-01","split": "calibration","trial": 3,"firstValid": 1,"calls": 5,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-02","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-02","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-02","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-03","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-03","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-03","split": "calibration","trial": 3,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-04","split": "calibration","trial": 1,"firstValid": 1,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-04","split": "calibration","trial": 2,"firstValid": 0,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-04","split": "calibration","trial": 3,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-05","split": "calibration","trial": 1,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-05","split": "calibration","trial": 2,"firstValid": 0,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-05","split": "calibration","trial": 3,"firstValid": 0,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-06","split": "calibration","trial": 1,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-06","split": "calibration","trial": 2,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-06","split": "calibration","trial": 3,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-07","split": "calibration","trial": 1,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-07","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-07","split": "calibration","trial": 3,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-08","split": "calibration","trial": 1,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-08","split": "calibration","trial": 2,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-08","split": "calibration","trial": 3,"firstValid": 0,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-09","split": "calibration","trial": 1,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-09","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 3,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-09","split": "calibration","trial": 3,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 3,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-10","split": "calibration","trial": 1,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-10","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 3,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-10","split": "calibration","trial": 3,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-11","split": "calibration","trial": 1,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-11","split": "calibration","trial": 2,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-11","split": "calibration","trial": 3,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-12","split": "calibration","trial": 1,"firstValid": 1,"calls": 8,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-12","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-12","split": "calibration","trial": 3,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-13","split": "calibration","trial": 1,"firstValid": 0,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-13","split": "calibration","trial": 2,"firstValid": 0,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-13","split": "calibration","trial": 3,"firstValid": 0,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-14","split": "calibration","trial": 1,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 3,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-14","split": "calibration","trial": 2,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-14","split": "calibration","trial": 3,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 3,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-15","split": "calibration","trial": 1,"firstValid": 1,"calls": 8,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-15","split": "calibration","trial": 2,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-15","split": "calibration","trial": 3,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 3,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-16","split": "calibration","trial": 1,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-16","split": "calibration","trial": 2,"firstValid": 1,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-16","split": "calibration","trial": 3,"firstValid": 0,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-17","split": "calibration","trial": 1,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-17","split": "calibration","trial": 2,"firstValid": 1,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-17","split": "calibration","trial": 3,"firstValid": 1,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-18","split": "calibration","trial": 1,"firstValid": 1,"calls": 8,"refReads": 4,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-18","split": "calibration","trial": 2,"firstValid": 1,"calls": 6,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-18","split": "calibration","trial": 3,"firstValid": 1,"calls": 6,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-19","split": "calibration","trial": 1,"firstValid": 0,"calls": 7,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-19","split": "calibration","trial": 2,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-19","split": "calibration","trial": 3,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-20","split": "calibration","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-20","split": "calibration","trial": 2,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "cal-20","split": "calibration","trial": 3,"firstValid": 1,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-01","split": "holdout","trial": 1,"firstValid": 1,"calls": 5,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-01","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-01","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-02","split": "holdout","trial": 1,"firstValid": 1,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-02","split": "holdout","trial": 2,"firstValid": 1,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-02","split": "holdout","trial": 3,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-03","split": "holdout","trial": 1,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-03","split": "holdout","trial": 2,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-03","split": "holdout","trial": 3,"firstValid": 1,"calls": 4,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-04","split": "holdout","trial": 1,"firstValid": 0,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-04","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-04","split": "holdout","trial": 3,"firstValid": 0,"calls": 3,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-05","split": "holdout","trial": 1,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-05","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-05","split": "holdout","trial": 3,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-06","split": "holdout","trial": 1,"firstValid": 0,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-06","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-06","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-07","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-07","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-07","split": "holdout","trial": 3,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-08","split": "holdout","trial": 1,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-08","split": "holdout","trial": 2,"firstValid": 1,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-08","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-09","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-09","split": "holdout","trial": 2,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-09","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-10","split": "holdout","trial": 1,"firstValid": 1,"calls": 6,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-10","split": "holdout","trial": 2,"firstValid": 0,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-10","split": "holdout","trial": 3,"firstValid": 0,"calls": 7,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-11","split": "holdout","trial": 1,"firstValid": 0,"calls": 7,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-11","split": "holdout","trial": 2,"firstValid": 0,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-11","split": "holdout","trial": 3,"firstValid": 0,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-12","split": "holdout","trial": 1,"firstValid": 1,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-12","split": "holdout","trial": 2,"firstValid": 0,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-12","split": "holdout","trial": 3,"firstValid": 0,"calls": 5,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-13","split": "holdout","trial": 1,"firstValid": 1,"calls": 8,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-13","split": "holdout","trial": 2,"firstValid": 0,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-13","split": "holdout","trial": 3,"firstValid": 0,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-14","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-14","split": "holdout","trial": 2,"firstValid": 1,"calls": 4,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-14","split": "holdout","trial": 3,"firstValid": 1,"calls": 7,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 3,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-15","split": "holdout","trial": 1,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-15","split": "holdout","trial": 2,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-15","split": "holdout","trial": 3,"firstValid": 1,"calls": 3,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-16","split": "holdout","trial": 1,"firstValid": 1,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-16","split": "holdout","trial": 2,"firstValid": 1,"calls": 2,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-16","split": "holdout","trial": 3,"firstValid": 0,"calls": 0,"refReads": 0,"repeatBadCalls": 0,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-17","split": "holdout","trial": 1,"firstValid": 1,"calls": 7,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-17","split": "holdout","trial": 2,"firstValid": 1,"calls": 7,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-17","split": "holdout","trial": 3,"firstValid": 1,"calls": 6,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-18","split": "holdout","trial": 1,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 2,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-18","split": "holdout","trial": 2,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-18","split": "holdout","trial": 3,"firstValid": 1,"calls": 8,"refReads": 3,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-19","split": "holdout","trial": 1,"firstValid": 1,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-19","split": "holdout","trial": 2,"firstValid": 0,"calls": 6,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": false},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-19","split": "holdout","trial": 3,"firstValid": 1,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-20","split": "holdout","trial": 1,"firstValid": 1,"calls": 8,"refReads": 1,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-20","split": "holdout","trial": 2,"firstValid": 0,"calls": 8,"refReads": 0,"repeatBadCalls": 0,"recoveryTurns": 1,"hitCallBudget": true},
+        {"model": "opencode-go/deepseek-v4.1-flash","task": "hold-20","split": "holdout","trial": 3,"firstValid": 1,"calls": 8,"refReads": 2,"repeatBadCalls": 0,"hitCallBudget": true}
+      ]
+    }
+  },
+  "documentationDiagnostic": [
+    {
+      "task": "cal-05",
+      "trial": 1,
+      "firstValid": 1,
+      "firstMode": "query string"
+    },
+    {
+      "task": "cal-05",
+      "trial": 2,
+      "firstValid": 0,
+      "firstMode": "no call"
+    },
+    {
+      "task": "cal-05",
+      "trial": 3,
+      "firstValid": 1,
+      "firstMode": "query string"
+    }
+  ]
+}

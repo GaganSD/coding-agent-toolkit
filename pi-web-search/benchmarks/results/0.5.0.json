@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "gitRevision": "a0930643b550",
+  "gitRevision": "02499a87f85d",
   "node": "v24.22.1",
   "taskCount": 40,
   "context": {
@@ -25,8 +25,8 @@
     "sessionRecovered": 2,
     "deadlineCases": 20,
     "timeoutMs": 1000,
-    "deadlineP99Ms": 1052.22,
-    "abortMs": 1.21,
+    "deadlineP99Ms": 1023.86,
+    "abortMs": 1.56,
     "outboundAfterAbort": 0,
     "nonRetryableFastFailures": {
       "exa/malformed-json": "parse_error",
@@ -116,10 +116,10 @@
     "excludedFromTarball": true
   },
   "overhead": {
-    "replayAdjustedP50Ms": 0.39,
-    "replayAdjustedP95Ms": 2.02,
-    "coldRegistrationMs": 835,
-    "peakRssKiB": 367264
+    "replayAdjustedP50Ms": 1.05,
+    "replayAdjustedP95Ms": 4.54,
+    "coldRegistrationMs": 1877.94,
+    "peakRssKiB": 304480
   },
   "tasks": {
     "cal-01": {
