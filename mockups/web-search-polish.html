@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>pi-web-search polish: P0 + P1 mockups</title>
+<style>
+:root{
+  --bg:#16181d; --page:#101216; --term:#1f2228; --frame:#3a3e46; --rule:#2c3038;
+  --text:#d9dde5; --muted:#8b919b; --dim:#5f6570; --accent:#e3938b; --success:#5e9a93;
+  --warning:#d6b26e; --error:#d9757a; --sel:#121316; --chip:#15171b; --tool:#23272e; --toolok:#212a28; --toolerr:#2c2224;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Inter",sans-serif}
+main{max-width:1180px;margin:0 auto;padding:40px 28px 80px}
+h1{font-size:26px;margin:0 0 6px;font-weight:650}
+h2{font-size:19px;margin:56px 0 4px;font-weight:650;border-top:1px solid var(--rule);padding-top:28px}
+h3{font-size:14px;margin:30px 0 8px;color:var(--accent);font-weight:600;letter-spacing:.02em}
+p,li{color:#b9bec8;max-width:820px}
+.lede{color:var(--muted);margin:0 0 18px}
+code{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:12.5px;background:#1c1f25;padding:1px 5px;border-radius:4px;color:#cfd4dc}
+.tag{display:inline-block;font:600 11px/1 -apple-system,sans-serif;padding:4px 7px;border-radius:4px;margin-right:6px;vertical-align:2px}
+.p0{background:#3a2526;color:#f0a5a0}.p1{background:#2c2a1f;color:#e3c98a}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.cap{font-size:12px;color:var(--muted);margin:8px 2px 0}
+.before{opacity:.75}
+.label{font:600 11px/1 -apple-system,sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px 2px}
+
+/* ---------- terminal primitives ---------- */
+.term{background:var(--term);border-radius:8px;padding:18px 20px;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:13.5px;line-height:1.75;color:var(--text);overflow:hidden}
+.term pre{margin:0;font:inherit;white-space:pre}
+.m{color:var(--muted)}.d{color:var(--dim)}.a{color:var(--accent)}.s{color:var(--success)}.w{color:var(--warning)}.e{color:var(--error)}.b{font-weight:700}
+.tool{border-radius:4px;padding:8px 14px;margin:6px 0;background:var(--tool)}
+.tool.ok{background:var(--toolok)}.tool.err{background:var(--toolerr)}
+.user{background:#2a2d35;border-radius:4px;padding:8px 14px;margin:6px 0}
+
+/* ---------- Slate-style panel ---------- */
+.panel{border:1px solid var(--frame);border-radius:6px;padding:20px 26px 16px;background:var(--term);font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:13.5px;line-height:1.85}
+.panel.rec{border-color:var(--accent)}
+.ptitle{font-weight:700;margin-bottom:14px}
+.body{display:grid;grid-template-columns:minmax(0,1fr) 1px minmax(0,1.05fr);gap:0 24px;min-height:290px}
+.vrule{background:var(--rule)}
+.hdr{color:var(--muted)}
+.sec{color:var(--muted)}
+.sec::before{content:"── ";color:var(--dim)}
+.row{display:flex;justify-content:space-between;padding:0 10px 0 24px;position:relative;white-space:pre}
+.row .v{color:var(--muted)}
+.row.sel{background:var(--sel);font-weight:700}
+.row.sel::before{content:"›";position:absolute;left:8px}
+.row.sel .v{color:var(--text)}
+.name{color:var(--accent);font-weight:700}
+.field{display:flex;gap:18px;align-items:center;margin-top:12px}
+.field .k{width:92px;flex:none}
+.chip{background:var(--chip);color:var(--accent);padding:2px 8px;white-space:pre}
+.chip.w{color:var(--warning)}
+.input{background:var(--chip);padding:2px 8px;min-width:240px;display:inline-block}
+.caret{display:inline-block;width:8px;height:16px;background:var(--text);vertical-align:-3px;margin-left:1px}
+.opts{margin-top:10px}
+.opt{white-space:pre;padding-left:14px;position:relative}
+.opt.sel::before{content:"›";position:absolute;left:0;color:var(--accent)}
+.opt.sel{font-weight:700}
+.foot{margin-top:16px}
+.keys{display:flex;flex-wrap:wrap;gap:6px 22px}
+.keys span.k{background:var(--chip);color:var(--accent);padding:3px 9px;margin-right:8px}
+.keys span.l{color:var(--muted)}
+.msg{margin-top:4px;min-height:1.85em}
+.banner{background:#2a2023;padding:4px 10px;margin:-2px 0 12px;color:var(--error)}
+
+table.spec{border-collapse:collapse;width:100%;font-size:13px;margin-top:10px}
+table.spec td,table.spec th{border-bottom:1px solid var(--rule);padding:8px 10px;text-align:left;vertical-align:top}
+table.spec th{color:var(--muted);font-weight:600;font-size:12px}
+table.spec td:first-child{white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+<h1>pi-web-search polish: P0 + P1</h1>
+<p class="lede">Mockups only. These cover one PR: the search row, removing <code>/reload</code>, the control panel, onboarding and errors. README and docs are out of scope, and so is the quality-signals line. Every panel uses the Slate <code>/shortcuts</code> frame from PR 174 so all extensions share one look.</p>
+
+<!-- ======================================================= -->
+<h2><span class="tag p0">P0</span>The search row</h2>
+<p>The model still receives the same text, under the same budget. Only the human view changes: what was found comes first, and how it was found moves to the expanded footer.</p>
+
+<h3>1 · Call line and live progress</h3>
+<div class="grid2">
+  <div>
+    <div class="label">Before</div>
+    <div class="term before">
+      <div class="tool"><pre><span class="b">search</span> <span class="a">AbortSignal.timeout</span> <span class="m">web/fast</span></pre></div>
+      <div class="tool"><pre><span class="b">search</span> <span class="a">useSyncExternalStore repo:vercel/next.js</span> <span class="m">code/fast</span></pre></div>
+      <div class="tool"><pre><span class="b">search</span> <span class="a">rcv_8f2a:2</span> <span class="m">local ref</span></pre></div>
+    </div>
+  </div>
+  <div>
+    <div class="label">After: running</div>
+    <div class="term">
+      <div class="tool"><pre><span class="b">search</span> "AbortSignal.timeout"
+<span class="d">◌ Exa…</span></pre></div>
+      <div class="tool"><pre><span class="b">search</span> "AbortSignal.timeout"
+<span class="d">◌ Exa is rate limited · trying Parallel…</span></pre></div>
+      <div class="tool"><pre><span class="b">search</span> "useSyncExternalStore" <span class="m">code · vercel/next.js</span>
+<span class="d">◌ grep.app…</span></pre></div>
+    </div>
+  </div>
+</div>
+<p class="cap">The mode appears only when it isn't the default. Web search with fast effort shows nothing extra. Code shows <code>code</code> plus the repo, thorough shows <code>thorough</code>, URL calls show <code>3 URLs</code>, and a ref shows <code>result 2 of 8</code> or <code>saved results</code>. Qualifiers like <code>repo:</code> move from the query to the mode tag.</p>
+
+<h3>2 · Collapsed result</h3>
+<div class="grid2">
+  <div>
+    <div class="label">Before</div>
+    <div class="term before">
+      <div class="tool ok"><pre><span class="b">search</span> <span class="a">AbortSignal.timeout</span> <span class="m">web/fast</span>
+<span class="m">exa, parallel · 8 results · 1 warning · web</span></pre></div>
+    </div>
+  </div>
+  <div>
+    <div class="label">After</div>
+    <div class="term">
+      <div class="tool ok"><pre><span class="b">search</span> "AbortSignal.timeout"
+<span class="m">8 results · developer.mozilla.org, nodejs.org, github.com +5 · 1.1s</span></pre></div>
+    </div>
+  </div>
+</div>
+<div class="term" style="margin-top:14px">
+  <div class="tool ok"><pre><span class="b">search</span> "AbortSignal.timeout"
+<span class="m">8 results · developer.mozilla.org, nodejs.org +6 · cached</span></pre></div>
+  <div class="tool ok"><pre><span class="b">search</span> "useSyncExternalStore" <span class="m">code · vercel/next.js</span>
+<span class="m">5 matches in 3 files · vercel/next.js · 0.8s</span></pre></div>
+  <div class="tool ok"><pre><span class="b">search</span> <span class="m">3 URLs</span>
+<span class="m">Read 2 of 3 pages · nodejs.org, web.dev · 1 couldn't be read</span></pre></div>
+  <div class="tool ok"><pre><span class="b">search</span> <span class="m">result 2 of 8</span>
+<span class="m">nodejs.org · passage 1 of 3 · matched "timeout"</span></pre></div>
+  <div class="tool ok"><pre><span class="b">search</span> "AbortSignal.timeout" <span class="m">thorough</span>
+<span class="m">11 results from 2 sources · mdn, nodejs.org +9 · ranked · 2 hidden as unsafe · 3.4s</span></pre></div>
+  <div class="tool ok"><pre><span class="b">search</span> "zzqx-nonexistent-symbol" <span class="m">code</span>
+<span class="m">No matches · grep.app, Sourcegraph, GitHub · not proof the code doesn't exist</span></pre></div>
+  <div class="tool err"><pre><span class="b">search</span> "AbortSignal.timeout"
+<span class="e">✕ Couldn't search. Exa and Parallel are both rate limited. Try again in a minute.</span></pre></div>
+</div>
+<p class="cap">The order is always <b>count · where from · anything unusual · time</b>. A single warning becomes a short phrase ("1 couldn't be read") instead of a count of "warnings". Classifier states use plain words like "ranked" and "hidden as unsafe", not <code>classifier ran</code>.</p>
+
+<h3>3 · Expanded result</h3>
+<div class="grid2">
+  <div>
+    <div class="label">Before</div>
+    <div class="term before"><pre><span class="m">## Results
+
+1. [AbortSignal: timeout() static method](https://developer.mo…) rcv_8f2a:1
+&gt; The AbortSignal.timeout() static method returns an
+AbortSignal that will automatically abort after a speci…
+
+2. [Globals | Node.js v24 Documentation](https://nodejs.org/…
+&gt; Static method: AbortSignal.timeout(delay) …
+
+## Warnings
+
+- Result excerpts truncated for 3 hit(s): previews capped
+at 400 characters plus a marker. Use search({ref}) for …
+
+Read: search({ref: "rcv_8f2a"})</span></pre></div>
+  </div>
+  <div>
+    <div class="label">After</div>
+    <div class="term"><pre><span class="m">1</span>  <span class="b">AbortSignal: timeout() static method</span>
+   <span class="d">developer.mozilla.org</span>
+   <span class="m">Returns an AbortSignal that will automatically abort
+   after a specified time…</span>
+
+<span class="m">2</span>  <span class="b">Globals | Node.js v24 Documentation</span>
+   <span class="d">nodejs.org</span>
+   <span class="m">Static method: AbortSignal.timeout(delay) …</span>
+
+<span class="m">3</span>  <span class="b">vercel/next.js</span> <span class="d">packages/next/src/server/fetch.ts:42</span>
+   <span class="d">│</span> const signal = AbortSignal.timeout(ms)
+   <span class="d">│</span> await fetch(url, { signal })
+
+<span class="d">via Exa → Parallel · 1.1s · 3 excerpts shortened</span></pre></div>
+  </div>
+</div>
+<p class="cap">Each row shows a number, a bold title, the domain dimmed below it, and a muted excerpt. Code hits show repo and path with a gutter. The ref handle and the <code>Read: search(…)</code> line are for the model, so they move out of the human view. Warnings shrink to one dim footer phrase, and provider names show only here.</p>
+
+<!-- ======================================================= -->
+<h2><span class="tag p0">P0</span>No more <code>/reload</code></h2>
+<div class="grid2">
+  <div>
+    <div class="label">Before</div>
+    <div class="term before"><pre><span class="m">Classifier pinned: openrouter/~typesafe/jev-latest.
+Saved to ~/.pi/agent/web-search.json — run /reload
+to apply.</span>
+
+<span class="m">Saved parallel API key.
+Run /reload so Parallel MCP picks up the new header.</span></pre></div>
+  </div>
+  <div>
+    <div class="label">After (panel message line)</div>
+    <div class="term"><pre><span class="s">✓ Saved — applies to the next search</span>
+
+<span class="s">✓ Parallel connected — higher limits on</span>
+
+<span class="w">▲ GITHUB_TOKEN is set and still wins over this key</span></pre></div>
+  </div>
+</div>
+<p class="cap">Settings are read on every search, which already happens. When the Parallel key changes, the MCP server registers again, so nobody has to reload. The only time a reload might remain is a host limit on re-registering MCP. In that case the panel should offer <span class="a">R</span> Reload now instead of printing an instruction.</p>
+
+<!-- ======================================================= -->
+<h2><span class="tag p1">P1</span><code>/web-search</code> control panel</h2>
+<p>The menu tree becomes one panel. Settings are on the left in sections, and the selected setting's detail and editor are on the right. Changes save as you make them.</p>
+
+<h3>4 · Panel at rest</h3>
+<div class="panel">
+  <div class="ptitle">Web search</div>
+  <div class="body">
+    <div>
+      <div class="hdr">Settings 1/10</div>
+      <div class="sec">Search</div>
+      <div class="row sel"><span>Web search</span><span class="v">Exa</span></div>
+      <div class="row"><span>If it fails</span><span class="v">Parallel</span></div>
+      <div class="row"><span>Code search</span><span class="v">grep.app</span></div>
+      <div class="row"><span>Thorough search</span><span class="v">Off</span></div>
+      <div class="row"><span>Results</span><span class="v">8</span></div>
+      <div class="sec">Accounts</div>
+      <div class="row"><span>Exa</span><span class="v">○ No key</span></div>
+      <div class="row"><span>Parallel</span><span class="v">○ No key</span></div>
+      <div class="row"><span>GitHub</span><span class="v">● gh auth</span></div>
+      <div class="row"><span>Brave</span><span class="v">○ No key</span></div>
+      <div class="sec">Ranking</div>
+      <div class="row"><span>Classifier</span><span class="v">None</span></div>
+    </div>
+    <div class="vrule"></div>
+    <div>
+      <div class="name">Web search</div>
+      <div>Where web questions go first.</div>
+      <div class="d">web.provider</div>
+      <div class="opts">
+        <div class="opt sel">Exa        <span class="s">● works without a key</span></div>
+        <div class="opt">Parallel   <span class="m">● works without a key</span></div>
+        <div class="opt">Brave      <span class="m">○ needs a key</span></div>
+      </div>
+      <div class="field" style="margin-top:18px"><span class="s">● Ready</span></div>
+    </div>
+  </div>
+  <div class="foot keys"><span><span class="k">↑↓</span><span class="l">Move</span></span><span><span class="k">←→</span><span class="l">Choose</span></span><span><span class="k">Esc</span><span class="l">Close</span></span></div>
+  <div class="msg"></div>
+</div>
+<p class="cap">"If it fails" replaces <em>fallback</em>, and "Accounts" replaces <em>credentials</em>. Glyphs: <span class="s">●</span> works, <span class="m">○</span> optional and missing, <span class="w">▲</span> needs attention, <span class="e">✕</span> broken. All of them use theme tokens, never raw green or red. Values are muted in the list and show at full weight on the selected row, just like Slate's keycaps.</p>
+
+<h3>5 · Toggle: thorough search</h3>
+<div class="panel">
+  <div class="ptitle">Web search</div>
+  <div class="body">
+    <div>
+      <div class="hdr">Settings 4/10</div>
+      <div class="sec">Search</div>
+      <div class="row"><span>Web search</span><span class="v">Exa</span></div>
+      <div class="row"><span>If it fails</span><span class="v">Parallel</span></div>
+      <div class="row"><span>Code search</span><span class="v">grep.app</span></div>
+      <div class="row sel"><span>Thorough search</span><span class="v">On</span></div>
+      <div class="row"><span>Results</span><span class="v">8</span></div>
+      <div class="sec">Accounts</div>
+      <div class="row"><span>Exa</span><span class="v">○ No key</span></div>
+      <div class="row"><span>…</span><span class="v"></span></div>
+    </div>
+    <div class="vrule"></div>
+    <div>
+      <div class="name">Thorough search</div>
+      <div>Lets the model ask up to two sources at once</div>
+      <div>for harder questions. Slower, more complete.</div>
+      <div class="d">effort: "thorough"</div>
+      <div class="field" style="margin-top:18px"><span class="k">Thorough</span><span class="chip">[ On ]</span></div>
+      <div class="s">● Ready</div>
+    </div>
+  </div>
+  <div class="foot keys"><span><span class="k">↑↓</span><span class="l">Move</span></span><span><span class="k">Space</span><span class="l">Toggle</span></span><span><span class="k">Esc</span><span class="l">Close</span></span></div>
+  <div class="msg s">✓ Saved — applies to the next search</div>
+</div>
+
+<h3>6 · Account: add a key (paste, check, done)</h3>
+<div class="grid2">
+  <div class="panel rec">
+    <div class="ptitle">Web search</div>
+    <div class="body" style="grid-template-columns:minmax(0,.9fr) 1px minmax(0,1.1fr);min-height:220px">
+      <div>
+        <div class="hdr">Settings 6/10</div>
+        <div class="sec">Accounts</div>
+        <div class="row sel"><span>Exa</span><span class="v">○ No key</span></div>
+        <div class="row"><span>Parallel</span><span class="v">○ No key</span></div>
+        <div class="row"><span>GitHub</span><span class="v">● gh auth</span></div>
+        <div class="row"><span>Brave</span><span class="v">○ No key</span></div>
+      </div>
+      <div class="vrule"></div>
+      <div>
+        <div class="name">Exa</div>
+        <div>Works without a key. A key turns on</div>
+        <div>REST search with higher limits.</div>
+        <div class="d">dashboard.exa.ai/api-keys</div>
+        <div class="field"><span class="k">Key</span><span class="input">•••••••••••••<span class="caret"></span></span></div>
+        <div class="d">Paste a key. Enter checks it and saves.</div>
+      </div>
+    </div>
+    <div class="foot keys"><span><span class="k">Enter</span><span class="l">Check &amp; save</span></span><span><span class="k">Esc</span><span class="l">Cancel</span></span></div>
+    <div class="msg"></div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Web search</div>
+    <div class="body" style="grid-template-columns:minmax(0,.9fr) 1px minmax(0,1.1fr);min-height:220px">
+      <div>
+        <div class="hdr">Settings 6/10</div>
+        <div class="sec">Accounts</div>
+        <div class="row sel"><span>Exa</span><span class="v">● Connected</span></div>
+        <div class="row"><span>Parallel</span><span class="v">○ No key</span></div>
+        <div class="row"><span>GitHub</span><span class="v">● gh auth</span></div>
+        <div class="row"><span>Brave</span><span class="v">○ No key</span></div>
+      </div>
+      <div class="vrule"></div>
+      <div>
+        <div class="name">Exa</div>
+        <div>Works without a key. A key turns on</div>
+        <div>REST search with higher limits.</div>
+        <div class="d">dashboard.exa.ai/api-keys</div>
+        <div class="field"><span class="k">Key</span><span class="chip">[ saved · auth.json ]</span></div>
+        <div class="s">● Connected — using REST</div>
+      </div>
+    </div>
+    <div class="foot keys"><span><span class="k">↑↓</span><span class="l">Move</span></span><span><span class="k">Enter</span><span class="l">Replace</span></span><span><span class="k">Del</span><span class="l">Remove</span></span><span><span class="k">Esc</span><span class="l">Close</span></span></div>
+    <div class="msg s">✓ Saved</div>
+  </div>
+</div>
+<p class="cap">The border turns accent while you type, just as it does while Slate records a key. Enter runs one cheap live call. While it runs the status shows <span class="d">◌ Checking…</span>. A rejected key shows <span class="e">✕ Exa rejected this key</span> and is not saved. A network failure saves the key and shows <span class="w">▲ Saved, couldn't check — offline?</span>. The key is never displayed after it's typed.</p>
+
+<h3>7 · Remove a key, and the env-var override</h3>
+<div class="grid2">
+  <div class="panel">
+    <div class="ptitle">Web search</div>
+    <div class="body" style="grid-template-columns:minmax(0,.9fr) 1px minmax(0,1.1fr);min-height:170px">
+      <div>
+        <div class="hdr">Settings 6/10</div>
+        <div class="sec">Accounts</div>
+        <div class="row sel"><span>Exa</span><span class="v">● Connected</span></div>
+        <div class="row"><span>Parallel</span><span class="v">○ No key</span></div>
+      </div>
+      <div class="vrule"></div>
+      <div>
+        <div class="name">Exa</div>
+        <div class="field"><span class="k">Key</span><span class="chip">[ saved · auth.json ]</span></div>
+        <div class="w">Press Del again to remove the Exa key</div>
+      </div>
+    </div>
+    <div class="foot keys"><span><span class="k">Del</span><span class="l">Confirm</span></span><span><span class="k">Esc</span><span class="l">Cancel</span></span></div>
+  </div>
+  <div class="panel">
+    <div class="ptitle">Web search</div>
+    <div class="body" style="grid-template-columns:minmax(0,.9fr) 1px minmax(0,1.1fr);min-height:170px">
+      <div>
+        <div class="hdr">Settings 8/10</div>
+        <div class="sec">Accounts</div>
+        <div class="row"><span>GitHub</span><span class="v">● gh auth</span></div>
+        <div class="row sel"><span>Brave</span><span class="v">● Env</span></div>
+      </div>
+      <div class="vrule"></div>
+      <div>
+        <div class="name">Brave</div>
+        <div class="field"><span class="k">Key</span><span class="chip">[ BRAVE_API_KEY ]</span></div>
+        <div class="s">● Connected</div>
+        <div class="d">Set in your shell. Unset it to use a saved key.</div>
+      </div>
+    </div>
+    <div class="foot keys"><span><span class="k">↑↓</span><span class="l">Move</span></span><span><span class="k">Esc</span><span class="l">Close</span></span></div>
+  </div>
+</div>
+<p class="cap">Removal uses the same press-twice pattern as Slate. If a key comes from the environment, the panel shows the variable name and offers no Replace or Remove, because the panel can't change your shell.</p>
+
+<h3>8 · Fallback order (multi-choice)</h3>
+<div class="panel">
+  <div class="ptitle">Web search</div>
+  <div class="body" style="min-height:200px">
+    <div>
+      <div class="hdr">Settings 2/10</div>
+      <div class="sec">Search</div>
+      <div class="row"><span>Web search</span><span class="v">Exa</span></div>
+      <div class="row sel"><span>If it fails</span><span class="v">Parallel</span></div>
+      <div class="row"><span>Code search</span><span class="v">grep.app</span></div>
+    </div>
+    <div class="vrule"></div>
+    <div>
+      <div class="name">If it fails</div>
+      <div>Tried in order when web search errors</div>
+      <div>or is rate limited.</div>
+      <div class="opts">
+        <div class="opt sel">1  Parallel   <span class="m">● works without a key</span></div>
+        <div class="opt">–  Brave      <span class="m">○ needs a key</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot keys"><span><span class="k">Space</span><span class="l">Include</span></span><span><span class="k">Shift ↑↓</span><span class="l">Reorder</span></span><span><span class="k">Esc</span><span class="l">Back</span></span></div>
+  <div class="msg"></div>
+</div>
+<p class="cap">Code search uses the same editor, with grep.app, Sourcegraph and GitHub. A provider that needs a missing key can still be picked. It shows <span class="w">▲ Skipped until you add a key</span> and links you to its Accounts row.</p>
+
+<h3>9 · Classifier</h3>
+<div class="panel">
+  <div class="ptitle">Web search</div>
+  <div class="body" style="min-height:230px">
+    <div>
+      <div class="hdr">Settings 10/10</div>
+      <div class="sec">Ranking</div>
+      <div class="row sel"><span>Classifier</span><span class="v">Jev · OpenRouter</span></div>
+    </div>
+    <div class="vrule"></div>
+    <div>
+      <div class="name">Classifier</div>
+      <div>Ranks thorough results and hides unsafe ones.</div>
+      <div>Billed to that provider's account.</div>
+      <div class="opts">
+        <div class="opt">None</div>
+        <div class="opt sel">openrouter/~typesafe/jev-latest   <span class="a">current</span></div>
+        <div class="opt">typesafe/jev-latest</div>
+        <div class="opt">vercel-ai-gateway/typesafe-ai/jev  <span class="w">▲ login</span></div>
+        <div class="opt">opencode/jev-1.13                  <span class="d">untested</span></div>
+      </div>
+      <div class="field" style="margin-top:10px"><span class="s">● Ready</span></div>
+    </div>
+  </div>
+  <div class="foot keys"><span><span class="k">↑↓</span><span class="l">Move</span></span><span><span class="k">Enter</span><span class="l">Use</span></span><span><span class="k">Esc</span><span class="l">Close</span></span></div>
+  <div class="msg"></div>
+</div>
+<p class="cap">Picking a classifier that needs a login keeps the pin and shows <span class="w">▲ Run /login vercel-ai-gateway to use this</span>. Pinning no longer turns thorough search on behind your back. If thorough search is off, the status says <span class="w">▲ Turn on Thorough search to use it</span>, and Enter on that line jumps to the toggle.</p>
+
+<!-- ======================================================= -->
+<h2><span class="tag p1">P1</span>Onboarding</h2>
+<div class="grid2">
+  <div>
+    <div class="label">Before: first session</div>
+    <div class="term before"><pre><span class="m">Exa: keyless MCP · Parallel: keyless MCP · GitHub:
+missing · Config: defaults</span>
+
+<span class="b">pi-web-search setup</span>
+<span class="a">›</span> Continue with detected providers
+  Show what I can set up
+<span class="d">(60s)</span></pre></div>
+  </div>
+  <div>
+    <div class="label">After: first session</div>
+    <div class="term"><pre><span class="d">web search ready · no keys needed · /web-search to customise</span>
+
+<span class="m">›</span> <span class="caret"></span></pre></div>
+  </div>
+</div>
+<p class="cap">This is a single dim startup line, shown once, with no modal and no timeout. The first <code>/web-search</code> opens the panel straight onto the Accounts section, with each row already filled in from what was detected. That makes the panel the onboarding screen, so there's nothing separate to maintain.</p>
+
+<!-- ======================================================= -->
+<h2><span class="tag p1">P1</span>Errors that say what to do</h2>
+<h3>10 · Broken config opens the panel with the fix</h3>
+<div class="panel">
+  <div class="ptitle">Web search</div>
+  <div class="banner">✕ web-search.json line 4: unknown setting "maxResult" — did you mean "maxResults"?</div>
+  <div class="body" style="min-height:150px">
+    <div>
+      <div class="hdr">Settings 5/10</div>
+      <div class="sec">Search</div>
+      <div class="row"><span>Thorough search</span><span class="v">Off</span></div>
+      <div class="row sel"><span>Results</span><span class="v e">✕</span></div>
+    </div>
+    <div class="vrule"></div>
+    <div>
+      <div class="name">Results</div>
+      <div>How many results each search returns, 1–20.</div>
+      <div class="field"><span class="k">File has</span><span class="chip w">"maxResult": 12</span></div>
+      <div class="field" style="margin-top:4px"><span class="k">Fix</span><span class="chip">"maxResults": 12</span></div>
+    </div>
+  </div>
+  <div class="foot keys"><span><span class="k">Enter</span><span class="l">Apply fix</span></span><span><span class="k">O</span><span class="l">Open file</span></span><span><span class="k">Esc</span><span class="l">Close</span></span></div>
+  <div class="msg"></div>
+</div>
+<p class="cap">A bad file is still never overwritten without asking. The fix edits only that one key. Invalid JSON skips the suggestion and offers <span class="a">O</span> Open file at the right line.</p>
+
+<h3>11 · Search-time errors (in the transcript)</h3>
+<div class="term">
+  <div class="tool err"><pre><span class="b">search</span> "AbortSignal.timeout"
+<span class="e">✕ Search settings are broken: unknown setting "maxResult" (line 4). /web-search to fix.</span></pre></div>
+  <div class="tool err"><pre><span class="b">search</span> "AbortSignal.timeout" <span class="m">thorough</span>
+<span class="e">✕ Thorough search is off. /web-search to turn it on.</span></pre></div>
+  <div class="tool err"><pre><span class="b">search</span> "useSyncExternalStore" <span class="m">code</span>
+<span class="e">✕ Timed out after 20s on grep.app, Sourcegraph and GitHub.</span></pre></div>
+</div>
+<p class="cap">The human sees one line: what happened, plus the single next step. The model's error text and typed <code>error.code</code> stay as they are.</p>
+
+<h3>12 · Headless <code>/web-search</code> (print mode)</h3>
+<div class="grid2">
+  <div>
+    <div class="label">Before (~20 lines)</div>
+    <div class="term before"><pre><span class="m">pi-web-search settings
+config: /Users/…/.pi/agent/web-search.json
+search/web: exa (fallback: parallel)
+search/code: grep (fallback: sourcegraph, github)
+search/thorough: disabled
+classifier: disabled
+
+Search credentials (presence only; keys are never shown):
+- exa: missing (optional key)
+- parallel: missing (optional key)
+- grep: keyless
+…
+Setup:
+- /web-search provider &lt;name&gt;: add or modify a key …
+- Install: pi install ./pi-web-search (checkout) …</span></pre></div>
+  </div>
+  <div>
+    <div class="label">After</div>
+    <div class="term"><pre><span class="b">Web search</span>
+Web     Exa → Parallel
+Code    grep.app → Sourcegraph → GitHub
+Thorough  Off     Classifier  None
+
+<span class="m">Exa ○  Parallel ○  GitHub ● gh auth  Brave ○</span>
+<span class="d">Open /web-search in the terminal UI to change these.</span></pre></div>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<h2>Shared panel standard (all extensions)</h2>
+<p>Slate's <code>/shortcuts</code> panel is the reference. Auto title, Web search and any future control panel would use one shared frame. Today <code>picker-frame.ts</code> lives inside pi-slate.</p>
+<table class="spec">
+  <tr><th>Element</th><th>Standard (Slate PR 174)</th><th>Auto title today → change</th></tr>
+  <tr><td>Title</td><td>Top-left, bold, text colour: "Web search"</td><td>Centered and accent-coloured → move to top-left, bold</td></tr>
+  <tr><td>List header</td><td>Muted <code>Settings 3/10</code> with a position counter</td><td>"Settings" with no counter → add the counter</td></tr>
+  <tr><td>Sections</td><td>Muted <code>── Search</code> rows that navigation skips</td><td>None → add them once there are more than 5 rows</td></tr>
+  <tr><td>Selected row</td><td>Darker <code>selectedBg</code> fill, <code>›</code>, bold label, value at full weight</td><td>Same ✓</td></tr>
+  <tr><td>Detail pane</td><td>Accent bold name, one or two lines of description, dim command, then field + chip, then status glyph line</td><td>Field label only → add name, description and command</td></tr>
+  <tr><td>Values / keycaps</td><td>Accent on <code>userMessageBg</code>, bracketed: <code>[ On ]</code></td><td>Plain text → use chips</td></tr>
+  <tr><td>Status glyphs</td><td><span class="s">●</span> ok · <span class="m">○</span> optional missing · <span class="w">▲</span> attention · <span class="e">✕</span> broken · <span class="a">↺</span> moved · ◌ working. Theme tokens only.</td><td>None → adopt</td></tr>
+  <tr><td>Footer hints</td><td>Keycap chips plus a muted verb, collapsing to chips only when narrow</td><td>Plain <code>↑↓ setting  ↔ cursor</code> → chips</td></tr>
+  <tr><td>Message line</td><td>Below the hints, left-aligned: <span class="s">✓ Saved — applies …</span> or <span class="e">✕ …</span></td><td>Right-aligned "✓ Saved" → move it below the hints</td></tr>
+  <tr><td>Editing state</td><td>Border switches to <code>borderAccent</code> while typing or recording</td><td>None → add it</td></tr>
+  <tr><td>Destructive</td><td>Press Del twice, with a warning-coloured prompt</td><td>n/a</td></tr>
+  <tr><td>Tiny terminals</td><td>Single column: title, name + value, status, chips</td><td>Check it</td></tr>
+  <tr><td>Footer "Current"</td><td>No: the value lives in the list and detail pane</td><td>Remove the separate "Current" strip</td></tr>
+</table>
+
+<h3>Scope of the single PR (P0 + P1)</h3>
+<ul>
+  <li><b>Search row:</b> <code>renderCall</code>, <code>renderResult</code> (collapsed and expanded), staged <code>onUpdate</code> progress, the cached tag, and duration in details.</li>
+  <li><b>No reload:</b> re-register Parallel MCP when its key changes, and remove "run /reload" from every normal path.</li>
+  <li><b>Panel:</b> replace the <code>select</code> menu tree with one <code>ctx.ui.custom</code> panel built on the shared frame. Cover search providers and their order, thorough, results, accounts (paste, check, save, remove), classifier, and the broken-config fix.</li>
+  <li><b>Onboarding:</b> drop the first-run <code>select</code> in favour of one dim line. The first <code>/web-search</code> opens on Accounts.</li>
+  <li><b>Errors:</b> human-facing lines say what happened and the next step. Model-facing errors don't change.</li>
+  <li><b>Out of scope:</b> README and docs (you're doing those), quality signals, and new providers.</li>
+</ul>
+</main>
+</body>
+</html>
