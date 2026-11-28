@@ -99,6 +99,7 @@ export class Replay {
 	}
 
 	async fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+		const now = Date.now();
 		const request = new Request(input, init);
 		const url = new URL(request.url);
 		if (!providers.has(url.hostname) || url.protocol !== "https:" || url.username || url.password) {
@@ -129,8 +130,12 @@ export class Replay {
 		const exa = url.hostname === "mcp.exa.ai" && rpc?.params?.name === "web_search_exa";
 		const resultCount = Number(rpc?.params?.arguments?.numResults);
 		const overfetch = Number.isInteger(resultCount) && resultCount > 8 ? [resultCount] : [];
+		const params = url.hostname === "mcp.exa.ai" && rpc?.params?.name === "web_search_advanced_exa"
+			? exaRecencyKey(rpc.params, now) : rpc?.params;
+		const policy = request.headers.get("x-parallel-search-config");
 		const identity = exa ? [url.hostname, rpc?.params?.name, rpc?.params?.arguments?.query, ...overfetch]
-			: [request.method, request.url, rpc ? [rpc.method, rpc.params] : raw, request.headers.get("x-parallel-search-config")];
+			: [request.method, request.url, rpc ? [rpc.method, params] : raw,
+				url.hostname === "search.parallel.ai" ? parallelRecencyKey(policy, now) : policy];
 		const key = digest(JSON.stringify(canonical(identity)));
 		let record = this.records[key];
 		if (!record) {
@@ -216,4 +221,33 @@ function transportFailure(request: Request, error: unknown, phase: RecordedFailu
 	const transportError = record?.code === "timeout" || record?.name === "TimeoutError" ? "timeout"
 		: record?.code === "aborted" || record?.name === "AbortError" ? "aborted" : "network";
 	return { transportError, phase };
+}
+
+const dayMs = 86_400_000;
+const recencyDays = [1, 7, 31, 365];
+
+function exaRecencyKey(params: NonNullable<Rpc["params"]>, now: number) {
+	const value = params.arguments?.startPublishedDate;
+	if (typeof value !== "string") return params;
+	const start = Date.parse(value);
+	if (!Number.isFinite(start) || new Date(start).toISOString() !== value) return params;
+	// The extension computes this ISO timestamp immediately before the request.
+	// Allow a short scheduling gap while keeping other absolute dates exact.
+	const days = recencyDays.find((days) => {
+		const age = now - start - days * dayMs;
+		return age >= 0 && age <= 5_000;
+	});
+	return days === undefined ? params : { ...params, arguments: { ...params.arguments, startPublishedDate: { relativeDays: days } } };
+}
+
+function parallelRecencyKey(header: string | null, now: number): unknown {
+	if (!header) return header;
+	let policy: { advanced_settings?: { source_policy?: { after_date?: unknown } } } | null;
+	try { policy = JSON.parse(header); } catch { return header; }
+	const source = policy?.advanced_settings?.source_policy;
+	if (typeof source?.after_date !== "string") return header;
+	const days = recencyDays.find((days) => new Date(now - days * dayMs).toISOString().slice(0, 10) === source.after_date);
+	if (days === undefined) return header;
+	source.after_date = { relativeDays: days };
+	return policy;
 }

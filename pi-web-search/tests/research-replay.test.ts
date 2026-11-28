@@ -139,3 +139,52 @@ test("Sourcegraph captures request and body failures and replays their exact GET
 		await assert.rejects(fetch(url("other key")), /Replay miss: sourcegraph.com GET/u);
 	} finally { restoreOffline(); }
 });
+
+test("relative Exa and Parallel dates replay across clocks without modifying outgoing filters", async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-recency-replay-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const path = join(directory, "responses.json");
+	let clock = Date.parse("2030-05-13T18:14:06.304Z");
+	t.mock.method(Date, "now", () => clock);
+	const offset = (days: number) => new Date(clock - days * 86_400_000).toISOString();
+	const absolute = "1990-03-20T12:30:00.000Z";
+	const exaUrl = "https://mcp.exa.ai/mcp?tools=web_search_advanced_exa";
+	const parallelUrl = "https://search.parallel.ai/mcp";
+	const makeCall = (name: string, date: string): RequestInit => ({
+		method: "POST",
+		body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+			name, arguments: { query: "unit test", ...(name === "web_search_advanced_exa" ? { startPublishedDate: date } : {}) },
+		} }),
+		...(name === "web_search" ? { headers: { "x-parallel-search-config":
+			JSON.stringify({ advanced_settings: { source_policy: { after_date: date, include_domains: ["example.org"] } } }),
+		} } : {}),
+	});
+	const dates: string[] = [];
+	const original = t.mock.method(globalThis, "fetch", async (input: Request) => {
+		const date = input.headers.get("x-parallel-search-config");
+		dates.push(date ? JSON.parse(date).advanced_settings.source_policy.after_date : (await input.json()).params.arguments.startPublishedDate);
+		return Response.json({ jsonrpc: "2.0", id: 1, result: { content: [] } });
+	});
+	const writer = new Replay(path, true, "draft");
+	const restoreLive = writer.install("model");
+	try {
+		await retrieve(() => fetch(exaUrl, makeCall("web_search_advanced_exa", offset(7))));
+		await retrieve(() => fetch(parallelUrl, makeCall("web_search", offset(31).slice(0, 10))));
+		await retrieve(() => fetch(exaUrl, makeCall("web_search_advanced_exa", absolute)));
+		assert.deepEqual(dates, [offset(7), offset(31).slice(0, 10), absolute]);
+		writer.save();
+	} finally { restoreLive(); }
+
+	clock = Date.parse("2030-06-21T03:11:14.111Z");
+	const reader = new Replay(path, false, "draft");
+	const restoreOffline = reader.install();
+	try {
+		assert.equal((await fetch(exaUrl, makeCall("web_search_advanced_exa", offset(7)))).status, 200);
+		assert.equal((await fetch(parallelUrl, makeCall("web_search", offset(31).slice(0, 10)))).status, 200);
+		assert.equal((await fetch(exaUrl, makeCall("web_search_advanced_exa", absolute))).status, 200);
+		await assert.rejects(fetch(exaUrl, makeCall("web_search_advanced_exa", offset(1))), /Replay miss/u);
+		await assert.rejects(fetch(parallelUrl, makeCall("web_search", offset(28).slice(0, 10))), /Replay miss/u);
+		await assert.rejects(fetch(exaUrl, makeCall("web_search_advanced_exa", "1990-03-21T12:30:00.000Z")), /Replay miss/u);
+		assert.equal(original.mock.callCount(), 3);
+	} finally { restoreOffline(); }
+});
