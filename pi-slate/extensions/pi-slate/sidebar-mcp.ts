@@ -1,5 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { McpActivityView } from "./mcp-activity.ts";
+import { sidebarDuration } from "./sidebar-layout.ts";
 import { record, sidebarText } from "./sidebar-text.ts";
 
 export type SidebarMcp = { name: string; enabled: boolean | null; source: string };
@@ -52,9 +54,17 @@ export function sidebarMcp(
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function mcpDetails(server: SidebarMcp): string {
+export function mcpAge(ms: number): string {
+  return sidebarDuration(ms).split(" ", 1)[0]!;
+}
+
+export function mcpDetails(server: SidebarMcp, activity: McpActivityView, now: number): string {
+  const { lastUsed, lastError } = activity;
   return `${server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled"} (configuration, not connection status)\nSource: ${server.source}\n`
     + (server.enabled === null ? "Enabled state could not be read from this declaration.\n" : "")
+    + `Last used: ${lastUsed === null ? "not this session" : `${mcpAge(now - lastUsed)} ago`}\n`
+    + `Calls this session: ${activity.calls}\n`
+    + `Last error: ${lastError ? `${lastError.text} (${mcpAge(now - lastError.at)} ago)` : "none"}\n`
     + "Slate does not validate MCP server configurations. Use /mcp for validation and live status.";
 }
 

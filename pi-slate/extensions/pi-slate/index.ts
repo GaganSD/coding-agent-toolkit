@@ -786,11 +786,13 @@ export default function piSlate(pi: ExtensionAPI): void {
     });
     pi.on("tool_execution_start", (event, ctx) => {
       if (ctx.mode !== "tui") return;
+      sidebar.mcpCallStarted(event.toolCallId, event.toolName, () => pi.getAllTools());
       skills.readStart(event.toolCallId, event.toolName, event.args, ctx.cwd);
       syncSidebar(ctx); // message_end precedes persistence; the tool starts after it.
     });
     pi.on("tool_execution_end", (event, ctx) => {
       if (ctx.mode !== "tui") return;
+      sidebar.mcpCallEnded(event, ctx.signal?.aborted === true);
       skills.readEnd(event.toolCallId, event.isError);
       refreshResources(ctx);
     });

@@ -65,6 +65,7 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
     getCommands: () => extraCommands,
     getAllTools: () => [
       ...tools.map((tool) => ({ ...tool, sourceInfo: { path: conflict ? "/foreign/cards.ts" : new URL("../extensions/pi-slate/index.ts", import.meta.url).pathname } })),
+      { name: "mcp__docs__search", description: "test MCP tool", parameters: {}, sourceInfo: { path: "/host/mcp.ts" }, namespace: { name: "mcp__docs", aliases: ["docs"] } },
       // Claude mode deliberately keeps the host's read registration.
       ...tools.some((tool) => tool.name === "read") ? [] : [{ name: "read", sourceInfo: { path: "/host/read.ts" } }],
     ],
@@ -1102,6 +1103,59 @@ test("SPEED follows persistence, not token deltas or an unrelated model selectio
   f.manager.appendMessage(next);
   await f.emit("tool_execution_start", { toolCallId: "call", toolName: "read", args: {} });
   assert.match(capture(), /│ 120 tok\/s/);
+});
+
+test("live MCP activity drives the sidebar spinner and warning, then stops its timer", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  t.after(() => t.mock.timers.reset());
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }), "tui", true, false, async (_pi, _ui, agentDir) => {
+    await writeFile(join(agentDir, "mcp.json"), '{"mcpServers":{"docs":{"command":"docs"}}}');
+  });
+  const sidebar = railOf(f);
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  const rows = () => sidebar.render(40).map(unstyled).join("\n");
+  const ticks = t.mock.method(sidebar, "tick");
+  const start = (id: string, context = f.ctx) => f.emit("tool_execution_start", { toolCallId: id, toolName: "mcp__docs__search", args: {} }, context);
+  const end = (id: string, extra: Record<string, unknown> = {}, context = f.ctx) => f.emit("tool_execution_end", {
+    toolCallId: id, toolName: "mcp__docs__search", result: {}, isError: false, ...extra,
+  }, context);
+
+  await start("a");
+  assert.match(rows(), /● [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] docs/);
+  let count = ticks.mock.callCount();
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), count + 1, "the active MCP timer ticks the sidebar");
+  sidebar.setFolds({ mcp: false, skills: false, prompts: false });
+  count = ticks.mock.callCount();
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), count, "a folded MCP section stops the timer");
+  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  count = ticks.mock.callCount();
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), count + 1, "expanding restarts the timer while the call is active");
+  await end("a", { durationMs: 5 });
+  assert.doesNotMatch(rows(), /● (?:[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|!) docs/, "a success leaves the config row");
+  count = ticks.mock.callCount();
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), count, "the timer stops when no calls are active");
+
+  const aborted = { ...f.ctx, signal: AbortSignal.abort() };
+  await start("b", aborted);
+  await end("b", { durationMs: 5, isError: true }, aborted);
+  assert.doesNotMatch(rows(), /● ! docs/, "an abort is not a failure");
+
+  await start("c");
+  await end("c", { durationMs: 5, isError: true, result: { content: [{ type: "text", text: "server failed" }] } });
+  assert.match(rows(), /● ! docs/, "a real failure warns");
+  await start("d");
+  await end("d", { durationMs: 5 });
+  assert.doesNotMatch(rows(), /● ! docs/, "the next success clears the warning");
+
+  await start("f");
+  await f.emit("session_shutdown");
+  count = ticks.mock.callCount();
+  t.mock.timers.tick(WAVE_STEP_MS);
+  assert.equal(ticks.mock.callCount(), count, "session shutdown stops the timer");
 });
 
 test("mounted rail keeps the preview and open target", async t => {
