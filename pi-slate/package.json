@@ -76,7 +76,7 @@
     "themes": [
       "./themes/*.json"
     ],
-    "image": "https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png"
+    "image": "https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-slate/assets/slate-overview.png"
   },
   "dependencies": {
     "diff": "^9.0.0",
