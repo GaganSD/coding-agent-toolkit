@@ -47,6 +47,9 @@
     "smoke:classifier": "node --experimental-strip-types scripts/classifier-smoke.ts",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck && npm run pack:check"
   },
+  "dependencies": {
+    "proper-lockfile": "4.1.2"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
@@ -75,6 +78,7 @@
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@earendil-works/pi-tui": "1.3.0",
     "@types/node": "26.6.5",
+    "@types/proper-lockfile": "4.1.4",
     "typebox": "1.3.37",
     "typescript": "7.0.2"
   },

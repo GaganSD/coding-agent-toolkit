@@ -103,7 +103,7 @@ test("githubToken uses an injected gh reader only after env and auth miss", () =
 	assert.equal(
 		githubToken({
 			env: { GH_TOKEN: "env-token" },
-			readCredential: () => ({ key: "stored" }),
+			readCredential: () => ({ type: "api_key", key: "stored" }),
 			readGhToken: () => "cli-token",
 		}),
 		"env-token",

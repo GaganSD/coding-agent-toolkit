@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +12,7 @@ import {
 	exaApiKey,
 	githubToken,
 	parallelApiKey,
+	removeApiKey,
 	resolveCredential,
 	storeApiKey,
 } from "../src/env.ts";
@@ -64,8 +66,15 @@ test("rotation and removal of the stored key are observed on the next call", asy
 			resolveCredential("parallel", { env: {}, authPath })?.key,
 			"rotated",
 		);
-		await writeFile(authPath, JSON.stringify({}), "utf-8");
+		assert.equal(await removeApiKey("parallel", authPath), true);
 		assert.equal(resolveCredential("parallel", { env: {}, authPath }), undefined);
+		assert.equal(await removeApiKey("parallel", authPath), false);
+		await writeFile(authPath, '{"parallel":{"type":"oauth","access":"keep"}}');
+		assert.equal(await removeApiKey("parallel", authPath), false);
+		assert.equal(await readFile(authPath, "utf8"), '{"parallel":{"type":"oauth","access":"keep"}}');
+		await writeFile(authPath, "{ malformed");
+		await assert.rejects(removeApiKey("parallel", authPath), /malformed/);
+		assert.equal(await readFile(authPath, "utf8"), "{ malformed");
 	});
 });
 
@@ -121,9 +130,7 @@ test("the alias table documents every supported provider id", () => {
 
 test("storeApiKey merges one literal key and leaves other entries", async () => {
 	await tempAuthFile({ openai: { type: "api_key", key: "keep" } }, async (authPath) => {
-		const saved = await storeApiKey("exa", "  new-key  ", authPath);
-		assert.equal(saved.path, authPath);
-		assert.equal(saved.replaced, false);
+		await storeApiKey("exa", "  new-key  ", authPath);
 		assert.deepEqual(JSON.parse(await readFile(authPath, "utf8")), {
 			openai: { type: "api_key", key: "keep" },
 			exa: { type: "api_key", key: "new-key" },
@@ -141,4 +148,56 @@ test("a malformed auth file is never overwritten", async () => {
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+test("a competing Pi-style writer's refresh is preserved under the shared auth lock", async () => {
+	await tempAuthFile({ another: { type: "oauth", access: "before" } }, async (authPath) => {
+		const lock = authPath + ".lock";
+		await mkdir(lock);
+		const pending = storeApiKey("exa", "saved", authPath);
+		const completed = pending.then(() => true);
+		assert.equal(await Promise.race([completed, sleep(60, false)]), false);
+		try { await writeFile(authPath, JSON.stringify({ another: { type: "oauth", access: "refreshed" } })); }
+		finally { await rmdir(lock); }
+		await pending;
+		assert.deepEqual(JSON.parse(await readFile(authPath, "utf8")), {
+			another: { type: "oauth", access: "refreshed" }, exa: { type: "api_key", key: "saved" },
+		});
+	});
+});
+
+test("stored-key helpers cannot override or delete a Pi-managed credential", async () => {
+	const managed = { exa: { type: "oauth", access: "unchanged" } };
+	await tempAuthFile(managed, async (authPath) => {
+		await assert.rejects(storeApiKey("exa", "replacement", authPath), /managed by Pi/);
+		assert.equal(await removeApiKey("exa", authPath), false);
+		assert.deepEqual(JSON.parse(await readFile(authPath, "utf8")), managed);
+	});
+});
+
+test("literal-key helpers reject commands and references and leave existing expressions untouched", async () => {
+	const managed = { exa: { type: "api_key", key: "!managed-command" }, brave: { type: "api_key", key: "$BRAVE_SECRET" } };
+	await tempAuthFile(managed, async (authPath) => {
+		for (const key of ["!command", "$OPTIONAL_KEY", "prefix-${OPTIONAL_KEY}", "$$escape", "$!escape"]) {
+			await assert.rejects(storeApiKey("parallel", key, authPath), /literal API key/);
+		}
+		for (const id of ["exa", "brave"] as const) {
+			assert.equal(resolveCredential(id, { authPath, env: {} }), undefined);
+			await assert.rejects(storeApiKey(id, "replacement", authPath), /managed by Pi/);
+			assert.equal(await removeApiKey(id, authPath), false);
+		}
+		assert.deepEqual(JSON.parse(await readFile(authPath, "utf8")), managed);
+	});
+});
+
+test("replacing and removing a literal key preserve sibling credential fields", async () => {
+	const siblings = { type: "api_key", env: { SHARED: "keep" }, metadata: { another: true } };
+	await tempAuthFile({ exa: { ...siblings, key: "old" } }, async (path) => {
+		await storeApiKey("exa", "new", path);
+		assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { exa: { ...siblings, key: "new" } });
+		assert.equal(await removeApiKey("exa", path), true);
+		assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { exa: siblings });
+		await storeApiKey("exa", "restored", path);
+		assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { exa: { ...siblings, key: "restored" } });
+	});
 });

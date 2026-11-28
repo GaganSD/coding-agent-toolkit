@@ -14,6 +14,7 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		files: [...packageAllowlist],
 		keywords: ["pi-package"],
 		pi: { extensions: ["./src/index.ts"] },
+		dependencies: { "proper-lockfile": "4.1.2" },
 		peerDependenciesMeta: {
 			"@earendil-works/pi-ai": { optional: true },
 			"@earendil-works/pi-coding-agent": { optional: true },
@@ -89,7 +90,7 @@ test("package-content requires declared host imports and accepts their subpaths"
 });
 
 test("package-content prevents bundling or separately version-resolving host packages", () => {
-	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /no runtime dependencies/);
+	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /Unexpected runtime dependencies/);
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependencies["@earendil-works/pi-ai"] = ">=0.99.0"; }), /must be supplied by Pi/);
 	assert.throws(() => validate(({ manifest }) => { manifest.files.push("tests"); }));
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta.typebox.optional = false; }), /must not install automatically/);

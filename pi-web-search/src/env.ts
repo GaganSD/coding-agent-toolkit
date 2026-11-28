@@ -1,12 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import {
-	getAgentDir,
-	readStoredCredential,
-	withFileMutationQueue,
-} from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
+import { readOptionalText, resolveWriteTarget, withFileLock, writeAtomicText } from "./file-write.ts";
+import { basename, dirname, join } from "node:path";
+import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
 
 /** Retrieval credentials only. Pi owns all classifier authentication. */
 export type CredentialProviderId = "exa" | "parallel" | "github" | "brave";
@@ -30,24 +26,37 @@ export const CREDENTIAL_PROVIDER_IDS = Object.keys(
 	CREDENTIAL_ENV_ALIASES,
 ) as CredentialProviderId[];
 
-export interface StoredCredentialLike {
-	type?: string;
-	key?: string;
-}
-
-export type CredentialSource = "env" | "auth";
+export type CredentialSource = "env" | "auth" | "gh";
 
 export interface ResolvedCredential {
 	key: string;
-	/** Where the key came from. Only for diagnostics; never the key itself. */
 	source: CredentialSource;
-	/** The env var or provider id that supplied the key. */
 	name: string;
 }
 
-export type CredentialReader = (
-	providerId: CredentialProviderId,
-) => StoredCredentialLike | undefined;
+export type CredentialReader = (providerId: CredentialProviderId) => unknown;
+
+type StoredCredential = { kind: "missing" | "managed" | "broken" } | { kind: "literal"; key: string };
+
+/** Pi interprets command prefixes and dollar templates, including escape sequences. */
+function isPiExpression(value: string) {
+	return value.startsWith("!") || /\$(?:[$!]|[A-Za-z_]|\{[A-Za-z_][A-Za-z0-9_]*\})/u.test(value);
+}
+
+export function isLiteralApiKey(value: string) {
+	return /^[\x21-\x7e]{1,4096}$/u.test(value) && !isPiExpression(value);
+}
+
+function classifyStored(entry: unknown): StoredCredential {
+	if (entry === undefined) return { kind: "missing" };
+	if (!isPlainObject(entry)) return { kind: "broken" };
+	if (entry.type === "oauth") return { kind: "managed" };
+	if (entry.type === "api_key" && !Object.hasOwn(entry, "key")) return { kind: "missing" };
+	const key = trim(entry.key);
+	if (entry.type !== "api_key" || key === undefined) return { kind: "broken" };
+	if (isPiExpression(key)) return { kind: "managed" };
+	return isLiteralApiKey(key) ? { kind: "literal", key } : { kind: "broken" };
+}
 
 export interface CredentialResolverOptions {
 	/** Env source; defaults to `process.env`. Injected by tests. */
@@ -84,21 +93,30 @@ export function disableStoredCredentials(): void {
  */
 export function resolveCredential(
 	providerId: CredentialProviderId,
-	options: CredentialResolverOptions = {},
+	options?: CredentialResolverOptions,
 ): ResolvedCredential | undefined {
-	const env = options.env ?? process.env;
-	for (const name of CREDENTIAL_ENV_ALIASES[providerId]) {
-		const value = trim(env[name]);
-		if (value !== undefined) {
-			return { key: value, source: "env", name };
+	return credentialState(providerId, options).resolved;
+}
+
+/** Retrieval source and stored-entry ownership are independent facts. */
+export function credentialState(providerId: CredentialProviderId, options?: CredentialResolverOptions) {
+	const env = options?.env ?? process.env;
+	const reader = options?.readCredential ??
+		(options?.authPath !== undefined ? readerForPath(options.authPath) : storedReader);
+	const stored = classifyStored(reader?.(providerId));
+	const resolved = (() : ResolvedCredential | undefined => {
+		for (const name of CREDENTIAL_ENV_ALIASES[providerId]) {
+			const key = trim(env[name]);
+			if (key !== undefined) return { key, source: "env", name };
 		}
-	}
-	const reader = options.readCredential ??
-		(options.authPath !== undefined
-			? readerForPath(options.authPath)
-			: storedReader);
-	const key = trim(reader?.(providerId)?.key);
-	return key === undefined ? undefined : { key, source: "auth", name: providerId };
+		if (stored.kind === "literal") return { key: stored.key, source: "auth", name: providerId };
+		if (providerId === "github") {
+			// Explicit test resolvers never spawn gh on the operator's machine.
+			const key = trim(options ? options.readGhToken?.() : readGhCliToken());
+			if (key !== undefined) return { key, source: "gh", name: "gh auth" };
+		}
+	})();
+	return { resolved, stored: stored.kind, editable: resolved?.source !== "env" && (stored.kind === "literal" || stored.kind === "missing") };
 }
 
 export function exaApiKey(
@@ -120,18 +138,7 @@ export function parallelApiKey(
 export function githubToken(
 	options?: CredentialResolverOptions,
 ): string | undefined {
-	const resolved = resolveCredential("github", options);
-	if (resolved !== undefined) {
-		return resolved.key;
-	}
-	if (options?.readGhToken) {
-		return trim(options.readGhToken());
-	}
-	// Explicit test resolvers must not spawn `gh` on the operator machine.
-	if (options !== undefined) {
-		return undefined;
-	}
-	return trim(readGhCliToken());
+	return resolveCredential("github", options)?.key;
 }
 
 /** Always github.com — never the CLI default host, which may be Enterprise. */
@@ -186,69 +193,106 @@ export function defaultAuthPath(): string {
 	return join(getAgentDir(), "auth.json");
 }
 
+export class CredentialChangedError extends Error {
+	constructor() { super("The stored credential changed. Reopen the key editor and try again."); }
+}
+
+function entryRevision(entry: unknown): string | null {
+	return entry === undefined ? null : createHash("sha256").update(JSON.stringify(entry)).digest("hex");
+}
+
+/** Null means no entry; keyless entries with sibling fields still have a revision. */
+export function credentialRevision(providerId: CredentialProviderId, authPath = defaultAuthPath()): string | null {
+	return entryRevision(readerForPath(authPath)(providerId));
+}
+
 /** Merge a literal API key into auth.json. Never logs the key. */
 export async function storeApiKey(
 	providerId: CredentialProviderId,
 	key: string,
 	authPath?: string,
-): Promise<{ path: string; replaced: boolean }> {
+	guard?: { expected: string | null; signal: AbortSignal },
+): Promise<void> {
 	const trimmed = trim(key);
-	if (trimmed === undefined) {
-		throw new Error("API key is empty.");
+	if (trimmed === undefined || !isLiteralApiKey(trimmed)) {
+		throw new Error("Enter a literal API key, not a command or environment reference.");
 	}
-	const result = await mutateAuth(authPath, (current) => {
+	await mutateAuth(authPath, (current) => {
 		const existing = current[providerId];
-		const replaced = isPlainObject(existing);
-		current[providerId] = { type: "api_key", key: trimmed };
-		return { write: true, flag: replaced };
-	});
-	return { path: result.path, replaced: result.flag };
+		if (guard && entryRevision(existing) !== guard.expected) throw new CredentialChangedError();
+		const kind = classifyStored(existing).kind;
+		if (kind !== "literal" && kind !== "missing") throw new Error("This credential is broken or managed by Pi.");
+		current[providerId] = { ...(isPlainObject(existing) ? existing : {}), type: "api_key", key: trimmed };
+		return true;
+	}, guard?.signal);
+}
+
+function literalRevision(entry: unknown): string | undefined {
+	if (classifyStored(entry).kind === "literal") return entryRevision(entry) ?? undefined;
+}
+
+/** An opaque revision binds removal confirmation to the saved entry, not the current environment. */
+export function apiKeyRevision(providerId: CredentialProviderId, authPath = defaultAuthPath()): string | undefined {
+	return literalRevision(readerForPath(authPath)(providerId));
+}
+
+/** Remove only the saved key, optionally requiring an exact observed entry revision. */
+export async function removeApiKey(providerId: CredentialProviderId, authPath?: string, expected?: string, signal?: AbortSignal): Promise<boolean> {
+	return mutateAuth(authPath, (current) => {
+		const existing = current[providerId];
+		const revision = literalRevision(existing);
+		if (!isPlainObject(existing) || !revision || (expected !== undefined && revision !== expected)) return false;
+		delete existing.key;
+		if (Object.keys(existing).length === 1) delete current[providerId];
+		return true;
+	}, signal);
 }
 
 async function mutateAuth(
 	authPath: string | undefined,
-	mutate: (current: Record<string, unknown>) => { write: boolean; flag: boolean },
-): Promise<{ path: string; flag: boolean }> {
+	mutate: (current: Record<string, unknown>) => boolean,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	signal?.throwIfAborted();
 	const path = authPath ?? defaultAuthPath();
-	const targetPath = await realpath(path).catch((error) => {
-		if (isMissingFileError(error)) {
-			return path;
-		}
-		throw error;
-	});
-	return withFileMutationQueue(targetPath, async () => {
-		const current = await readAuthObject(targetPath);
-		const { write, flag } = mutate(current);
-		if (!write) {
-			return { path, flag };
-		}
-		await mkdir(dirname(targetPath), { recursive: true });
-		const temporary = `${targetPath}.${randomUUID()}.tmp`;
-		try {
-			await writeFile(temporary, `${JSON.stringify(current, null, 2)}\n`, {
-				mode: 0o600,
-				flag: "wx",
+	// Canonicalize the parent but not the basename: Pi locks auth.json.lock next to the supplied path.
+	const logical = join(await resolveWriteTarget(dirname(path)), basename(path));
+	const target = await resolveWriteTarget(path);
+	const [first, second] = [...new Set([logical, target])].sort();
+	const assertTarget = async () => {
+		if (await resolveWriteTarget(path) !== target) throw new Error("The auth.json link changed. Reopen /web-search before retrying.");
+	};
+	const save = async (assertHeld: () => Promise<void>) => {
+		signal?.throwIfAborted();
+		await assertTarget();
+		const revision = await readOptionalText(target);
+		const current = parseAuthObject(revision);
+		const write = mutate(current);
+		if (write) {
+			await writeAtomicText(target, `${JSON.stringify(current, null, 2)}\n`, async () => {
+				await assertHeld();
+				await assertTarget();
+				if (await readOptionalText(target) !== revision) throw new Error("auth.json changed during the save. Reopen /web-search before retrying.");
+				signal?.throwIfAborted();
 			});
-			await rename(temporary, targetPath);
-		} finally {
-			await unlink(temporary).catch(() => {});
 		}
-		return { path, flag };
-	});
+		return write;
+	};
+	const stale = 30_000; // Match Pi's async auth backend.
+	return withFileLock(first, (assertFirst) => second
+		? withFileLock(second, (assertSecond) => save(async () => { await assertFirst(); await assertSecond(); }), stale)
+		: save(assertFirst), stale);
 }
 
-async function readAuthObject(path: string): Promise<Record<string, unknown>> {
+function parseAuthObject(raw: string | undefined): Record<string, unknown> {
+	if (raw === undefined) return {};
 	try {
-		const raw = await readFile(path, "utf-8");
-		const parsed: unknown = JSON.parse(raw);
+		const parsed: unknown = JSON.parse(raw.replace(/^\uFEFF/u, ""));
 		if (!isPlainObject(parsed)) {
 			throw new Error("auth.json is not a JSON object. It was not changed.");
 		}
 		return parsed;
 	} catch (error) {
-		if (isMissingFileError(error)) {
-			return {};
-		}
 		if (error instanceof SyntaxError) {
 			throw new Error("auth.json is malformed. It was not changed.", { cause: error });
 		}
@@ -260,11 +304,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isMissingFileError(error: unknown): boolean {
-	return !!error && typeof error === "object" && "code" in error && error.code === "ENOENT";
-}
-
-function trim(value: string | undefined): string | undefined {
+function trim(value: unknown): string | undefined {
 	if (typeof value !== "string") {
 		return undefined;
 	}

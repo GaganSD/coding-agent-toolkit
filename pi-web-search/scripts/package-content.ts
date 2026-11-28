@@ -29,7 +29,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	assert.ok(manifest.keywords.includes("pi-package"));
 	assert.deepEqual(manifest.files, packageAllowlist);
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
-	assert.deepEqual(manifest.dependencies ?? {}, {}, "This source-only extension has no runtime dependencies");
+	assert.deepEqual(manifest.dependencies, { "proper-lockfile": "4.1.2" }, "Unexpected runtime dependencies");
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
 		assert.equal(manifest.scripts?.[hook], undefined, `Consumers must not run lifecycle hook ${hook}`);
 	}
@@ -52,7 +52,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 			}
 			if (isBuiltin(specifier)) return;
 			const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0];
-			assert.ok(Object.hasOwn(manifest.peerDependencies, name), `${path}: undeclared external import ${specifier}`);
+			assert.ok((Object.hasOwn(manifest.peerDependencies, name) || Object.hasOwn(manifest.dependencies ?? {}, name)), `${path}: undeclared external import ${specifier}`);
 		};
 		const scanner = createScanner(true, undefined, contents);
 		let declaration: "import" | "export" | undefined;
