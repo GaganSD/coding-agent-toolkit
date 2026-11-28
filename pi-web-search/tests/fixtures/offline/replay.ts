@@ -12,13 +12,17 @@ export const directory = fileURLToPath(new URL(".", import.meta.url));
 export const routes = {
 	exa: "https://mcp.exa.ai/mcp",
 	"exa-rest": "https://api.exa.ai/search",
+	"exa-advanced": "https://mcp.exa.ai/mcp?tools=web_search_advanced_exa,web_fetch_exa",
 	parallel: "https://search.parallel.ai/mcp",
 	grep: "https://mcp.grep.app/",
 	sourcegraph: "https://sourcegraph.com/.api/search/stream",
 	github: "https://api.github.com/search/code",
 	brave: "https://api.search.brave.com/res/v1/web/search",
+	"brave-context": "https://api.search.brave.com/res/v1/llm/context",
+	context7: "https://context7.com/api/v3/search",
+	searxng: "http://127.0.0.1:7987/search",
 	jina: "https://r.jina.ai/",
-} satisfies Record<EvidenceProvider | "exa-rest", string>;
+} satisfies Partial<Record<EvidenceProvider | "exa-rest" | "exa-advanced" | "brave-context", string>>;
 
 export type Transport = keyof typeof routes;
 export interface Evidence { title: string; url: string; text: string }
@@ -29,9 +33,10 @@ export interface Fixture {
 	evidence: Evidence[];
 	query?: string;
 	target?: string;
+	library?: string;
 	fault?: Fault;
 	once?: boolean;
-	onRequest?: () => void;
+	onRequest?: (url: URL, init: RequestInit | undefined) => void;
 }
 
 function loadJson<T>(path: string): T {
@@ -61,7 +66,7 @@ export function evidenceFor(id: string, step: number, category: string, transpor
 	});
 }
 
-const mcpTools = { exa: "web_search_exa", parallel: "web_search", grep: "searchGitHub" } as const;
+const mcpTools = { exa: "web_search_exa", "exa-advanced": "web_search_advanced_exa", parallel: "web_search", grep: "searchGitHub" } as const;
 function isMcp(transport: Transport): transport is keyof typeof mcpTools {
 	return Object.hasOwn(mcpTools, transport);
 }
@@ -75,12 +80,23 @@ function literalCodeQuery(query: string | undefined): string | undefined {
 }
 
 function match(fixture: Fixture, url: URL, method: string, rpc: Request): boolean {
-	const { transport, target, query } = fixture;
+	const { transport, target, query, library } = fixture;
 	const endpoint = new URL(routes[transport]);
 	if (transport === "jina") return method === "GET" && target !== undefined && url.href === endpoint.href + target;
-	if (url.origin !== endpoint.origin || url.pathname !== endpoint.pathname) return false;
+	if (url.origin !== endpoint.origin) return false;
+	if (transport === "context7") {
+		return url.pathname === (library ? "/api/v2/context" : endpoint.pathname) && method === "GET"
+			&& url.searchParams.get("type") === "json" && url.searchParams.get("query") === query
+			&& url.searchParams.get("libraryId") === (library ?? null);
+	}
+	if (url.pathname !== endpoint.pathname) return false;
+	if (transport === "searxng") {
+		const q = url.searchParams.get("q");
+		return method === "GET" && url.searchParams.get("format") === "json" && (q === query || q?.startsWith(query + " ") === true);
+	}
 
 	if (isMcp(transport)) {
+		if (url.search !== endpoint.search) return false;
 		if (method === "DELETE") return true;
 		if (method !== "POST" || rpc.jsonrpc !== "2.0") return false;
 		if (rpc.method === "initialize" || rpc.method === "notifications/initialized") return true;
@@ -109,17 +125,26 @@ function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session
 		}
 		const result = transport === "parallel"
 			? { content: [], structuredContent: { results: evidence.map(({ title, url, text }) => ({ title, url, excerpts: [text] })) } }
-			: { content: [{ type: "text", text: transport === "exa"
-				? evidence.map(({ title, url, text }) => `Title: ${title}\nURL: ${url}\nHighlights:\n${text}`).join("\n\n")
-				: evidence.map(({ url, text }) => `Repository: public-example/replay\nPath: ${url.split("/").at(-1)}\nURL: ${url}\n--- Snippet 1 (Line 1) ---\n${text}`).join("\n") }] };
+			: { content: [{ type: "text", text: mcpEvidence(transport, evidence) }] };
 		return json({ jsonrpc: "2.0", id: rpc.id, result });
 	}
 	if (transport === "jina") {
 		const { title, text } = evidence[0];
 		return json({ data: { title, url: fixture.target, content: text, httpStatus: 200 } });
 	}
-	if (transport === "exa-rest") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, highlights: [text] })) });
+	if (transport === "exa-rest") return json(exaEvidence(evidence));
 	if (transport === "brave") return json({ web: { results: evidence.map(({ title, url, text }) => ({ title, url, description: text })) } });
+	if (transport === "brave-context") return json({
+		grounding: { generic: evidence.map(({ title, url, text }) => ({ title, url, snippets: [text] })), map: [] },
+		sources: Object.fromEntries(evidence.map(({ title, url }) => [url, { title, hostname: new URL(url).hostname, age: [] }])),
+	});
+	if (transport === "searxng") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, content: text })) });
+	if (transport === "context7") {
+		return json({ ...(fixture.library ? { libraryId: fixture.library } : {}), codeSnippets: [],
+			infoSnippets: evidence.map(({ title, url, text }) => ({
+				libraryId: fixture.library ?? "/public-example/library", breadcrumb: title, pageId: url, content: text,
+			})) });
+	}
 	if (transport === "github") return json({ items: evidence.map(({ url, text }) => ({
 		html_url: url, path: url.split("/").at(-1), repository: { full_name: "public-example/replay", private: false },
 		text_matches: [{ fragment: text }],
@@ -129,6 +154,18 @@ function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session
 		lineMatches: [{ line: text }],
 	}));
 	return new Response(`event: matches\ndata: ${JSON.stringify(matches)}\n\nevent: progress\ndata: {"done":true}\n\n`);
+}
+
+function exaEvidence(evidence: Evidence[]) {
+	return { results: evidence.map(({ title, url, text }) => ({ title, url, highlights: [text] })) };
+}
+
+function mcpEvidence(transport: "exa" | "exa-advanced" | "grep", evidence: Evidence[]): string {
+	if (transport === "exa-advanced") return JSON.stringify(exaEvidence(evidence));
+	if (transport === "exa") {
+		return evidence.map(({ title, url, text }) => `Title: ${title}\nURL: ${url}\nHighlights:\n${text}`).join("\n\n");
+	}
+	return evidence.map(({ url, text }) => `Repository: public-example/replay\nPath: ${url.split("/").at(-1)}\nURL: ${url}\n--- Snippet 1 (Line 1) ---\n${text}`).join("\n");
 }
 
 function faultResponse(fault: Fault, signal?: AbortSignal | null): Response {
@@ -180,7 +217,7 @@ export class Replay {
 		try {
 			const isCall = !isMcp(fixture.transport) || rpc.method === "tools/call";
 			if (isCall) {
-				fixture.onRequest?.();
+				fixture.onRequest?.(url, init);
 				if (fixture.fault && !(fixture.once && this.usedFaults.has(fixture))) {
 					this.usedFaults.add(fixture);
 					return faultResponse(fixture.fault, init?.signal);

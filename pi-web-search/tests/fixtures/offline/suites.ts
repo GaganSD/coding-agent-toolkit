@@ -1,20 +1,31 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
+import { Readable } from "node:stream";
 import { rmSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { classifierRegistry } from "../native-classifier.ts";
 import { clearRetrievalCache } from "../../../src/providers/reuse.ts";
+import { readUrls } from "../../../src/read/index.ts";
 import { search as executeSearch } from "../../../src/search.ts";
 import { assertHosts, auditCitations, directText, type Search } from "./assertions.ts";
 import { evidenceFor, excerpts, faults, routes, type Fault, type Fixture, type Replay, type Transport } from "./replay.ts";
 
-const providers = ["exa", "exa-rest", "parallel", "brave", "grep", "sourcegraph", "github"] as const;
+const providers = [
+	"exa", "exa-rest", "parallel", "brave", "brave-context", "searxng", "grep", "sourcegraph", "github", "context7",
+] as const;
 const mcp = new Set<Transport>(["exa", "parallel", "grep"]);
-const credentialEnv = { "exa-rest": "EXA_API_KEY", brave: "BRAVE_API_KEY", github: "GITHUB_TOKEN", parallel: "PARALLEL_API_KEY" } as const;
+const credentialEnv = {
+	"exa-rest": "EXA_API_KEY", brave: "BRAVE_API_KEY", "brave-context": "BRAVE_API_KEY", github: "GITHUB_TOKEN",
+	parallel: "PARALLEL_API_KEY", context7: "CONTEXT7_API_KEY",
+} as const;
 const fakeKey = "SENTINEL_OFFLINE_CREDENTIAL_FOR_REDACTION_ONLY";
 
-const provider = (transport: Transport) => transport === "exa-rest" ? "exa" : transport;
-const family = (transport: Transport) => ["grep", "sourcegraph", "github"].includes(transport) ? "code" : "web";
+const provider = (transport: Transport) => transport === "exa-rest" ? "exa" : transport === "brave-context" ? "brave" : transport;
+const configuration = (transport: Transport) => ({
+	brave: { mode: transport === "brave-context" ? "context" : "web" },
+	...(transport === "searxng" ? { searxng: { url: new URL(routes.searxng).origin } } : {}),
+});
+const family = (transport: Transport) => ["grep", "sourcegraph", "github", "context7"].includes(transport) ? "code" : "web";
 const fallbackFor = (transport: Transport): Transport => family(transport) === "code"
 	? transport === "grep" ? "sourcegraph" : "grep"
 	: transport === "exa" || transport === "exa-rest" ? "parallel" : "exa";
@@ -43,7 +54,7 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 		const next = fallbackFor(transport);
 		const scope = family(transport);
 		setCredentials(transport, next);
-		writeFileSync(configPath, JSON.stringify({ [scope]: { provider: provider(transport), fallback: [provider(next)] }, research: { enabled: true }, timeoutMs }));
+		writeFileSync(configPath, JSON.stringify({ ...configuration(transport), [scope]: { provider: provider(transport), fallback: [provider(next)] }, research: { enabled: true }, timeoutMs }));
 		for (const fault of faults) {
 			if (fault.mcpOnly && !mcp.has(transport)) continue;
 			for (const effort of ["fast", "thorough"] as const) {
@@ -88,7 +99,7 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 		// shared and remains fatal even if that sibling completed early.
 		setCredentials(transport);
 		const scope = family(transport);
-		writeFileSync(configPath, JSON.stringify({ [scope]: { provider: provider(transport), fallback: [] }, research: { enabled: true }, timeoutMs }));
+		writeFileSync(configPath, JSON.stringify({ ...configuration(transport), [scope]: { provider: provider(transport), fallback: [] }, research: { enabled: true }, timeoutMs }));
 		for (const effort of ["fast", "thorough"] as const) {
 			const query = `offline deadline ${transport} ${effort}`;
 			const active = fixture(transport, query, deadlineFault);
@@ -131,16 +142,15 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 	assert.ok(abortedAt > 0 && abortMs <= 100, `Abort took ${abortMs} ms`);
 	assert.equal(replay.attempts.length - attemptsAtAbort, 0, "Aborted REST search attempted more requests");
 	setCredentials();
-
 }
 
 export async function safety(replay: Replay, search: Search, configPath: string, context: ExtensionContext) {
 	writeFileSync(configPath, JSON.stringify({ web: { provider: "exa", fallback: [] } }));
 	setCredentials("exa-rest");
-	for (const transport of ["exa-rest", "brave", "github", "parallel"] as const) {
+	for (const transport of ["exa-rest", "brave", "brave-context", "github", "parallel", "context7"] as const) {
 		const scope = family(transport);
 		setCredentials(transport);
-		writeFileSync(configPath, JSON.stringify({ [scope]: { provider: provider(transport), fallback: [] } }));
+		writeFileSync(configPath, JSON.stringify({ ...configuration(transport), [scope]: { provider: provider(transport), fallback: [] } }));
 		const query = `echo credential sample ${transport}`;
 		const target = fixture(transport, query);
 		// Use only an in-process synthetic credential. Provider error handling
@@ -165,7 +175,16 @@ export async function safety(replay: Replay, search: Search, configPath: string,
 	const pageUrl = "https://example.org/untrusted-fixture";
 	const page: Fixture = { transport: "jina", target: pageUrl, evidence: evidenceFor("injection-example", 0, "injection", "jina", pageUrl) };
 	replay.use([page]);
-	const without = await search({ urls: [pageUrl] });
+	const without = await executeSearch("fixture-url", { urls: [pageUrl] }, undefined, undefined, context, {
+		readUrls: (request) => readUrls(request, {
+			transport: {
+				resolve: async () => [{ address: "1.1.1.1", family: 4 }],
+				connect: async () => ({
+					status: 503, headers: { "content-type": "text/plain" }, body: Readable.from(["Fixture local failure."]),
+				}),
+			},
+		}),
+	});
 	replay.assertClean();
 	auditCitations(without, [page], "injection off");
 	assert.ok(directText(without).includes(excerpts.injection));

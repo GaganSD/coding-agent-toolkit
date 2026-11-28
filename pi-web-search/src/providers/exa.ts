@@ -1,3 +1,5 @@
+import { PREVIEW_PASSAGE_CHARS } from "../previews.ts";
+import { domainPolicy, recencyStart } from "./filters.ts";
 import { exaApiKey } from "../env.ts";
 import { type FetchLike, postJson } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
@@ -13,6 +15,8 @@ import {
 export const EXA_SEARCH_URL = "https://api.exa.ai/search";
 export const EXA_CONTENTS_URL = "https://api.exa.ai/contents";
 export const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
+const EXA_ADVANCED_SEARCH_TOOL = "web_search_advanced_exa";
+export const EXA_ADVANCED_MCP_URL = `${EXA_MCP_URL}?tools=${EXA_ADVANCED_SEARCH_TOOL},web_fetch_exa`;
 /** Sentences per REST result highlight, as the `/search` body requires. */
 const EXA_HIGHLIGHT_SENTENCES = 3;
 /** `web_fetch_exa` truncates each URL to this many characters. */
@@ -162,6 +166,7 @@ async function keyedSearch(
 	options: ExaSearchOptions,
 ): Promise<StreamResult> {
 	const headers = { "x-api-key": apiKey, "Content-Type": "application/json" };
+	const { includes, excludes } = domainPolicy(req.filters?.domains);
 	const fetched = fetchableUrls(req);
 	const warnings: string[] = [...fetched.warnings];
 
@@ -173,6 +178,9 @@ async function keyedSearch(
 			query: req.query,
 			numResults: req.settings.maxResults,
 			type: "auto",
+			...(includes.length ? { includeDomains: includes } : {}),
+			...(excludes.length ? { excludeDomains: excludes } : {}),
+			...(req.filters?.recency ? { startPublishedDate: recencyStart(req.filters.recency) } : {}),
 			contents: {
 				highlights: { numSentences: EXA_HIGHLIGHT_SENTENCES },
 				text: false,
@@ -199,15 +207,7 @@ async function keyedSearch(
 		throw searchOutcome.error;
 	}
 	const body = asObject(searchOutcome.value, EXA_SEARCH_URL);
-	const results: SearchResultDetail[] = toSearchResults(body.results).map(
-		(result) => ({
-			title: result.title,
-			url: result.url,
-			source: PROVIDER_NAME,
-			pageAge: result.publishedDate ?? null,
-			citedText: joinHighlights(result.highlights),
-		}),
-	);
+	const results = toSearchResults(body.results).map(searchDetail);
 
 	if (fetchPromise) {
 		const fetchOutcome = await fetchPromise;
@@ -276,23 +276,33 @@ async function keylessSearch(
 	options: ExaSearchOptions,
 ): Promise<StreamResult> {
 	const fetched = fetchableUrls(req);
-	const warnings: string[] = [...fetched.warnings];
+	const warnings = [...fetched.warnings];
+	const { includes, excludes } = domainPolicy(req.filters?.domains);
+	const recency = req.filters?.recency;
+	const advanced = !req.fetchOnly && (includes.length > 0 || excludes.length > 0 || recency !== undefined);
+	let requestId = EXA_MCP_REQUEST_ID;
 
 	// One session for the whole operation: search and the caller's URL fetches
 	// share the handshake and run concurrently (RPC ids keep the replies apart).
 	const results = await withMcpSession(
 		{
-			url: EXA_MCP_URL,
+			url: advanced ? EXA_ADVANCED_MCP_URL : EXA_MCP_URL,
 			fetchImpl: options.fetchImpl,
 			timeoutMs: req.settings.timeoutMs,
 			signal: req.signal,
 		},
 		async (client) => {
-			const searchPromise = req.fetchOnly ? Promise.resolve("") : client.callTool("web_search_exa", {
-				query: req.query,
-				numResults: req.settings.maxResults,
-				objective: exaObjective(req.query),
-			});
+			const searchArgs = { query: req.query, numResults: req.settings.maxResults };
+			const searchPromise = req.fetchOnly ? Promise.resolve("") : advanced
+				? client.callTool(EXA_ADVANCED_SEARCH_TOOL, {
+					...searchArgs,
+					...(includes.length ? { includeDomains: includes } : {}),
+					...(excludes.length ? { excludeDomains: excludes } : {}),
+					...(recency ? { startPublishedDate: recencyStart(recency) } : {}),
+					enableHighlights: true,
+					highlightsMaxCharacters: PREVIEW_PASSAGE_CHARS,
+				})
+				: client.callTool("web_search_exa", { ...searchArgs, objective: exaObjective(req.query) });
 			const fetchPromise = fetched.urls.length > 0
 				? settle(client.callTool("web_fetch_exa", {
 					urls: fetched.urls,
@@ -305,13 +315,17 @@ async function keylessSearch(
 				await fetchPromise;
 				throw searchOutcome.error;
 			}
-			const parsed = parseExaSearchText(searchOutcome.value);
+			const parsed: ReturnType<typeof parseAdvancedSearch> = advanced ? parseAdvancedSearch(searchOutcome.value) : {
+				results: parseExaSearchText(searchOutcome.value),
+			};
+			const searchResults = parsed?.results ?? [];
+			requestId = parsed?.requestId ?? EXA_MCP_REQUEST_ID;
 			// A keyless quota refusal arrives as ordinary tool text, not an
 			// error, so it would otherwise be returned as a fake search result
 			// and the family would never fall back to parallel. Only trust it
 			// when there is nothing to show: a real result page routinely
 			// contains the words "rate limit" or "429".
-			const hasSearchContent = parsed.length > 0;
+			const hasSearchContent = searchResults.length > 0;
 			if (isRateLimitRefusal(searchOutcome.value, hasSearchContent)) {
 				await fetchPromise;
 				throw providerError(
@@ -319,13 +333,15 @@ async function keylessSearch(
 					"Exa's keyless MCP endpoint refused this request (rate limit). Set EXA_API_KEY for a keyed quota; otherwise the next provider in the chain answers.",
 				);
 			}
-			// The model still needs the content the server did return.
-			const base = parsed.length > 0
-				? parsed
-				: searchOutcome.value.trim().length > 0
-					? [{ source: PROVIDER_NAME, citedText: searchOutcome.value, type: "unparsed" }]
-					: [];
-			if (parsed.length === 0 && !req.fetchOnly) {
+			if (advanced && !parsed) {
+				await fetchPromise;
+				throw providerError("parse_error", "Exa advanced search returned no structured results.", { retryable: true });
+			}
+			// Preserve ordinary search text if the hosted response format changes.
+			const base = hasSearchContent ? searchResults : !advanced && searchOutcome.value.trim().length > 0
+				? [{ source: PROVIDER_NAME, citedText: searchOutcome.value, type: "unparsed" }]
+				: [];
+			if (!advanced && !hasSearchContent && !req.fetchOnly) {
 				warnings.push(base.length > 0 ? "Exa search returned unparsed content." : "Exa search returned no content.");
 			}
 			if (!fetchPromise) {
@@ -365,7 +381,7 @@ async function keylessSearch(
 		providerKind: "exa",
 		sources: sourcesFromResults(results),
 		searchResults: results,
-		requestId: EXA_MCP_REQUEST_ID,
+		requestId,
 		...(warnings.length > 0 ? { warnings } : {}),
 	};
 }
@@ -489,13 +505,39 @@ function pushGroup(
 	if (!group?.url) {
 		return;
 	}
+	const citedText = group.highlights.join("\n").trim();
 	results.push({
 		title: group.title,
 		url: group.url,
 		source: PROVIDER_NAME,
 		pageAge: group.published,
-		citedText: group.highlights.join("\n").trim(),
+		citedText,
+		...(citedText.length > PREVIEW_PASSAGE_CHARS && group.highlights[0] ? { highlight: group.highlights[0] } : {}),
 	});
+}
+
+function parseAdvancedSearch(text: string): { results: SearchResultDetail[]; requestId?: string } | undefined {
+	try {
+		const body = asObject(JSON.parse(text), EXA_ADVANCED_MCP_URL);
+		if (!Array.isArray(body.results)) return;
+		const results = toSearchResults(body.results).filter((result) => typeof result.url === "string" && result.url.length > 0);
+		if (body.results.length > 0 && results.length === 0) return;
+		return { results: results.map(searchDetail), requestId: typeof body.requestId === "string" ? body.requestId : undefined };
+	} catch {
+		return;
+	}
+}
+
+function searchDetail(result: ExaRestResult): SearchResultDetail {
+	const citedText = joinHighlights(result.highlights);
+	return {
+		title: result.title,
+		url: result.url,
+		source: PROVIDER_NAME,
+		pageAge: result.publishedDate ?? null,
+		citedText,
+		...(citedText.length > PREVIEW_PASSAGE_CHARS && result.highlights?.[0] ? { highlight: result.highlights[0] } : {}),
+	};
 }
 
 function toSearchResults(value: unknown): ExaRestResult[] {

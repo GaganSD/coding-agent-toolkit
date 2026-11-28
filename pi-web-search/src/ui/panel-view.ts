@@ -118,16 +118,17 @@ export function renderPanel(panel: WebSearchPanel, th: Theme, width: number, row
 		return [field("Key", acct.source === "gh" ? "gh auth" : "No key")];
 	};
 	const ranking = () => [
+		...(settings.offTopicFallback ? [status("dim", "Fast off-topic fallback requires vercel-ai-gateway/typesafe-ai/jev.")] : []),
 		...(panel.login ? [status("warning", `▲ Run /login ${panel.login} to use this`)] : []),
 		...(panel.pin && !panel.login ? panel.classifierAvailable === undefined ? [status("dim", "○ Classifier untested")]
 			: panel.classifierAvailable === false ? [status("warning", "▲ Pinned classifier unavailable")]
-				: settings.researchEnabled ? [gutter + status("success", ready)] : [] : []),
+				: settings.researchEnabled || settings.offTopicFallback ? [gutter + status("success", ready)] : [] : []),
 	];
 	const notes = (columns: number) => {
 		if (isAccount(row)) return accountLines(columns);
 		if (row === "classifier") return panel.classifierLoading ? [rowLine(status("dim", "◌ Checking…"), true, right, columns)] : ranking();
 		const provider = active?.provider;
-		return provider ? [gutter + (providerReady(provider) ? status("success", ready) : status("warning", skipped))] : [];
+		return provider ? [gutter + (providerReady(provider, settings) ? status("success", ready) : status("warning", skipped))] : [];
 	};
 	const detailContent = (columns: number, slots: number) => {
 		const statusLines = notes(columns);

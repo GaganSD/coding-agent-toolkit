@@ -145,6 +145,9 @@ jobs:
         continue-on-error: true
       - name: Build and smoke-test npm artifact
         run: npm run build --prefix "${{ matrix.package }}"
+      - if: matrix.package == 'pi-web-search'
+        name: Verify configured Pi startup and standalone MCP
+        run: npm run pack:check --prefix pi-web-search
       - if: matrix.package == 'pi-slate'
         name: Real interactive compatibility with latest Pi and packed Slate
         run: npm run test:compat:latest --prefix pi-slate

@@ -1,11 +1,12 @@
 # pi-web-search
 
-**Unified web and public-code search for Pi: one `search` tool for queries, URL extraction, and local evidence continuation.**
+**One search tool for the public web, code, library documentation, URLs, and stored evidence. Works in Pi and over stdio MCP.**
 
-- **Keyless by default:** Exa, Parallel, Jina Reader (URL-only extraction), grep.app, and Sourcegraph. Optional Jev filtering reuses your Pi login/key.
-- **One flat schema:** exactly one of `query`, `urls`, or `ref`, plus optional `scope`, `effort`, `find`, and `cursor`. No provider-selection arguments.
-- **Two efforts:** `fast` (default) uses one configured provider plus fallback; `thorough` fans out across eligible sources and is gated by `research.enabled`.
-- Optional Pi-native Jev ranking, filtering, and safety classification. Off by default.
+## Why this one
+
+- The single `search` tool and its Pi prompt use an estimated 366 tokens. The four tools in the pinned pi-web-access comparison use 1,267 under the same Pi SDK character estimator. [Declaration comparison](https://github.com/GaganSD/coding-agent-toolkit/blob/main/pi-web-search/benchmarks/results/compare.md)
+- Read pages and PDFs directly. Use evidence refs to continue reading in memory without another provider request.
+- Choose where queries go. The default routes work without an API key. You can also configure a SearXNG instance or opt into Brave and Context7.
 
 ## Installation
 
@@ -23,6 +24,39 @@ Requires Pi **0.99.0 or newer**.
 | `/web-search status` | Providers, credential presence (never keys), and the classifier pin. |
 | `/web-search provider [name]` | Add or modify a retrieval key. The picker is color-coded: keyless, optional, or required; present or missing. |
 | `/web-search classifier [none\|provider/model]` | Pin a classifier for judgment, pick from the list, or disable with `none`. |
+
+## Use from other agents (MCP)
+
+The standalone server requires Node **22.19 or newer**. It exposes the same `search` arguments and returns text plus structured evidence to MCP clients that support structured results.
+
+**Claude Code**
+
+```bash
+claude mcp add --transport stdio pi-web-search -- npx -y @gagansd/pi-web-search
+```
+
+**Codex** in `config.toml`
+
+```toml
+[mcp_servers.pi-web-search]
+command = "npx"
+args = ["-y", "@gagansd/pi-web-search"]
+```
+
+**Cursor** in `mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "pi-web-search": {
+      "command": "npx",
+      "args": ["-y", "@gagansd/pi-web-search"]
+    }
+  }
+}
+```
+
+The server reads `PI_WEB_SEARCH_CONFIG` first, then `PI_CODING_AGENT_DIR/web-search.json`, then `~/.pi/agent/web-search.json`. It checks environment variables, literal keys in `auth.json` beside that config, and the GitHub CLI login for GitHub. Thorough searches and fast web searches with off-topic fallback enabled still retrieve evidence and warn that classifier judgment requires Pi. Parallel uses its direct client. Evidence refs expire with their server process.
 
 ## Classifier API
 
@@ -78,14 +112,16 @@ Use `search` for public documentation, current information, literal public-code 
 
 | Input | Use |
 | --- | --- |
-| `query` | Search terms or a question. With `scope: "code"`, use a literal identifier or snippet. |
+| `query` | A string or an array of up to three queries. With `scope: "code"`, use a literal identifier or a library qualifier. |
+| `recency` | Web query filter. Choose `day`, `week`, `month`, or `year`. A provider that cannot apply the filter returns a warning. |
+| `domains` | Up to 10 hostnames for web queries. Includes subdomains. Prefix a hostname with `-` to exclude it. |
 | `urls` | Extract one or more known HTTP(S) pages without a search request. |
 | `ref` | Read stored evidence locally. Accepts a handle (list) or `<resultId>:<oneBasedIndex>` (read). |
 | `scope` | `web` (default), `code`, or `both`. `both` defaults to `effort: "thorough"`. |
-| `effort` | `fast` (default; one provider plus fallback) or `thorough` (concurrent sources; requires `research.enabled`). |
+| `effort` | `fast` (default; one provider plus fallback) or `thorough` (concurrent sources, requires `research.enabled` in Pi). |
 | `find` / `cursor` | Refine a `ref` read with a literal passage search or continuation cursor. |
 
-Exactly one of `query`, `urls`, or `ref` is required. Conflicts, inappropriate fields, and unknown parameters fail with a short error instead of being silently ignored.
+Exactly one of `query`, `urls`, or `ref` is required. Web filters apply to the web portion of a query. Incompatible scope and filter combinations return `scope_conflict` before retrieval. Each query in an array gets a labeled group with its own count, including zero results or a retrieval failure.
 
 Examples:
 
@@ -109,7 +145,7 @@ Use `repo:<owner/name>` and `language:<name>` for the common code-filter subset;
 
 ### Read more without another network request
 
-Searches return bounded previews plus a session-local `resultId` when evidence can be stored. Pass that handle as `ref` to list or read evidence through the same tool:
+Searches return bounded previews and a session-local `resultId` when evidence can be stored. The bare ID lists saved results. Each hit has a full ref such as `<resultId>:1` that reads its stored passage.
 
 ```js
 const index = await tools.search({ ref: "<returned handle>" });
@@ -139,19 +175,35 @@ A missing file uses these defaults:
   "web": { "provider": "exa", "fallback": ["parallel"] },
   "code": { "provider": "grep", "fallback": ["sourcegraph", "github"] },
   "research": { "enabled": false },
+  "fetch": { "jinaFallback": true },
+  "brave": { "mode": "context" },
   "timeoutMs": 20000,
   "maxResults": 8
 }
 ```
 
-All fields are optional. Merge changes into the existing file. Network operations read config each time; ref reads stay local even when config is malformed. Reload after native MCP registration or credential changes.
+All fields are optional. Merge changes into the existing file. Network operations read config each time; ref reads stay local even when config is malformed.
 
-- `web` accepts `exa`, `parallel`, and `brave`. Jina is extraction-only, not a search-chain provider. `code` accepts `grep`, `sourcegraph`, and `github`.
-- `maxResults` truncates to an integer, then clamps to **1–20**. It limits both provider requests and the **global returned preview count**, including URL excerpts. Requested URL extracts are prioritized; additional admitted evidence is available through `search({ref})`. Providers may return fewer results or ignore the requested limit.
+- `web` accepts `exa`, `parallel`, `brave`, and `searxng`. `code` accepts `grep`, `sourcegraph`, `github`, and `context7`.
+- `searxng.url` is the HTTP(S) origin of your SearXNG instance. `brave.mode` selects `context` or `web`. `fetch.jinaFallback` controls fallback from direct URL reading to Jina Reader.
+- `maxResults` truncates to an integer, then clamps to **1–20**. It limits provider requests and the returned preview count per query or URL call. Requested URL extracts are prioritized; additional admitted evidence is available through `search({ref})`. Providers may return fewer results or ignore the requested limit.
 - `timeoutMs` truncates to integer milliseconds. Positive values have a **1,000 ms minimum**. Nonpositive values use **20,000 ms**. These numeric adjustments emit no warnings.
 - Invalid JSON, unknown fields/providers, and malformed blocks produce `invalid_config`. Wrong-family providers trigger warnings and defaults or removal. Some invalid classifier values trigger defaults with warnings. Only literal `true` enables `classifier.enabled`.
 
 See the [configuration resolver](src/providers/config.ts) for validation details.
+
+### Optional off-topic fallback
+
+To let fast web search try the next configured provider when the current response is off-topic, merge these settings into `web-search.json`:
+
+```json
+{
+  "web": { "fallbackOnOffTopic": true },
+  "classifier": { "provider": "vercel-ai-gateway", "model": "typesafe-ai/jev" }
+}
+```
+
+The feature is off by default and requires the calibrated `vercel-ai-gateway/typesafe-ai/jev` classifier through Pi authentication. A check sends the query and up to ten result titles, URLs, and excerpts to this billed classifier. A classifier failure or timeout keeps the current response with a warning. If fallback yields no usable response, the first off-topic response is returned with warnings. Code searches, URL reads, and ref reads make no off-topic classifier calls. Selecting **None** under `/web-search classifier` or switching to a different classifier disables fast off-topic fallback. [Calibration results](https://github.com/GaganSD/coding-agent-toolkit/blob/main/pi-web-search/benchmarks/results/offtopic.md)
 
 ### Optional thorough search and Jev
 
@@ -159,13 +211,13 @@ See the [configuration resolver](src/providers/config.ts) for validation details
 2. Merge `{"research":{"enabled":true}}` into that file.
 3. Run `/reload`.
 
-`effort: "thorough"` sends the same query concurrently to the eligible sources in `scope`. Fan-out is bounded: at most **two actual transports per family** in configured order, and at most four for `both`; missing transports do not consume a slot. `fallback: []` does not exclude sources. It does not check agreement or initiate further searches. `scope: "both"` defaults to thorough; explicit `effort: "fast"` with `both` is rejected, and `research.enabled` must be true. Fast calls never fan out deliberately.
+`effort: "thorough"` sends the same query concurrently to the eligible sources in `scope`. Fan-out is bounded: at most **two actual transports per family** in configured order, and at most four for one query with `both`. A batch runs at most six transports at a time. `fallback: []` keeps a SearXNG-only web route on its configured origin. Other thorough routes may still use eligible defaults. It does not check agreement or initiate further searches. `scope: "both"` defaults to thorough; explicit `effort: "fast"` with `both` is rejected, and `research.enabled` must be true. Fast calls never fan out deliberately.
 
 Jev requires a separate opt-in. Anonymous retrieval needs no classifier credentials. See [classifier setup](docs/research.md#enable-external-judgment), [tuning](docs/research.md#all-classifier-settings), and [failure behavior](docs/research.md#outcomes-and-limits).
 
 ## Credentials
 
-Exa MCP, Parallel native MCP, grep.app, and Sourcegraph need no search key. Jina Reader handles URL-only extraction anonymously; Brave search requires its own key. Anonymous Parallel has lower server-controlled rate limits. A Parallel key is optional.
+Exa MCP, Parallel MCP, grep.app, and Sourcegraph need no search key. Jina Reader is a keyless fallback for URL extraction. Brave requires its own key. Anonymous Parallel has lower server-controlled rate limits. A Parallel key is optional.
 
 Search credentials use the first nonblank environment alias before `<agent-dir>/auth.json`. GitHub then tries an existing `gh auth login` token.
 
@@ -174,11 +226,11 @@ Search credentials use the first nonblank environment alias before `<agent-dir>/
 | `exa` | `EXA_API_KEY` | Selects REST instead of keyless MCP. |
 | `parallel` | `PARALLEL_API_KEY` | Adds a Bearer header for higher limits. |
 | `github` | `GITHUB_TOKEN`, `GH_TOKEN` | Requires a token. Returns only verified public results. |
-| `brave` | `BRAVE_API_KEY`, `BRAVE_SEARCH_API_KEY` | Optional REST search provider; requires a key. |
+| `brave` | `BRAVE_API_KEY`, `BRAVE_SEARCH_API_KEY` | Requires a Brave Search key. |
+| `context7` | `CONTEXT7_API_KEY` | Optional key for higher Context7 limits. |
 
 - Set environment variables **before starting Pi**. Exports in another shell cannot change a running Pi process. Restart Pi with the changed environment.
-- The extension reads Exa/GitHub stored keys each operation.
-- Parallel captures its Bearer header at MCP registration. Run `/reload` after changing its key.
+- The extension resolves stored retrieval keys on each operation.
 
 Merge this entry into existing `auth.json` without replacing other credentials:
 
@@ -210,26 +262,39 @@ Run `/web-search provider brave` to store a key privately, then merge this into 
 { "web": { "provider": "brave", "fallback": ["exa", "parallel"] } }
 ```
 
-Brave uses one REST request and returns ranked snippets, not generated answers or extra snippets. Its queries are limited to 400 characters and 50 words; longer queries fail explicitly rather than being silently shortened. Without a key, Brave is skipped. Thorough `search` considers it when credentials are present, subject to configured provider order and the two-transports-per-family limit. Supplied URLs are extracted by keyless Jina and are never combined with a query.
+Brave defaults to LLM Context and returns passages from cited pages. Set `"brave": {"mode":"web"}` to use the standard Web Search endpoint and its shorter snippets. Each mode validates its query length before sending it.
 
-URL-only `search({ urls })` uses Jina Reader regardless of the search-provider selection, with existing web extraction as a retryable fallback. Jina is not a search engine, requires no setup, and receives only requested URLs, not the search query. Images and link destinations are omitted from Jina Markdown to reduce output noise. New providers share the existing preview and local-continuation budgets; no new LLM instructions or tools are added.
+### Self-hosted SearXNG
+
+```json
+{ "web": { "provider": "searxng", "fallback": [] }, "searxng": { "url": "http://localhost:8080" } }
+```
+
+Enable `json` in your instance's `search.formats`. Web searches with this configuration contact only your SearXNG origin. The instance sends queries to the engines it is configured to use. Day, month, and year recency depend on downstream engine support. The tool warns on week recency.
+
+### Context7 documentation
+
+Select `context7` in `code.provider` or `code.fallback` to search documentation using the full query. To select an exact library and version, use `search({ query: "middleware API library:/vercel/next.js@v15", scope: "code" })`. An explicit library qualifier routes the code portion of the query to Context7 even outside the configured chain. Remove the qualifier and keep Context7 out of the code chain to use other code providers.
 
 ## Provider behavior and limits
 
 - Default chains: **Exa → Parallel** and **grep.app → Sourcegraph → GitHub**.
-- Empty web results do not trigger fallback. Empty code results or retryable failures continue through the [provider chain](src/providers/index.ts).
-- Results contain links and excerpts, not guaranteed full pages. Exact duplicate evidence is collapsed, while distinct passages and code anchors remain. Search snippets are capped at 400 characters in both direct and structured output. Each output path has an 8,000-character global budget; oversized citations are omitted whole with a notice, never shortened. Stored passages can be read in bounded windows with refs and cursors. See [structured output](src/format.ts).
-- Direct HTTP retrieval has bounded 30-second session reuse and in-flight deduplication. Rate-limited providers enter a short cooldown. Parallel nested calls always execute through Pi so permission checks are never reused. See [efficiency and limits](docs/efficiency.md).
+- Keyless Exa uses native domain and publication-date filters on filtered calls. Anonymous Parallel uses site hints and applies domain filters locally. It warns when it cannot apply recency.
+- Empty results and retryable failures continue through the configured [provider chain](src/providers/index.ts). An empty provider is named in the warnings.
+- Results contain links and excerpts, not guaranteed full pages. Exact duplicate evidence is collapsed, while distinct passages and code anchors remain. Search snippets show up to 400 characters of query-relevant evidence in both outputs. The shared budget is 8,000 characters per output path, including batches. Oversized citations are omitted whole with a notice, never shortened. Stored passages can be read in bounded windows with refs and cursors. See [structured output](src/format.ts).
+- Direct HTTP retrieval has bounded 30-second session reuse and in-flight deduplication. Rate-limited providers enter a short cooldown. See [efficiency and limits](docs/efficiency.md).
 
 ## Timeouts, fallback, and errors
 
-Retrieval and judgment share a default **20-second** budget. Cleanup can take longer. Jev failures return unjudged evidence with warnings. Retrieval deadline expiry or caller cancellation fails the call.
+Retrieval and judgment share a default **20-second** budget. Cleanup can take longer. Jev failures return unjudged evidence with warnings. If the deadline expires during optional judgment or off-topic fallback, the tool keeps the evidence it already retrieved. Caller cancellation stops the search.
 
-Check warnings and `/web-search`. Use `/mcp` for Parallel connection issues.
+Check warnings and the provider settings under `/web-search`.
 
 ## Data handling
 
-**Do not send secrets or private code.** External providers receive queries and URLs. Optional Jev receives candidate titles, URLs, and provider excerpts before output clipping.
+Search providers receive the queries routed to them. A `library:` qualifier sends the code query to Context7 even when it is outside the configured chain. Remove the qualifier and keep Context7 out of the code chain to avoid sending it. Optional Jev receives the query and candidate titles, URLs, and excerpts. Fast off-topic fallback sends at most ten excerpts of up to 400 characters each, within the classifier state limit.
+
+URL reading sends requests from your machine to each public URL. The tool validates redirect targets and blocks private and local network addresses. The download and decompression limits are 25 MiB for PDFs and 5 MiB for other pages. Eligible failures can send the original URL to Jina Reader. Set `fetch.jinaFallback` to `false` to keep URL reading direct. GitHub requests may use GitHub credentials for public repository metadata and limits.
 
 Retrieved content is untrusted. Jev is not a prompt-injection firewall or truth guarantee.
 
@@ -246,11 +311,11 @@ Queries, URLs, errors, and excerpts can contain sensitive text.
 5. Run `npm run audit:prod`.
 6. Run `npm run pack:check`.
 7. Run `npm run bench:context` for offline context-footprint estimates.
-8. Run the [research harness](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-web-search/benchmarks) with owner-approved inputs to measure context cost, URL reading, and task completion.
+8. Run the [research harness](benchmarks/README.md) with owner-approved inputs to measure context cost, URL reading, and task completion.
 
 Optional retrieval check: `npm run smoke:live`. It sends public test queries without your credentials. Optional decision-model check: `npm run smoke:classifier` makes four live calls to the default Jev model using your Pi authentication (billing applies). It verifies ranking, injection suppression, insufficient evidence, and ordinary code. To test another exact pair, use `npm run smoke:classifier -- <provider> <model>`. See [release checks and limits](docs/release-validation.md).
 
-SDK users must load Pi's MCP extension for native Parallel calls and call `bindExtensions()`. Codemode is optional; direct `search` calls support continuation too. See the [SDK example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
+SDK users call `bindExtensions()` to register `search`. Both direct and codemode calls support continuation.
 
 ## License
 

@@ -58,7 +58,8 @@ export class EvidenceStore {
 			const citedText = sliceText(text, Math.min(PASSAGE_CHARS, remaining));
 			remaining -= citedText.length;
 			clipped ||= citedText.length < text.length;
-			const stored = { ...hit, citedText };
+			const { highlight: _highlight, previewText: _previewText, ...fields } = hit;
+			const stored = { ...fields, citedText };
 			for (const field of ["title", "query", "source", "pageAge", "status", "type"] as const) {
 				const value = stored[field];
 				if (typeof value === "string") {
@@ -69,7 +70,7 @@ export class EvidenceStore {
 			return stored;
 		});
 		clipped ||= searchResults.length < result.searchResults.length;
-		const stored = structuredClone({ ...result, text: "", searchResults, sources: [], warnings: [] });
+		const stored = structuredClone({ ...result, queryGroups: undefined, text: "", searchResults, sources: [], warnings: [] });
 		const bytes = Buffer.byteLength(JSON.stringify(stored));
 		if (bytes > MAX_BYTES) return undefined;
 		while (this.entries.size >= MAX_ENTRIES || this.bytes + bytes > MAX_BYTES) this.remove(this.entries.keys().next().value!);

@@ -45,7 +45,7 @@ async function make(row: PanelRow, opts: {
 test("panel uses host keybindings, skips section headers, and fits narrow and tiny terminals", () => isolated(async ({ make }) => {
 	let closed = 0;
 	const panel = await make("results", { keys: bindings({ "tui.select.down": "j", "tui.select.up": "k", "tui.select.cancel": "q" }), done: () => closed++ });
-	assert.match(screen(panel), /Settings 5\/10/);
+	assert.match(screen(panel), /Settings 5\/11/);
 	assert.match(screen(panel), /── Search.*\n.*› Results.*8/s);
 	await panel.handleInput(down);
 	assert.equal(panel.selected, "results");
@@ -85,7 +85,7 @@ test("two-pane navigation saves choices only on selection, including backup orde
 	const code = await make("code");
 	await press(code, enter, down, enter);
 	assert.equal(code.settings.code.provider, "sourcegraph");
-	await press(code, down, down, enter, " ");
+	await press(code, down, down, down, enter, " ");
 	assert.deepEqual(code.settings.code.fallback, ["github"]);
 	await press(code, esc, down, right, up, " ", esc, down, right, down);
 	assert.equal(code.settings.maxResults, 8);

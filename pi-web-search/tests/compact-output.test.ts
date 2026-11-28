@@ -41,7 +41,9 @@ test("hit refs are one-based, identical in rendered text and structured data", (
 	assert.equal(output.details.searchResults?.[0].ref, hitRef(resultId, 0));
 	assert.match(textOf(output), new RegExp(`1\\. \\[A\\]\\(https://a\\.example\\) ${resultId}:1`));
 	assert.match(textOf(output), new RegExp(`2\\. \\[B\\]\\(https://b\\.example\\) ${resultId}:2`));
-	assert.ok(textOf(output).includes(`Read: search({ref: "${resultId}"})`));
+	assert.ok(textOf(output).includes(`List ref ${resultId} · Read id:N`));
+	assert.doesNotMatch(textOf(output), /Preview:/);
+	assert.doesNotMatch(textOf(output), /stored results shown/);
 });
 
 test("budget omission keeps stored-order refs, not visible-array indexes", () => {
@@ -69,9 +71,10 @@ test("budget omission keeps stored-order refs, not visible-array indexes", () =>
 	assert.ok(rendered.length <= OUTPUT_BUDGET_CHARS);
 	assert.ok(JSON.stringify(data).length <= OUTPUT_BUDGET_CHARS);
 	assert.match(rendered, /omitted/);
+	assert.match(rendered, /2 of 5 stored results shown/);
 	assert.equal(data.more, undefined, "more/cursor are reserved for local pagination");
 	assert.equal(data.cursor, undefined, "search listings use refs, not passage cursors");
-	assert.match(rendered, /search\(\{ref: "/);
+	assert.ok(rendered.includes(`List ref ${resultId} · Read id:N`));
 });
 
 test("ordinary model text drops coverage boilerplate and keeps material clipping", () => {
@@ -82,14 +85,16 @@ test("ordinary model text drops coverage boilerplate and keeps material clipping
 		classifierStatus: "disabled",
 		providers: ["exa"],
 		searchResults: [{ title: "Doc", url: "https://example.com", citedText: "word ".repeat(200) }],
-		warnings: ["Result excerpts truncated for 1 hit(s): citedText is a preview."],
+		warnings: ["Provider reached its response size cap."],
 	});
 	const rendered = textOf(output);
 	assert.equal(rendered.includes("## Coverage"), false);
 	assert.equal(rendered.includes("classifier: disabled"), false);
 	assert.equal(rendered.includes("consulted:"), false);
 	assert.equal(rendered.includes("scope: web"), false);
-	assert.match(rendered, /excerpts truncated/);
+	assert.match(rendered, /Preview: 400 of 999 chars/);
+	assert.match(rendered, /Provider reached its response size cap/);
+	assert.doesNotMatch(rendered, /Result excerpts truncated/);
 	assert.match(rendered, new RegExp(CLIP_MARKER));
 });
 
@@ -222,10 +227,11 @@ test("mixed-family reservation survives final output packing with stable refs", 
 		{ title: "web", url, source: "exa", citedText: "w".repeat(400), ref: "stored:1" },
 		{ title: "code", url: "https://c.example/x", source: "grep", citedText: "c".repeat(400), ref: "stored:2" },
 	] });
-	const data = output.structuredContent as { searchResults: { ref: string; source: string; citedText: string }[] };
+	const data = output.structuredContent as { searchResults: { ref: string; source: string; citedText: string; preview?: { shownChars: number; totalChars: number } }[] };
 	assert.deepEqual(data.searchResults.map((hit) => hit.source), ["exa", "grep"]);
 	assert.deepEqual(data.searchResults.map((hit) => hit.ref), ["stored:1", "stored:2"]);
 	assert.ok(textOf(output).includes(url), "a fitting citation stays complete");
+	assert.deepEqual(data.searchResults.map((hit) => hit.preview), Array(2).fill({ shownChars: 80, totalChars: 400 }));
 	assert.ok(JSON.stringify(data).length <= OUTPUT_BUDGET_CHARS);
 	assert.ok(textOf(output).length <= OUTPUT_BUDGET_CHARS);
 });
@@ -242,16 +248,26 @@ test("standalone citations survive structured output alongside search hits", () 
 	assert.equal(Check(SearchOutputSchema, output.structuredContent), true);
 });
 
-test("clipping warnings describe model previews and point to local evidence", () => {
+test("clipped previews carry accurate per-hit lengths and the local read affordance", () => {
 	const output = formatWebSearchResult({
 		text: "", providerKind: "exa",
-		searchResults: [{ url: "https://example.com", citedText: "x".repeat(5000) }],
-	}, undefined, { resultId, storedCount: 1 });
-	const data = output.structuredContent as { warnings: string[] };
-	assert.match(data.warnings.join(" "), /400 characters/);
-	assert.doesNotMatch(data.warnings.join(" "), /4000|12000|full evidence/);
-	assert.match(data.warnings.join(" "), /search\(\{ref\}\)/);
-	assert.match(textOf(output), /400 characters/);
+		searchResults: [
+			{ url: "https://example.com/long", citedText: "x".repeat(5000) },
+			{ url: "https://example.com/chosen", citedText: "a".repeat(1993) + "term".repeat(36) + "end", previewText: "term".repeat(36) },
+			{ url: "https://example.com/short", citedText: "Complete preview." },
+		],
+	}, undefined, { resultId, storedCount: 3 });
+	const data = output.structuredContent as { warnings?: string[]; searchResults: { preview?: { shownChars: number; totalChars: number } }[] };
+	assert.equal(data.warnings, undefined);
+	assert.deepEqual(data.searchResults.map((hit) => hit.preview), [
+		{ shownChars: 400, totalChars: 5000 }, { shownChars: 144, totalChars: 2140 }, undefined,
+	]);
+	assert.match(textOf(output), /Preview: 400 of 5000 chars/);
+	assert.match(textOf(output), /Preview: 144 of 2140 chars/);
+	assert.equal(textOf(output).match(/Preview:/g)?.length, 2);
+	assert.ok(textOf(output).includes(`List ref ${resultId} · Read id:N`));
+	assert.equal(output.details.searchResults?.[0].preview, undefined);
+	assert.deepEqual(output.details.clippedExcerptRows, [0]);
 });
 
 test("URL citations stay complete when titles and prose consume the budget", () => {

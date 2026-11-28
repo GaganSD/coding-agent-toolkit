@@ -1,11 +1,12 @@
-import { VERSION, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, VERSION, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { handleWebSearchCommand, WEB_SEARCH_COMMAND, webSearchCompletions } from "./command.ts";
-import { enableStoredCredentials } from "./env.ts";
-import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
+import { enablePiAgentDirectory, enableStoredCredentials } from "./env.ts";
+import type { WebSearchDetails } from "./format.ts";
 import { maybeShowWelcome } from "./welcome.ts";
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
 import { clearRetrievalCache } from "./providers/reuse.ts";
-import { SearchSchema, search } from "./search.ts";
+import { type SearchSchema, search } from "./search.ts";
+import { searchGuidelines, searchTool } from "./tool.ts";
 import { renderCall, renderResult, type TranscriptState } from "./ui/transcript.ts";
 
 /** Fail closed on unsupported or malformed host versions. */
@@ -23,6 +24,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 	// Pi's auth.json is the one secret store. Enabling it here (not at import)
 	// keeps a bare import of the tools, and the test suite, off the operator's
 	// secrets; every read still goes to the current file.
+	enablePiAgentDirectory(getAgentDir);
 	enableStoredCredentials();
 
 	pi.on("session_start", async (event, ctx) => {
@@ -35,21 +37,11 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerTool<typeof SearchSchema, WebSearchDetails, TranscriptState>({
-		name: "search",
+		...searchTool,
 		label: "Search",
-		description:
-			"Search public web/code, fetch URLs, or read stored evidence refs.",
-		promptSnippet:
-			"Public web/code search, URL reading, and local evidence continuation.",
-		promptGuidelines: [
-			"Supply exactly one of `query`, `urls`, or `ref`; refs read stored evidence without network access.",
-			"Use `scope: \"code\"` for public identifiers/snippets (`repo:` and `language:` filters); use local `rg` for workspace files.",
-			"`effort: \"thorough\"` enables opt-in multi-source retrieval; `scope: \"both\"` implies thorough.",
-		],
-		parameters: SearchSchema,
-		outputSchema: SearchOutputSchema,
+		promptSnippet: "Public web/code search, URL reading, and local evidence continuation.",
+		promptGuidelines: searchGuidelines,
 		namespace: { name: "search", description: "Cited public web and code retrieval." },
-		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 		execute: (id, params, signal, onUpdate, ctx) => search(id, params, signal, onUpdate, ctx),
 		renderCall,
 		renderResult,

@@ -7,7 +7,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { evidenceStore } from "../src/evidence.ts";
 import { search } from "../src/search.ts";
 import { auditCitations, directText } from "./fixtures/offline/assertions.ts";
-import { evidenceFor, Replay, routes } from "./fixtures/offline/replay.ts";
+import { evidenceFor, Replay, routes, type Fixture } from "./fixtures/offline/replay.ts";
 import { reliability, safety } from "./fixtures/offline/suites.ts";
 
 test("offline provider fault matrix, credential redaction, and exact evidence continuation", async (t) => {
@@ -26,6 +26,41 @@ test("offline provider fault matrix, credential redaction, and exact evidence co
 		});
 		await t.test("redacts credentials, rejects bad URLs and suppresses flagged evidence", async () => {
 			await safety(replay, run, config, context);
+		});
+		await t.test("keyless Exa applies native filters and keeps the local domain boundary", async () => {
+			writeFileSync(config, "{}");
+			const query = "configure the documented fixture mode";
+			const [source, excluded, outside] = evidenceFor("exa-filter", 0, "fact", "exa-advanced");
+			const fixture: Fixture = { transport: "exa-advanced", query, evidence: [
+				{ ...source, url: "https://docs.example.org/manual" },
+				{ ...excluded, url: "https://discard.example.org/docs" },
+				{ ...outside, url: "https://outside.invalid/manual" },
+			], onRequest: (_url, init) => {
+				const { params: { arguments: args } } = JSON.parse(String(init?.body));
+				assert.ok(Number.isFinite(Date.parse(args.startPublishedDate)));
+				assert.deepEqual(args.includeDomains, ["example.org"]);
+				assert.deepEqual(args.excludeDomains, ["discard.example.org"]);
+			} };
+			replay.use([fixture]);
+			const result = await run({ query, domains: ["example.org", "-discard.example.org"], recency: "day" });
+			replay.assertClean();
+			assert.equal(result.isError, false, directText(result));
+			assert.equal(replay.attempts.filter(({ rpc }) => rpc === "tools/call").length, 1);
+			assert.deepEqual(result.details.searchResults?.map(({ url }) => url), [fixture.evidence[0].url]);
+			auditCitations(result, [fixture], query);
+		});
+		await t.test("Context7 searches unscoped queries and preserves exact library pins", async () => {
+			writeFileSync(config, JSON.stringify({ code: { provider: "context7", fallback: [] } }));
+			for (const [library, path] of [[undefined, "/api/v3/search"], ["/public-example/library@v3", "/api/v2/context"]] as const) {
+				const query = "configure the fixture library";
+				const fixture: Fixture = { transport: "context7", query, library, evidence: evidenceFor("context7", 0, "code", "context7") };
+				replay.use([fixture]);
+				const result = await run({ scope: "code", query: library ? `library:${library} ${query}` : query });
+				replay.assertClean();
+				assert.equal(result.isError, false, directText(result));
+				assert.deepEqual(replay.attempts.map((request) => request.path), [path]);
+				auditCitations(result, [fixture], query);
+			}
 		});
 		await t.test("citations and paginated refs resolve to exact source evidence without egress", async () => {
 			writeFileSync(config, JSON.stringify({ web: { provider: "exa", fallback: [] } }));

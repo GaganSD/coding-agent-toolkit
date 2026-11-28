@@ -77,6 +77,8 @@ test("a missing PARALLEL_API_KEY retains the keyless direct Parallel fallback", 
 			sourcegraph: true,
 			github: false,
 			brave: false,
+			searxng: false,
+			context7: true,
 		});
 		// Code sources are keyless/available but must never join a web chain.
 		assert.deepEqual(resolveProviderChain(settings), ["exa", "parallel"]);

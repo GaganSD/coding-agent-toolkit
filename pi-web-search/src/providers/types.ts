@@ -1,6 +1,6 @@
-export type ProviderKind = "exa" | "parallel" | "grep" | "sourcegraph" | "github" | "brave";
+export type ProviderKind = "exa" | "parallel" | "grep" | "sourcegraph" | "github" | "brave" | "searxng" | "context7";
 /** Jina extracts known pages; it never participates in search routing. */
-export type EvidenceProvider = ProviderKind | "jina";
+export type EvidenceProvider = ProviderKind | "jina" | "local" | "pdf";
 
 /**
  * Sources answer different questions. Exa/Parallel answer web questions;
@@ -17,6 +17,8 @@ export const PROVIDER_FAMILY: Record<ProviderKind, ProviderFamily> = {
 	sourcegraph: "code",
 	github: "code",
 	brave: "web",
+	searxng: "web",
+	context7: "code",
 };
 
 export const PROVIDER_KINDS: readonly ProviderKind[] = [
@@ -26,9 +28,11 @@ export const PROVIDER_KINDS: readonly ProviderKind[] = [
 	"sourcegraph",
 	"github",
 	"brave",
+	"searxng",
+	"context7",
 ];
 
-const SOURCE_FAMILIES = new Map<string, ProviderFamily>([...Object.entries(PROVIDER_FAMILY), ["jina", "web"]]);
+const SOURCE_FAMILIES = new Map<string, ProviderFamily>([...Object.entries(PROVIDER_FAMILY), ["jina", "web"], ["local", "web"], ["pdf", "web"]]);
 
 /** Provider provenance can contain comma-separated contributors after deduplication. */
 export function isCodeSource(source?: string): boolean {
@@ -63,13 +67,28 @@ export interface SearchResultDetail {
 	source?: string;
 	pageAge?: string | null;
 	citedText?: string;
+	/** Provider-supplied candidate and selected query excerpt, internal only. */
+	highlight?: string;
+	previewText?: string;
+	/** Zero-based query association for a batched tool call. */
+	queryGroup?: number;
 	status?: string;
 	type?: string;
 	/** Stable one-based hit handle, assigned in stored order before preview selection. */
 	ref?: string;
 }
 
+export interface QueryGroup {
+	query: string;
+	duplicates?: number;
+	failed?: boolean;
+	providers?: EvidenceProvider[];
+	text?: string;
+	sources?: Source[];
+}
+
 export interface StreamResult {
+	queryGroups?: QueryGroup[];
 	/** Markdown summary; "" when the provider only returns documents. */
 	text: string;
 	sources?: Source[];
@@ -101,6 +120,9 @@ export interface StreamResult {
 }
 
 const CODES = [
+	"invalid_input",
+	"scope_conflict",
+	"blocked_private_network",
 	"missing_credentials",
 	"invalid_config",
 	"http_error",

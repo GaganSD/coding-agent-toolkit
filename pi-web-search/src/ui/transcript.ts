@@ -12,6 +12,8 @@ import { providerName } from "./provider-names.ts";
 export interface TranscriptState { storedCount?: number }
 type RenderContext = { args: SearchInput; isError: boolean; state: TranscriptState; durationMs?: number };
 type Hit = NonNullable<WebSearchDetails["searchResults"]>[number];
+type QueryGroup = NonNullable<WebSearchDetails["queryGroups"]>[number];
+type Row = { hit: Hit; unparsed: boolean; clippedExcerpt?: boolean; label?: string; ref?: string };
 
 export const plainLine = (value: string) => stripTerminalSequences(value).replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, " ");
 const joined = (...parts: (string | undefined | false)[]) => parts.filter(Boolean).join(" · ");
@@ -23,7 +25,7 @@ function safeArgs(raw: unknown): SearchInput {
 	if (!raw || typeof raw !== "object") return {};
 	const { query, urls, ref, find, scope, effort } = raw as Partial<Record<keyof SearchInput, unknown>>;
 	return {
-		query: typeof query === "string" ? query : undefined,
+		query: typeof query === "string" || Array.isArray(query) && query.every((term) => typeof term === "string") ? query : undefined,
 		ref: typeof ref === "string" ? ref : undefined,
 		find: typeof find === "string" ? find : undefined,
 		urls: Array.isArray(urls) && urls.every((url) => typeof url === "string") ? urls : undefined,
@@ -40,13 +42,14 @@ export function renderCall(raw: unknown, theme: Theme, context: { state: Transcr
 		render(width: number) {
 			const args = safeArgs(raw);
 			const code = args.scope === "code";
-			const parsed = code && args.query !== undefined ? parseCodeQuery(args.query) : undefined;
+			const parsed = code && typeof args.query === "string" ? parseCodeQuery(args.query) : undefined;
 			const index = args.ref?.match(/:(\d+)$/)?.[1];
 			const total = context.state.storedCount;
 			const tag = args.ref !== undefined ? (index ? `result ${index}${total === undefined ? "" : ` of ${total}`}` : "saved results")
 				: args.urls ? countOf(args.urls.length, "URL")
 				: joined(code && "code", parsed?.repo, parsed?.languages.join(", "), (args.effort === "thorough" || args.scope === "both") && "multi-source");
-			const query = args.query === undefined ? "" : ` ${theme.fg("text", JSON.stringify(plainLine(parsed?.literal ?? args.query)))}`;
+			const query = Array.isArray(args.query) && args.query.length ? ` ${theme.fg("text", countOf(args.query.length, "query", "queries"))}`
+				: typeof args.query !== "string" ? "" : ` ${theme.fg("text", JSON.stringify(plainLine(parsed?.literal ?? args.query)))}`;
 			return [truncateToWidth(`${title}${query}${tag ? ` ${theme.fg("muted", plainLine(tag))}` : ""}`, width)];
 		},
 		invalidate() {},
@@ -61,6 +64,29 @@ function domain(raw?: string): string | undefined {
 function destinations(hits: Hit[], sources: WebSearchDetails["sources"]) {
 	const domains = [...new Set([...hits, ...(sources ?? [])].flatMap((hit) => domain(hit.url) ?? []))];
 	return domains.length ? `${domains.slice(0, 3).join(", ")}${domains.length > 3 ? ` +${domains.length - 3}` : ""}` : undefined;
+}
+
+function sourceProviders(source?: string): EvidenceProvider[] {
+	return source?.split(", ").filter((id): id is EvidenceProvider => Object.hasOwn(providerName, id)) ?? [];
+}
+
+function provenance(providers: EvidenceProvider[]): string | undefined {
+	const names = [...new Set(providers)].flatMap((id) => Object.hasOwn(providerName, id) ? [providerName[id]] : []);
+	return names.length ? `via ${names.join(" + ")}` : undefined;
+}
+
+function resultProviders(details: WebSearchDetails, hits: Hit[]): EvidenceProvider[] {
+	const passage = sourceProviders(details.passageSource);
+	if (passage.length) return passage;
+	return [...new Set([
+		...(details.contributors ?? details.providers ?? (details.provider ? [details.provider] : [])),
+		...hits.flatMap((hit) => sourceProviders(hit.source)),
+		...(details.queryGroups ?? []).flatMap((group) => group.providers ?? []),
+	])];
+}
+
+function safeRef(ref?: string): string | undefined {
+	return ref && /^[A-Za-z0-9_-]{1,64}(?::[1-9][0-9]{0,2})?$/u.test(ref) ? ref : undefined;
 }
 
 function codeLocation(hit: Hit) {
@@ -91,6 +117,7 @@ function unusual(details: WebSearchDetails, showWithheld = true) {
 		unreadableNotice(details),
 		details.incompleteSearch && "Search incomplete",
 		showWithheld && details.withheldMatches && "Non-public or unverifiable matches withheld",
+		details.storedClipped && "Saved evidence limited by local storage",
 		details.classifier?.suppressed ? `${details.classifier.suppressed} hidden as unsafe` : undefined];
 }
 
@@ -101,7 +128,11 @@ function expandedWarnings(details: WebSearchDetails): string[] {
 	const lines = new Set<string>();
 	for (const raw of details.warnings ?? []) {
 		let line = plainLine(raw).replace(/\s+/gu, " ").trim();
-		if (/^grep\.app found no matches in repo:.* That repository may not be indexed;/u.test(line)) {
+		const failedQuery = /^Query (\d+) failed\b/u.exec(line)?.[1];
+		if (failedQuery) {
+			if (details.queryGroups?.[Number(failedQuery) - 1]?.failed) continue;
+			line = `Query ${failedQuery} failed.`;
+		} else if (/^grep\.app found no matches in repo:.* That repository may not be indexed;/u.test(line)) {
 			line = "Repository may not be indexed; retry without repo: or use a shorter identifier.";
 		} else if (details.withheldMatches) {
 			// Free-form diagnostics have no per-hit provenance.
@@ -120,7 +151,8 @@ function expandedWarnings(details: WebSearchDetails): string[] {
 			line = "Provider request failed.";
 		} else {
 			if (details.classifier?.suppressed && /^classifier (?:suppressed|withheld) /u.test(line)) continue;
-			if (details.excerptsShortened && line.startsWith("Result excerpts truncated for ")) continue;
+			// Preview and budget notices can cover fields absent from the transcript.
+			if (/^Result (?:excerpts truncated for |metadata truncated to )/u.test(line)) continue;
 			if ((details.urlsRequested ?? 0) > (details.urlsRead ?? 0) && /^Jina URL \d+ failed \(/u.test(line)) continue;
 		}
 		if (line && !covered.has(line)) lines.add(line);
@@ -136,45 +168,71 @@ function unreadableNotice(details: WebSearchDetails) {
 const unparsedNotice = "Unparsed provider reply";
 const isUnparsed = (details: WebSearchDetails, hit: Hit, index: number) => hit.type === "unparsed" || details.unparsedRows?.includes(index) === true;
 
-function compact(details: WebSearchDetails, args: SearchInput): string {
-	const allHits = details.searchResults ?? [];
-	const hits = allHits.filter((hit, i) => !isUnparsed(details, hit, i));
-	const unparsed = details.unparsedReply || hits.length < allHits.length;
-	const where = destinations(hits, details.sources);
+function resultRows(details: WebSearchDetails): Row[] {
+	const hits = details.searchResults ?? [];
+	const citedUrls = new Set(hits.map((hit) => hit.url));
+	const sources = (details.sources ?? []).filter((source) => !citedUrls.has(source.url));
+	const clipped = new Set(details.clippedExcerptRows);
+	let visibleHits = 0;
+	return [...hits, ...sources].map((hit: Hit, index) => {
+		const unparsed = isUnparsed(details, hit, index);
+		const ref = safeRef(hit.ref);
+		const ordinal = unparsed ? undefined : String(++visibleHits);
+		return { hit, unparsed, ref, clippedExcerpt: clipped.has(index), label: ordinal && (ref?.split(":")[1] ?? ordinal) };
+	});
+}
+
+function groupCount(group: QueryGroup, rows: Row[]): number {
+	return group.resultCount ?? rows.filter((row) => !row.unparsed).length + (group.sources?.length ?? 0);
+}
+
+function compact(details: WebSearchDetails, args: SearchInput, rows: Row[], providers: EvidenceProvider[], hasContinuation: boolean): string {
+	const hits = rows.filter((row) => !row.unparsed).map(({ hit }) => hit);
+	const unparsed = details.unparsedReply || hits.length < rows.length;
+	const where = destinations(hits, details.queryGroups?.flatMap((group) => group.sources ?? []));
+	const via = provenance(providers);
 	const time = details.cached ? undefined : duration(details.durationMs);
-	const count = hits.length || details.sources?.length || (unparsed ? 0 : details.resultCount ?? 0);
+	const count = hits.length || (unparsed ? 0 : details.resultCount ?? 0);
 	const notices = [...unusual(details), unparsed && unparsedNotice];
 	if (details.passage) {
 		const p = details.passage;
-		const length = allHits[0]?.citedText?.length ?? 0;
+		const length = details.searchResults?.[0]?.citedText?.length ?? 0;
 		const range = length ? `characters ${p.offset + 1}–${p.offset + length} of ${p.totalChars}` : `0 of ${p.totalChars} characters returned`;
-		return joined(where, range, unparsed && unparsedNotice,
+		return joined(where, range, hasContinuation && "more text", via, ...notices,
 			p.matches && args.find ? `matched ${JSON.stringify(plainLine(args.find))}` : undefined);
 	}
-	if (args.ref) return joined(countOf(details.storedCount ?? count, unparsed ? "saved item" : "saved result"), where, unparsed && unparsedNotice);
+	if (args.ref) return joined(countOf(details.storedCount ?? count, unparsed ? "saved item" : "saved result"), hasContinuation && "more results", via, where, ...notices);
 	if (details.urlsRequested !== undefined) {
 		const total = details.urlsRequested;
 		const read = Math.min(total, details.urlsRead ?? 0);
-		return joined(`Read ${read} of ${total} ${total === 1 ? "page" : "pages"}`, where, ...notices, time);
+		return joined(`Read ${read} of ${total} ${total === 1 ? "page" : "pages"}`, via, where, ...notices, time);
+	}
+	if (details.queryGroups?.length) {
+		const groups = details.queryGroups;
+		const total = groups.reduce((n, group, index) => n + groupCount(group, rows.filter(({ hit }) => hit.queryGroup === index)), 0);
+		const failed = groups.filter((group) => group.failed).length;
+		return joined(countOf(total, "result"), countOf(groups.length, "query", "queries"), via, failed > 0 && `${failed} failed`, ...notices, where, time);
 	}
 	if (!count) {
-		if (unparsed) return joined(...notices, time);
-		if (details.classifier?.suppressed) return joined("No visible results", ...unusual(details), time);
-		if (details.withheldMatches) return joined("No public matches shown", ...unusual(details, false), time);
-		if (details.unreadableProviders?.length || details.incompleteSearch) return joined(...unusual(details), time);
-		if (details.scope === "code") return joined("No matches", details.attempted?.map((kind) => providerName[kind]).join(", "), "not proof the code doesn't exist", ...unusual(details), time);
-		return joined("No results", ...unusual(details), time);
+		const searched = via ?? provenance(details.attempted ?? []);
+		if (unparsed) return joined(...notices, searched, time);
+		if (details.classifier?.suppressed) return joined("No visible results", searched, ...unusual(details), time);
+		if (details.withheldMatches) return joined("No public matches shown", searched, ...unusual(details, false), time);
+		if (details.unreadableProviders?.length || details.incompleteSearch) return joined(...unusual(details), searched, time);
+		if (details.scope === "code" && !providers.includes("context7")) return joined("No matches", searched, ...notices, time);
+		return joined("No results", searched, ...notices, time);
 	}
-	if (details.scope === "code") {
+	if (details.scope === "code" && !providers.includes("context7")) {
 		const locations = hits.map((hit) => codeLocation(hit));
 		const files = new Set(hits.map((hit, i) => locations[i].file ? `${locations[i].repo}/${locations[i].file}` : hit.url?.split("#")[0]).filter(Boolean));
 		const repos = [...new Set(locations.flatMap(({ repo }) => repo ?? []))];
 		return joined(countOf(count, "match", "matches") + (files.size ? ` in ${countOf(files.size, "file")}` : ""),
-			repos.length === 1 ? repos[0] : parseCodeQuery(args.query ?? "").repo,
+			via,
+			repos.length === 1 ? repos[0] : typeof args.query === "string" ? parseCodeQuery(args.query).repo : undefined,
 			...notices, time);
 	}
-	const contributing = (details.contributors ?? details.providers)?.length ?? 0;
-	return joined(countOf(count, "result") + (contributing > 1 ? ` from ${contributing} sources` : ""), where, ...notices, time);
+	const unit = providers.length === 1 && providers[0] === "context7" ? "documentation result" : "result";
+	return joined(countOf(count, unit), via, ...notices, where, time);
 }
 
 function humanError(d: WebSearchDetails, args: SearchInput): string {
@@ -188,6 +246,15 @@ function humanError(d: WebSearchDetails, args: SearchInput): string {
 			? `${list} ${names.length === 1 ? "is" : names.length === 2 ? "are both" : "are"} rate limited.` : "A provider is rate limited."} Try again in a minute.`;
 	}
 	switch (error?.code) {
+		case "invalid_input":
+		case "scope_conflict":
+		case "blocked_private_network": {
+			const prefix = `search failed (${error.code}): `;
+			const diagnostic = error.message.startsWith(prefix) ? error.message.slice(prefix.length) : "";
+			return truncateToWidth(plainLine(diagnostic).replace(/\s+/gu, " ").trim(), 220) || (error.code === "blocked_private_network"
+				? "URL reading blocked a non-public network address."
+				: "Check the search arguments and scope.");
+		}
 		case "invalid_config": return d.thoroughOff || error.message.includes("thorough search is disabled")
 			? "Multi-source is off. /web-search to turn it on."
 			: `Search settings are broken${d.configIssue ? `: ${d.configIssue}` : ""}. /web-search to fix.`;
@@ -208,6 +275,42 @@ function humanError(d: WebSearchDetails, args: SearchInput): string {
 	return `Couldn't search${list ? ` with ${list}` : ""}. Try another provider in /web-search.`;
 }
 
+function renderRow({ hit, unparsed, clippedExcerpt, label, ref }: Row, width: number, theme: Theme, isSavedRead: boolean,
+	showProvider: boolean, fallbackSource?: string): string[] {
+	const indent = " ".repeat(Math.min(label ? label.length + 2 : 2, Math.max(0, width - 1)));
+	const source = hit.source ?? fallbackSource;
+	const providers = sourceProviders(source);
+	const code = !unparsed && isCodeSource(source);
+	const loc = code && providers.some((id) => id !== "context7" && isCodeSource(id)) ? codeLocation(hit) : undefined;
+	const title = theme.bold(plainLine(unparsed ? unparsedNotice : loc?.repo ?? hit.title ?? domain(hit.url) ?? `Result ${label ?? ""}`.trim()));
+	const path = loc?.file ? ` ${theme.fg("dim", plainLine(loc.file + (loc.line ? `:${loc.line}` : "")))}` : "";
+	const metadata = joined(!loc?.repo && domain(hit.url), showProvider && provenance(providers), ref && `ref ${ref}`);
+	const excerpt = hit.citedText ?? "";
+	const limit = isSavedRead ? REF_PASSAGE_CHARS : EXCERPT_MAX_CHARS;
+	const preview = excerpt.length > limit ? excerpt.slice(0, limit).replace(/[\uD800-\uDBFF]$/u, "") : excerpt;
+	const text = (excerpt.length > limit || clippedExcerpt) && !preview.endsWith("…") ? `${preview}…` : preview;
+	const gutter = code && width - indent.length > 2 ? `${theme.fg("dim", "│")} ` : "";
+	return [
+		...wrapTextWithAnsi(`${label ? theme.fg("muted", label) + "  " : ""}${title}${path}`, width),
+		...(metadata ? wrapTextWithAnsi(indent + theme.fg("dim", metadata), width) : []),
+		...(text ? (code || isSavedRead ? text.split(/\r?\n/u) : [text.replace(/\s+/gu, " ").trim()]).flatMap((line) =>
+			wrapTextWithAnsi(theme.fg("muted", plainLine(line)), Math.max(1, width - indent.length - (gutter ? 2 : 0)))
+				.map((wrapped) => indent + gutter + wrapped)) : []),
+	];
+}
+
+function continuation(details: WebSearchDetails, args: SearchInput): [label: string, command: string] | undefined {
+	const ref = safeRef(details.ref);
+	if (args.ref && ref && details.more && details.cursor && /^[A-Za-z0-9_-]{11}$/u.test(details.cursor)) {
+		return [details.passage ? "Continue reading" : "Continue listing", `search({ref: ${JSON.stringify(ref)}, cursor: ${JSON.stringify(details.cursor)}})`];
+	}
+	const resultId = safeRef(details.resultId);
+	if (!args.ref && resultId && !resultId.includes(":")) {
+		const label = details.storedCount === undefined ? "List saved results" : `List ${countOf(details.storedCount, "saved result")}`;
+		return [label, `search({ref: ${JSON.stringify(resultId)}})`];
+	}
+}
+
 export function renderResult(result: AgentToolResult<WebSearchDetails>, { expanded, isPartial }: { expanded: boolean; isPartial: boolean }, theme: Theme, context: RenderContext) {
 	const args = safeArgs(context.args);
 	const details = { durationMs: context.durationMs, ...result.details };
@@ -216,52 +319,51 @@ export function renderResult(result: AgentToolResult<WebSearchDetails>, { expand
 		return oneLine(theme.fg("dim", plainLine(progress ?? "")));
 	}
 	if (context.state && args.ref) context.state.storedCount = details.storedCount;
-	const summary = plainLine(compact(details, args));
-	if (context.isError || result.isError || details.error) {
-		const reason = details.error ? humanError(details, args) : "Search didn’t run. Check the tool arguments or Pi’s permissions.";
-		const text = theme.fg("error", `✕ ${plainLine(reason)}`);
-		return expanded ? { render: (width: number) => wrapTextWithAnsi(text, width).map((line) => truncateToWidth(line, width)), invalidate() {} } : oneLine(text);
-	}
-	if (!expanded) return oneLine(theme.fg("muted", summary));
-
-	const hits = details.searchResults ?? [];
-	const extra = (details.sources ?? []).filter((source) => !hits.some((hit) => hit.url === source.url));
-	const rows: Hit[] = [...hits, ...extra];
-	const passageProviders = details.passageSource?.split(", ").filter((tag): tag is EvidenceProvider => Object.hasOwn(providerName, tag));
-	const via = passageProviders?.length ? passageProviders : details.contributors ?? details.providers ?? (details.provider ? [details.provider] : []);
-	const unparsedOmitted = details.unparsedReply && !hits.some((hit, i) => isUnparsed(details, hit, i));
-	const warnings = expandedWarnings(details);
-	const footer = joined(unparsedOmitted && rows.length > 0 && unparsedNotice, via.length > 0 && `via ${via.map((kind) => providerName[kind]).join(" + ")}`, ...(rows.length ? unusual(details) : []),
-		rows.length > 0 && duration(details.durationMs), details.excerptsShortened ? `${countOf(details.excerptsShortened, "excerpt")} shortened` : undefined);
+	const error = context.isError || result.isError || details.error !== undefined;
+	const groups = details.queryGroups ?? [];
+	const rows = resultRows(details);
+	const providers = resultProviders(details, rows.filter((row) => !row.unparsed).map(({ hit }) => hit));
+	const action = continuation(details, args);
+	const summary = error
+		? joined(`✕ ${plainLine(details.error ? humanError(details, args) : "Search didn’t run. Check the tool arguments or Pi’s permissions.")}`,
+			groups.length > 0 && countOf(groups.length, "query", "queries"))
+		: plainLine(compact(details, args, rows, providers, action !== undefined));
+	const heading = theme.fg(error ? "error" : "muted", summary);
+	if (!expanded) return oneLine(heading);
+	const warnings = error ? [] : expandedWarnings(details);
 	return {
 		render(width: number) {
-			let visibleHits = 0;
-			const body = rows.flatMap((hit, i) => {
-				const unparsed = isUnparsed(details, hit, i);
-				const number = unparsed ? undefined : String(++visibleHits);
-				const label = number ? hit.ref?.match(/:(\d+)$/)?.[1] ?? number : "";
-				const indent = " ".repeat(Math.min(label.length + 2, Math.max(0, width - 1)));
-				const code = !unparsed && isCodeSource(hit.source ?? details.passageSource ?? (args.ref ? details.provider : undefined));
-				const loc = code ? codeLocation(hit) : undefined;
-				const safeBold = theme.bold(plainLine(unparsed ? unparsedNotice : loc?.repo ?? hit.title ?? domain(hit.url) ?? `Result ${label}`));
-				const path = loc?.file ? ` ${theme.fg("dim", plainLine(loc.file + (loc.line ? `:${loc.line}` : "")))}` : "";
-				const excerpt = hit.citedText ?? "";
-				const limit = args.ref ? REF_PASSAGE_CHARS : EXCERPT_MAX_CHARS;
-				const text = excerpt.length > limit ? excerpt.slice(0, limit).replace(/[\uD800-\uDBFF]$/u, "") + "…" : excerpt;
-				const host = domain(hit.url);
-				const gutter = code && width - indent.length > 2 ? `${theme.fg("dim", "│")} ` : "";
-				return [
-					...wrapTextWithAnsi(`${label ? theme.fg("muted", label) + "  " : ""}${safeBold}${path}`, width),
-					...(!code && host ? wrapTextWithAnsi(indent + theme.fg("dim", host), width) : []),
-					...(text ? (code || args.ref ? text.split(/\r?\n/u) : [text.replace(/\s+/gu, " ").trim()]).flatMap((line) =>
-						wrapTextWithAnsi(theme.fg("muted", plainLine(line)), Math.max(1, width - indent.length - (gutter ? 2 : 0)))
-							.map((wrapped) => indent + gutter + wrapped)) : []),
-					"",
-				];
-			});
-			if (!rows.length || details.passage) body.unshift(...wrapTextWithAnsi(theme.fg("muted", summary), width));
-			if (footer) body.push(...wrapTextWithAnsi(theme.fg("dim", footer), width));
-			else if (rows.length) body.pop();
+			const body = heading ? wrapTextWithAnsi(heading, width) : [];
+			const showRows = (entries: Row[], groupProviders: EvidenceProvider[], fallbackSource?: string) => {
+				for (const row of entries) {
+					if (body.length) body.push("");
+					body.push(...renderRow(row, width, theme, args.ref !== undefined, groupProviders.length > 1 || row.unparsed, fallbackSource));
+				}
+			};
+			for (const [index, group] of groups.entries()) {
+				const entries = rows.filter(({ hit }) => hit.queryGroup === index);
+				const sources = (group.sources ?? []).map((hit): Row => ({ hit, unparsed: false }));
+				const groupProviders = [...new Set([...(group.providers ?? []), ...entries.filter((row) => !row.unparsed).flatMap(({ hit }) => sourceProviders(hit.source))])];
+				const count = groupCount(group, entries);
+				const status = joined(group.failed && "Failed", countOf(count, "result"), provenance(groupProviders),
+					group.duplicates ? `${countOf(group.duplicates, "duplicate")} from earlier queries` : undefined);
+				if (body.length) body.push("");
+				body.push(...wrapTextWithAnsi(theme.bold(`Query ${index + 1} · ${JSON.stringify(plainLine(group.query))}`), width),
+					...wrapTextWithAnsi(theme.fg("muted", status), width));
+				const prose = !details.withheldMatches && group.text && plainLine(group.text).replace(/\s+/gu, " ").trim();
+				if (prose) body.push(...wrapTextWithAnsi(theme.fg("dim", prose), width));
+				showRows([...entries, ...sources], groupProviders, groupProviders.length === 1 ? groupProviders[0] : undefined);
+			}
+			if (!error) {
+				showRows(rows.filter(({ hit }) => hit.queryGroup === undefined || !groups[hit.queryGroup]), providers,
+					details.passageSource ?? (args.ref ? details.provider : providers.length === 1 ? providers[0] : undefined));
+			}
+			if (action && !error) {
+				const [label, command] = action;
+				if (body.length) body.push("");
+				const text = joined(label, command);
+				body.push(...wrapTextWithAnsi(theme.fg("dim", visibleWidth(text) <= width ? text : `${label}\n${command}`), width));
+			}
 			for (const warning of warnings.slice(0, 3)) {
 				body.push(theme.fg("dim", visibleWidth(warning) > width ? truncateToWidth(warning, width, "…") : warning));
 			}

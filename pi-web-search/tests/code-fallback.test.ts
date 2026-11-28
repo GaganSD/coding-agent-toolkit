@@ -41,7 +41,7 @@ test("empty code hits continue to the next source", async () => {
 	assert.ok(result.warnings?.includes("grep response could not be parsed."));
 });
 
-test("web empty results do not walk the fallback chain", async () => {
+test("web empty results continue through the fallback chain", async () => {
 	const attempted: string[] = [];
 	const result = await runSearch({ query: "q", settings: applyConfig("/tmp/c.json", {}) }, {
 		family: "web",
@@ -53,12 +53,13 @@ test("web empty results do not walk the fallback chain", async () => {
 			},
 			parallel: async () => {
 				attempted.push("parallel");
-				return { text: "should not run", providerKind: "parallel", searchResults: [{ url: "https://x" }] };
+				return { text: "fallback evidence", providerKind: "parallel", searchResults: [{ url: "https://x" }] };
 			},
 		},
 	});
-	assert.deepEqual(attempted, ["exa"]);
-	assert.equal(result.providerKind, "exa");
+	assert.deepEqual(attempted, ["exa", "parallel"]);
+	assert.equal(result.providerKind, "parallel");
+	assert.ok(result.warnings?.includes("exa returned no results."));
 });
 
 test("a retryable code failure continues, then keeps the last empty result", async () => {

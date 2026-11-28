@@ -1,5 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { formatResult, OUTPUT_BUDGET_CHARS, type WebSearchDetails } from "./format.ts";
+import { sliceText } from "./evidence.ts";
+import { formatResult, OUTPUT_BUDGET_CHARS, renderQueryGroupHeading, type WebSearchDetails } from "./format.ts";
 import { isProviderError } from "./providers/types.ts";
 
 export type SearchToolName = "search" | "web_search" | "code_search" | "multi_search" | "search_read";
@@ -22,20 +23,25 @@ export function droppedParamsWarning(
 }
 
 /** Keep machine-readable failures intact instead of discarding data on throw. */
-export function formatSearchError(tool: SearchToolName, error: unknown): AgentToolResult<WebSearchDetails> {
+export function formatSearchError(tool: SearchToolName, error: unknown, failedQueries?: string[]): AgentToolResult<WebSearchDetails> {
 	const provider = isProviderError(error) ? error : undefined;
 	const code = provider?.code ?? "unknown";
 	const fullMessage = `${tool} failed (${code}): ${error instanceof Error ? error.message : String(error)}`;
 	const path = typeof error === "object" && error !== null && "configPath" in error && typeof error.configPath === "string" ? error.configPath : undefined;
 	// Preserve optional paths whole, or omit them; never expose an unbounded field.
 	const configPath = path !== undefined && JSON.stringify(path).length <= 1000 ? path : undefined;
+	const queryGroups = failedQueries?.map((query) => ({
+		query: sliceText(query.replace(/[\s\p{Cc}]+/gu, " "), 160), failed: true, resultCount: 0, previewCount: 0,
+	}));
+	const groupsText = queryGroups?.map(({ query }, index) => `${renderQueryGroupHeading(query, index, 0, 0)}\n\nQuery failed.`);
 	for (let limit = 1000; ; limit = Math.floor(limit / 2)) {
 		let end = Math.min(limit, fullMessage.length);
 		if (end > 0 && /[\uD800-\uDBFF]/u.test(fullMessage[end - 1])) end--;
 		const truncated = end < fullMessage.length;
 		const message = fullMessage.slice(0, end) + (truncated ? "\n[Truncated]" : "");
-		const output = formatResult(message, {
+		const output = formatResult([message, ...(groupsText ?? [])].join("\n\n"), {
 			resultCount: 0, grounded: false, sources: [], searchResults: [],
+			...(queryGroups ? { queryGroups } : {}),
 			...(provider?.parallelHttpStatus === undefined ? {} : { parallelHttpStatus: provider.parallelHttpStatus }),
 			warnings: [
 				...(truncated ? ["Error message truncated; the error code and status are unchanged."] : []),

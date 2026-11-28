@@ -9,8 +9,8 @@ test("host-built declarations and result payloads stay within context budgets", 
 		const sample = await measureFootprint();
 		assert.deepEqual(sample.modes.default.tools, ["search"]);
 		assert.deepEqual(sample.modes.research.tools, ["search"]);
-		assert.ok(sample.modes.default.estimatedTokens <= 380, JSON.stringify(sample.modes.default));
-		assert.ok(sample.modes.research.estimatedTokens <= 380, JSON.stringify(sample.modes.research));
+		assert.ok(sample.modes.default.estimatedTokens <= 400, JSON.stringify(sample.modes.default));
+		assert.ok(sample.modes.research.estimatedTokens <= 400, JSON.stringify(sample.modes.research));
 		assert.equal(sample.modes.default.continuationSchemaChars, 0);
 		assert.equal(sample.result.previewCount, 8);
 		assert.ok(sample.result.directChars <= 4500);

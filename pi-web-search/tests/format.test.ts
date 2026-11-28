@@ -11,6 +11,7 @@ import {
 	WARNINGS_HEADING,
 	formatResult,
 	formatWebSearchResult,
+	type WebSearchDetails,
 } from "../src/format.ts";
 import type { StreamResult } from "../src/providers/types.ts";
 
@@ -54,7 +55,7 @@ test("sources section is a numbered markdown link list", () => {
 
 	assert.equal(
 		textOf(formatWebSearchResult(result)),
-		`${SOURCES_HEADING}\n\n1. [Exa](https://exa.ai)\n2. [Parallel](https://parallel.ai)`,
+		`${SOURCES_HEADING} — Exa\n\n1. [Exa](https://exa.ai)\n2. [Parallel](https://parallel.ai)`,
 	);
 });
 
@@ -75,7 +76,7 @@ test("results section lists each result with a blockquoted excerpt", () => {
 	assert.equal(
 		textOf(formatWebSearchResult(result)),
 		[
-			RESULTS_HEADING,
+			`${RESULTS_HEADING} — Parallel`,
 			"",
 			"1. [First](https://example.com/1)",
 			"> an excerpt with spaces",
@@ -113,7 +114,7 @@ test("an empty excerpt never produces a bare blockquote line", () => {
 
 	assert.equal(
 		textOf(formatWebSearchResult(result)),
-		`${RESULTS_HEADING}\n\n1. [Blank](https://example.com)`,
+		`${RESULTS_HEADING} — Exa\n\n1. [Blank](https://example.com)`,
 	);
 });
 
@@ -124,7 +125,7 @@ test("a result with no title or url still gets a numbered entry", () => {
 		searchResults: [{}],
 	};
 
-	assert.equal(textOf(formatWebSearchResult(result)), `${RESULTS_HEADING}\n\n1. Result 1`);
+	assert.equal(textOf(formatWebSearchResult(result)), `${RESULTS_HEADING} — Exa\n\n1. Result 1`);
 });
 
 test("empty text with zero results emits no orphan header", () => {
@@ -132,7 +133,7 @@ test("empty text with zero results emits no orphan header", () => {
 
 	const text = textOf(formatWebSearchResult(result));
 
-	assert.equal(text, "");
+	assert.equal(text, "0 results — Exa");
 	assert.equal(text.includes("##"), false);
 });
 
@@ -144,7 +145,7 @@ test("warnings section appears only when warnings are present", () => {
 	};
 	assert.equal(
 		textOf(formatWebSearchResult(withWarnings)),
-		`${WARNINGS_HEADING}\n\n- budget capped\n- two queries merged`,
+		`0 results — Parallel\n\n${WARNINGS_HEADING}\n\n- budget capped\n- two queries merged`,
 	);
 
 	const withoutWarnings: StreamResult = {
@@ -152,7 +153,7 @@ test("warnings section appears only when warnings are present", () => {
 		providerKind: "parallel",
 		warnings: [],
 	};
-	assert.equal(textOf(formatWebSearchResult(withoutWarnings)), "");
+	assert.equal(textOf(formatWebSearchResult(withoutWarnings)), "0 results — Parallel");
 });
 
 test("sections are ordered text, results, sources, warnings", () => {
@@ -235,6 +236,51 @@ test("grounded is false without sources and resultCount is zero without any resu
 
 	assert.equal(details.grounded, false);
 	assert.equal(details.resultCount, 0);
+});
+
+test("batch groups attribute providers and distinguish previewed, empty, and failed results", () => {
+	const result = formatWebSearchResult({
+		text: "", providerKind: "exa", providers: ["exa", "grep", "brave"],
+		queryGroups: [
+			{ query: "found", providers: ["exa", "grep"] },
+			{ query: "empty", providers: ["brave"] },
+			{ query: "failed", failed: true },
+		],
+		searchResults: [
+			{ url: "https://example.com/found", queryGroup: 0 },
+			{ url: "https://example.com/omitted", queryGroup: 0 },
+			{ citedText: "raw reply", queryGroup: 1, type: "unparsed" },
+		],
+		warnings: ["Query 3 failed: provider timed out."],
+	}, undefined, undefined, 1);
+	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
+	assert.match(textOf(result), /Query 1 — found\n\n1 of 2 results shown · Exa, grep\.app/);
+	assert.match(textOf(result), /Query 2 — empty\n\n0 results · Brave/);
+	assert.match(textOf(result), /Unparsed provider reply\n> raw reply/);
+	assert.match(textOf(result), /Query 3 — failed\n\n0 results\n\nQuery failed\./);
+	assert.match(textOf(result), /Query 3 failed: provider timed out/);
+	const data = result.structuredContent as WebSearchDetails;
+	assert.deepEqual(data.providers, ["exa", "grep", "brave"]);
+	assert.deepEqual(data.queryGroups, [
+		{ query: "found", providers: ["exa", "grep"], resultCount: 2, previewCount: 1 },
+		{ query: "empty", providers: ["brave"], resultCount: 0, previewCount: 0 },
+		{ query: "failed", failed: true, resultCount: 0, previewCount: 0 },
+	]);
+});
+
+test("source-only and empty batch groups remain structured without repeating the direct text", () => {
+	const sources = [{ title: "Citation", url: "https://example.com/source" }];
+	const result = formatWebSearchResult({
+		text: "", providerKind: "exa",
+		queryGroups: [{ query: "source", sources, providers: ["exa"] }, { query: "empty", providers: ["exa"] }],
+	});
+	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
+	assert.match(textOf(result), /Query 1 — source\n\n1 result · Exa/);
+	assert.equal("text" in (result.structuredContent as object), false);
+	assert.deepEqual((result.structuredContent as WebSearchDetails).queryGroups, [
+		{ query: "source", providers: ["exa"], resultCount: 1, previewCount: 1, sources },
+		{ query: "empty", providers: ["exa"], resultCount: 0, previewCount: 0 },
+	]);
 });
 
 test("formatResult marks truncated output", () => {

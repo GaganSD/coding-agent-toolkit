@@ -43,7 +43,7 @@ test("completions cover the new command surface", () => {
 	]);
 	assert.deepEqual(webSearchCompletions("pro").map((item) => item.value), ["provider"]);
 	assert.deepEqual(webSearchCompletions("provider ").map((item) => item.value), [
-		"exa", "parallel", "grep", "sourcegraph", "github", "brave",
+		"exa", "parallel", "grep", "sourcegraph", "github", "brave", "searxng", "context7",
 	]);
 	assert.deepEqual(webSearchCompletions("provider github ").map((item) => item.value), []);
 	assert.deepEqual(webSearchCompletions("classifier ").map((item) => item.value), ["none"]);
@@ -115,7 +115,7 @@ test("one custom panel opens Accounts first, then Search, and honors subcommand 
 			custom: async (factory) => {
 				const panel = factory(terminal, plainTheme, bindings(), () => {});
 				focused.push(panel.selected);
-				assert.match(panel.render(88).join("\n"), /Settings [0-9]+\/10/);
+				assert.match(panel.render(88).join("\n"), /Settings [0-9]+\/11/);
 				await panel.handleInput("\x1b");
 			},
 		} };
@@ -158,7 +158,8 @@ test("status and the default command have the concise print summary", async () =
 		assert.equal(messages[0].content, messages[1].content);
 		assert.equal(messages[0].content, [
 			"Web search", "Web     Exa", "Backup  Parallel", "Code    grep.app → Sourcegraph → GitHub",
-			"Multi-source  Off     Classifier  None", "", "Exa ○  Parallel ○  GitHub ○  Brave ○",
+			"Multi-source  Off     Classifier  None", "", "Exa ○  Parallel ○  GitHub ○  Brave ○  Context7 ○",
+			"Brave endpoint  LLM Context     SearXNG  Set searxng.url to use",
 			"Open /web-search in the terminal UI to change these.",
 		].join("\n"));
 	});

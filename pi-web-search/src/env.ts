@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { readOptionalText, resolveWriteTarget, withFileLock, writeAtomicText } from "./file-write.ts";
 import { basename, dirname, join } from "node:path";
-import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
 
 /** Retrieval credentials only. Pi owns all classifier authentication. */
-export type CredentialProviderId = "exa" | "parallel" | "github" | "brave";
+export type CredentialProviderId = "exa" | "parallel" | "github" | "brave" | "context7";
 
 /**
  * Environment aliases per credential, highest precedence first. Every nonblank
@@ -20,6 +21,7 @@ export const CREDENTIAL_ENV_ALIASES: Record<
 	parallel: ["PARALLEL_API_KEY"],
 	github: ["GITHUB_TOKEN", "GH_TOKEN"],
 	brave: ["BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"],
+	context7: ["CONTEXT7_API_KEY"],
 };
 
 export const CREDENTIAL_PROVIDER_IDS = Object.keys(
@@ -70,6 +72,19 @@ export interface CredentialResolverOptions {
 }
 
 let storedReader: CredentialReader | undefined;
+let resolvePiAgentDir: (() => string) | undefined;
+
+export function enablePiAgentDirectory(getAgentDir: () => string): void {
+	resolvePiAgentDir = getAgentDir;
+}
+
+export function agentDirectory(): string {
+	if (resolvePiAgentDir) return resolvePiAgentDir();
+	const directory = process.env.PI_CODING_AGENT_DIR;
+	if (!directory) return join(homedir(), ".pi", "agent");
+	if (directory === "~") return homedir();
+	return directory.startsWith("~/") ? join(homedir(), directory.slice(2)) : directory;
+}
 
 /**
  * Read stored credentials from Pi's auth.json. Called once by the extension
@@ -78,7 +93,7 @@ let storedReader: CredentialReader | undefined;
  * The reader reads the file on every call: no immortal secret cache.
  */
 export function enableStoredCredentials(authPath?: string): void {
-	storedReader = readerForPath(authPath ?? join(getAgentDir(), "auth.json"));
+	storedReader = readerForPath(authPath ?? join(agentDirectory(), "auth.json"));
 }
 
 /** Restores the default "no stored credentials" state. */
@@ -127,6 +142,10 @@ export function exaApiKey(
 
 export function braveApiKey(options?: CredentialResolverOptions): string | undefined {
 	return resolveCredential("brave", options)?.key;
+}
+
+export function context7ApiKey(options?: CredentialResolverOptions): string | undefined {
+	return resolveCredential("context7", options)?.key;
 }
 
 export function parallelApiKey(
@@ -181,7 +200,8 @@ export function readGhCliToken(
 function readerForPath(authPath: string): CredentialReader {
 	return (providerId) => {
 		try {
-			return readStoredCredential(providerId, authPath);
+			const entries = parseAuthObject(readFileSync(authPath, "utf8"));
+			return Object.hasOwn(entries, providerId) ? entries[providerId] : undefined;
 		} catch {
 			// auth.json is optional and may be malformed; a missing key is absent.
 			return undefined;
@@ -190,7 +210,7 @@ function readerForPath(authPath: string): CredentialReader {
 }
 
 export function defaultAuthPath(): string {
-	return join(getAgentDir(), "auth.json");
+	return join(agentDirectory(), "auth.json");
 }
 
 export class CredentialChangedError extends Error {

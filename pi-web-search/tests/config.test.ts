@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	applyConfig, clampMaxResults, configureJudgment, defaultWebSearchConfigPath, parseJudgmentArgs,
-	readWebSearchConfig, resolveSettings,
+	readWebSearchConfig, resolveSettings, saveSearchSetting,
 } from "../src/providers/config.ts";
 import { isProviderError } from "../src/providers/types.ts";
 
@@ -29,7 +29,48 @@ test("missing file yields independent web/code defaults and research stays off",
 	assert.equal(settings.configPath, path);
 	assert.equal(settings.researchEnabled, false);
 	assert.equal(settings.classifier.enabled, false);
+	assert.equal(settings.offTopicFallback, undefined);
 	for (const key of ["mode", "family", "provider", "fallback"]) assert.equal(key in settings, false);
+}));
+
+test("off-topic fallback needs an explicit calibrated classifier pin", async () => {
+	const pin = { provider: "vercel-ai-gateway", model: "typesafe-ai/jev" };
+	for (const classifier of [undefined, { enabled: true }, { provider: pin.provider }, { model: pin.model }, { ...pin, provider: "typesafe" }]) {
+		await withConfig({ web: { fallbackOnOffTopic: true }, classifier }, async (path) => {
+			const read = await readWebSearchConfig(path);
+			assert.equal(read.status, "invalid");
+			assert.match(read.error.message, /explicitly set "classifier.provider" to "vercel-ai-gateway"/);
+		});
+	}
+	await withConfig({ web: { fallbackOnOffTopic: true }, classifier: pin }, async (path) => {
+		const settings = await resolveSettings(path);
+		assert.ok(!("error" in settings));
+		assert.deepEqual(settings.offTopicFallback, { ...pin, threshold: 0.85 });
+		assert.equal(settings.classifier.enabled, false);
+	});
+	for (const chain of [{ web: { fallbackOnOffTopic: "true" } }, { code: { fallbackOnOffTopic: true } }]) {
+		await withConfig({ ...chain, classifier: pin }, async (path) => {
+			assert.equal((await readWebSearchConfig(path)).status, "invalid");
+		});
+	}
+	assert.equal(applyConfig("/unused", { web: { fallbackOnOffTopic: false }, classifier: pin }).offTopicFallback, undefined);
+});
+
+test("changing the primary web provider retains the off-topic fallback opt-in", () => withConfig({
+	web: { provider: "exa", fallback: ["parallel"], fallbackOnOffTopic: true },
+	classifier: { provider: "vercel-ai-gateway", model: "typesafe-ai/jev" },
+}, async (path) => {
+	const previous = process.env.PI_WEB_SEARCH_CONFIG;
+	process.env.PI_WEB_SEARCH_CONFIG = path;
+	try {
+		await saveSearchSetting({ kind: "promote", family: "web", provider: "parallel" });
+		const read = await readWebSearchConfig(path);
+		assert.equal(read.status, "ok");
+		assert.deepEqual(read.config.web, { provider: "parallel", fallback: ["exa"], fallbackOnOffTopic: true });
+	} finally {
+		if (previous === undefined) delete process.env.PI_WEB_SEARCH_CONFIG;
+		else process.env.PI_WEB_SEARCH_CONFIG = previous;
+	}
 }));
 
 test("scoped provider chains are read without cross-family migration", () => withConfig({
@@ -45,6 +86,33 @@ test("scoped provider chains are read without cross-family migration", () => wit
 	assert.equal(settings.timeoutMs, 5000);
 	assert.equal(settings.maxResults, 3);
 }));
+
+test("turning off judgment or pinning a different classifier disables off-topic fallback", async () => {
+	const pin = { provider: "vercel-ai-gateway", model: "typesafe-ai/jev" };
+	const replacement = { provider: "typesafe", id: "jev-latest" };
+	const web = { provider: "exa", fallback: ["parallel"], fallbackOnOffTopic: true };
+	for (const action of ["off", { provider: pin.provider, id: pin.model }, replacement] as const) {
+		await withConfig({ web, classifier: { ...pin, maxStateChars: 9000 } }, async (path) => {
+			const previous = process.env.PI_WEB_SEARCH_CONFIG;
+			process.env.PI_WEB_SEARCH_CONFIG = path;
+			try {
+				await configureJudgment(action);
+				const read = await readWebSearchConfig(path);
+				assert.equal(read.status, "ok");
+				const samePin = action !== "off" && action.provider === pin.provider;
+				assert.deepEqual(read.config.web, { ...web, fallbackOnOffTopic: samePin });
+				assert.deepEqual(read.config.classifier, {
+					provider: action === "off" ? pin.provider : action.provider,
+					model: action === "off" ? pin.model : action.id,
+					enabled: action !== "off", maxStateChars: 9000,
+				});
+			} finally {
+				if (previous === undefined) delete process.env.PI_WEB_SEARCH_CONFIG;
+				else process.env.PI_WEB_SEARCH_CONFIG = previous;
+			}
+		});
+	}
+});
 
 test("removed top-level configuration is rejected rather than migrated or ignored", async () => {
 	for (const config of [{ mode: "parallel" }, { family: "code" }, { provider: "github" }, { fallback: ["exa"] }, { provider: "openai", model: "old-model" }, { somethingElse: true }]) {

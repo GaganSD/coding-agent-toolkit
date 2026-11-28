@@ -12,6 +12,8 @@ import type { Candidate } from "./judge.ts";
 /** Optional judging should not hold up a completed search. */
 export const CLASSIFIER_TIMEOUT_MS = 8000;
 
+export class ClassifierDeadlineError extends Error {}
+
 export type JudgeQuestion = ClassifierQuestion;
 export type JudgeAnswer = ClassifierAnswer;
 
@@ -74,7 +76,7 @@ export async function classifyEvidence(
 	const registry = options.modelRegistry;
 	if (!registry) throw new Error("Pi modelRegistry is unavailable");
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(new Error("classifier deadline exceeded")),
+	const timeout = setTimeout(() => controller.abort(new ClassifierDeadlineError("classifier deadline exceeded")),
 		options.timeoutMs ?? CLASSIFIER_TIMEOUT_MS);
 	const parentAbort = () => controller.abort(options.signal?.reason);
 	options.signal?.addEventListener("abort", parentAbort, { once: true });

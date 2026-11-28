@@ -1,17 +1,22 @@
+import type { Usage } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { parseLibraryQuery } from "./library-query.ts";
+import { queryPreview } from "./previews.ts";
+import type { WebFilters } from "./providers/filters.ts";
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
-import { extractedDocuments, extractionUrlKey, previewEvidence, uniqueEvidence } from "./providers/results.ts";
-import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
+import { evidenceKey, extractedDocuments, extractionUrlKey, mergeStreamResults, previewEvidence, uniqueEvidence } from "./providers/results.ts";
+import { EXCERPT_MAX_CHARS, type WebSearchDetails, formatWebSearchResult } from "./format.ts";
 import { augmentResults, type AugmentedStreamResult } from "./classifier/augment.ts";
+import { assessOffTopic } from "./classifier/offtopic.ts";
 import { resolveSettings } from "./providers/config.ts";
 import { awaitWithSignal, withTimeout } from "./providers/http.ts";
 import { retrievalProgress } from "./ui/search-progress.ts";
-import { jinaFetch } from "./providers/jina.ts";
 import { reuseTransport } from "./providers/reuse.ts";
+import { readUrls } from "./read/index.ts";
 import {
 	NO_WEB_PROVIDER_MESSAGE,
 	type RunSearchOptions,
@@ -24,6 +29,7 @@ import {
 import {
 	type ProviderFamily,
 	type ProviderKind,
+	type QueryGroup,
 	type StreamResult,
 	isProviderError,
 	providerError,
@@ -33,7 +39,8 @@ import { type SearchToolName, droppedParamsWarning, formatSearchError } from "./
 export type SearchScope = ProviderFamily | "both";
 
 export interface ExecuteSearchParams {
-	query: string;
+	query: string | string[];
+	filters?: WebFilters;
 	fetchOnly?: boolean;
 	urls?: string[];
 	scope: SearchScope;
@@ -137,6 +144,7 @@ export async function executeSearch(
 	const retrieval = retrievalProgress((line) => progress.emit(line));
 	let configIssue: string | undefined;
 	let thoroughOff = false;
+	let failedQueries: string[] | undefined;
 	try {
 		if (signal?.aborted) throw abortedError(signal.reason);
 		const resolved = await resolveSettings();
@@ -144,7 +152,7 @@ export async function executeSearch(
 			configIssue = resolved.error.issue?.summary.slice(0, 240);
 			throw resolved.error;
 		}
-		if (params.requireResearch && !resolved.researchEnabled) {
+		if (params.requireResearch && !resolved.researchEnabled && !options.standalone) {
 			thoroughOff = true;
 			throw providerError(
 				"invalid_config",
@@ -152,8 +160,9 @@ export async function executeSearch(
 			);
 		}
 
-		const query = trimQuery(params.query);
-		if (query.length === 0 && !params.fetchOnly) {
+		const queries = Array.isArray(params.query) ? params.query : [params.query];
+		const batched = Array.isArray(params.query);
+		if (queries.some((query) => !trimQuery(query)) && !params.fetchOnly) {
 			throw providerError("unknown", "query must not be empty.");
 		}
 
@@ -167,13 +176,13 @@ export async function executeSearch(
 			throw abortedError(signal.reason);
 		}
 		if (params.fetchOnly && urls.urls.length === 0) {
-			throw providerError("unknown", "Supply a query or at least one valid HTTP(S) URL.");
+			throw providerError("invalid_input", "Supply a query or at least one valid HTTP(S) URL.");
 		}
 		const family = params.scope === "both" ? undefined : params.scope;
 		const composed = withTimeout(signal, resolved.timeoutMs);
 		try {
-			const req: SearchRequest = {
-				query,
+			const request = {
+				filters: params.filters,
 				fetchOnly: params.fetchOnly,
 				reuseScope: options.transports || options.loadTransports ? undefined : evidenceOwner(ctx),
 				urls: urls.urls.length > 0 ? urls.urls : undefined,
@@ -183,51 +192,72 @@ export async function executeSearch(
 				modelId: ctx.model?.id,
 				onRetrieval: retrieval.observe,
 			};
+			const availability = options.availability ?? providerAvailability(family, resolved);
+			const urlOnly = params.fetchOnly && (options.readUrls || options.fetchUrls || (!options.transports && !options.loadTransports));
+			const wantJudge = params.judge && resolved.classifier.enabled && !options.standalone;
+			const offTopicPin = !params.parallel && family === "web" && !params.fetchOnly
+				? resolved.offTopicFallback : undefined;
+			const classifierUnavailable = options.standalone && (params.judge || offTopicPin !== undefined);
+			const transportLimit = batched ? Math.floor(6 / queries.length) : undefined;
+			const retrieveQuery = async (original: string): Promise<QueryResult> => {
+				const trimmed = trimQuery(original);
+				const parsed = family === "web" ? { query: trimmed } : parseLibraryQuery(trimmed);
+				if (parsed.library && !parsed.query) throw providerError("invalid_input", "library: requires search terms.");
+				const req: SearchRequest = {
+					...request,
+					...parsed,
+					...(!parsed.library && trimmed !== original ? { objective: original } : {}),
+				};
+				let fastClassifierUsage: Usage | undefined;
+				const reviewRelevance: RunSearchOptions["reviewRelevance"] = offTopicPin && !options.standalone
+					? async (result) => {
+						const assessment = await assessOffTopic(req.query, result, resolved.classifier.maxStateChars, {
+							provider: offTopicPin.provider, model: offTopicPin.model,
+							modelRegistry: ctx.modelRegistry, signal: composed.signal,
+						});
+						if (assessment.usage) {
+							fastClassifierUsage = fastClassifierUsage ? sumUsage(fastClassifierUsage, assessment.usage) : assessment.usage;
+						}
+						return assessment;
+					}
+					: undefined;
+				const raw = urlOnly
+					? await runUrlOnly(req, options, availability)
+					: params.parallel
+					? await runParallelSearch(req, { ...options, family, availability, transportLimit })
+					: await runSearch(req, { ...options, family: family ?? "web", availability, reviewRelevance });
+				const deadlineExpired = () => composed.signal.aborted &&
+					isProviderError(composed.signal.reason) && composed.signal.reason.code === "timeout";
+				if (composed.signal.aborted && !(reviewRelevance && deadlineExpired())) throw abortedError(composed.signal.reason);
 
-			const availability = options.availability ?? providerAvailability(family);
-			const urlOnly = params.fetchOnly && (options.fetchUrls || (!options.transports && !options.loadTransports));
-			const raw = urlOnly
-				? await runUrlOnly(req, options, availability)
-				: params.parallel
-				? await runParallelSearch(req, { ...options, family, availability })
-				: await runSearch(req, { ...options, family: family ?? "web", availability });
-
-			if (composed.signal.aborted) {
-				throw abortedError(composed.signal.reason);
-			}
-
-			const dropped = droppedParamsWarning(params.rawParams, params.acceptedParams);
-			const withNotes: StreamResult = {
-				...raw,
-				scope: params.scope,
+				const withScope = { ...raw, scope: params.scope, classifierUsage: fastClassifierUsage };
+				const judged = wantJudge ? await augmentResults(req, withScope, {
+					signal: composed.signal,
+					modelRegistry: ctx.modelRegistry,
+					provider: resolved.classifier.provider,
+					model: resolved.classifier.model,
+				}) : withScope;
+				// Preserve retrieved evidence if optional judging exhausted the deadline.
+				if (composed.signal.aborted && !((wantJudge || reviewRelevance) && deadlineExpired())) {
+					throw abortedError(composed.signal.reason);
+				}
+				return { raw, judged, query: parsed.query };
 			};
-
-			const wantJudge = params.judge && resolved.classifier.enabled;
-			const judged: AugmentedStreamResult = wantJudge
-				? await augmentResults(
-						req,
-						withNotes,
-						{
-							signal: composed.signal,
-							modelRegistry: ctx.modelRegistry,
-							provider: resolved.classifier.provider,
-							model: resolved.classifier.model,
-						},
-					)
-				: withNotes;
-
-			// Optional judging may exhaust the budget after retrieval succeeded.
-			// Keep its cited results, but a genuine caller cancellation stays fatal.
-			if (signal?.aborted) {
-				throw abortedError(signal.reason);
+			const settled = batched ? await Promise.allSettled(queries.map(retrieveQuery)) : undefined;
+			if (settled?.every((entry) => entry.status === "rejected")) {
+				if (signal?.aborted) throw abortedError(signal.reason);
+				failedQueries = queries.map(trimQuery);
+				throw settled[0].reason;
 			}
-			if (composed.signal.aborted && !(wantJudge && isProviderError(composed.signal.reason) && composed.signal.reason.code === "timeout")) {
-				throw abortedError(composed.signal.reason);
-			}
+			const result = settled ? combineQueryResults(queries, settled) : await retrieveQuery(queries[0]);
+			if (signal?.aborted) throw abortedError(signal.reason);
+
+			const { raw, judged } = result;
+			const dropped = droppedParamsWarning(params.rawParams, params.acceptedParams);
 
 			progress.finish();
 			// Store only post-policy evidence. Suppressed passages must never reappear.
-			const unique = previewEvidence(uniqueEvidence(judged), Number.MAX_SAFE_INTEGER, urls.urls);
+			const unique = batched ? judged : previewEvidence(uniqueEvidence(judged), Number.MAX_SAFE_INTEGER, urls.urls);
 			const owner = evidenceOwner(ctx);
 			const continuation = owner ? evidenceStore.put(owner, unique) : undefined;
 			// Assign refs once, in stored order, before family selection or output budgeting.
@@ -238,7 +268,21 @@ export async function executeSearch(
 					...(index < continuation.storedCount ? { ref: `${continuation.resultId}:${index + 1}` } : {}),
 				})),
 			} : unique;
-			const preview = previewEvidence(referenced, resolved.maxResults, urls.urls, !!continuation);
+			const selected = batched ? referenced : previewEvidence(referenced, resolved.maxResults, urls.urls, !!continuation);
+			const preview = {
+				...selected,
+				searchResults: selected.searchResults?.map((hit) => {
+					const query = result.previewQueries?.[hit.queryGroup ?? 0] ?? result.query;
+					if (!query || !hit.citedText) return hit;
+					const stored = continuation && hit.ref
+						? evidenceStore.readHit(owner!, continuation.resultId, Number(hit.ref.split(":").at(-1)) - 1)
+						: undefined;
+					const text = stored?.status === "ok" ? stored.hit.citedText ?? "" : hit.citedText;
+					const selectedText = queryPreview(text, query, EXCERPT_MAX_CHARS, hit.highlight);
+					if (selectedText === undefined && text === hit.citedText) return hit;
+					return { ...hit, previewText: selectedText ?? text };
+				}),
+			};
 			const formatted = formatWebSearchResult({
 				...preview,
 				// Local policy notices are not upstream evidence. Add them after
@@ -248,10 +292,11 @@ export async function executeSearch(
 					...resolved.notices,
 					...urls.warnings,
 					...(dropped ? [dropped] : []),
+					...(classifierUnavailable ? ["Classifier unavailable without Pi."] : []),
 					...(preview.warnings ?? []),
 				],
-				classifierStatus: classifierStatus(wantJudge, judged),
-			}, undefined, continuation);
+				classifierStatus: options.standalone && params.judge ? "unavailable" : classifierStatus(wantJudge, judged),
+			}, undefined, continuation, resolved.maxResults);
 			if (judged.classifierUsage) {
 				formatted.usage = judged.classifierUsage;
 			}
@@ -267,18 +312,110 @@ export async function executeSearch(
 		}
 	} catch (error) {
 		progress.finish();
-		const result = formatSearchError(params.tool, error);
+		const result = formatSearchError(params.tool, error, failedQueries);
 		Object.assign(result.details, retrieval.details(), { configIssue, thoroughOff,
 			...(isProviderError(error) && error.code === "missing_credentials" && error.message.endsWith(NO_WEB_PROVIDER_MESSAGE) ? { webUnavailable: true } : {}) });
 		return result;
 	}
 }
 
+interface QueryResult {
+	raw: StreamResult;
+	judged: AugmentedStreamResult;
+	query: string;
+	previewQueries?: string[];
+}
+
+function combineQueryResults(queries: string[], settled: PromiseSettledResult<QueryResult>[]): QueryResult {
+	const successful = settled.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
+
+	const groups: QueryGroup[] = [];
+	const hits: NonNullable<StreamResult["searchResults"]> = [];
+	const seenEvidence = new Set<string>();
+	const seenSources = new Set<string>();
+	const warnings: string[] = [];
+	for (let index = 0; index < settled.length; index++) {
+		const entry = settled[index];
+		const group: QueryGroup = { query: trimQuery(queries[index]) };
+		groups.push(group);
+		if (entry.status === "rejected") {
+			const error = entry.reason;
+			group.failed = true;
+			warnings.push(`Query ${index + 1} failed: ${error instanceof Error ? error.message : String(error)}`);
+			continue;
+		}
+		const result = uniqueEvidence(entry.value.judged);
+		group.providers = result.providers?.length ? result.providers : [result.providerKind];
+		const attached = new Set<string>();
+		let duplicates = 0;
+		for (const hit of result.searchResults ?? []) {
+			if (hit.url) attached.add(hit.url);
+			const key = evidenceKey(hit);
+			if (key && seenEvidence.has(key)) {
+				duplicates++;
+				continue;
+			}
+			if (key) seenEvidence.add(key);
+			hits.push({ ...hit, queryGroup: index });
+		}
+		group.sources = (result.sources ?? []).filter(({ url }) => {
+			const seen = seenSources.has(url);
+			seenSources.add(url);
+			if (attached.has(url)) return false;
+			if (seen) duplicates++;
+			return !seen;
+		});
+		group.text = result.text;
+		if (duplicates) group.duplicates = duplicates;
+	}
+	const raw = mergeStreamResults(successful.map(({ raw }) => ({ kind: raw.providerKind, result: raw })));
+	const judged = mergeStreamResults(successful.map(({ judged }) => ({ kind: judged.providerKind, result: judged })), warnings);
+	const usage = successful.flatMap(({ judged }) => judged.classifierUsage ? [judged.classifierUsage] : []);
+	const classifierUsage = usage.length ? usage.reduce(sumUsage) : undefined;
+	const reports = successful.flatMap(({ judged }) => judged.classifier ? [judged.classifier] : []);
+	const classifier = reports.length ? {
+		sufficient: reports.length === successful.length && reports.every((report) => report.sufficient),
+		lowConfidence: reports.some((report) => report.lowConfidence),
+		suppressed: reports.reduce((total, report) => total + report.suppressed, 0),
+		suppressedUrls: [...new Set(reports.flatMap((report) => report.suppressedUrls))],
+	} : undefined;
+	return {
+		raw,
+		judged: {
+			...judged, text: "", sources: [], searchResults: hits, queryGroups: groups, scope: successful[0].judged.scope,
+			classifier, classifierUsage, classifierStatus: classifier ? "ran" : successful[0].judged.classifierStatus,
+		},
+		query: "",
+		previewQueries: settled.map((entry) => entry.status === "fulfilled" ? entry.value.query : ""),
+	};
+}
+
+function sumUsage(left: Usage, right: Usage): Usage {
+	return {
+		input: left.input + right.input, output: left.output + right.output,
+		cacheRead: left.cacheRead + right.cacheRead, cacheWrite: left.cacheWrite + right.cacheWrite,
+		totalTokens: left.totalTokens + right.totalTokens,
+		cacheWrite1h: optionalSum(left.cacheWrite1h, right.cacheWrite1h),
+		reasoning: optionalSum(left.reasoning, right.reasoning),
+		cost: {
+			input: left.cost.input + right.cost.input, output: left.cost.output + right.cost.output,
+			cacheRead: left.cost.cacheRead + right.cost.cacheRead, cacheWrite: left.cost.cacheWrite + right.cost.cacheWrite,
+			total: left.cost.total + right.cost.total,
+		},
+	};
+}
+
+function optionalSum(left?: number, right?: number): number | undefined {
+	return left === undefined && right === undefined ? undefined : (left ?? 0) + (right ?? 0);
+}
+
 /** Keep URL-only reads keyless and independent of the selected search provider. */
 async function runUrlOnly(req: SearchRequest, options: RunSearchOptions, availability: Partial<Record<ProviderKind, boolean>>): Promise<StreamResult> {
+	if (options.readUrls) return options.readUrls(req);
+	if (!options.fetchUrls) return readUrls(req);
 	req.onRetrieval?.({ type: "started", kinds: ["jina"] });
 	try {
-		const pending = reuseTransport("jina", req, options.fetchUrls ?? jinaFetch);
+		const pending = reuseTransport("jina", req, options.fetchUrls);
 		const result = req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
 		req.onRetrieval?.(outcome("jina", result));
 		return result;

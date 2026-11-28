@@ -3,13 +3,20 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatResult } from "../src/format.ts";
+import type { AgentToolResult, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { assessOffTopic } from "../src/classifier/offtopic.ts";
+import { formatResult, type WebSearchDetails } from "../src/format.ts";
 import { CONFIG_PATH_ENV_VAR } from "../src/providers/config.ts";
 import { providerError, type StreamResult } from "../src/providers/types.ts";
 import { SearchSchema, search } from "../src/search.ts";
 
 const ctx = {} as ExtensionContext;
+
+function textOf(result: AgentToolResult<WebSearchDetails>): string {
+	const item = result.content[0];
+	assert.equal(item.type, "text");
+	return item.text;
+}
 
 async function withSettings(settings: unknown, run: () => Promise<void>): Promise<void> {
 	const dir = await mkdtemp(join(tmpdir(), "unified-search-"));
@@ -35,9 +42,202 @@ function document(providerKind: StreamResult["providerKind"], url = "https://exa
 	};
 }
 
+const pinnedClassifier = { provider: "vercel-ai-gateway", model: "typesafe-ai/jev" };
+const relevanceSettings = { web: { fallbackOnOffTopic: true }, classifier: pinnedClassifier };
+const relevanceUsage = {
+	input: 10, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 11,
+	cost: { input: 0.0001, output: 0.001, cacheRead: 0, cacheWrite: 0, total: 0.0011 },
+};
+type RelevanceState = { query: string; candidates: Array<{ index: number; title: string; url: string; excerpt: string }> };
+
+function relevanceContext(
+	score: (state: RelevanceState, signal: AbortSignal) => number | Promise<number>,
+	forcedChoice?: "off_topic" | "addresses",
+): ExtensionContext {
+	const model = { provider: pinnedClassifier.provider, id: pinnedClassifier.model };
+	return {
+		sessionManager: { getSessionId: () => "off-topic-test" },
+		modelRegistry: {
+			findOfType: (type: string, provider: string, id: string) => {
+				assert.deepEqual([type, provider, id], ["classifier", model.provider, model.id]);
+				return model;
+			},
+			getAvailableOfType: async () => [model],
+			classify: async (_model: unknown, { state, questions }: { state: RelevanceState; questions: Record<string, { type: string }> }, { signal }: { signal: AbortSignal }) => {
+				assert.deepEqual(Object.keys(questions), ["relevance"]);
+				assert.equal(questions.relevance.type, "choice");
+				const offTopic = await score(state, signal);
+				const choice = forcedChoice ?? (offTopic >= 0.5 ? "off_topic" : "addresses");
+				return { stopReason: "stop", usage: relevanceUsage, answers: {
+					relevance: { type: "choice", choice, confidence: 0.99, probabilities: { off_topic: offTopic, addresses: 1 - offTopic } },
+				} };
+			},
+		},
+	} as unknown as ExtensionContext;
+}
+
+const relevanceTransports = {
+	availability: { exa: true, parallel: true },
+	transports: {
+		exa: async () => document("exa", "https://exa.example/evidence"),
+		parallel: async () => document("parallel", "https://parallel.example/evidence"),
+	},
+};
+
+test("off-topic fallback classifies the provider response, then stores only the selected evidence", () => withSettings(relevanceSettings, async () => {
+	const calls: RelevanceState[] = [];
+	const owner = relevanceContext((state) => { calls.push(state); return calls.length === 1 ? 0.85 : 0.84; });
+	const result = await search("call", { query: "fast query" }, undefined, undefined, owner, relevanceTransports);
+	assert.equal(result.isError, false);
+	assert.deepEqual(calls.map(({ candidates }) => candidates.map(({ url }) => url)), [
+		["https://exa.example/evidence"], ["https://parallel.example/evidence"],
+	]);
+	assert.deepEqual(calls[0], { query: "fast query", candidates: [{
+		index: 0, title: "exa evidence", url: "https://exa.example/evidence", excerpt: "exa cited text",
+	}] });
+	assert.equal(result.details.provider, "parallel");
+	assert.deepEqual(result.details.attempted, ["exa", "parallel"]);
+	assert.deepEqual(result.details.contributors, ["parallel"]);
+	assert.match(result.details.warnings?.join(" ") ?? "", /judged exa's results off-topic/);
+	assert.equal(result.usage?.totalTokens, 22);
+	assert.equal(result.details.storedCount, 1);
+	const ref = result.details.searchResults?.[0].ref;
+	assert.ok(ref);
+	const continued = await search("call", { ref }, undefined, undefined, owner);
+	assert.match(textOf(continued), /parallel cited text/);
+	assert.doesNotMatch(textOf(continued), /exa cited text/);
+	assert.equal(calls.length, 2);
+}));
+
+test("off-topic fallback keeps below-threshold evidence and limits the judge to ten citations", () => withSettings(relevanceSettings, async () => {
+	const owner = relevanceContext(({ candidates }) => {
+		assert.equal(candidates.length, 10);
+		assert.equal(candidates[0].excerpt.length, 400);
+		assert.deepEqual(candidates.map(({ index }) => index), Array.from({ length: 10 }, (_, i) => i));
+		return 0.849;
+	});
+	const result = await search("call", { query: "test search" }, undefined, undefined, owner, {
+		...relevanceTransports,
+		transports: {
+			...relevanceTransports.transports,
+			exa: async () => ({ providerKind: "exa", text: "", searchResults: Array.from({ length: 11 }, (_, i) => ({
+				url: `https://example.test/hit/${i}`, title: "result", citedText: "a".repeat(800),
+			})) }),
+		},
+	});
+	assert.equal(result.isError, false);
+	assert.deepEqual(result.details.attempted, ["exa"]);
+	assert.equal(result.usage?.totalTokens, 11);
+}));
+
+test("off-topic fallback keeps the first response after an off-topic, empty, or failed backup", () => withSettings(relevanceSettings, async () => {
+	const owner = relevanceContext(() => 0.95);
+	for (const parallel of [
+		relevanceTransports.transports.parallel,
+		async () => ({ providerKind: "parallel" as const, text: "", searchResults: [] }),
+		async () => { throw providerError("http_error", "fixture denied", { retryable: false }); },
+	]) {
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, {
+			...relevanceTransports, transports: { ...relevanceTransports.transports, parallel },
+		});
+		assert.equal(result.isError, false);
+		assert.equal(result.details.provider, "exa");
+		assert.deepEqual(result.details.contributors, ["exa"]);
+		assert.match(result.details.warnings?.join(" ") ?? "", /Returning the first response from exa/);
+	}
+}));
+
+test("off-topic fallback fails open on malformed or failed classifier responses without leaking errors", () => withSettings(relevanceSettings, async () => {
+	for (const owner of [
+		relevanceContext(() => Number.NaN),
+		relevanceContext(() => { throw new Error("credential-fixture-value"); }),
+		relevanceContext(() => 0.95, "addresses"),
+	]) {
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, relevanceTransports);
+		assert.equal(result.isError, false);
+		assert.deepEqual(result.details.attempted, ["exa"]);
+		assert.match(textOf(result), /off-topic checking was unavailable/);
+		assert.doesNotMatch(textOf(result), /credential-fixture-value/);
+	}
+}));
+
+test("the fast-web classifier leaves code, URL reads and thorough retrieval alone", () => withSettings({
+	...relevanceSettings, research: { enabled: true },
+}, async () => {
+	let calls = 0;
+	const owner = relevanceContext(() => { calls++; return 0.95; });
+	const tests: Parameters<typeof search>[1][] = [
+		{ query: "fast query", scope: "code" },
+		{ query: "thorough query", effort: "thorough" },
+		{ urls: ["https://exa.example/evidence"] },
+	];
+	for (const params of tests) {
+		const result = await search("call", params, undefined, undefined, owner, {
+			...relevanceTransports,
+			availability: { ...relevanceTransports.availability, grep: true },
+			transports: { ...relevanceTransports.transports, grep: async () => document("grep") },
+			readUrls: relevanceTransports.transports.exa,
+		});
+		assert.equal(result.isError, false);
+	}
+	assert.equal(calls, 0);
+}));
+
+test("off-topic fallback honors the state cap and the standalone path makes no classifier call", () => withSettings({
+	...relevanceSettings, classifier: { ...pinnedClassifier, maxStateChars: 12 },
+}, async () => {
+	for (const standalone of [true, false]) {
+		let calls = 0;
+		const owner = relevanceContext(() => { calls++; return 0.99; });
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, { ...relevanceTransports, standalone });
+		assert.equal(result.isError, false);
+		assert.deepEqual(result.details.attempted, ["exa"]);
+		assert.match(textOf(result), standalone ? /Classifier unavailable without Pi/ : /12-character classifier limit/);
+		assert.equal(calls, 0);
+	}
+}));
+
+test("off-topic classifier timeout preserves retrieved evidence and prevents fallback", async () => {
+	const owner = relevanceContext(() => new Promise<number>(() => {}));
+	const assessment = await assessOffTopic("query", document("exa"), 1000, {
+		...pinnedClassifier, modelRegistry: owner.modelRegistry, timeoutMs: 20,
+	});
+	assert.equal(assessment.offTopic, undefined);
+	assert.match(assessment.warning ?? "", /classifier timed out/);
+});
+
+test("off-topic search deadline keeps evidence during judging or fallback retrieval", () => withSettings({
+	...relevanceSettings, timeoutMs: 1000,
+}, async () => {
+	for (const inClassifier of [true, false]) {
+		const owner = relevanceContext(() => inClassifier ? new Promise<number>(() => {}) : 0.95);
+		const result = await search("call", { query: "fast query" }, undefined, undefined, owner, {
+			...relevanceTransports,
+			transports: { ...relevanceTransports.transports, parallel: () => new Promise(() => {}) },
+		});
+		assert.equal(result.isError, false);
+		assert.equal(result.details.provider, "exa");
+		assert.deepEqual(result.details.attempted, inClassifier ? ["exa"] : ["exa", "parallel"]);
+		assert.match(textOf(result), /search deadline reached/i);
+	}
+}));
+
+test("cancelling the off-topic check propagates abort without trying a backup", () => withSettings(relevanceSettings, async () => {
+	const caller = new AbortController();
+	const owner = relevanceContext((_state, signal) => {
+		caller.abort();
+		assert.equal(signal.aborted, true);
+		return new Promise(() => {});
+	});
+	const result = await search("call", { query: "fast query" }, caller.signal, undefined, owner, relevanceTransports);
+	assert.equal(result.isError, true);
+	assert.equal(result.details.error?.code, "aborted");
+	assert.deepEqual(result.details.attempted, ["exa"]);
+}));
+
 test("unified search exposes one flat schema with documented defaults", () => {
 	assert.deepEqual(Object.keys(SearchSchema.properties).sort(), [
-		"cursor", "effort", "find", "query", "ref", "scope", "urls",
+		"cursor", "domains", "effort", "find", "query", "recency", "ref", "scope", "urls",
 	]);
 	const schema = JSON.stringify(SearchSchema);
 	assert.match(schema, /"web"/);
@@ -51,7 +251,7 @@ test("unified search exposes one flat schema with documented defaults", () => {
 });
 
 test("unified search rejects absent, multiple, unknown, and inappropriate selectors", async () => {
-	const cases: Array<[Record<string, unknown>, RegExp]> = [
+	const cases: Array<[Record<string, unknown>, RegExp, "scope_conflict"?]> = [
 		[{}, /Use exactly one of query, urls, or ref/],
 		[{ query: "one", urls: ["https://example.test"] }, /Use exactly one of query, urls, or ref/],
 		[{ query: "one", ref: "0:1" }, /Use exactly one of query, urls, or ref/],
@@ -61,17 +261,17 @@ test("unified search rejects absent, multiple, unknown, and inappropriate select
 		[{ query: "one", find: "needle" }, /find and cursor require ref/],
 		[{ urls: ["https://example.test"], cursor: "next" }, /find and cursor require ref/],
 		[{ query: "one", limit: 5 }, /Unknown parameter: limit/],
-		[{ urls: ["https://example.test"], scope: "code" }, /urls accept only web scope/],
+		[{ urls: ["https://example.test"], scope: "code" }, /urls accept only web scope/, "scope_conflict"],
 		[{ urls: ["https://example.test"], effort: "thorough" }, /urls do not accept effort/],
-		[{ ref: "0:1", scope: "web" }, /ref does not accept scope/],
+		[{ ref: "0:1", scope: "web" }, /ref does not accept scope/, "scope_conflict"],
 		[{ ref: "0:1", effort: "fast" }, /ref does not accept effort/],
-		[{ query: "one", scope: "both", effort: "fast" }, /scope both requires effort thorough/],
+		[{ query: "one", scope: "both", effort: "fast" }, /scope both requires effort thorough/, "scope_conflict"],
 	];
-	for (const [input, message] of cases) {
+	for (const [input, message, code = "invalid_input"] of cases) {
 		const result = await search("call", input, undefined, undefined, ctx);
 		assert.equal(result.isError, true, JSON.stringify(input));
-		assert.equal(result.details.error?.code, "unknown");
-		assert.match(result.details.error?.message ?? "", /^search failed \(unknown\): /);
+		assert.equal(result.details.error?.code, code);
+		assert.ok(result.details.error?.message.startsWith(`search failed (${code}): `));
 		assert.match(result.details.error?.message ?? "", message);
 	}
 });
@@ -182,5 +382,221 @@ test("ref reads stay local, pass find/cursor through, and ignore broken settings
 		} finally {
 			globalThis.fetch = priorFetch;
 		}
+	});
+});
+
+test("web filters reject incompatible arguments with the field named", async () => {
+	const options = { transports: { exa: async () => assert.fail("Invalid filters reached retrieval") } };
+	for (const [filter, value] of [["recency", "week"], ["domains", ["python.org"]]] as const) {
+		for (const args of [{ urls: ["https://example.test"] }, { ref: "evidence:1" }, { query: "needle", scope: "code" as const }]) {
+			const result = await search("call", { ...args, [filter]: value }, undefined, undefined, ctx, options);
+			assert.equal(result.details.error?.message, `search failed (scope_conflict): ${filter} requires query and web scope.`);
+		}
+	}
+});
+
+test("domain filters apply locally to both lists and subdomains before evidence is stored", async () => {
+	const allowed = "https://docs.python.org/3";
+	const rejected = [
+		"https://www.pinterest.com/wrong",
+		"https://private.python.org/hidden",
+		"https://python.org.example.test/masquerade",
+	];
+	const owner = { sessionManager: { getSessionId: () => "filter-fixture" } } as ExtensionContext;
+	const documentFixture: StreamResult = {
+		text: "An unattributed provider summary.",
+		providerKind: "exa",
+		searchResults: [allowed, ...rejected].map((url) => ({ url, citedText: "cited passage" })),
+		sources: [allowed, ...rejected].map((url) => ({ url, title: url })),
+	};
+	await withSettings({}, async () => {
+		const result = await search("call", {
+			query: "needle",
+			domains: ["PYTHON.ORG.", "pinterest.com", "-pinterest.com", "-private.python.org"],
+			recency: "week",
+		}, undefined, undefined, owner, {
+			transports: { exa: async (req) => {
+				assert.deepEqual(req.filters, {
+					recency: "week", domains: ["python.org", "pinterest.com", "-pinterest.com", "-private.python.org"],
+				});
+				return documentFixture;
+			} },
+		});
+		assert.equal(result.details.storedCount, 1);
+		assert.deepEqual(result.details.searchResults?.map(({ url }) => url), [allowed]);
+		assert.deepEqual(result.details.sources?.map(({ url }) => url), [allowed]);
+		assert.doesNotMatch(textOf(result), /unattributed|pinterest|masquerade/);
+	});
+});
+
+test("fast web search continues after a successful empty response and names every empty provider", async () => {
+	await withSettings({ web: { provider: "exa", fallback: ["parallel"] } }, async () => {
+		const attempts: string[] = [];
+		const run = (parallelHasResults: boolean) => search("call", { query: "needle" }, undefined, undefined, ctx, {
+			transports: {
+				exa: async () => { attempts.push("exa"); return { text: "", providerKind: "exa", searchResults: [] }; },
+				parallel: async () => {
+					attempts.push("parallel");
+					return parallelHasResults ? document("parallel") : { text: "", providerKind: "parallel", searchResults: [] };
+				},
+			},
+		});
+		const fallback = await run(true);
+		assert.deepEqual(attempts, ["exa", "parallel"]);
+		assert.equal(fallback.details.provider, "parallel");
+		assert.deepEqual(fallback.details.warnings, ["exa returned no results."]);
+		const empty = await run(false);
+		assert.equal(empty.isError, false);
+		assert.deepEqual(empty.details.warnings, ["exa returned no results.", "parallel returned no results."]);
+	});
+});
+
+test("BM25 previews select the matching passage and keep a winning provider highlight", async () => {
+	const unrelated = "A group of archivists compiled the records. ".repeat(8).trim();
+	const answer = "AbortSignal timeout cancels a network request once the delay expires.";
+	const highlight = "AbortSignal timeout cancels network requests.";
+	const owner = { sessionManager: { getSessionId: () => "preview-fixture" } } as ExtensionContext;
+	await withSettings({}, async () => {
+		for (const upstreamHighlight of [undefined, highlight]) {
+			const text = [unrelated, unrelated, upstreamHighlight ?? answer].join("\n\n");
+			const result = await search("call", { query: "AbortSignal timeout" }, undefined, undefined, owner, {
+				transports: { exa: async () => ({
+					...document("exa"),
+					searchResults: [{ url: "https://example.test/evidence", title: "Docs", citedText: text, highlight: upstreamHighlight }],
+				}) },
+			});
+			const shown = (result.structuredContent as WebSearchDetails).searchResults?.[0];
+			assert.ok(shown?.ref);
+			assert.equal(shown.citedText, upstreamHighlight ?? answer);
+			const read = await search("read", { ref: shown.ref }, undefined, undefined, owner);
+			assert.equal(read.isError, false);
+			assert.match(textOf(read), /A group of archivists/);
+			assert.match(textOf(read), /AbortSignal timeout/);
+		}
+	});
+});
+
+test("a single string keeps its regular result format", async () => {
+	await withSettings({}, async () => {
+		const result = await search("call", { query: "exa" }, undefined, undefined, ctx, {
+			transports: { exa: async () => document("exa") },
+		});
+		assert.equal(textOf(result), "## Results — Exa\n\n1. [exa evidence](https://example.test/evidence)\n> exa cited text");
+		assert.deepEqual(result.structuredContent, {
+			status: "success",
+			searchResults: [{ title: "exa evidence", url: "https://example.test/evidence", citedText: "exa cited text" }],
+			resultCount: 1, provider: "exa",
+		});
+	});
+});
+
+test("batches run three queries concurrently and preserve their order, refs, and partial results", async () => {
+	const owner = { sessionManager: { getSessionId: () => "batch-fixture" } } as ExtensionContext;
+	await withSettings({}, async () => {
+		const active = new Set<string>();
+		let peak = 0;
+		const query = ["first", "fails", "last"];
+		const response = await search("call", { query, recency: "month", domains: ["example.test"] }, undefined, undefined, owner, {
+			transports: { exa: async (req) => {
+				assert.deepEqual(req.filters, { recency: "month", domains: ["example.test"] });
+				active.add(req.query);
+				peak = Math.max(peak, active.size);
+				await new Promise((resolve) => setTimeout(resolve, 5 * (3 - query.indexOf(req.query))));
+				active.delete(req.query);
+				if (req.query === "fails") throw providerError("parse_error", "invalid fixture");
+				const first = document("exa");
+				return req.query === "first" ? first : {
+					...first, searchResults: [...first.searchResults!, ...document("exa", "https://example.test/last").searchResults!],
+				};
+			} },
+		});
+		assert.equal(peak, 3);
+		assert.equal(response.isError, false);
+		assert.equal(response.details.storedCount, 2);
+		assert.deepEqual(response.details.searchResults?.map(({ ref }) => ref), [
+			`${response.details.resultId}:1`, `${response.details.resultId}:2`,
+		]);
+		assert.match(textOf(response), /Query 1 — first[\s\S]*Query 2 — fails[\s\S]*Query 3 — last[\s\S]*1 duplicate result\(s\) appeared earlier/);
+		assert.deepEqual(response.details.warnings, ["Query 2 failed: invalid fixture"]);
+		assert.equal((response.structuredContent as WebSearchDetails).searchResults?.[1].queryGroup, 2);
+	});
+	const rejected = await search("call", { query: ["a", "b", "c", "d"] }, undefined, undefined, ctx);
+	assert.equal(rejected.details.error?.message, "search failed (invalid_input): query accepts 1 to 3 strings.");
+});
+
+test("a batch shares the 8000-character budget with evidence from each query", async () => {
+	await withSettings({}, async () => {
+		const response = await search("call", { query: ["first", "middle", "last"] }, undefined, undefined, ctx, {
+			transports: { exa: async ({ query }) => ({
+				providerKind: "exa", text: "",
+				searchResults: Array.from({ length: query === "middle" ? 1 : 8 }, (_, index) => ({
+					url: `https://example.test/${query}/${index}/${"p".repeat(630)}`,
+					title: `${query} evidence ${index}`,
+					citedText: query + " detail".repeat(80),
+				})),
+			}) },
+		});
+		assert.ok(textOf(response).length <= 8000);
+		assert.ok(JSON.stringify(response.structuredContent).length <= 8000);
+		const counts = [0, 0, 0];
+		for (const hit of (response.structuredContent as WebSearchDetails).searchResults ?? []) counts[hit.queryGroup!]++;
+		assert.ok(counts[0] > counts[2], JSON.stringify(counts));
+		assert.equal(counts[1], 1);
+		assert.ok(counts[2] >= 1);
+	});
+});
+
+test("empty and failed batch groups stay visible with their own counts", async () => {
+	await withSettings({ web: { provider: "exa", fallback: [] } }, async () => {
+		const result = await search("call", { query: ["first", "nothing"] }, undefined, undefined, ctx, {
+			transports: { exa: async ({ query }) => query === "nothing" ? { providerKind: "exa", text: "" } : document("exa") },
+		});
+		assert.equal(result.isError, false);
+		assert.match(textOf(result), /Query 1 — first\n\n1 result · Exa[\s\S]*Query 2 — nothing\n\n0 results · Exa/u);
+		assert.deepEqual(result.details.queryGroups?.map(({ resultCount, previewCount }) => [resultCount, previewCount]), [[1, 1], [0, 0]]);
+		const failure = await search("call", { query: ["first", "second"] }, undefined, undefined, ctx, {
+			transports: { exa: async () => { throw providerError("rate_limited", "Rate limited."); } },
+		});
+		assert.equal(failure.isError, true);
+		assert.equal(failure.details.error?.code, "rate_limited");
+		assert.match(textOf(failure), /Query 1 — first\n\n0 results\n\nQuery failed\.[\s\S]*Query 2 — second\n\n0 results\n\nQuery failed\./u);
+		assert.deepEqual(failure.details.queryGroups, ["first", "second"].map((query) => ({ query, failed: true, resultCount: 0, previewCount: 0 })));
+	});
+});
+
+test("thorough both uses at most six transports per batch and routes a pinned library only to Context7", async () => {
+	await withSettings({ research: { enabled: true }, classifier: { enabled: false } }, async () => {
+		const requests: [string, string, string | undefined, unknown][] = [];
+		const transport = (kind: "exa" | "parallel" | "grep" | "sourcegraph" | "context7") => async (req: import("../src/providers/index.ts").SearchRequest) => {
+			requests.push([kind, req.query, req.library, req.filters]);
+			return document(kind, `https://example.test/${kind}/${encodeURIComponent(req.query)}`);
+		};
+		const response = await search("call", {
+			query: ["library:/vercel/next.js@v15 route handlers", "abort", "timeout"], scope: "both", recency: "day",
+		}, undefined, undefined, ctx, {
+			transports: { exa: transport("exa"), parallel: transport("parallel"), grep: transport("grep"), sourcegraph: transport("sourcegraph"), context7: transport("context7") },
+		});
+		assert.equal(response.isError, false);
+		assert.equal(requests.length, 6);
+		assert.deepEqual(requests.filter(([, query]) => query === "route handlers"), [
+			["exa", "route handlers", undefined, { recency: "day", domains: undefined }],
+			["context7", "route handlers", "/vercel/next.js@v15", undefined],
+		]);
+		assert.ok(requests.every(([, query]) => !query.includes("library:")));
+		assert.ok(requests.filter(([kind]) => kind === "grep").every((request) => request[3] === undefined));
+		assert.deepEqual(response.details.queryGroups?.[0].providers, ["exa", "context7"]);
+		assert.ok(response.details.providers?.includes("context7"));
+		assert.ok(response.details.providers?.includes("grep"));
+	});
+});
+
+test("a low preview limit keeps evidence for every successful batch group", async () => {
+	await withSettings({ maxResults: 1 }, async () => {
+		const result = await search("fair-share", { query: ["one", "two", "three"] }, undefined, undefined, ctx, {
+			availability: { exa: true },
+			transports: { exa: async ({ query }) => document("exa", `https://example.test/${query}`) },
+		});
+		assert.deepEqual((result.structuredContent as WebSearchDetails).searchResults?.map(({ url }) => url),
+			["https://example.test/one", "https://example.test/two", "https://example.test/three"]);
 	});
 });

@@ -15,7 +15,8 @@ function sourcePaths(directory: string, prefix = "src"): string[] {
 
 withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 	const env = isolatedEnvironment(root);
-	console.log("Packing source-only artifact...");
+	console.log("Building standalone MCP and packing the artifact...");
+	runNpmCommand(["run", "build:mcp"], packageRoot, env);
 	const output = JSON.parse(runNpmCommand(
 		["pack", "--json", "--ignore-scripts", "--offline", "--pack-destination", root], packageRoot, env));
 	// npm 10/11 return an array; npm 12 keys the same metadata by package name.
@@ -65,6 +66,9 @@ withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 	assert.equal(manifest.name, "@gagansd/pi-web-search");
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
 	const installed = join(consumer, "node_modules", manifest.name);
+	console.log("Smoke-testing installed standalone MCP...");
+	process.stdout.write(runCommand(process.execPath, ["--experimental-strip-types", join(packageRoot, "scripts/mcp-smoke.ts"),
+		join(installed, "dist/mcp.js")], packageRoot, env));
 	console.log("Smoke-loading installed artifact through Pi...");
 	process.stdout.write(runCommand(process.execPath, ["--experimental-strip-types", join(packageRoot, "scripts/artifact-smoke.ts"), installed], packageRoot, env));
 	// Tests/fixtures stay out of the publication, but run against the extracted src.

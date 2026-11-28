@@ -89,11 +89,15 @@ function recordingTransport(
 
 test("the unified schema exposes retrieval and continuation modes and bounds the query", () => {
 	const urls = SearchSchema.properties.urls as { maxItems?: number };
-	const query = SearchSchema.properties.query as { maxLength?: number };
-	assert.deepEqual(Object.keys(SearchSchema.properties), ["query", "scope", "urls", "ref", "find", "cursor", "effort"]);
+	const { anyOf: [batch, query] } = SearchSchema.properties.query as unknown as {
+		anyOf: [{ maxItems: number; items: { maxLength: number } }, { maxLength: number }];
+	};
+	assert.deepEqual(Object.keys(SearchSchema.properties), ["query", "recency", "domains", "scope", "urls", "ref", "find", "cursor", "effort"]);
 	assert.equal((SearchSchema.required as string[] | undefined)?.includes("query") ?? false, false);
 	assert.equal(urls.maxItems, 20);
 	assert.equal(query.maxLength, MAX_QUERY_CHARS);
+	assert.equal(batch.maxItems, 3);
+	assert.equal(batch.items.maxLength, MAX_QUERY_CHARS);
 	// The crafted Exa objective must stay below the server's 4096-char limit.
 	assert.ok(
 		exaObjective("x".repeat(MAX_QUERY_CHARS)).length <= 4096,
