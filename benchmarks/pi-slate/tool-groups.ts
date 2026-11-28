@@ -1,8 +1,8 @@
-// Run: node --experimental-strip-types pi-slate/benchmarks/tool-groups.ts
+// Run: node --experimental-strip-types benchmarks/pi-slate/tool-groups.ts
 import { performance } from "node:perf_hooks";
 import { Container, type Component } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { ToolGroups } from "../extensions/pi-slate/tool-groups.ts";
+import { ToolGroups } from "../../pi-slate/extensions/pi-slate/tool-groups.ts";
 const theme = { fg: (_: string, value: string) => value, bold: (value: string) => value } as Theme;
 for (const count of [100, 1000]) {
   const chat = new Container();

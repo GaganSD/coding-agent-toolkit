@@ -1,4 +1,9 @@
-# Delegation benchmark
+# Benchmarks
+
+- [pi-slate rendering](pi-slate/README.md)
+- [pi-subagents delegation](#delegation-benchmark)
+
+## Delegation benchmark
 
 Compares `@gagansd/pi-subagents` with [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents)
 on five parent-composed workflows: parallel join, conditional fanout, bounded

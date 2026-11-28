@@ -46,7 +46,7 @@
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "npm pack --dry-run",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck",
-    "bench:scroll": "python3 benchmarks/scroll/drive.py",
+    "bench:scroll": "python3 ../benchmarks/pi-slate/scroll/drive.py",
     "themes": "node --experimental-strip-types scripts/build-themes.ts"
   },
   "peerDependencies": {
