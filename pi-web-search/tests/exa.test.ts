@@ -1008,3 +1008,27 @@ test("the space-separated refusal wording is still detected", async () => {
 		);
 	}
 });
+
+test("Exa REST passes native publication date and include/exclude domain filters", async () => {
+	const { fetchImpl, requests } = queueFetch([{ body: JSON.stringify(SEARCH_FIXTURE) }]);
+	const before = Date.now();
+	const result = await withKey("test-exa-key", () => exaSearch(request({
+		filters: { recency: "week", domains: ["example.com", "-private.example.com"] },
+	}), { fetchImpl }));
+	const body = requests[0].body;
+	assert.deepEqual(body.includeDomains, ["example.com"]);
+	assert.deepEqual(body.excludeDomains, ["private.example.com"]);
+	const start = Date.parse(String(body.startPublishedDate));
+	assert.ok(start >= before - 7 * 86_400_000 && start <= Date.now() - 7 * 86_400_000);
+	assert.equal(result.warnings, undefined);
+});
+
+test("Exa keyless leaves native filter arguments off and reports unsupported recency", async () => {
+	const { fetchImpl, requests } = mcpFetch([MCP_SEARCH_TEXT]);
+	const result = await withoutKey(() => exaSearch(request({
+		filters: { recency: "day", domains: ["example.com"] },
+	}), { fetchImpl }));
+	const call = requests.find(({ body }) => body.method === "tools/call")!;
+	assert.deepEqual(Object.keys((call.body.params as { arguments: object }).arguments).sort(), ["numResults", "objective", "query"]);
+	assert.deepEqual(result.warnings, ['Exa keyless MCP cannot apply recency "day".']);
+});

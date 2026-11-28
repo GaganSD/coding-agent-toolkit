@@ -17,8 +17,11 @@ export const routes = {
 	sourcegraph: "https://sourcegraph.com/.api/search/stream",
 	github: "https://api.github.com/search/code",
 	brave: "https://api.search.brave.com/res/v1/web/search",
+	"brave-context": "https://api.search.brave.com/res/v1/llm/context",
+	context7: "https://context7.com/api/v2/context",
+	searxng: "http://127.0.0.1:7987/search",
 	jina: "https://r.jina.ai/",
-} satisfies Record<EvidenceProvider | "exa-rest", string>;
+} satisfies Partial<Record<EvidenceProvider | "exa-rest" | "brave-context", string>>;
 
 export type Transport = keyof typeof routes;
 export interface Evidence { title: string; url: string; text: string }
@@ -31,7 +34,7 @@ export interface Fixture {
 	target?: string;
 	fault?: Fault;
 	once?: boolean;
-	onRequest?: () => void;
+	onRequest?: (url: URL, init: RequestInit | undefined) => void;
 }
 
 function loadJson<T>(path: string): T {
@@ -43,12 +46,14 @@ export const faults = loadJson<Fault[]>("faults.json");
 
 export function assertSanitizedFixtures(): void {
 	for (const folder of ["fixtures", "tasks"]) {
-		for (const entry of readdirSync(join(directory, folder), { withFileTypes: true })) {
-			assert.ok(entry.isFile(), `Unexpected benchmark input: ${folder}/${entry.name}`);
-			const contents = readFileSync(join(directory, folder, entry.name), "utf8");
+		for (const entry of readdirSync(join(directory, folder), { withFileTypes: true, recursive: true })) {
+			if (entry.isDirectory()) continue;
+			const filename = join(entry.parentPath, entry.name);
+			assert.ok(entry.isFile(), `Unexpected benchmark input: ${filename}`);
+			const contents = readFileSync(filename, "utf8");
 			const secrets = /(?:(?:authorization|x-subscription-token|x-api-key|api_key|cookie|set-cookie|mcp-session-id|account[_-]?id)["']?\s*[:=]\s*["']?(?:Bearer\s+)?|\bBearer\s+)([^\s"',}]+)/giu;
 			for (const [, value] of contents.matchAll(secrets)) {
-				assert.match(value, /^(?:\[redacted\]|<placeholder>|PLACEHOLDER)$/iu, `Non-placeholder credential in ${folder}/${entry.name}`);
+				assert.match(value, /^(?:\[redacted\]|<placeholder>|PLACEHOLDER)$/iu, `Non-placeholder credential in ${filename}`);
 			}
 		}
 	}
@@ -87,7 +92,16 @@ function match(fixture: Fixture, url: URL, method: string, rpc: Request): boolea
 	const { transport, target, query } = fixture;
 	const endpoint = new URL(routes[transport]);
 	if (transport === "jina") return method === "GET" && target !== undefined && url.href === endpoint.href + target;
-	if (url.origin !== endpoint.origin || url.pathname !== endpoint.pathname) return false;
+	if (url.origin !== endpoint.origin) return false;
+	if (transport === "context7" && url.pathname === "/api/v2/libs/search") {
+		return method === "GET" && url.searchParams.get("query") === query;
+	}
+	if (url.pathname !== endpoint.pathname) return false;
+	if (transport === "context7") return method === "GET" && url.searchParams.get("query") === query;
+	if (transport === "searxng") {
+		const q = url.searchParams.get("q");
+		return method === "GET" && url.searchParams.get("format") === "json" && (q === query || q?.startsWith(query + " ") === true);
+	}
 
 	if (isMcp(transport)) {
 		if (method === "DELETE") return true;
@@ -108,7 +122,7 @@ function match(fixture: Fixture, url: URL, method: string, rpc: Request): boolea
 	return method === "GET" && url.searchParams.get("q") === query;
 }
 
-function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session: number): Response {
+function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session: number, url: URL): Response {
 	const { transport, evidence } = fixture;
 	if (isMcp(transport)) {
 		if (method === "DELETE" || rpc.method === "notifications/initialized") return new Response(null, { status: 202 });
@@ -129,6 +143,13 @@ function fixtureResponse(fixture: Fixture, rpc: Request, method: string, session
 	}
 	if (transport === "exa-rest") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, highlights: [text] })) });
 	if (transport === "brave") return json({ web: { results: evidence.map(({ title, url, text }) => ({ title, url, description: text })) } });
+	if (transport === "brave-context") return json({ grounding: { generic: evidence.map(({ title, url, text }) => ({ title, url, snippets: [text] })) } });
+	if (transport === "searxng") return json({ results: evidence.map(({ title, url, text }) => ({ title, url, content: text })) });
+	if (transport === "context7") {
+		if (url.pathname === "/api/v2/libs/search") return json({ results: [{ id: "/public-example/library" }] });
+		return json({ libraryId: url.searchParams.get("libraryId"), codeSnippets: [],
+			infoSnippets: evidence.map(({ title, url, text }) => ({ breadcrumb: title, pageId: url, content: text })) });
+	}
 	if (transport === "github") return json({ items: evidence.map(({ url, text }) => ({
 		html_url: url, path: url.split("/").at(-1), repository: { full_name: "public-example/replay", private: false },
 		text_matches: [{ fragment: text }],
@@ -189,14 +210,15 @@ export class Replay {
 		try {
 			const isCall = !isMcp(fixture.transport) || rpc.method === "tools/call";
 			if (isCall) {
-				fixture.onRequest?.();
-				if (fixture.fault && !(fixture.once && this.usedFaults.has(fixture))) {
+				fixture.onRequest?.(url, init);
+				const libraryLookup = fixture.transport === "context7" && url.pathname.endsWith("/libs/search");
+				if (!libraryLookup && fixture.fault && !(fixture.once && this.usedFaults.has(fixture))) {
 					this.usedFaults.add(fixture);
 					return faultResponse(fixture.fault, init?.signal);
 				}
 			}
 			if (rpc.method === "initialize") this.session++;
-			return fixtureResponse(fixture, rpc, method, this.session);
+			return fixtureResponse(fixture, rpc, method, this.session, url);
 		} finally {
 			this.replayMs += performance.now() - start;
 		}

@@ -1,6 +1,6 @@
 # pi-web-search
 
-> Pi's unified `search` tool for best-effort public web (keyless Exa and native Parallel MCP fallback), public code (grep.app, Sourcegraph, optional GitHub), URL-only extraction, and local evidence continuation. Fast effort is one provider plus fallback; thorough effort fans out across sources and is gated by `research.enabled`. External Jev judgment is a separate opt-in.
+> One `search` tool for Pi and stdio MCP. Use it for public web and code queries, versioned library docs, direct URL reading, and local evidence refs. Pass up to three queries per call. Web queries support recency and domain filters. Pi thorough search requires `research.enabled`.
 
 This file is a navigation index for agents, not an API specification. Paths are relative to this package. For the monorepo, see [root llms.txt](../llms.txt).
 
@@ -16,8 +16,12 @@ This file is a navigation index for agents, not an API specification. Paths are 
 - [Unified routing](src/search.ts): flat schema, query/URLs/ref exclusivity, fast versus thorough gating, and `reachesTools`.
 - [Configuration resolver](src/providers/config.ts): accepted settings and defaults.
 - [Provider orchestration](src/providers/index.ts): ordinary chains versus bounded thorough fan-out.
-- [Brave](src/providers/brave.ts): optional keyed REST search, compact snippets only.
-- [Jina Reader](src/providers/jina.ts): keyless URL-only extraction; no search routing or extra tools.
+- [Brave](src/providers/brave.ts): optional keyed LLM Context and Web Search.
+- [SearXNG](src/providers/searxng.ts): search an operator-configured instance.
+- [Context7](src/providers/context7.ts): optionally keyed search for versioned library docs.
+- [Standalone MCP](src/mcp.ts): stdio server exposing the shared search tool.
+- [Local reader](src/read/index.ts): direct page, PDF, and GitHub reading with Jina fallback.
+- [Jina Reader](src/providers/jina.ts): keyless fallback for eligible URL reads.
 - [Sourcegraph](src/providers/sourcegraph.ts): keyless stream search.
 - [GitHub](src/providers/github.ts): authenticated REST; token or `gh auth`.
 - [Jev classifier](src/classifier/api.ts): Pi model registry typed classification.

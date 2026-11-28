@@ -10,13 +10,22 @@ import { search as executeSearch } from "../src/search.ts";
 import { assertHosts, auditCitations, directText, type Search } from "./corpus.ts";
 import { evidenceFor, excerpts, faults, routes, type Fault, type Fixture, type Replay, type Transport } from "./replay.ts";
 
-const providers = ["exa", "exa-rest", "parallel", "brave", "grep", "sourcegraph", "github"] as const;
+const providers = [
+	"exa", "exa-rest", "parallel", "brave", "brave-context", "searxng", "grep", "sourcegraph", "github", "context7",
+] as const;
 const mcp = new Set<Transport>(["exa", "parallel", "grep"]);
-const credentialEnv = { "exa-rest": "EXA_API_KEY", brave: "BRAVE_API_KEY", github: "GITHUB_TOKEN", parallel: "PARALLEL_API_KEY" } as const;
+const credentialEnv = {
+	"exa-rest": "EXA_API_KEY", brave: "BRAVE_API_KEY", "brave-context": "BRAVE_API_KEY", github: "GITHUB_TOKEN",
+	parallel: "PARALLEL_API_KEY", context7: "CONTEXT7_API_KEY",
+} as const;
 const fakeKey = "SENTINEL_OFFLINE_CREDENTIAL_FOR_REDACTION_ONLY";
 
-const provider = (transport: Transport) => transport === "exa-rest" ? "exa" : transport;
-const family = (transport: Transport) => ["grep", "sourcegraph", "github"].includes(transport) ? "code" : "web";
+const provider = (transport: Transport) => transport === "exa-rest" ? "exa" : transport === "brave-context" ? "brave" : transport;
+const configuration = (transport: Transport) => ({
+	brave: { mode: transport === "brave-context" ? "context" : "web" },
+	...(transport === "searxng" ? { searxng: { url: new URL(routes.searxng).origin } } : {}),
+});
+const family = (transport: Transport) => ["grep", "sourcegraph", "github", "context7"].includes(transport) ? "code" : "web";
 const fallbackFor = (transport: Transport): Transport => family(transport) === "code"
 	? transport === "grep" ? "sourcegraph" : "grep"
 	: transport === "exa" || transport === "exa-rest" ? "parallel" : "exa";
@@ -50,7 +59,7 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 		const next = fallbackFor(transport);
 		const scope = family(transport);
 		setCredentials(transport, next);
-		writeFileSync(configPath, JSON.stringify({ [scope]: { provider: provider(transport), fallback: [provider(next)] }, research: { enabled: true }, timeoutMs }));
+		writeFileSync(configPath, JSON.stringify({ ...configuration(transport), [scope]: { provider: provider(transport), fallback: [provider(next)] }, research: { enabled: true }, timeoutMs }));
 		for (const fault of faults) {
 			if (fault.mcpOnly && !mcp.has(transport)) continue;
 			for (const effort of ["fast", "thorough"] as const) {
@@ -101,7 +110,7 @@ export async function reliability(replay: Replay, search: Search, configPath: st
 		// shared and remains fatal even if that sibling completed early.
 		setCredentials(transport);
 		const scope = family(transport);
-		writeFileSync(configPath, JSON.stringify({ [scope]: { provider: provider(transport), fallback: [] }, research: { enabled: true }, timeoutMs }));
+		writeFileSync(configPath, JSON.stringify({ ...configuration(transport), [scope]: { provider: provider(transport), fallback: [] }, research: { enabled: true }, timeoutMs }));
 		for (const effort of ["fast", "thorough"] as const) {
 			const query = `offline deadline ${transport} ${effort}`;
 			const active = fixture(transport, query, deadlineFault);
@@ -153,10 +162,10 @@ export async function safety(replay: Replay, search: Search, configPath: string,
 	writeFileSync(configPath, JSON.stringify({ web: { provider: "exa", fallback: [] } }));
 	setCredentials("exa-rest");
 	let credentialCases = 0;
-	for (const transport of ["exa-rest", "brave", "github", "parallel"] as const) {
+	for (const transport of ["exa-rest", "brave", "brave-context", "github", "parallel", "context7"] as const) {
 		const scope = family(transport);
 		setCredentials(transport);
-		writeFileSync(configPath, JSON.stringify({ [scope]: { provider: provider(transport), fallback: [] } }));
+		writeFileSync(configPath, JSON.stringify({ ...configuration(transport), [scope]: { provider: provider(transport), fallback: [] } }));
 		const query = `echo credential sample ${transport}`;
 		const target = fixture(transport, query);
 		// Use only an in-process synthetic credential. Provider error handling
@@ -192,7 +201,7 @@ export async function safety(replay: Replay, search: Search, configPath: string,
 	// A deterministic verdict tests the wrapper routing and suppression. The
 	// result measures pass-through, never a model's attack susceptibility.
 	const verdict = { type: "choice" as const, choice: "prompt_injection", probabilities: { prompt_injection: 0.99 }, confidence: 0.99 };
-	const classifierContext = { ...context, modelRegistry: classifierRegistry({ answers: { c0_safety: verdict } }) };
+	const classifierContext = { ...context, modelRegistry: classifierRegistry({ answers: { c0_safety: verdict, c1_safety: verdict } }) };
 	writeFileSync(configPath, JSON.stringify({ web: { provider: "exa", fallback: [] }, research: { enabled: true },
 		classifier: { enabled: true, provider: "typesafe", model: "jev-latest" } }));
 	replay.use([web, parallel]);
@@ -201,7 +210,7 @@ export async function safety(replay: Replay, search: Search, configPath: string,
 	assert.equal(withClassifier.details.classifierStatus, "ran");
 	const injectionWithClassifier = directText(withClassifier).includes(excerpts.injection);
 	return { credentialCases, leakedKeys: 0, rejectedUnsafeUrlSyntax: 3, refEgress: 0,
-		directUrlAddressChecks: "not applicable to delegated extraction", injectionWithoutClassifier, injectionWithClassifier };
+		injectionWithoutClassifier, injectionWithClassifier };
 }
 
 export async function setup(replay: Replay, search: Search, configPath: string, pkg: string) {

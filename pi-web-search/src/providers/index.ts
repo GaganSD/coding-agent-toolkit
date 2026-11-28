@@ -1,5 +1,6 @@
 import { braveApiKey, githubToken, parallelApiKey } from "../env.ts";
 import { type ResolvedSettings } from "./config.ts";
+import { applyDomainFilter, type WebFilters } from "./filters.ts";
 import { awaitWithSignal } from "./http.ts";
 import { reuseTransport } from "./reuse.ts";
 import { mergeStreamResults } from "./results.ts";
@@ -17,6 +18,11 @@ import {
 
 export interface SearchRequest {
 	query: string;
+	/** Original user wording for providers with distinct relevance objectives. */
+	objective?: string;
+	filters?: WebFilters;
+	/** Explicit Context7 library ID for code scope. */
+	library?: string;
 	/** URL retrieval without a search request. */
 	fetchOnly?: boolean;
 	/** Session identity enables bounded reuse for direct HTTP transports only. */
@@ -36,16 +42,22 @@ export type SearchTransport = (req: SearchRequest) => Promise<StreamResult>;
 export type ProviderTransportMap = Partial<Record<ProviderKind, SearchTransport>>;
 
 export interface RunSearchOptions {
+	/** Thorough transport fan-out limit for one member of a query batch. */
+	transportLimit?: number;
 	/** Injected transports win over the default Exa/Parallel ones. */
 	transports?: ProviderTransportMap;
 	/** Injected credential knowledge wins over `providerAvailability()`. */
 	availability?: Partial<Record<ProviderKind, boolean>>;
 	/** Overrides how the default transports are loaded. */
 	loadTransports?: () => Promise<ProviderTransportMap>;
-	/** URL extractor override for offline tests; production uses keyless Jina Reader. */
+	/** Legacy URL extractor seam retained for injected provider tests. */
 	fetchUrls?: SearchTransport;
+	/** Local-first URL reader override for offline replay. */
+	readUrls?: SearchTransport;
 	/** The tool scope; omitted only for cross-family research. */
 	family?: ProviderFamily;
+	/** Standalone MCP supports thorough retrieval without Pi judgment. */
+	standalone?: boolean;
 }
 
 /**
@@ -53,6 +65,7 @@ export interface RunSearchOptions {
  */
 export function providerAvailability(
 	family?: ProviderFamily,
+	settings?: ResolvedSettings,
 ): Record<ProviderKind, boolean> {
 	const code = family !== "web";
 	return {
@@ -62,6 +75,8 @@ export function providerAvailability(
 		grep: code,
 		sourcegraph: code,
 		github: code && hasGitHubToken(),
+		searxng: family !== "code" && settings?.searxng !== undefined,
+		context7: code,
 	};
 }
 
@@ -71,11 +86,17 @@ export function providerAvailability(
  */
 export function listRunnableProviders(
 	settings: ResolvedSettings,
-	availability: Partial<Record<ProviderKind, boolean>> = providerAvailability(),
+	availability: Partial<Record<ProviderKind, boolean>> | undefined = undefined,
 	family?: ProviderFamily,
 ): ProviderKind[] {
+	availability ??= providerAvailability(family, settings);
 	const families = family ? [family] : ["web", "code"] as const;
-	const preferred = families.flatMap((scope) => [settings[scope].provider, ...settings[scope].fallback, ...DEFAULT_CHAIN[scope], ...(scope === "web" ? ["brave" as const] : [])]);
+	const preferred = families.flatMap((scope) => {
+		const { provider, fallback } = settings[scope];
+		// A self-hosted-only web chain must stay on its configured origin at either effort.
+		if (provider === "searxng" && fallback.every((kind) => kind === "searxng")) return [provider];
+		return [provider, ...fallback, ...DEFAULT_CHAIN[scope], ...(scope === "web" ? ["brave" as const] : [])];
+	});
 	const chain: ProviderKind[] = [];
 	for (const kind of preferred) {
 		if (
@@ -95,15 +116,16 @@ export function listRunnableProviders(
  */
 export function resolveProviderChain(
 	settings: ResolvedSettings,
-	availability: Partial<Record<ProviderKind, boolean>> = providerAvailability(),
+	availability: Partial<Record<ProviderKind, boolean>> | undefined = undefined,
 	family: ProviderFamily = "web",
 ): ProviderKind[] {
+	const available = availability ?? providerAvailability(family, settings);
 	const configured = settings[family];
 	const chain: ProviderKind[] = [];
 	const add = (kind: ProviderKind) => {
 		if (
 			providerFamily(kind) === family &&
-			availability[kind] === true &&
+			available[kind] === true &&
 			!chain.includes(kind)
 		) {
 			chain.push(kind);
@@ -135,7 +157,9 @@ export async function runSearch(
 	options: RunSearchOptions = {},
 ): Promise<StreamResult> {
 	if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
-	const chain = resolveProviderChain(req.settings, options.availability, options.family);
+	const chain = req.library && options.family === "code"
+		? ["context7" as const]
+		: resolveProviderChain(req.settings, options.availability, options.family);
 	if (chain.length === 0) {
 		throw missingCredentials(req.settings[options.family ?? "web"].provider, describeNoCredentials(options.family));
 	}
@@ -163,12 +187,13 @@ export async function runSearch(
 		}
 		req.onRetrieval?.({ type: "started", kinds: [kind] });
 		try {
-			const result = await runTransport((request) => reuseTransport(kind, request, transport), req);
-			const hits = result.searchResults?.length ?? 0;
-			const more = i < chain.length - 1 && options.family === "code";
-			if (hits === 0 && more) {
+			const result = await retrieve(kind, req, transport);
+			const more = i < chain.length - 1;
+			const webSearch = providerFamily(kind) === "web" && !req.fetchOnly;
+			const empty = !result.searchResults?.length && (options.family === "code" || !result.sources?.length && !result.text.trim());
+			if (empty && (webSearch || more && options.family === "code")) {
 				notes.push(...(result.warnings ?? []), `${kind} returned no results.`);
-				lastEmpty = withNotes(result, notes);
+				lastEmpty = result;
 				req.onRetrieval?.(outcome(kind, result, true));
 				continue;
 			}
@@ -210,6 +235,14 @@ function withNotes(result: StreamResult, notes: string[]): StreamResult {
 		...result,
 		warnings: [...(result.warnings ?? []), ...extra],
 	};
+}
+
+/** Keep web rules out of code transports and enforce the final domain boundary locally. */
+async function retrieve(kind: ProviderKind, req: SearchRequest, transport: SearchTransport): Promise<StreamResult> {
+	const web = providerFamily(kind) === "web";
+	const request = web ? { ...req, library: undefined } : { ...req, filters: undefined, objective: undefined };
+	const result = await runTransport((input) => reuseTransport(kind, input, transport), request);
+	return web ? applyDomainFilter(result, req.filters?.domains) : result;
 }
 
 /** Loader failures skip transports, but operation cancellation must not degrade. */
@@ -292,16 +325,15 @@ export async function runParallelSearch(
 		throw abortReason(req.signal?.reason);
 	}
 
-	const availability = options.availability ?? providerAvailability();
+	const availability = options.availability ?? providerAvailability(options.family, req.settings);
 	const requested =
 		options.family === undefined
 			? [...DEFAULT_CHAIN.web, ...DEFAULT_CHAIN.code]
 			: DEFAULT_CHAIN[options.family];
-	const kinds = listRunnableProviders(
-		req.settings,
-		availability,
-		options.family,
-	);
+	const kinds = req.library && options.family === "code"
+		? ["context7" as const]
+		: listRunnableProviders(req.settings, availability, options.family).filter((kind) =>
+			!req.library || providerFamily(kind) === "web").concat(req.library ? ["context7"] : []);
 	const skipNotes = requested
 		.filter((kind) => availability[kind] !== true)
 		.map((kind) => `${kind} skipped: not available.`);
@@ -312,7 +344,7 @@ export async function runParallelSearch(
 	const transports = await searchTransports(req, options);
 
 	const warnings: string[] = [...skipNotes];
-	const runnable: ProviderKind[] = [];
+	const eligible: ProviderKind[] = [];
 	const counts = { web: 0, code: 0 };
 	for (const kind of kinds) {
 		if (!transports[kind]) {
@@ -322,8 +354,13 @@ export async function runParallelSearch(
 		const family = providerFamily(kind);
 		if (counts[family] >= 2) continue;
 		counts[family]++;
-		runnable.push(kind);
+		eligible.push(kind);
 	}
+	const limit = options.transportLimit ?? eligible.length;
+	const codeSlot = options.family === undefined && limit >= 2 && !eligible.slice(0, limit).some((kind) => providerFamily(kind) === "code")
+		? eligible.find((kind) => providerFamily(kind) === "code")
+		: undefined;
+	const runnable = codeSlot ? [...eligible.slice(0, limit - 1), codeSlot] : eligible.slice(0, limit);
 	if (runnable.length === 0) {
 		throw missingCredentials(
 			kinds[0],
@@ -338,7 +375,7 @@ export async function runParallelSearch(
 			if (!transport) {
 				throw missingCredentials(kind, `No transport is registered for ${kind}.`);
 			}
-			return { kind, result: await runTransport((request) => reuseTransport(kind, request, transport), req) };
+			return { kind, result: await retrieve(kind, req, transport) };
 		}),
 	);
 
@@ -393,13 +430,15 @@ function describeNoCredentials(target: ProviderFamily = "web"): string {
  * so the chain skips that provider instead of failing the whole search.
  */
 async function loadDefaultTransports(): Promise<ProviderTransportMap> {
-	const [exa, parallel, grep, sourcegraph, github, brave] = await Promise.all([
+	const [exa, parallel, grep, sourcegraph, github, brave, searxng, context7] = await Promise.all([
 		import("./exa.ts").catch(() => undefined),
 		import("./parallel.ts").catch(() => undefined),
 		import("./grep.ts").catch(() => undefined),
 		import("./sourcegraph.ts").catch(() => undefined),
 		import("./github.ts").catch(() => undefined),
 		import("./brave.ts").catch(() => undefined),
+		import("./searxng.ts").catch(() => undefined),
+		import("./context7.ts").catch(() => undefined),
 	]);
 	const map: ProviderTransportMap = {};
 	const assign = (kind: ProviderKind, fn: unknown) => {
@@ -413,5 +452,7 @@ async function loadDefaultTransports(): Promise<ProviderTransportMap> {
 	assign("sourcegraph", sourcegraph?.sourcegraphSearch);
 	assign("github", github?.githubSearch);
 	assign("brave", brave?.braveSearch);
+	assign("searxng", searxng?.searxngSearch);
+	assign("context7", context7?.context7Search);
 	return map;
 }

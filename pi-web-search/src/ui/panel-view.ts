@@ -127,7 +127,7 @@ export function renderPanel(panel: WebSearchPanel, th: Theme, width: number, row
 		if (isAccount(row)) return accountLines(columns);
 		if (row === "classifier") return panel.classifierLoading ? [rowLine(status("dim", "◌ Checking…"), true, right, columns)] : ranking();
 		const provider = active?.provider;
-		return provider ? [gutter + (providerReady(provider) ? status("success", ready) : status("warning", skipped))] : [];
+		return provider ? [gutter + (providerReady(provider, settings) ? status("success", ready) : status("warning", skipped))] : [];
 	};
 	const detailContent = (columns: number, slots: number) => {
 		const statusLines = notes(columns);

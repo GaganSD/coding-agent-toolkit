@@ -23,7 +23,7 @@ function safeArgs(raw: unknown): SearchInput {
 	if (!raw || typeof raw !== "object") return {};
 	const { query, urls, ref, find, scope, effort } = raw as Partial<Record<keyof SearchInput, unknown>>;
 	return {
-		query: typeof query === "string" ? query : undefined,
+		query: typeof query === "string" || Array.isArray(query) && query.every((term) => typeof term === "string") ? query : undefined,
 		ref: typeof ref === "string" ? ref : undefined,
 		find: typeof find === "string" ? find : undefined,
 		urls: Array.isArray(urls) && urls.every((url) => typeof url === "string") ? urls : undefined,
@@ -40,13 +40,14 @@ export function renderCall(raw: unknown, theme: Theme, context: { state: Transcr
 		render(width: number) {
 			const args = safeArgs(raw);
 			const code = args.scope === "code";
-			const parsed = code && args.query !== undefined ? parseCodeQuery(args.query) : undefined;
+			const parsed = code && typeof args.query === "string" ? parseCodeQuery(args.query) : undefined;
 			const index = args.ref?.match(/:(\d+)$/)?.[1];
 			const total = context.state.storedCount;
 			const tag = args.ref !== undefined ? (index ? `result ${index}${total === undefined ? "" : ` of ${total}`}` : "saved results")
 				: args.urls ? countOf(args.urls.length, "URL")
 				: joined(code && "code", parsed?.repo, parsed?.languages.join(", "), (args.effort === "thorough" || args.scope === "both") && "multi-source");
-			const query = args.query === undefined ? "" : ` ${theme.fg("text", JSON.stringify(plainLine(parsed?.literal ?? args.query)))}`;
+			const query = Array.isArray(args.query) && args.query.length ? ` ${theme.fg("text", countOf(args.query.length, "query", "queries"))}`
+				: typeof args.query !== "string" ? "" : ` ${theme.fg("text", JSON.stringify(plainLine(parsed?.literal ?? args.query)))}`;
 			return [truncateToWidth(`${title}${query}${tag ? ` ${theme.fg("muted", plainLine(tag))}` : ""}`, width)];
 		},
 		invalidate() {},
@@ -170,7 +171,7 @@ function compact(details: WebSearchDetails, args: SearchInput): string {
 		const files = new Set(hits.map((hit, i) => locations[i].file ? `${locations[i].repo}/${locations[i].file}` : hit.url?.split("#")[0]).filter(Boolean));
 		const repos = [...new Set(locations.flatMap(({ repo }) => repo ?? []))];
 		return joined(countOf(count, "match", "matches") + (files.size ? ` in ${countOf(files.size, "file")}` : ""),
-			repos.length === 1 ? repos[0] : parseCodeQuery(args.query ?? "").repo,
+			repos.length === 1 ? repos[0] : typeof args.query === "string" ? parseCodeQuery(args.query).repo : undefined,
 			...notices, time);
 	}
 	const contributing = (details.contributors ?? details.providers)?.length ?? 0;

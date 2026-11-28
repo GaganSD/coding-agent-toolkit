@@ -47,7 +47,15 @@ if (!child) {
 	} as unknown as ExtensionAPI);
 	assert.deepEqual(registered, ["search"]);
 	assert.ok(execute);
-	const search = execute;
+	const registeredSearch = execute;
+	const { search: toolSearch } = await import("../src/search.ts");
+	const { jinaFetch } = await import("../src/providers/jina.ts");
+	const { readUrls } = await import("../src/read/index.ts");
+	// Keep the frozen corpus comparable by retaining its delegated URL
+	// response format. Additional release suites exercise the real local path.
+	const search: Search = (input, signal) => input.urls
+		? toolSearch(`bench-${++callNumber}`, input, signal, undefined, context, { readUrls: jinaFetch })
+		: registeredSearch(input, signal);
 	const coldStartMs = performance.now() - start;
 	const { percentile, reliability, safety, setup } = await import("./suites.ts");
 
@@ -137,18 +145,34 @@ if (!child) {
 	const reliabilityReport = await reliability(replay, search, configPath);
 	const safetyReport = await safety(replay, search, configPath, context);
 	const setupReport = await setup(replay, search, configPath, pkg);
+	const { measureLocalReading, measureAddressSafety } = await import("./release-reader.ts");
+	const { measureMcp } = await import("./release-mcp.ts");
+	selectSession("release-reader");
+	writeFileSync(configPath, "{}");
+	const callLocal: Parameters<typeof measureLocalReading>[0] = (input, transport) =>
+		toolSearch(`bench-${++callNumber}`, input, undefined, undefined, context, {
+			readUrls: (request) => readUrls(request, { transport, runGh: async () => undefined, githubToken: () => undefined }),
+		});
+	const direct = await measureLocalReading(callLocal, replay, "Pi");
+	const addressSafety = await measureAddressSafety(callLocal, replay, "Pi");
+	const mcp = await measureMcp(replay, configPath);
+	const { measureReleaseProviders, measureReleaseEfficiency } = await import("./release-providers.ts");
+	selectSession("release-providers");
+	const providers = await measureReleaseProviders(search, replay, configPath);
+	selectSession("release-efficiency");
+	const efficiency = await measureReleaseEfficiency(search, replay, configPath);
 	const { measureFootprint } = await import("../scripts/footprint.ts");
 	const footprint = await measureFootprint();
 	replay.assertClean();
 	const footprintMode = footprint.modes.default;
-	assert.ok(footprintMode.estimatedTokens <= 380, "Search declaration exceeded 380 estimated tokens");
+	assert.ok(footprintMode.estimatedTokens <= 400, "Search declaration exceeded 400 estimated tokens");
 	assert.equal(footprint.result.previewCount, 8);
 	assert.ok(footprint.result.directChars <= 4500);
 	assert.ok(footprint.result.structuredChars <= 6000);
 
 	const report = {
 		schemaVersion: 1,
-		gitRevision: process.env.PI_BENCHMARK_GIT_REVISION,
+		gitRevision: process.env.PI_BENCHMARK_GIT_REVISION?.slice(0, 12),
 		node: process.version,
 		taskCount: tasks.length,
 		context: {
@@ -160,7 +184,11 @@ if (!child) {
 		},
 		citation: { citedHits: citationChecks, missingUrls: 0, inventedUrls: 0, alteredSnippets: 0, refChecks, cursorChecks },
 		reliability: reliabilityReport,
-		safety: safetyReport,
+		safety: { ...safetyReport, addressSafety },
+		direct,
+		mcp,
+		providers,
+		efficiency,
 		setup: setupReport,
 		overhead: { replayAdjustedP50Ms: percentile(overheadMs, 0.5), replayAdjustedP95Ms: percentile(overheadMs, 0.95),
 			coldRegistrationMs: Number(coldStartMs.toFixed(2)), peakRssKiB: process.resourceUsage().maxRSS },
@@ -179,8 +207,29 @@ if (!child) {
 		["Cited hits", report.citation.citedHits, previous?.citation.citedHits],
 		["Ref passages", report.citation.refChecks, previous?.citation.refChecks],
 		["Cursor reads", report.citation.cursorChecks, previous?.citation.cursorChecks],
+		["Direct URL citations", report.direct.citations, previous?.direct?.citations],
+		["Blocked address scenarios (Pi)", report.safety.addressSafety.blockedAddresses, previous?.safety.addressSafety?.blockedAddresses],
+		["Blocked address scenarios (MCP)", report.mcp.safety.blockedAddresses, previous?.mcp?.safety.blockedAddresses],
+		["MCP cited hits", report.mcp.citedHits, previous?.mcp?.citedHits],
+		["MCP ref passages", report.mcp.refChecks, previous?.mcp?.refChecks],
+		["MCP cursor reads", report.mcp.cursorChecks, previous?.mcp?.cursorChecks],
+		["Pi input declaration tokens", report.mcp.declaration.piInputTokens, previous?.mcp?.declaration.piInputTokens],
+		["MCP input declaration tokens", report.mcp.declaration.mcpInputTokens, previous?.mcp?.declaration.mcpInputTokens],
+		["Pi declaration tokens with annotations", report.mcp.declaration.piWithAnnotationsTokens, previous?.mcp?.declaration.piWithAnnotationsTokens],
+		["Full MCP declaration tokens", report.mcp.declaration.mcpFullTokens, previous?.mcp?.declaration.mcpFullTokens],
+		["New provider citations", report.providers.providerCitations, previous?.providers?.providerCitations],
+		["Native filter mappings", report.providers.mappedFilters, previous?.providers?.mappedFilters],
+		["Unsupported recency warnings", report.providers.recencyWarnings, previous?.providers?.recencyWarnings],
+		["Batched queries in one tool call", report.efficiency.batchProviderCalls, previous?.efficiency?.batchProviderCalls],
+		["Healthy query groups retained in partial batch", report.efficiency.partialBatchGroupsRetained, previous?.efficiency?.partialBatchGroupsRetained],
+		["Query-aware preview checks", report.efficiency.queryAwarePreviews, previous?.efficiency?.queryAwarePreviews],
+		["Fault scenarios exercised", report.reliability.cases, previous?.reliability.cases],
 		["Retryable faults recovered", report.reliability.retryableRecovered, previous?.reliability.retryableRecovered],
 		["Partial success cases preserved", report.reliability.partialSuccess, previous?.reliability.partialSuccess],
+		["Expired MCP sessions recovered", report.reliability.sessionRecovered, previous?.reliability.sessionRecovered],
+		["Credential redaction probes", report.safety.credentialCases, previous?.safety.credentialCases],
+		["Keys leaked", report.safety.leakedKeys, previous?.safety.leakedKeys],
+		["Actionable setup errors", report.setup.actionableErrors, previous?.setup.actionableErrors],
 		["Deadline p99 (ms)", report.reliability.deadlineP99Ms, previous?.reliability.deadlineP99Ms],
 		["Abort (ms)", report.reliability.abortMs, previous?.reliability.abortMs],
 		["Wrapper over replay p50 (ms)", report.overhead.replayAdjustedP50Ms, previous?.overhead.replayAdjustedP50Ms],
@@ -191,7 +240,7 @@ if (!child) {
 	const formatted = (value: number) => Number(value.toFixed(2)).toString();
 	const markdown = [
 		"# Offline search wrapper benchmark", "",
-		`Package source commit \`${process.env.PI_BENCHMARK_SOURCE_COMMIT}\`. Node \`${report.node}\`.`, "",
+		`Package source commit \`${process.env.PI_BENCHMARK_GIT_REVISION}\`. Node \`${report.node}\`.`, "",
 		"| Metric | Current | Baseline | Delta |", "| --- | ---: | ---: | ---: |",
 		...rows.map(([name, current, old]) => `| ${name} | ${formatted(current)} | ${old === undefined ? "–" : formatted(old)} | ${old === undefined ? "–" : formatted(current - old)} |`),
 		"", "Evidence density and duplicate rate are percentages. Timing and memory are advisory.", "",

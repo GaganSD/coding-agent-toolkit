@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createAgentSession, DefaultResourceLoader, ModelRegistry, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { CREDENTIAL_ENV_ALIASES } from "../src/env.ts";
-import type { SearchInput } from "../src/search.ts";
+import { search, type SearchInput } from "../src/search.ts";
+import { jinaFetch } from "../src/providers/jina.ts";
 import { loadTasks, taskFixtures, type Step } from "./corpus.ts";
 import { directory, Replay } from "./replay.ts";
 
@@ -65,11 +66,16 @@ async function run(requested: string[]): Promise<void> {
 					tool.definition.execute = (id, params: SearchInput, signal, update, context) => {
 						const replay = new Replay();
 						replays.push(replay);
-						let step: Step | undefined;
-						if (params.query && !params.urls && !params.ref) step = { query: params.query.trim(), scope: params.scope ?? "web" };
-						else if (params.urls?.every((url) => urlAllowlist.has(url))) step = { urls: params.urls };
-						replay.use(step ? taskFixtures(task, replays.length - 1, step, params.effort === "thorough") : []);
-						return replayContext.run(replay, () => execute(id, params, signal, update, context));
+						const steps: Step[] = [];
+						if (params.query && !params.urls && !params.ref) {
+							for (const query of Array.isArray(params.query) ? params.query : [params.query]) {
+								steps.push({ query: query.trim(), scope: params.scope ?? "web" });
+							}
+						} else if (params.urls?.every((url) => urlAllowlist.has(url))) steps.push({ urls: params.urls });
+						replay.use(steps.flatMap((step, index) => taskFixtures(task, replays.length + index - 1, step, params.effort === "thorough")));
+						return replayContext.run(replay, () => params.urls
+							? search(id, params, signal, update, context, { readUrls: jinaFetch })
+							: execute(id, params, signal, update, context));
 					};
 					const { session } = await createAgentSession({ model, cwd: root, agentDir: root, settingsManager, modelRuntime: runtime,
 						resourceLoader: loader, sessionManager: SessionManager.inMemory(root), tools: ["search"] });

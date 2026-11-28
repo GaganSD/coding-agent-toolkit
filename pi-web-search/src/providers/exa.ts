@@ -1,3 +1,5 @@
+import { PREVIEW_PASSAGE_CHARS } from "../previews.ts";
+import { domainPolicy, recencyStart, recencyWarning } from "./filters.ts";
 import { exaApiKey } from "../env.ts";
 import { type FetchLike, postJson } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
@@ -162,6 +164,7 @@ async function keyedSearch(
 	options: ExaSearchOptions,
 ): Promise<StreamResult> {
 	const headers = { "x-api-key": apiKey, "Content-Type": "application/json" };
+	const { includes, excludes } = domainPolicy(req.filters?.domains);
 	const fetched = fetchableUrls(req);
 	const warnings: string[] = [...fetched.warnings];
 
@@ -173,6 +176,9 @@ async function keyedSearch(
 			query: req.query,
 			numResults: req.settings.maxResults,
 			type: "auto",
+			...(includes.length ? { includeDomains: includes } : {}),
+			...(excludes.length ? { excludeDomains: excludes } : {}),
+			...(req.filters?.recency ? { startPublishedDate: recencyStart(req.filters.recency) } : {}),
 			contents: {
 				highlights: { numSentences: EXA_HIGHLIGHT_SENTENCES },
 				text: false,
@@ -200,13 +206,17 @@ async function keyedSearch(
 	}
 	const body = asObject(searchOutcome.value, EXA_SEARCH_URL);
 	const results: SearchResultDetail[] = toSearchResults(body.results).map(
-		(result) => ({
-			title: result.title,
-			url: result.url,
-			source: PROVIDER_NAME,
-			pageAge: result.publishedDate ?? null,
-			citedText: joinHighlights(result.highlights),
-		}),
+		(result) => {
+			const citedText = joinHighlights(result.highlights);
+			return {
+				title: result.title,
+				url: result.url,
+				source: PROVIDER_NAME,
+				pageAge: result.publishedDate ?? null,
+				citedText,
+				...(citedText.length > PREVIEW_PASSAGE_CHARS && result.highlights?.[0] ? { highlight: result.highlights[0] } : {}),
+			};
+		},
 	);
 
 	if (fetchPromise) {
@@ -276,7 +286,8 @@ async function keylessSearch(
 	options: ExaSearchOptions,
 ): Promise<StreamResult> {
 	const fetched = fetchableUrls(req);
-	const warnings: string[] = [...fetched.warnings];
+	const warning = recencyWarning("Exa keyless MCP", req.filters?.recency);
+	const warnings = [...fetched.warnings, ...(warning ? [warning] : [])];
 
 	// One session for the whole operation: search and the caller's URL fetches
 	// share the handshake and run concurrently (RPC ids keep the replies apart).
@@ -489,12 +500,14 @@ function pushGroup(
 	if (!group?.url) {
 		return;
 	}
+	const citedText = group.highlights.join("\n").trim();
 	results.push({
 		title: group.title,
 		url: group.url,
 		source: PROVIDER_NAME,
 		pageAge: group.published,
-		citedText: group.highlights.join("\n").trim(),
+		citedText,
+		...(citedText.length > PREVIEW_PASSAGE_CHARS && group.highlights[0] ? { highlight: group.highlights[0] } : {}),
 	});
 }
 

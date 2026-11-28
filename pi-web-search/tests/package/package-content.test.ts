@@ -14,18 +14,20 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		files: [...packageAllowlist],
 		keywords: ["pi-package"],
 		pi: { extensions: ["./src/index.ts"] },
-		dependencies: { "cross-spawn": "7.0.6", "proper-lockfile": "4.1.2" },
+		dependencies: {
+			"@mixmark-io/domino": "2.2.0", "@mozilla/readability": "0.6.0", "cross-spawn": "7.0.6",
+			"proper-lockfile": "4.1.2", turndown: "7.2.5", typebox: "1.3.37", unpdf: "2.2.3",
+		},
+		bin: { "pi-web-search": "dist/mcp.js" },
 		peerDependenciesMeta: {
 			"@earendil-works/pi-ai": { optional: true },
 			"@earendil-works/pi-coding-agent": { optional: true },
 			"@earendil-works/pi-tui": { optional: true },
-			typebox: { optional: true },
 		},
 		peerDependencies: {
 			"@earendil-works/pi-ai": "*",
 			"@earendil-works/pi-coding-agent": "*",
 			"@earendil-works/pi-tui": "*",
-			typebox: "*",
 		},
 	};
 	const files = new Map([
@@ -35,6 +37,7 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		["src/index.ts", 'import { Type } from "@earendil-works/pi-ai";\nexport { value } from "./value.ts";\nexport default function () {}'],
 		["src/value.ts", 'import { readFile } from "node:fs/promises";\nexport const value = 1;\nconst load = () => import("./nested/other.ts");'],
 		["src/nested/other.ts", "export default 2;"],
+		["dist/mcp.js", "#!/usr/bin/env node\n"],
 	]);
 	return { manifest, files };
 }
@@ -45,11 +48,11 @@ function validate(change: (sample: ReturnType<typeof fixture>) => void): void {
 	validatePackageContent(value.manifest, value.files);
 }
 
-test("package-content accepts a complete source-only Pi package without future docs", () => {
+test("package-content accepts a complete Pi and MCP package without future docs", () => {
 	assert.doesNotThrow(() => validate(() => {}));
 });
 
-test("package-content permits future llms.txt and Markdown/text docs, not generated artifacts or secrets", () => {
+test("package-content permits future llms.txt and Markdown/text docs, rejects unexpected artifacts and secrets", () => {
 	assert.doesNotThrow(() => validate(({ files }) => {
 		files.set("llms.txt", "# Search\n");
 		files.set("docs/configuration.md", "# Configuration\n");
@@ -61,7 +64,7 @@ test("package-content permits future llms.txt and Markdown/text docs, not genera
 });
 
 test("package-content requires the README, license, and declared TS entrypoint", () => {
-	for (const path of ["package.json", "README.md", "LICENSE", "src/index.ts"]) {
+	for (const path of ["package.json", "README.md", "LICENSE", "src/index.ts", "dist/mcp.js"]) {
 		assert.throws(() => validate(({ files }) => files.delete(path)), /Missing required package file/);
 	}
 	assert.throws(() => validate(({ manifest }) => { manifest.pi.extensions = ["./dist/index.js"]; }));
@@ -98,7 +101,7 @@ test("package-content prevents bundling or separately version-resolving host pac
 	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /Unexpected runtime dependencies/);
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependencies["@earendil-works/pi-ai"] = ">=0.99.0"; }), /must be supplied by Pi/);
 	assert.throws(() => validate(({ manifest }) => { manifest.files.push("tests"); }));
-	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta.typebox.optional = false; }), /must not install automatically/);
+	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta["@earendil-works/pi-ai"].optional = false; }), /must not install automatically/);
 });
 
 test("package-content rejects install-time lifecycle scripts", () => {

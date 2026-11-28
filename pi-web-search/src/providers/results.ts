@@ -17,16 +17,20 @@ export function sourcesFromResults(results: SearchResultDetail[]): Source[] {
 	return sources;
 }
 
+/** Preserve query strings and fragments that identify distinct evidence. */
+export function evidenceKey(hit: SearchResultDetail): string | undefined {
+	return hit.url ? JSON.stringify([hit.url, hit.citedText, hit.type]) : undefined;
+}
+
 /** Exact evidence deduplication, not URL-only dedup: distinct passages stay distinct. */
 export function uniqueEvidence(result: StreamResult): StreamResult {
 	const seen = new Map<string, SearchResultDetail>();
 	const searchResults: SearchResultDetail[] = [];
 	for (const hit of result.searchResults ?? []) {
-		// Keep fragments and query strings: they can identify code lines or different pages.
-		const key = JSON.stringify([hit.url, hit.citedText, hit.type]);
-		if (!hit.url || !seen.has(key)) {
+		const key = evidenceKey(hit);
+		if (!key || !seen.has(key)) {
 			searchResults.push({ ...hit });
-			if (hit.url) seen.set(key, searchResults[searchResults.length - 1]);
+			if (key) seen.set(key, searchResults[searchResults.length - 1]);
 		} else {
 			const existing = seen.get(key)!;
 			const providers = new Set([...(existing.source ?? "").split(", "), ...(hit.source ?? "").split(", ")].filter(Boolean));

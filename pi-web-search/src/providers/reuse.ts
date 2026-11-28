@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { braveApiKey, exaApiKey, githubToken } from "../env.ts";
+import { braveApiKey, context7ApiKey, exaApiKey, githubToken } from "../env.ts";
 import { awaitWithSignal, withTimeout } from "./http.ts";
 import type { SearchRequest, SearchTransport } from "./index.ts";
 import { isProviderError, providerError, type EvidenceProvider, type StreamResult } from "./types.ts";
@@ -22,13 +22,13 @@ export function clearRetrievalCache(owner?: string): void {
 }
 
 /** Parallel keeps its previous uncached policy; other providers may reuse session evidence. */
-export async function reuseTransport(kind: EvidenceProvider, req: SearchRequest, transport: SearchTransport): Promise<StreamResult> {
+export async function reuseTransport(kind: EvidenceProvider, req: SearchRequest, transport: SearchTransport, lane?: "library"): Promise<StreamResult> {
 	const owner = req.reuseScope;
 	if (!owner || kind === "parallel") return transport(req);
 	if (req.signal?.aborted) throw req.signal.reason;
-	const credential = kind === "exa" ? exaApiKey() : kind === "github" ? githubToken() : kind === "brave" ? braveApiKey() : undefined;
+	const credential = kind === "exa" ? exaApiKey() : kind === "github" ? githubToken() : kind === "brave" ? braveApiKey() : kind === "context7" ? context7ApiKey() : undefined;
 	const policy = createHash("sha256").update(JSON.stringify([owner, kind, req.settings, credential ?? "anonymous"])).digest("hex");
-	const key = createHash("sha256").update(JSON.stringify([policy, req.query, req.urls, req.fetchOnly])).digest("hex");
+	const key = createHash("sha256").update(JSON.stringify([policy, req.query, req.urls, req.fetchOnly, req.filters, req.library, lane])).digest("hex");
 	const now = Date.now();
 	for (const [id, entry] of cache) if (entry.expires <= now) remove(id);
 	for (const [id, entry] of cooldowns) if (entry.until <= now) cooldowns.delete(id);

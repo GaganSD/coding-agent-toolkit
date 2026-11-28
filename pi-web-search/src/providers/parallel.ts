@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { parallelApiKey } from "../env.ts";
 import type { FetchLike, JsonRequestOptions } from "./http.ts";
 import { collectTextContent, type McpClient, withMcpSession } from "./mcp.ts";
+import { domainPolicy, recencyStart, recencyWarning, type WebFilters } from "./filters.ts";
+import { PREVIEW_PASSAGE_CHARS } from "../previews.ts";
+import { searchTerms } from "../search-terms.ts";
 import type { SearchRequest } from "./index.ts";
 import {
 	type SearchResultDetail,
@@ -22,9 +25,9 @@ export async function parallelSearch(req: SearchRequest, options: { fetchImpl?: 
 	const signal = req.signal;
 	let initialized = false;
 	try {
-		return await withMcpSession(sessionOptions(key, signal, options.fetchImpl, req.settings.timeoutMs), (client) => {
+		return await withMcpSession(sessionOptions(key, signal, options.fetchImpl, req.settings.timeoutMs, req.filters), (client) => {
 			initialized = true;
-			return retrieve(req, client);
+			return retrieve(req, client, key !== undefined);
 		});
 	} catch (error) {
 		if (initialized) throw error;
@@ -39,7 +42,7 @@ export async function probeParallelKey(key: string, signal: AbortSignal, fetchIm
 	});
 }
 
-function sessionOptions(key: string | undefined, signal?: AbortSignal, fetchImpl?: FetchLike, timeoutMs?: number) {
+function sessionOptions(key: string | undefined, signal?: AbortSignal, fetchImpl?: FetchLike, timeoutMs?: number, filters?: WebFilters) {
 	const httpError: JsonRequestOptions["httpError"] = (response, body) => {
 		const text = body.trim();
 		const snippet = text.length > 500 ? text.slice(0, 497) + "..." : text;
@@ -47,23 +50,37 @@ function sessionOptions(key: string | undefined, signal?: AbortSignal, fetchImpl
 		return providerError("http_error", status === 401 ? "MCP server requires authentication"
 			: `MCP HTTP request failed with status ${status}${snippet ? `: ${snippet}` : ""}`, { status });
 	};
-	return { url: PARALLEL_MCP_URL, signal, timeoutMs, fetchImpl, httpError, retryExpiredSession: true,
-		headers: key ? { Authorization: `Bearer ${key}` } : undefined };
+	const headers: Record<string, string> | undefined = key ? { Authorization: `Bearer ${key}` } : undefined;
+	if (headers && filters) {
+		const { includes, excludes } = domainPolicy(filters.domains);
+		// Parallel gives the native allow-list precedence. The registry always
+		// enforces both lists, including exclusions within allowed subdomains.
+		const sourcePolicy = {
+			...(includes.length ? { include_domains: includes } : excludes.length ? { exclude_domains: excludes } : {}),
+			...(filters.recency ? { after_date: recencyStart(filters.recency).slice(0, 10) } : {}),
+		};
+		if (Object.keys(sourcePolicy).length) {
+			headers["x-parallel-search-config"] = JSON.stringify({ advanced_settings: { source_policy: sourcePolicy } });
+		}
+	}
+	return { url: PARALLEL_MCP_URL, signal, timeoutMs, fetchImpl, httpError, retryExpiredSession: true, headers };
 }
 
-async function retrieve(req: SearchRequest, client: McpClient): Promise<StreamResult> {
+async function retrieve(req: SearchRequest, client: McpClient, authenticated: boolean): Promise<StreamResult> {
 	const metadata = requestMetadata(req);
-	const searchQueries = [req.query];
+	const objective = req.objective ?? req.query;
+	const terms = searchTerms(objective);
+	const searchQueries = [terms.length > 6 ? terms.slice(0, 6).join(" ") : objective];
 	// Observe both promises immediately; search and URL extraction are independent.
 	const [searchOutcome, fetchOutcome] = await Promise.allSettled([
 		req.fetchOnly ? Promise.resolve<Record<string, unknown>>({ results: [] }) : callParallel(client, SEARCH_TOOL, {
-			objective: req.query,
+			objective,
 			search_queries: searchQueries,
 			...metadata,
 		}, req.signal),
 		req.urls?.length ? callParallel(client, FETCH_TOOL, {
 			urls: req.urls.slice(0, MAX_FETCH_URLS),
-			objective: req.query.slice(0, 200) || "Extract the requested pages.",
+			objective: objective.slice(0, 200) || "Extract the requested pages.",
 			search_queries: req.fetchOnly ? [] : searchQueries,
 			full_content: false,
 			...metadata,
@@ -75,6 +92,8 @@ async function retrieve(req: SearchRequest, client: McpClient): Promise<StreamRe
 	const searchResults = hits.map((hit) => toDetail(hit));
 	const sources = hits.map(toSource);
 	const warnings = normalizeWarnings(search.warnings);
+	const warning = recencyWarning(authenticated ? "Parallel authenticated MCP" : "Parallel anonymous MCP", req.filters?.recency);
+	if (warning) warnings.push(warning);
 
 	if (req.urls?.length) {
 		try {
@@ -217,12 +236,14 @@ function normalizeResults(value: unknown): ParallelResult[] {
 }
 
 function toDetail(entry: ParallelResult, type?: string): SearchResultDetail {
+	const citedText = entry.excerpts.join("\n");
 	return {
 		title: entry.title ?? undefined,
 		url: entry.url,
 		source: "parallel",
 		pageAge: entry.publish_date,
-		citedText: entry.excerpts.join("\n"),
+		citedText,
+		...(citedText.length > PREVIEW_PASSAGE_CHARS && entry.excerpts[0] ? { highlight: entry.excerpts[0] } : {}),
 		...(type ? { type } : {}),
 	};
 }

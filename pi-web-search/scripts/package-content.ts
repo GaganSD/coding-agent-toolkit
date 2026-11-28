@@ -4,8 +4,8 @@ import { posix } from "node:path";
 import { SyntaxKind } from "typescript/unstable/ast";
 import { createScanner } from "typescript/unstable/ast/scanner";
 
-export const packageAllowlist = ["src", "README.md", "LICENSE", "llms.txt", "docs"];
-const hostPeers = ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox"];
+export const packageAllowlist = ["src", "README.md", "LICENSE", "llms.txt", "docs", "dist/mcp.js"];
+const hostPeers = ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"];
 
 export interface PackageManifest {
 	name: string;
@@ -16,6 +16,7 @@ export interface PackageManifest {
 	keywords: string[];
 	pi: { extensions: string[] };
 	dependencies?: Record<string, string>;
+	bin?: Record<string, string>;
 	scripts?: Record<string, string>;
 	peerDependencies: Record<string, string>;
 	peerDependenciesMeta: Record<string, { optional?: boolean }>;
@@ -29,7 +30,16 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	assert.ok(manifest.keywords.includes("pi-package"));
 	assert.deepEqual(manifest.files, packageAllowlist);
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
-	assert.deepEqual(manifest.dependencies, { "cross-spawn": "7.0.6", "proper-lockfile": "4.1.2" }, "Unexpected runtime dependencies");
+	assert.deepEqual(manifest.bin, { "pi-web-search": "dist/mcp.js" });
+	assert.deepEqual(manifest.dependencies, {
+		"@mixmark-io/domino": "2.2.0",
+		"@mozilla/readability": "0.6.0",
+		"cross-spawn": "7.0.6",
+		"proper-lockfile": "4.1.2",
+		"turndown": "7.2.5",
+		"typebox": "1.3.37",
+		"unpdf": "2.2.3",
+	}, "Unexpected runtime dependencies");
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
 		assert.equal(manifest.scripts?.[hook], undefined, `Consumers must not run lifecycle hook ${hook}`);
 	}
@@ -37,7 +47,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 		assert.equal(manifest.peerDependencies[name], "*", `${name} must be supplied by Pi, not bundled or version-resolved`);
 		assert.equal(manifest.peerDependenciesMeta?.[name]?.optional, true, `${name} must not install automatically for consumers`);
 	}
-	for (const required of ["package.json", "README.md", "LICENSE", "src/index.ts"]) {
+	for (const required of ["package.json", "README.md", "LICENSE", "src/index.ts", "dist/mcp.js"]) {
 		assert.ok(files.has(required), `Missing required package file: ${required}`);
 	}
 	for (const [path, contents] of files) {
@@ -115,7 +125,7 @@ const forbiddenNames = /(?:^|\/)(?:\.env(?:\..*)?|auth\.json|.*\.pem)$/i;
 export function isAllowedPackagePath(path: string): boolean {
 	if (forbiddenNames.test(path)) return false;
 	if (path.includes("\\") || path.split("/").some((part) => part === ".." || part.startsWith(".") || part === "node_modules")) return false;
-	if (["package.json", "README.md", "LICENSE", "llms.txt"].includes(path)) return true;
-	if (path.startsWith("src/")) return path.endsWith(".ts") && !path.endsWith(".d.ts");
+	if (["package.json", "README.md", "LICENSE", "llms.txt", "dist/mcp.js"].includes(path)) return true;
+	if (path.startsWith("src/")) return path === "src/read/worker.mjs" || (path.endsWith(".ts") && !path.endsWith(".d.ts"));
 	return path.startsWith("docs/") && /\.(?:md|txt)$/.test(path);
 }

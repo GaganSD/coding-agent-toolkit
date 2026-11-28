@@ -14,7 +14,7 @@ import { clearRetrievalCache, reuseTransport } from "../src/providers/reuse.ts";
 import { providerError, type StreamResult } from "../src/providers/types.ts";
 import { search } from "../src/search.ts";
 
-const request = (extra: Partial<SearchRequest> = {}): SearchRequest => ({ query: "fixture query", settings: applyConfig("fixture", { maxResults: 2 }), ...extra });
+const request = (extra: Partial<SearchRequest> = {}): SearchRequest => ({ query: "fixture query", settings: applyConfig("fixture", { maxResults: 2, brave: { mode: "web" } }), ...extra });
 const reply = (value: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, headers: { get: () => null }, text: async () => JSON.stringify(value) });
 const page = (url = "https://example.com/", content = "useful page") => ({ code: 200, data: { url, title: "Page", content, httpStatus: 200 } });
 

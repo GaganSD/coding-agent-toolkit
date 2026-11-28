@@ -1,5 +1,7 @@
 import { CREDENTIAL_PROVIDER_IDS, credentialState, isLiteralApiKey, type CredentialProviderId } from "../env.ts";
-import { BRAVE_SEARCH_URL } from "../providers/brave.ts";
+import { BRAVE_CONTEXT_URL, BRAVE_SEARCH_URL } from "../providers/brave.ts";
+import { CONTEXT7_LIBRARIES_URL } from "../providers/context7.ts";
+import { resolveSettings, type ResolvedSettings } from "../providers/config.ts";
 import { EXA_SEARCH_URL } from "../providers/exa.ts";
 import { GITHUB_SEARCH_URL } from "../providers/github.ts";
 import { getJson, postJson, withTimeout, type FetchLike, type JsonRequestOptions } from "../providers/http.ts";
@@ -8,7 +10,7 @@ import { isProviderError, type ProviderKind } from "../providers/types.ts";
 import { providerName } from "./provider-names.ts";
 
 export const PROVIDER_AUTH: Record<ProviderKind, "keyless" | "required"> = {
-	exa: "keyless", parallel: "keyless", brave: "required", grep: "keyless", sourcegraph: "keyless", github: "required",
+	exa: "keyless", parallel: "keyless", brave: "required", grep: "keyless", sourcegraph: "keyless", github: "required", searxng: "keyless", context7: "keyless",
 };
 
 export const providerHelp: Record<ProviderKind, { description: string; keyUrl?: string }> = {
@@ -18,6 +20,8 @@ export const providerHelp: Record<ProviderKind, { description: string; keyUrl?: 
 	brave: { description: "Needs a Brave Search API key.", keyUrl: "api-dashboard.search.brave.com/app/keys" },
 	grep: { description: "Works without a key." },
 	sourcegraph: { description: "Works without a key." },
+	searxng: { description: "Set searxng.url to your SearXNG origin in web-search.json." },
+	context7: { description: "Versioned library docs. An optional API key raises limits.", keyUrl: "context7.com/dashboard" },
 };
 
 export function accountState(id: CredentialProviderId) {
@@ -25,7 +29,8 @@ export function accountState(id: CredentialProviderId) {
 	return { source: resolved?.source, variable: resolved?.source === "env" ? resolved.name : undefined, stored, editable };
 }
 
-export function providerReady(id: ProviderKind) {
+export function providerReady(id: ProviderKind, settings?: ResolvedSettings) {
+	if (id === "searxng") return settings?.searxng !== undefined;
 	const account = CREDENTIAL_PROVIDER_IDS.find((candidate) => candidate === id);
 	return PROVIDER_AUTH[id] === "keyless" || account !== undefined && accountState(account).source !== undefined;
 }
@@ -64,9 +69,17 @@ export async function checkApiKey(id: CredentialProviderId, key: string, signal?
 			return Array.isArray(result?.results) ? "accepted" : "offline";
 		}
 		if (id === "brave") {
-			const result = await getJson<{ type?: string; web?: { results?: unknown } }>(`${BRAVE_SEARCH_URL}?q=example.com&count=1`, { ...options,
+			const settings = await resolveSettings();
+			const web = !("error" in settings) && settings.brave?.mode === "web";
+			const endpoint = web ? BRAVE_SEARCH_URL : BRAVE_CONTEXT_URL;
+			const result = await getJson<{ type?: string; web?: { results?: unknown }; grounding?: { generic?: unknown } }>(`${endpoint}?q=example.com&count=1`, { ...options,
 				headers: { "X-Subscription-Token": key, Accept: "application/json" } });
-			return result?.type === "search" || Array.isArray(result?.web?.results) ? "accepted" : "offline";
+			return result?.type === "search" || Array.isArray(result?.web?.results) || Array.isArray(result?.grounding?.generic) ? "accepted" : "offline";
+		}
+		if (id === "context7") {
+			const result = await getJson<{ results?: unknown }>(`${CONTEXT7_LIBRARIES_URL}?libraryName=react&query=overview&fast=true`, { ...options,
+				headers: { Authorization: `Bearer ${key}`, Accept: "application/json" } });
+			return Array.isArray(result?.results) ? "accepted" : "offline";
 		}
 		const url = new URL(GITHUB_SEARCH_URL);
 		url.searchParams.set("q", "hello");

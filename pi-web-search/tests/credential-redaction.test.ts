@@ -36,7 +36,7 @@ test("authenticated REST errors and fallback warnings never expose an active key
 		});
 		assert.equal(failed.details.error?.status, 403, id);
 		for (const channel of [failed.content, failed.structuredContent]) {
-			assert.match(JSON.stringify(channel), /\[redacted\]/u, id);
+			assert.match(JSON.stringify(channel), id === "brave" ? /Check BRAVE_API_KEY/u : /\[redacted\]/u, id);
 			assert.doesNotMatch(JSON.stringify(channel), /SENTINEL_AUTH/u, id);
 		}
 	}

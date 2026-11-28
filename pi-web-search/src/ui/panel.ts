@@ -206,7 +206,7 @@ export class WebSearchPanel implements Component, Focusable {
 		if (backup || row === "web" || row === "code") {
 			const family = backup ?? (row === "code" ? "code" : "web");
 			const chain = settings[family];
-			const ids = backup ? this.fallbackChoices(family) : choices[family];
+			const ids = (backup ? this.fallbackChoices(family) : choices[family]).filter((id) => id !== "searxng" || settings.searxng);
 			const options: PanelOption[] = (["keyless", "required"] as const).flatMap((auth) => ids.filter((id) => PROVIDER_AUTH[id] === auth).map((id) => {
 				const index = chain.fallback.indexOf(id);
 				return { id, provider: id, label: backup ? `${index < 0 ? "–" : index + 1}  ${providerName[id]}` : providerName[id],

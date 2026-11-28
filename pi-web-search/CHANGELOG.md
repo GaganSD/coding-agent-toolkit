@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
-- Added an offline wrapper benchmark with replayed provider evidence, a 40-task baseline, and CI gates for context, reliability, citations, safety, and setup.
+### Highlights
+
+- Read HTML, text, PDFs, and public GitHub pages directly. Jina Reader is a configurable fallback.
+- Search up to three queries per call and apply web recency and domain filters. Previews select passages that match each query.
+- Use the same `search` tool in Pi or as a standalone stdio MCP server.
+- Try Brave LLM Context, a SearXNG instance, or versioned library documentation from Context7.
+- Run the wrapper benchmarks against an offline replay corpus.
+
 - Search shows provider progress, compact result summaries, and a readable expanded view without changing model-facing evidence.
 - `/web-search` opens a settings panel for provider order, thorough search, results, accounts, and classifier pins. Changes apply to the next search.
 - Parallel runs directly behind `search`, without a separate Pi MCP registration.

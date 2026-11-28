@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readOptionalText, resolveWriteTarget, withFileLock, writeAtomicText } from "../file-write.ts";
 
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { agentDirectory } from "../env.ts";
 import {
 	PROVIDER_KINDS,
 	type ProviderError,
@@ -57,6 +57,9 @@ export interface ResolvedSettings {
 	code: FamilyChain;
 	researchEnabled: boolean;
 	classifier: ClassifierSettings;
+	brave?: { mode: "context" | "web" };
+	searxng?: { url: string };
+	fetch?: { jinaFallback: boolean };
 	/** Non-fatal config problems, surfaced to the model as warnings. */
 	notices: string[];
 }
@@ -82,6 +85,9 @@ export interface WebSearchConfig {
 	web?: Partial<FamilyChain>;
 	code?: Partial<FamilyChain>;
 	research?: { enabled?: boolean };
+	brave?: { mode?: "context" | "web" };
+	searxng?: { url: string };
+	fetch?: { jinaFallback?: boolean };
 	classifier?: Partial<Omit<ClassifierSettings, "weights">> & {
 		weights?: Partial<ClassifierSettings["weights"]>;
 	};
@@ -100,7 +106,7 @@ export type WebSearchConfigResult =
 	| { status: "ok"; path: string; config: WebSearchConfig };
 
 const PROVIDER_KIND_SET = new Set<string>(PROVIDER_KINDS);
-const CONFIG_KEYS = new Set(["web", "code", "research", "classifier", "timeoutMs", "maxResults"]);
+const CONFIG_KEYS = new Set(["web", "code", "research", "classifier", "timeoutMs", "maxResults", "brave", "searxng", "fetch"]);
 
 export const DEFAULT_CLASSIFIER_SETTINGS: ClassifierSettings = {
 	enabled: false,
@@ -120,7 +126,7 @@ export function defaultWebSearchConfigPath(): string {
 	if (override && override.length > 0) {
 		return override;
 	}
-	return join(getAgentDir(), CONFIG_FILE_NAME);
+	return join(agentDirectory(), CONFIG_FILE_NAME);
 }
 
 export async function readWebSearchConfig(
@@ -191,6 +197,34 @@ export function parseWebSearchConfig(parsed: unknown, configPath: string, raw?: 
 		config[key] = block as Partial<FamilyChain>;
 	}
 
+	if ("brave" in parsed) {
+		const block = parsed.brave;
+		const message = '"brave" accepts only mode "context" or "web".';
+		if (!isPlainObject(block) || unknownKeys(block, new Set(["mode"])).length > 0) return fail(message, ["brave"]);
+		if ("mode" in block && block.mode !== "context" && block.mode !== "web") return fail(message, ["brave", "mode"]);
+		config.brave = block;
+	}
+
+	if ("searxng" in parsed) {
+		const block = parsed.searxng;
+		const message = 'Set "searxng.url" to an HTTP(S) origin without credentials, a path, a query, or a fragment.';
+		if (!isPlainObject(block) || unknownKeys(block, new Set(["url"])).length > 0) return fail(message, ["searxng"]);
+		const origin = typeof block.url === "string" ? httpOrigin(block.url) : undefined;
+		if (!origin) return fail(message, ["searxng", "url"]);
+		config.searxng = { url: origin };
+	}
+	if (!config.searxng && (config.web?.provider === "searxng" || config.web?.fallback?.includes("searxng"))) {
+		return fail('Set "searxng.url" to use SearXNG.', ["searxng", "url"]);
+	}
+
+	if ("fetch" in parsed) {
+		const block = parsed.fetch;
+		const message = '"fetch" accepts only a boolean "jinaFallback".';
+		if (!isPlainObject(block) || unknownKeys(block, new Set(["jinaFallback"])).length > 0) return fail(message, ["fetch"]);
+		if ("jinaFallback" in block && typeof block.jinaFallback !== "boolean") return fail(message, ["fetch", "jinaFallback"]);
+		config.fetch = block;
+	}
+
 	if ("research" in parsed) {
 		const research = parsed.research;
 		const message = '"research" must be an object with an optional boolean "enabled".';
@@ -218,6 +252,17 @@ export function parseWebSearchConfig(parsed: unknown, configPath: string, raw?: 
 		config.classifier = classifier as WebSearchConfig["classifier"];
 	}
 	return { status: "ok", path: configPath, config };
+}
+
+export function httpOrigin(value: string): string | undefined {
+	if (!/^https?:\/\/[^/\\?#\s]+\/?$/iu.test(value)) return undefined;
+	try {
+		const url = new URL(value);
+		if ((url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password &&
+			url.pathname === "/" && !url.search && !url.hash && !/[?#]/u.test(url.href)) return url.origin;
+	} catch {
+		return undefined;
+	}
 }
 
 function unknownKeys(object: Record<string, unknown>, allowed: ReadonlySet<string>) {
@@ -448,6 +493,9 @@ export function applyConfig(
 		code,
 		researchEnabled: config.research?.enabled === true,
 		classifier: applyClassifierConfig(config.classifier, notices),
+		brave: { mode: config.brave?.mode ?? "context" },
+		...(config.searxng ? { searxng: config.searxng } : {}),
+		fetch: { jinaFallback: config.fetch?.jinaFallback !== false },
 		notices,
 	};
 }

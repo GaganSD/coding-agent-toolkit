@@ -3,7 +3,8 @@ import type {
 	AgentToolUpdateCallback,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { StringEnum, Type, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
+import { MAX_DOMAINS, RECENCIES, normalizeDomain, type WebFilters } from "./providers/filters.ts";
 import { MAX_QUERY_CHARS } from "./providers/config.ts";
 import { executeSearch, trimQuery } from "./execute.ts";
 import type { WebSearchDetails } from "./format.ts";
@@ -17,36 +18,35 @@ export const SEARCH_EFFORTS = ["fast", "thorough"] as const;
 export type SearchScope = (typeof SEARCH_SCOPES)[number];
 export type SearchEffort = (typeof SEARCH_EFFORTS)[number];
 
+function stringEnum<const T extends readonly string[]>(values: T, description?: string) {
+	return Type.Unsafe<T[number]>({ type: "string", enum: [...values], ...(description ? { description } : {}) });
+}
+
+const queryString = Type.String({ minLength: 1, maxLength: MAX_QUERY_CHARS });
 export const SearchSchema = Type.Object({
-	query: Type.Optional(Type.String({
-		minLength: 1,
-		maxLength: MAX_QUERY_CHARS,
-		description: "Search terms; code scope expects literal identifiers/snippets",
-	})),
-	scope: Type.Optional(StringEnum(SEARCH_SCOPES, {
-		description: "web (default), code, or both",
-	})),
+	query: Type.Optional(Type.Union([queryString, Type.Array(queryString, { minItems: 1, maxItems: 3 })], { description: "Search terms or up to 3 queries" })),
+	recency: Type.Optional(stringEnum(RECENCIES, "Limit web results by age")),
+	domains: Type.Optional(Type.Array(Type.String(), { maxItems: MAX_DOMAINS, description: "Web hostnames with subdomains; prefix - to exclude" })),
+	scope: Type.Optional(stringEnum(SEARCH_SCOPES, "Default web")),
 	urls: Type.Optional(Type.Array(Type.String(), {
-		description: "Fetch HTTP(S) pages instead of searching",
+		description: "Fetch HTTP(S) pages",
 		maxItems: 20,
 	})),
 	ref: Type.Optional(Type.String({
 		minLength: 1,
 		maxLength: 200,
-		description: "Read a returned evidence ref locally; no network",
+		description: "Read stored evidence",
 	})),
 	find: Type.Optional(Type.String({
 		minLength: 1,
 		maxLength: 200,
-		description: "With ref: case-insensitive literal passage match",
+		description: "Case-insensitive match within ref",
 	})),
 	cursor: Type.Optional(Type.String({
 		minLength: 1, maxLength: 200,
-		description: "With ref: copy the cursor from a previous read",
+		description: "Continue a ref read",
 	})),
-	effort: Type.Optional(StringEnum(SEARCH_EFFORTS, {
-		description: "fast (default), or thorough (opt-in multi-source)",
-	})),
+	effort: Type.Optional(stringEnum(SEARCH_EFFORTS, "Default fast")),
 });
 
 export type SearchInput = Static<typeof SearchSchema>;
@@ -72,7 +72,7 @@ const SEARCH_PARAMS = Object.keys(SearchSchema.properties);
 const SEARCH_TOOL: SearchToolName = "search";
 
 type ValidatedSearch =
-	| { kind: "query"; query: string; scope: SearchScope; effort: SearchEffort }
+	| { kind: "query"; query: string | string[]; scope: SearchScope; effort: SearchEffort; filters?: WebFilters }
 	| { kind: "urls"; urls: string[] }
 	| { kind: "ref"; ref: string };
 
@@ -94,24 +94,65 @@ function validateSearchParams(params: SearchInput): ValidatedSearch | Error {
 		return providerError("unknown", "Use exactly one of query, urls, or ref.");
 	}
 
+	const filter = params.recency !== undefined ? "recency" : params.domains !== undefined ? "domains" : undefined;
+	if (filter && !hasQuery) {
+		return providerError("unknown", `${filter} requires query and web scope.`);
+	}
+
+	if (params.scope !== undefined && !SEARCH_SCOPES.includes(params.scope)) {
+		return providerError("unknown", "scope must be web, code, or both.");
+	}
+	if (params.effort !== undefined && !SEARCH_EFFORTS.includes(params.effort)) {
+		return providerError("unknown", "effort must be fast or thorough.");
+	}
+
 	if (hasQuery) {
-		if (typeof params.query !== "string" || trimQuery(params.query).length === 0) {
+		const query = params.query!;
+		if (Array.isArray(query) && (query.length < 1 || query.length > 3)) {
+			return providerError("unknown", "query accepts 1 to 3 strings.");
+		}
+		const queries = Array.isArray(query) ? query : [query];
+		if (queries.some((part) => typeof part !== "string" || !trimQuery(part))) {
 			return providerError("unknown", "query must not be blank.");
+		}
+		if (queries.some((part) => part.length > MAX_QUERY_CHARS)) {
+			return providerError("unknown", `query accepts at most ${MAX_QUERY_CHARS} characters per string.`);
 		}
 		if (params.find !== undefined || params.cursor !== undefined) {
 			return providerError("unknown", "find and cursor require ref.");
 		}
 		const scope = params.scope ?? "web";
+		if (filter && scope === "code") {
+			return providerError("unknown", `${filter} requires query and web scope.`);
+		}
+		const { recency } = params;
+		if (recency !== undefined && !RECENCIES.includes(recency)) {
+			return providerError("unknown", "recency must be day, week, month, or year.");
+		}
+		let domains: string[] | undefined;
+		if (params.domains !== undefined) {
+			if (!Array.isArray(params.domains) || params.domains.length > MAX_DOMAINS) {
+				return providerError("unknown", `domains accepts at most ${MAX_DOMAINS} hostnames.`);
+			}
+			const normalized = params.domains.map((domain) => typeof domain === "string" ? normalizeDomain(domain) : undefined);
+			if (normalized.some((domain) => domain === undefined)) {
+				return providerError("unknown", "domains must contain hostnames, optionally prefixed with '-'.");
+			}
+			domains = [...new Set(normalized as string[])];
+		}
 		if (scope === "both" && params.effort === "fast") {
 			return providerError("unknown", "scope both requires effort thorough.");
 		}
 		const effort = params.effort ?? (scope === "both" ? "thorough" : "fast");
-		return { kind: "query", query: params.query, scope, effort };
+		return { kind: "query", query, scope, effort, ...(filter ? { filters: { recency, domains } } : {}) };
 	}
 
 	if (hasUrls) {
 		if (!Array.isArray(params.urls) || params.urls.length === 0) {
 			return providerError("unknown", "urls must contain at least one URL.");
+		}
+		if (params.urls.some((url) => typeof url !== "string")) {
+			return providerError("unknown", "urls must contain strings.");
 		}
 		if (params.urls.length > 20) {
 			return providerError("unknown", "urls accepts at most 20 URLs.");
@@ -130,6 +171,12 @@ function validateSearchParams(params: SearchInput): ValidatedSearch | Error {
 
 	if (typeof params.ref !== "string" || params.ref.trim().length === 0) {
 		return providerError("unknown", "ref must not be blank.");
+	}
+	for (const field of ["ref", "find", "cursor"] as const) {
+		const value = params[field];
+		if (value !== undefined && (typeof value !== "string" || !value.length || value.length > 200)) {
+			return providerError("unknown", `${field} must contain 1 to 200 characters.`);
+		}
 	}
 	if (params.scope !== undefined) {
 		return providerError("unknown", "ref does not accept scope.");
@@ -200,11 +247,12 @@ async function run(
 		);
 	}
 
-	const { query, scope, effort } = validated;
+	const { query, scope, effort, filters } = validated;
 
 	return executeSearch(
 		{
 			query,
+			filters,
 			scope,
 			parallel: effort === "thorough",
 			judge: effort === "thorough",

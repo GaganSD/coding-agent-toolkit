@@ -123,14 +123,14 @@ export async function handleWebSearchCommand(
 			if (off || needsLogin) tone = "warning";
 		} else if (interactive) {
 			let focus: PanelRow = "web";
-			if (parsed.kind === "provider") focus = parsed.id ? CREDENTIAL_PROVIDER_IDS.includes(parsed.id as CredentialProviderId) ? parsed.id as CredentialProviderId : "code" : "exa";
+			if (parsed.kind === "provider") focus = parsed.id ? CREDENTIAL_PROVIDER_IDS.includes(parsed.id as CredentialProviderId) ? parsed.id as CredentialProviderId : parsed.id === "searxng" ? "web" : "code" : "exa";
 			else if (parsed.kind === "classifier") focus = "classifier";
 			else if (panel.first) { panel.first = false; focus = "exa"; }
 			const { openWebSearchPanel } = await import("./ui/panel.ts");
 			await openWebSearchPanel(ctx, focus);
 			return;
 		} else if (parsed.kind === "provider" && parsed.id && !providerHelp[parsed.id].keyUrl) {
-			report = `${providerName[parsed.id]} works without a key.`;
+			report = parsed.id === "searxng" ? providerHelp.searxng.description : `${providerName[parsed.id]} works without a key.`;
 		} else report = await buildSettingsReport();
 	} catch (error) {
 		tone = "error";
@@ -161,6 +161,7 @@ export async function buildSettingsReport(): Promise<string> {
 		`Multi-source  ${config.researchEnabled ? "On" : "Off"}     Classifier  ${enabled && provider && model ? `${provider}/${model}` : "None"}`,
 		"",
 		accountsSummary(),
+		`Brave endpoint  ${config.brave?.mode === "web" ? "Web search" : "LLM Context"}     SearXNG  ${config.searxng ? "Configured" : "Set searxng.url to use"}`,
 		"Open /web-search in the terminal UI to change these.",
 	].join("\n");
 }

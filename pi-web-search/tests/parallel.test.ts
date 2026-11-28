@@ -210,3 +210,40 @@ test("Parallel's fresh session shares the original operation deadline", async ()
 	assert.equal(initializations, 2);
 	assert.equal(fixture.calls.length, 1);
 });
+
+test("Parallel keeps the objective verbatim and sends short keywords for search and extraction", async () => {
+	const fixture = parallelHttp();
+	const objective = "how do I cancel a fetch request after 5 seconds in node";
+	await parallelSearch(request({ query: objective, urls: ["https://example.test/result"] }), { fetchImpl: fixture.fetch });
+	assert.equal(fixture.calls[0].arguments.objective, objective);
+	assert.deepEqual(fixture.calls[0].arguments.search_queries, ["cancel fetch request after 5 seconds"]);
+	assert.deepEqual(fixture.calls[1].arguments.search_queries, fixture.calls[0].arguments.search_queries);
+	const short = "AbortSignal.timeout";
+	await parallelSearch(request({ query: short }), { fetchImpl: fixture.fetch });
+	assert.equal(fixture.calls[2].arguments.objective, short);
+	assert.deepEqual(fixture.calls[2].arguments.search_queries, [short]);
+});
+
+test("authenticated Parallel pins native source policy, anonymous Parallel reports unsupported recency", async (t) => {
+	const previous = process.env.PARALLEL_API_KEY;
+	t.after(() => { if (previous === undefined) delete process.env.PARALLEL_API_KEY; else process.env.PARALLEL_API_KEY = previous; });
+	const fixture = parallelHttp();
+	const headers: (string | null)[] = [];
+	const fetchImpl: typeof fixture.fetch = (url, init) => {
+		headers.push(new Headers(init?.headers).get("x-parallel-search-config"));
+		return fixture.fetch(url, init);
+	};
+	const input = request({ filters: { recency: "month", domains: ["example.test", "-hidden.example.test"] } });
+	process.env.PARALLEL_API_KEY = "test-parallel-key";
+	const keyed = await parallelSearch(input, { fetchImpl });
+	const source = JSON.parse(headers[0]!).advanced_settings.source_policy;
+	assert.deepEqual(source.include_domains, ["example.test"]);
+	assert.equal(source.exclude_domains, undefined);
+	assert.match(source.after_date, /^\d{4}-\d{2}-\d{2}$/u);
+	assert.equal(keyed.warnings, undefined);
+	delete process.env.PARALLEL_API_KEY;
+	headers.length = 0;
+	const anonymous = await parallelSearch(input, { fetchImpl });
+	assert.equal(headers[0], null);
+	assert.deepEqual(anonymous.warnings, ['Parallel anonymous MCP cannot apply recency "month".']);
+});
