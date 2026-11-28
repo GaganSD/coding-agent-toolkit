@@ -2,7 +2,7 @@ import { lookup } from "node:dns/promises";
 import { get as httpGet, type IncomingHttpHeaders } from "node:http";
 import { get as httpsGet, type RequestOptions } from "node:https";
 import { BlockList, isIP } from "node:net";
-import { compose, Readable } from "node:stream";
+import { pipeline, Readable } from "node:stream";
 import { constants, createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { awaitWithSignal } from "../providers/http.ts";
 import { isProviderError, providerError } from "../providers/types.ts";
@@ -184,7 +184,9 @@ async function readBody(body: Readable, encoding: string, signal: AbortSignal) {
 			}
 		}
 	}
-	const stream = decoder ? compose(Readable.from(wireChunks()), decoder) : body;
+	// The iterator observes decode errors. The pipeline callback also handles
+	// premature closure when a cap or cancellation stops the decoder.
+	const stream = decoder ? pipeline(Readable.from(wireChunks()), decoder, () => {}) : body;
 	const stop = () => {
 		stream.destroy();
 		if (decoder) body.destroy();
@@ -192,7 +194,7 @@ async function readBody(body: Readable, encoding: string, signal: AbortSignal) {
 	signal.addEventListener("abort", stop, { once: true });
 	try {
 		signal.throwIfAborted();
-		for await (const chunk of stream as AsyncIterable<Buffer>) {
+		for await (const chunk of stream.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>) {
 			// Require decoded PDF magic, including when the server omits or misstates its MIME type.
 			if (byteLimit === MAX_BODY_BYTES && total < PDF_HEADER_BYTES) {
 				const prefix = chunk.subarray(0, PDF_HEADER_BYTES - total);

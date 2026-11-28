@@ -8,7 +8,7 @@ import { applyConfig } from "../src/providers/config.ts";
 import { jinaFetch } from "../src/providers/jina.ts";
 import type { SearchRequest } from "../src/providers/index.ts";
 import { readUrls, type UrlReaderOptions } from "../src/read/index.ts";
-import { fetchPinnedPage, MAX_BODY_BYTES, PAGE_ACCEPT, pinnedRequestOptions, type PageTransport } from "../src/read/http.ts";
+import { fetchPinnedPage, MAX_BODY_BYTES, MAX_PDF_BODY_BYTES, PAGE_ACCEPT, pinnedRequestOptions, type PageTransport } from "../src/read/http.ts";
 import { search } from "../src/search.ts";
 
 const origin = "https://fixture.example";
@@ -358,4 +358,17 @@ test("Compressed input is clipped even when its decoded size fits the byte cap",
 	const page = await fetchPinnedPage(new URL(origin), new AbortController().signal, fixture.transport);
 	assert.equal(page.truncated, true);
 	assert.ok(page.bytes.length > 0 && page.bytes.length < MAX_BODY_BYTES);
+});
+
+test("Decoded expansion stops at the applicable byte cap without a stream error", async () => {
+	for (const [signature, limit] of [["plain text", MAX_BODY_BYTES], ["%PDF-1.4", MAX_PDF_BODY_BYTES]] as const) {
+		const decoded = Buffer.alloc(limit + 1, "a");
+		decoded.write(signature);
+		const encoded = gzipSync(decoded);
+		const input = Readable.from([encoded.subarray(0, 23), encoded.subarray(23)]);
+		const fixture = replay(async () => response(input, "application/octet-stream", 200, { "content-encoding": "gzip" }));
+		const page = await fetchPinnedPage(new URL(origin), new AbortController().signal, fixture.transport);
+		assert.equal(page.bytes.length, limit);
+		assert.equal(page.truncated, true);
+	}
 });
