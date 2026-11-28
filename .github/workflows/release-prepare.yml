@@ -55,7 +55,7 @@ jobs:
           IFS=',' read -ra selections <<< "$PACKAGES"
           args=()
           for selection in "${selections[@]}"; do args+=(--package "$selection"); done
-          npm run release:apply -- --source-sha "$SOURCE" --notes "$NOTES" "${args[@]}"
+          npm run release:apply -- --source-sha "$SOURCE" --notes="$NOTES" "${args[@]}"
       # An App token makes the bot's PR trigger ordinary pull_request CI.
       - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: app
