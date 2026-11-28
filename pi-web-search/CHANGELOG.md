@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Search shows provider progress, compact result summaries, and a readable expanded view without changing model-facing evidence.
+- `/web-search` opens a settings panel for provider order, thorough search, results, accounts, and classifier pins. Changes apply to the next search.
+- Parallel runs directly behind `search`, without a separate Pi MCP registration.
+
 ## 0.4.0
 
 Search the web, public code, and URLs through one tool, with less context overhead and easier follow-up reading.
