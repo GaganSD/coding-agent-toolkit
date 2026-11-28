@@ -116,6 +116,9 @@ jobs:
         run: npm run test:unit --prefix "${{ matrix.package }}"
       - name: Integration tests
         run: npm run test:integration --prefix "${{ matrix.package }}"
+      - if: matrix.package == 'pi-web-search'
+        name: Replay the offline search benchmark
+        run: npm run research:offline --prefix pi-web-search
       # Snyk scans production and development dependencies. Skipped on fork
       # PRs, where GitHub withholds secrets. Exit 1 means advisories and fails;
       # exit 2 means the scanner could not run (API/outage) and is retried, then

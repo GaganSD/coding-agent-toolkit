@@ -36,6 +36,10 @@
   "scripts": {
     "test": "node --experimental-strip-types scripts/test.ts",
     "typecheck": "tsc --noEmit",
+    "research:record": "node --experimental-strip-types benchmarks/record.ts",
+    "research:compare": "node --experimental-strip-types benchmarks/compare.ts",
+    "research:ergonomics": "node --experimental-strip-types benchmarks/ergonomics.ts",
+    "research:offline": "node --experimental-strip-types benchmarks/run.ts",
     "bench:context": "node --experimental-strip-types scripts/footprint.ts",
     "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "test:unit": "node ../scripts/test-package.mjs pi-web-search unit",

@@ -1,0 +1,13 @@
+[
+  {"id":"timeout","retryable":true},
+  {"id":"429-seconds","status":429,"retryAfter":"2","retryable":true},
+  {"id":"429-date","status":429,"retryAfter":"Fri, 01 Jan 2100 00:00:00 GMT","retryable":true},
+  {"id":"429","status":429,"retryable":true},
+  {"id":"500","status":500,"retryable":true},
+  {"id":"502","status":502,"retryable":true},
+  {"id":"malformed-json","retryable":false},
+  {"id":"truncated-body","retryable":true},
+  {"id":"slow-body","retryable":true},
+  {"id":"mcp-disconnect","retryable":true,"mcpOnly":true},
+  {"id":"mcp-expiration","status":404,"retryable":false,"mcpOnly":true}
+]

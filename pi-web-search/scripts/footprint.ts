@@ -11,7 +11,7 @@ const script = fileURLToPath(import.meta.url);
 const packageRoot = resolve(dirname(script), "..");
 
 /** Host-built tools/system prompt, not hand-counted schema source. No network or model calls. */
-export async function measureFootprint(extensionRoot = packageRoot) {
+export async function measureFootprint(extensionRoot = packageRoot, toolNames = ["search"]) {
 	const root = await mkdtemp(join(tmpdir(), "search-footprint-"));
 	const prior = { agent: process.env.PI_CODING_AGENT_DIR, config: process.env.PI_WEB_SEARCH_CONFIG };
 	const samples: Record<string, { declarations: number; prompt: string; tools: string[]; continuationSchema: number }> = {};
@@ -32,7 +32,7 @@ export async function measureFootprint(extensionRoot = packageRoot) {
 			const modelRuntime = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: join(dir, "models.json") });
 			const { session } = await createAgentSession({ cwd: dir, agentDir: dir, resourceLoader: loader, settingsManager, modelRuntime, sessionManager: SessionManager.inMemory(dir) });
 			try {
-				const active = session.agent.state.tools.filter((tool) => ["search"].includes(tool.name));
+				const active = session.agent.state.tools.filter((tool) => toolNames.includes(tool.name));
 				const declarations = JSON.stringify(active.map(({ name, description, parameters }) => ({ name, description, parameters }))).length;
 				const continuation = session.getAllTools().find((tool) => tool.name === "search_read");
 				samples[mode] = { declarations, prompt: session.systemPrompt, tools: active.map((tool) => tool.name), continuationSchema: continuation ? JSON.stringify(continuation.parameters).length : 0 };
