@@ -337,7 +337,7 @@ test("the two-column header height stays fixed across terminal tiers", () => {
   sidebar.setSession({ ...session, name: "Slate session title" });
   for (const rows of [60, 44, 43, 30]) {
     terminal.rows = rows;
-    assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), 13, `rows ${rows}`);
+    assert.equal(plain(sidebar.render(40)).findIndex((line, index) => index > 0 && /^├─+┤$/.test(line)), 14, `rows ${rows}`);
   }
   terminal.rows = 60;
   const lines = plain(sidebar.render(40));
@@ -347,7 +347,8 @@ test("the two-column header height stays fixed across terminal tiers", () => {
   assert(lines[2]!.startsWith("Slate session title") && lines[2]!.endsWith("session-"));
   assert(lines[5]!.startsWith("CONTEXT") && lines[5]!.includes("16%") && lines[5]!.includes("31.6k/200k"));
   assert(/^[█-▏░]+$/.test(lines[6]!), "one-row context bar");
-  assert(lines[7]!.startsWith("SPEED"), "performance starts directly after the bar");
+  assert.equal(lines[7], "", "blank row separates context from performance");
+  assert(lines[8]!.startsWith("SPEED"), "performance starts after the gap");
 });
 
 test("context row keeps the heading grammar and degrades gracefully when narrow", () => {
@@ -899,7 +900,7 @@ test("performance cards switch at 23 inner columns and align within the painted 
     assert.deepEqual([3, 4].map(half), state === "empty"
       ? [["avg  —", "read  0"], ["peak —", "new   0"]]
       : [["avg  20.9", "read  87.6k"], ["peak 27.2", "new   30.2k"]]);
-    const divider = lines.findIndex(line => line.startsWith("├"));
+    const divider = lines.findIndex((line, index) => index > 0 && line.startsWith("├"));
     if (state === "empty") dividers.set(inner, divider);
     else assert.equal(divider, dividers.get(inner), `header height at ${inner}`);
     assert.equal(lines[divider - 1], "");
@@ -923,7 +924,7 @@ test("full-tier performance previews show no cache savings estimate", () => {
     const painted = sidebar.render(inner + 4);
     const lines = plain(painted);
     const speed = lines.findIndex(line => line.startsWith("SPEED"));
-    const divider = lines.findIndex(line => line.startsWith("├"));
+    const divider = lines.findIndex((line, index) => index > 0 && line.startsWith("├"));
     assert.doesNotMatch(lines.slice(speed, divider).join("\n"), /\bsaved\b/);
     assert(painted.every(line => visibleWidth(line) === inner + 4));
   }

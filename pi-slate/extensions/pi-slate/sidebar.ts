@@ -349,7 +349,7 @@ export class Sidebar implements Component {
     const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
       .map(text => ({ text, action: branchUsage }));
     const performance = perfRows(input).flat().map(text => text === null ? HEADER_GAP : { text });
-    return [status, identity, model, HEADER_GAP, ...context, ...performance, divider];
+    return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP, ...performance, divider];
   }
   private middle(width: number, now: number): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
