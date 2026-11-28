@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.2
+
 - Add `/shortcuts` menu to assign keys to Slate actions.
 - Re-designed `/theme` and `/prompts` menu.
 - Show live MCP calls, recent failures, and per-server activity. Thanks @myplixa for the idea (#179, #181).
