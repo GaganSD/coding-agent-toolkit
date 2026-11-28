@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "gitRevision": "c03f0d59388b",
+  "gitRevision": "5a23801f4824",
   "node": "v24.22.1",
   "taskCount": 40,
   "context": {
-    "declarationTokens": 380,
+    "declarationTokens": 388,
     "resultTokens": 14143,
     "averageResultTokens": 353.575,
     "evidenceDensity": 0.7598923569923693,
@@ -25,8 +25,8 @@
     "sessionRecovered": 2,
     "deadlineCases": 20,
     "timeoutMs": 1000,
-    "deadlineP99Ms": 1005.54,
-    "abortMs": 1.61,
+    "deadlineP99Ms": 1007.31,
+    "abortMs": 1.08,
     "outboundAfterAbort": 0,
     "nonRetryableFastFailures": {
       "exa/malformed-json": "parse_error",
@@ -70,10 +70,10 @@
   },
   "mcp": {
     "declaration": {
-      "piInputTokens": 304,
-      "mcpInputTokens": 304,
-      "mcpFullTokens": 331,
-      "piWithAnnotationsTokens": 330
+      "piInputTokens": 312,
+      "mcpInputTokens": 312,
+      "mcpFullTokens": 338,
+      "piWithAnnotationsTokens": 338
     },
     "citedHits": 97,
     "refChecks": 8,
@@ -117,9 +117,9 @@
   },
   "overhead": {
     "replayAdjustedP50Ms": 0.39,
-    "replayAdjustedP95Ms": 1.99,
-    "coldRegistrationMs": 1016.87,
-    "peakRssKiB": 385520
+    "replayAdjustedP95Ms": 2.09,
+    "coldRegistrationMs": 896.64,
+    "peakRssKiB": 368928
   },
   "tasks": {
     "cal-01": {
