@@ -79,6 +79,9 @@ withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 	// Benchmark helpers are test-only and are deliberately absent from the tarball.
 	mkdirSync(join(artifact, "scripts"));
 	for (const helper of ["footprint.ts", "validation.ts"]) cpSync(join(packageRoot, "scripts", helper), join(artifact, "scripts", helper));
+	const harness = join("benchmarks", "harness");
+	mkdirSync(join(artifact, harness), { recursive: true });
+	for (const helper of ["provenance.ts", "replay.ts"]) cpSync(join(packageRoot, harness, helper), join(artifact, harness, helper));
 	symlinkSync(resolve(packageRoot, "node_modules"), join(artifact, "node_modules"), "junction");
 	console.log("Running extracted-source regression tests...");
 	process.stdout.write(runCommand(process.execPath,
