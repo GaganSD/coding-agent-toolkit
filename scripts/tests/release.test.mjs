@@ -55,6 +55,14 @@ test("release generation is deterministic and preserves dependency resolutions a
   assert.match(after["pi-slate/CHANGELOG.md"], /# Changelog\n\n## 0.2.0/);
 });
 
+test("reviewed notes that match Unreleased appear once in the new release", () => {
+  const { plan, before } = fixture();
+  plan.notes = "- Pending fix";
+  const files = releaseFiles(plan, path => before[path]);
+  assert.equal(files["pi-ask/CHANGELOG.md"],
+    "# Changelog\n\n## Unreleased\n\n## 0.1.3\n\n- Pending fix\n\n## 0.1.2\n\n- Old release\n");
+});
+
 test("release metadata is strictly validated", () => {
   const { plan } = fixture();
   for (const mutate of [

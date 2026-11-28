@@ -79,9 +79,16 @@ export function releaseFiles(plan, read) {
     const changelogPath = `${item.path}/CHANGELOG.md`;
     const previous = read(changelogPath, true) ?? "# Changelog\n\n";
     const heading = `## ${item.to}\n\n${plan.notes.trim()}\n\n`;
-    const unreleased = /^## Unreleased\s*\n/m;
-    if (unreleased.test(previous)) {
-      files[changelogPath] = previous.replace(unreleased, `## Unreleased\n\n${heading}`);
+    const unreleased = /^## Unreleased\s*\n/m.exec(previous);
+    if (unreleased) {
+      const rest = previous.slice(unreleased.index + unreleased[0].length);
+      const nextHeading = rest.search(/^## /m);
+      const pending = nextHeading < 0 ? rest : rest.slice(0, nextHeading);
+      // When the reviewed notes are already in Unreleased, move them instead of adding a second copy.
+      const remaining = pending.trim() === plan.notes.trim()
+        ? (nextHeading < 0 ? "" : rest.slice(nextHeading))
+        : rest;
+      files[changelogPath] = previous.slice(0, unreleased.index) + `## Unreleased\n\n${heading}` + remaining;
     } else {
       const first = previous.search(/^## /m);
       files[changelogPath] = first < 0 ? previous.trimEnd() + "\n\n" + heading
