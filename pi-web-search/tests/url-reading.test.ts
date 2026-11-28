@@ -100,7 +100,16 @@ test("PDF magic bytes and content type both select local extraction", async () =
 	assert.deepEqual(fixture.fallback, []);
 });
 
-function fixturePdf(text: string): string {
+test("A 12 MiB PDF is read through the local reader, including with a generic MIME type", async () => {
+	const pdf = fixturePdf("Large PDF still readable", 12 * 1024 * 1024);
+	const fixture = replay(async () => response(gzipSync(pdf, { level: 0 }), "application/octet-stream", 200, { "content-encoding": "gzip" }));
+	const result = await readUrls(request([`${origin}/large-pdf`]), fixture);
+	assert.equal(result.searchResults?.[0]?.source, "pdf");
+	assert.equal(result.searchResults?.[0]?.citedText, "Large PDF still readable");
+	assert.deepEqual(fixture.fallback, []);
+});
+
+function fixturePdf(text: string, padding = 0): string {
 	const stream = `BT /F1 12 Tf 25 120 Td (${text}) Tj ET\n`;
 	const entries = [
 		"<< /Type /Catalog /Pages 2 0 R >>",
@@ -115,6 +124,7 @@ function fixturePdf(text: string): string {
 		pdf += `${index + 1} 0 obj\n${entry}\nendobj\n`;
 		return `${String(offset).padStart(10, "0")} 00000 n \n`;
 	});
+	if (padding) pdf += `%${" ".repeat(padding)}\n`;
 	const xref = Buffer.byteLength(pdf);
 	return `${pdf}xref\n0 6\n0000000000 65535 f \n${offsets.join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 }

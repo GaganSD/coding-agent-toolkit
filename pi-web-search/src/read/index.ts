@@ -91,7 +91,7 @@ export async function readUrls(req: SearchRequest, options: UrlReaderOptions = {
 			const capped = capDocument(document.text);
 			const clipped = document.truncated || capped.truncated;
 			const limits = [
-				...(byteCapped ? ["the 5 MiB download limit"] : []),
+				...(byteCapped ? [document.source === "pdf" ? "the PDF download limit" : "the 5 MiB download limit"] : []),
 				...(capped.truncated ? ["the 64000-character evidence limit"] : []),
 			].join(" and ");
 			return {

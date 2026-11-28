@@ -9,6 +9,9 @@ import { isProviderError, providerError } from "../providers/types.ts";
 
 export const PAGE_ACCEPT = "text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.1";
 export const MAX_BODY_BYTES = 5 * 1024 * 1024;
+export const MAX_PDF_BODY_BYTES = 25 * 1024 * 1024;
+const PDF_HEADER_BYTES = 1024;
+const DECODE_CHUNK_BYTES = 64 * 1024;
 const MAX_REDIRECTS = 5;
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
@@ -161,17 +164,24 @@ async function readBody(body: Readable, encoding: string, signal: AbortSignal) {
 	const chunks: Buffer[] = [];
 	let total = 0;
 	let truncated = false;
+	let byteLimit = MAX_BODY_BYTES;
 	// Bound both the compressed wire body and its decoded expansion.
 	async function* wireChunks() {
-		let remaining = MAX_BODY_BYTES;
+		let wireTotal = 0;
 		for await (const chunk of body as AsyncIterable<Buffer>) {
-			if (chunk.length > remaining) {
-				truncated = true;
-				yield chunk.subarray(0, remaining);
-				return;
+			// Give the decoder a chance to identify a PDF before a large input
+			// chunk consumes the original wire limit.
+			for (let offset = 0; offset < chunk.length; offset += DECODE_CHUNK_BYTES) {
+				const piece = chunk.subarray(offset, offset + DECODE_CHUNK_BYTES);
+				const remaining = byteLimit - wireTotal;
+				if (piece.length > remaining) {
+					truncated = true;
+					yield piece.subarray(0, remaining);
+					return;
+				}
+				wireTotal += piece.length;
+				yield piece;
 			}
-			remaining -= chunk.length;
-			yield chunk;
 		}
 	}
 	const stream = decoder ? compose(Readable.from(wireChunks()), decoder) : body;
@@ -183,7 +193,12 @@ async function readBody(body: Readable, encoding: string, signal: AbortSignal) {
 	try {
 		signal.throwIfAborted();
 		for await (const chunk of stream as AsyncIterable<Buffer>) {
-			const available = MAX_BODY_BYTES - total;
+			// Require decoded PDF magic, including when the server omits or misstates its MIME type.
+			if (byteLimit === MAX_BODY_BYTES && total < PDF_HEADER_BYTES) {
+				const prefix = chunk.subarray(0, PDF_HEADER_BYTES - total);
+				if (Buffer.concat([...chunks, prefix], total + prefix.length).includes("%PDF-")) byteLimit = MAX_PDF_BODY_BYTES;
+			}
+			const available = byteLimit - total;
 			const kept = chunk.subarray(0, available);
 			chunks.push(kept);
 			total += kept.length;

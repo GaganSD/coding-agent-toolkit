@@ -30,7 +30,7 @@ export async function documentFromPage(page: Page, url: URL, signal: AbortSignal
 	if (mime === "application/pdf" || page.bytes.subarray(0, 1024).includes("%PDF-")) {
 		const pdf = await extract({ format: "pdf", bytes: page.bytes }, signal).catch((error: unknown) => {
 			if (signal.aborted || !page.truncated) throw error;
-			throw providerError("parse_error", "PDF exceeded the 5 MiB download cap and could not be read.");
+			throw providerError("parse_error", "PDF exceeded the download cap and could not be read.");
 		});
 		return { ...pdf, source: "pdf", truncated: pdf.truncated || page.truncated };
 	}
