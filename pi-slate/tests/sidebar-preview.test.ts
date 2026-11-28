@@ -889,8 +889,8 @@ test("performance cards switch at 23 inner columns and align within the painted 
     assert.equal(cache, speed);
     assert.equal(lines[speed]!.indexOf("CACHE"), offset);
     assert.deepEqual(half(1), state === "empty" ? ["— tok/s", "—% hit"] : ["22.4 tok/s", "74% hit"]);
-    assert.match(half(2)[0]!, state === "empty" ? /^─+$/ : /^[▁-█]+$/);
-    assert.equal(half(2)[1], track.repeat(inner - offset));
+    assert.match(half(2)[0]!, state === "empty" ? /^─+$/ : /^[ ▁-█]+$/);
+    assert.equal(half(2)[1], track.repeat(columns.cache));
     assert.deepEqual([3, 4].map(half), state === "empty"
       ? [["avg  —", "read  0"], ["peak —", "new   0"]]
       : [["avg  20.9", "read  87.6k"], ["peak 27.2", "new   30.2k"]]);
