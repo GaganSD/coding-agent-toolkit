@@ -519,6 +519,8 @@ test("picker choices preserve unrelated native settings", async t => {
   saved = JSON.parse(await readFile(settingsPath, "utf8"));
   assert.equal(saved.theme, "tokyo-night"); assert.equal(saved.quietStartup, true);
   assert.deepEqual(saved.packages, ["keep-this-package"]);
+  const fallback = JSON.parse(await readFile(join(dirname(f.path), "themes", "tokyo-night.json"), "utf8"));
+  assert.equal(fallback.name, "slate-tokyo-night", "selected themes get a namespaced fallback copy");
 });
 
 test("/theme opens directly, retains aliases, and rejects unknown arguments", async t => {

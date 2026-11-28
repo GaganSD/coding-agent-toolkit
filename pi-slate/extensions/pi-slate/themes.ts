@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { allCatppuccinThemes, THEME_SCHEMA, type CatppuccinThemeJson } from "./catppuccin.ts";
 import { effortPalette } from "./theme-palette.ts";
@@ -180,28 +181,55 @@ export function allSlateThemes(): SlateThemeJson[] {
   return [...SLATE_THEMES];
 }
 
-/** A shipped Slate theme by name, or undefined for external themes. */
-export function slateTheme(name: string | undefined): SlateThemeJson | undefined {
+/** Fallback copies use a namespaced internal name; Pi de-duplicates themes by name, not filename. */
+const USER_THEME_PREFIX = "slate-";
+
+/** Bundled theme name for a shipped theme or its user-directory fallback copy. */
+export function slateThemeBase(name: string | undefined): string | undefined {
   if (!name) return undefined;
-  return allSlateThemes().find((theme) => theme.name === name);
+  const base = name.startsWith(USER_THEME_PREFIX) ? name.slice(USER_THEME_PREFIX.length) : name;
+  return SLATE_THEMES.some((theme) => theme.name === base) ? base : undefined;
+}
+
+/** A shipped Slate theme by name (or fallback-copy name), or undefined for external themes. */
+export function slateTheme(name: string | undefined): SlateThemeJson | undefined {
+  const base = slateThemeBase(name);
+  return base ? SLATE_THEMES.find((theme) => theme.name === base) : undefined;
 }
 
 /**
- * Copy a selected Slate theme into Pi's user themes directory, once.
- * The package ships themes with the UI; this keeps the selected theme loadable
- * if the package is later disabled or removed. Existing user files win.
+ * Write a fallback copy of a Slate theme into Pi's user themes directory.
+ * The file keeps the selected theme's name so `theme: "<name>"` still resolves
+ * after the package is disabled or removed, while its internal name is
+ * namespaced. Pi de-duplicates by internal name, so the bundled theme stays
+ * authoritative (and keeps receiving updates) without a theme-conflict warning.
+ * Custom user files win; only stock copies from the earlier same-name scheme
+ * are upgraded in place. Returns false when the fallback cannot be read or written.
  */
 export function ensureUserTheme(name: string | undefined, directory = join(getAgentDir(), "themes")): boolean {
   const theme = slateTheme(name);
   if (!theme) return false;
+  const path = join(directory, `${theme.name}.json`);
   try {
-    const path = join(directory, `${theme.name}.json`);
-    if (existsSync(path)) return false;
+    if (existsSync(path)) {
+      const existing: unknown = JSON.parse(readFileSync(path, "utf8"));
+      if (!isDeepStrictEqual(existing, theme)) return true;
+    }
+    const fallback = { ...theme, name: `${USER_THEME_PREFIX}${theme.name}` };
     mkdirSync(directory, { recursive: true });
-    writeFileSync(path, `${JSON.stringify(theme, null, 2)}\n`, "utf8");
+    const temporary = `${path}.${process.pid}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(fallback, null, 2)}\n`, "utf8");
+    renameSync(temporary, path);
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Upgrade stock copies written by earlier builds so Pi stops reporting name collisions. */
+export function migrateUserThemeCopies(directory = join(getAgentDir(), "themes")): void {
+  for (const theme of SLATE_THEMES) {
+    if (existsSync(join(directory, `${theme.name}.json`))) ensureUserTheme(theme.name, directory);
   }
 }
 
