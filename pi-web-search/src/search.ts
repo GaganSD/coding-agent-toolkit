@@ -24,7 +24,10 @@ function stringEnum<const T extends readonly string[]>(values: T, description?: 
 
 const queryString = Type.String({ minLength: 1, maxLength: MAX_QUERY_CHARS });
 export const SearchSchema = Type.Object({
-	query: Type.Optional(Type.Union([queryString, Type.Array(queryString, { minItems: 1, maxItems: 3 })], { description: "Search terms or up to 3 independent queries" })),
+	// Some tool-calling models prefer the first union variant and quote arrays when string comes first.
+	query: Type.Optional(Type.Union([Type.Array(queryString, { minItems: 1, maxItems: 3 }), queryString], {
+		description: "One query string or an actual JSON array of up to 3 separate query strings",
+	})),
 	recency: Type.Optional(stringEnum(RECENCIES, "Limit web results by age")),
 	domains: Type.Optional(Type.Array(Type.String(), { maxItems: MAX_DOMAINS, description: "Web hostnames with subdomains; prefix - to exclude" })),
 	scope: Type.Optional(stringEnum(SEARCH_SCOPES, "Default web")),
