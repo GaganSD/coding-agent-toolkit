@@ -293,13 +293,17 @@ export class ShortcutsPanel implements Component {
     const model = this.status();
     const detailLine = th.fg(model.detail.tone, model.detail.text);
     const errorMessage = this.message !== undefined;
+    const keyProblem = this.right
+      ? this.controls.confirmUnavailable ? "No confirm key available; adjust tui.select keybindings" : ""
+      : this.controls.openUnavailable ? "No open key available; adjust tui.select keybindings" : "";
+    const keyProblemText = keyProblem ? th.fg("error", `✕ ${keyProblem}`) : "";
     const savedFooter = this.saved ? th.fg("success", "✓ Saved — applies when you close") : "";
-    const transient = errorMessage ? th.fg("error", this.message!)
-      : model.footerPriority !== undefined ? detailLine : "";
-    const footerTransient = tiny || errorMessage ? transient : "";
+    const transient = keyProblemText || (errorMessage ? th.fg("error", this.message!)
+      : model.footerPriority !== undefined ? detailLine : "");
+    const footerTransient = tiny || errorMessage || keyProblem ? transient : "";
     const combinedFooter = !!footerTransient && !!savedFooter && visibleWidth(footerTransient) + visibleWidth(savedFooter) + 3 <= inner;
     const footer = combinedFooter ? `${savedFooter}   ${footerTransient}` : footerTransient || savedFooter;
-    const footerPriority = errorMessage ? 9 : model.footerPriority ?? (savedFooter ? 8 : 9);
+    const footerPriority = errorMessage || keyProblem ? 9 : model.footerPriority ?? (savedFooter ? 8 : 9);
     const optionRows = options.map(option => ({ option, status: this.optionStatus(option, model.short), selected: option.kind === active.kind }));
     const activeRow = optionRows.find(row => row.selected)!;
     const maxStatusWidth = Math.max(1, ...Object.values(BADGES).map(status => visibleWidth(this.statusCell(th, status))));
@@ -312,8 +316,9 @@ export class ShortcutsPanel implements Component {
         const prompt = visibleWidth(label) + 2 <= width ? focusRow(th, label, true, true, width) : fit(label, width);
         const promptHints = footerHints(th, actions, width);
         return compactPicker(priorityLines([
+          ...(keyProblemText ? [{ text: keyProblemText, priority: 9 }] : []),
           ...(errorMessage ? [{ text: transient, priority: 9 }] : []),
-          { text: prompt, priority: errorMessage ? 8 : 9 },
+          { text: prompt, priority: errorMessage || keyProblem ? 8 : 9 },
           ...(savedFooter ? [{ text: savedFooter, priority: 6 }] : []),
           { text: promptHints, priority: 5 },
         ], height), width, height);

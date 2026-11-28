@@ -7,7 +7,7 @@ import {
   FLAVORS, STYLE_LABELS, stylesFor,
 } from "./catppuccin.ts";
 import { SLATE_NATIVE_THEME } from "./install-defaults.ts";
-import { slateThemeVars } from "./themes.ts";
+import { slateTheme, slateThemeVars } from "./themes.ts";
 
 export type ThemeVariant = { name: string; label: string; color?: string };
 export type ThemeChoice = { label: string; variants: ThemeVariant[]; section?: string; family?: string; description?: string };
@@ -31,6 +31,7 @@ function flavorChoices(): ThemeChoice[] {
 }
 
 export function slateThemeChoices(initial?: string): ThemeChoice[] {
+  const selected = slateTheme(initial)?.name ?? initial;
   const choices: ThemeChoice[] = [
     { label: "System default", description: "Terminal palette. Preview updates live.", variants: [{ name: SLATE_NATIVE_THEME, label: "Terminal palette" }] },
     ...flavorChoices(),
@@ -38,8 +39,8 @@ export function slateThemeChoices(initial?: string): ThemeChoice[] {
     { label: "Black Metal", section: "Other", description: "1 palette. Preview updates live.", variants: [{ name: "black-metal", label: "Default", color: slateThemeVars("black-metal")?.accent }] },
   ];
   // A saved theme outside the shipped rows (an external theme) stays re-selectable.
-  if (initial && !choices.some(choice => choice.variants.some(variant => variant.name === initial))) {
-    choices.unshift({ label: initial, variants: [{ name: initial, label: "Current palette" }] });
+  if (selected && !choices.some(choice => choice.variants.some(variant => variant.name === selected))) {
+    choices.unshift({ label: selected, variants: [{ name: selected, label: "Current palette" }] });
   }
   return choices;
 }
@@ -70,8 +71,9 @@ export class ThemeSelector implements Component {
   ) {
     this.choices = choices; this.tui = tui; this.theme = theme; this.controls = selectionKeys(keys);
     this.preview = preview; this.done = done;
-    this.variants = choices.map(choice => Math.max(0, choice.variants.findIndex(variant => variant.name === initial)));
-    this.selected = Math.max(0, choices.findIndex(choice => choice.variants.some(variant => variant.name === initial)));
+    const selected = slateTheme(initial)?.name ?? initial;
+    this.variants = choices.map(choice => Math.max(0, choice.variants.findIndex(variant => variant.name === selected)));
+    this.selected = Math.max(0, choices.findIndex(choice => choice.variants.some(variant => variant.name === selected)));
   }
 
   private current(): ThemeVariant | undefined { return this.choices[this.selected]?.variants[this.variants[this.selected] ?? 0]; }
@@ -168,9 +170,13 @@ export class ThemeSelector implements Component {
     const current = this.current();
     const actions = this.actions();
     const index = this.variants[this.selected] ?? 0;
-    const footer = !choice ? th.fg("error", "✕ No themes available")
-      : !current ? th.fg("error", "✕ No palettes available")
-        : this.error ? th.fg("error", `✕ ${this.error}`) : "";
+    const unavailable = this.right
+      ? this.controls.confirmUnavailable ? "No save key available; adjust tui.select keybindings" : ""
+      : this.controls.openUnavailable ? "No palette key available; adjust tui.select keybindings" : "";
+    const footer = unavailable ? th.fg("error", `✕ ${unavailable}`)
+      : !choice ? th.fg("error", "✕ No themes available")
+        : !current ? th.fg("error", "✕ No palettes available")
+          : this.error ? th.fg("error", `✕ ${this.error}`) : "";
 
     if (tiny) {
       const titleLine = this.right ? th.style(themeTitle(choice), { fg: "accent", bold: true }) : th.fg("muted", "Slate themes");

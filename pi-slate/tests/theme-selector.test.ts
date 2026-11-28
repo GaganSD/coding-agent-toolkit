@@ -339,6 +339,41 @@ test("default Tab does not save", () => {
   assert.match(f.selector.render(88).join("\n"), /Save/);
 });
 
+test("shadowed navigation, confirm, and cancel keep Open and Save reachable", () => {
+  const f = fixture("catppuccin-mocha-pink", new KeybindingsManager({
+    "tui.select.up": "enter", "tui.select.down": ["right", "space"],
+    "tui.select.cancel": "tab", "tui.select.confirm": "left",
+  }));
+  assert.match(f.selector.render(88).join("\n"), /Ctrl\+Right\s+Palettes/);
+  f.selector.handleInput("\x1b[1;5C");
+  assert.match(f.selector.render(88).join("\n"), /Ctrl\+Enter\s+Save/);
+  f.selector.handleInput("\x1b[13;5u");
+  assert.deepEqual(f.done, ["catppuccin-mocha-pink"]);
+});
+
+test("impossible keymaps say which action is unavailable", () => {
+  const noOpen = fixture("catppuccin-mocha-pink", new KeybindingsManager({
+    "tui.select.up": "enter", "tui.select.down": ["right", "space", "ctrl+right"],
+    "tui.select.cancel": "tab", "tui.select.confirm": "left",
+  }));
+  assert.match(noOpen.selector.render(88).join("\n"), /No palette key available/);
+  const noSave = fixture("catppuccin-mocha-pink", new KeybindingsManager({
+    "tui.select.up": ["enter", "ctrl+enter"], "tui.select.down": "space",
+    "tui.select.cancel": "tab", "tui.select.confirm": "left",
+  }));
+  noSave.selector.handleInput(right);
+  assert.match(noSave.selector.render(88).join("\n"), /No save key available/);
+});
+
+test("a namespaced fallback save preselects the bundled theme", () => {
+  const choices = slateThemeChoices("slate-catppuccin-mocha-pink");
+  assert.equal(choices.length, 7, "the fallback name does not add an external row");
+  const f = fixture("slate-catppuccin-mocha-pink");
+  const text = f.selector.render(88).join("\n");
+  assert.match(text, /› Mocha/);
+  assert.match(text, /Palettes 3\/16/);
+});
+
 test("one-row terminals use the short theme name when the full one clips", () => {
   const f = fixture();
   f.terminal.rows = 3;

@@ -79,6 +79,10 @@ export function panelAction(key: string, label: string, hint: number, matches: P
 
 export type PanelKeys = Pick<KeybindingsManager, "matches" | "getKeys" | "getUserBindings">;
 const KEY_LABELS: Record<string, string> = { up: "↑", down: "↓", left: "←", right: "→", escape: "Esc", enter: "Enter", space: "Space", tab: "Tab" };
+// Last resort when every standard candidate is shadowed by navigation or cancel. These chords are
+// rarely bound; the footer shows them like any other hint, so the panel never loses Save or Open.
+const LAST_RESORT_CONFIRM = "ctrl+enter";
+const LAST_RESORT_OPEN = "ctrl+right";
 
 /** Host keybindings decoded once for both panels' actions and hints. */
 export function selectionKeys(keys: PanelKeys) {
@@ -105,13 +109,15 @@ export function selectionKeys(keys: PanelKeys) {
   const explicitConfirm = keys.getUserBindings()["tui.select.confirm"] !== undefined;
   const explicitKeys = explicitConfirm ? bindings.confirm : [];
   const preferredConfirm = [...new Set([...explicitKeys, "enter", "space"])].filter(free);
-  const candidates = preferredConfirm.length ? preferredConfirm : ["tab"].filter(free);
+  const fallbackConfirm = ["tab"].filter(free);
+  const candidates = preferredConfirm.length ? preferredConfirm : fallbackConfirm.length ? fallbackConfirm : [LAST_RESORT_CONFIRM].filter(free);
   const confirm = (data: string) => !isNav(data) && candidates.some(key => matchesKey(data, key as KeyId));
   const winningConfirm = candidates[0];
   const confirmLabel = winningConfirm ? (KEY_LABELS[winningConfirm] ?? shortcutLabel(winningConfirm)) : "—";
   const removeKeys = ["delete", "backspace"].filter(freeName).filter(key => !explicitKeys.some(explicit => normalize(explicit) === normalize(key)));
   const preferredOpen = [...new Set(["right", ...explicitKeys, "enter"])].filter(free);
-  const openCandidates = preferredOpen.length ? preferredOpen : ["space", "tab"].filter(free);
+  const fallbackOpen = ["space", "tab"].filter(free);
+  const openCandidates = preferredOpen.length ? preferredOpen : fallbackOpen.length ? fallbackOpen : [LAST_RESORT_OPEN].filter(free);
   const openKey = openCandidates[0];
   const removeKey = removeKeys[0];
   const cancel = (data: string) => matchesKey(data, "escape") || keys.matches(data, "tui.select.cancel");
@@ -120,6 +126,8 @@ export function selectionKeys(keys: PanelKeys) {
     confirm: confirmLabel,
     backLabel: navNames.has("left") ? (label("cancel") || "Esc") : "←",
     confirmKeys: candidates,
+    confirmUnavailable: candidates.length === 0,
+    openUnavailable: openCandidates.length === 0,
     openLabel: openKey ? (KEY_LABELS[openKey] ?? shortcutLabel(openKey)) : "—",
     cancel: label("cancel") || "Esc",
     matchesUp: (data: string) => keys.matches(data, "tui.select.up"),
