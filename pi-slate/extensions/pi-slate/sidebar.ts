@@ -330,8 +330,8 @@ export class Sidebar implements Component {
       const spend = cost === "—" || cost === "$0.00" ? "" : this.paint("text", cost);
       let right = spend || timing;
       if (spend && timing) {
-        const both = spend + this.paint("dim", " · ") + timing;
-        // Preserve the status label when adding spend, and prioritize the live clock over spend.
+        const both = timing + this.paint("dim", " · ") + spend;
+        // Keep spend at the right edge: it is static, so the countdown can grow leftward without moving it.
         right = visibleWidth(left) + 1 + visibleWidth(both) <= width ? both : s.working ? timing : spend;
       }
       return { text: this.pair(left, right, width) };
@@ -347,7 +347,7 @@ export class Sidebar implements Component {
     const context: Row[] = contextRows(input, { percent, tokens: s.tokens, window: s.contextWindow, estimated: s.estimated })
       .map(text => ({ text, action: branchUsage }));
     const performance = perfRows(input).flat().map(text => text === null ? HEADER_GAP : { text });
-    return [status, identity, model, HEADER_GAP, ...context, HEADER_GAP, ...performance, divider];
+    return [status, identity, model, HEADER_GAP, ...context, ...performance, divider];
   }
   private middle(width: number, now: number): Row[] {
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;

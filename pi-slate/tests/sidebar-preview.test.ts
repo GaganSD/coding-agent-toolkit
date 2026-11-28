@@ -105,12 +105,12 @@ for (const method of ["view", "legacy", "throwing"] as const) {
     sidebar.setSession(live);
     assert.equal(pane() === first, method === "legacy", "supported view renders renew only the sidebar leaf");
     assert.equal(split.children[0], chat);
-    assert.match(plain(pane().render(40))[1]!, /0:00$/);
+    assert.match(plain(pane().render(40))[1]!, /0:00 · \$0\.12$/);
     sidebar.setSession({ ...live, cwd: "/different-detail-only-path" });
     assert.deepEqual([view, full, forced], method === "view" ? [1, 0, 0] : method === "legacy" ? [0, 1, 0] : [1, 0, 1]);
     now += 1000;
     sidebar.tick();
-    assert.match(plain(pane().render(40))[1]!, /0:01$/);
+    assert.match(plain(pane().render(40))[1]!, /0:01 · \$0\.12$/);
     assert.deepEqual([view, full, forced], method === "view" ? [2, 0, 0] : method === "legacy" ? [0, 2, 0] : [1, 0, 2]);
 
     sidebar.setResources(resources);
@@ -337,7 +337,7 @@ test("the two-column header height stays fixed across terminal tiers", () => {
   sidebar.setSession({ ...session, name: "Slate session title" });
   for (const rows of [60, 44, 43, 30]) {
     terminal.rows = rows;
-    assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), 14, `rows ${rows}`);
+    assert.equal(plain(sidebar.render(40)).findIndex(line => /^├─+┤$/.test(line)), 13, `rows ${rows}`);
   }
   terminal.rows = 60;
   const lines = plain(sidebar.render(40));
@@ -346,7 +346,8 @@ test("the two-column header height stays fixed across terminal tiers", () => {
   assert.match(lines[1]!, /^○ Idle|^● Working/);
   assert(lines[2]!.startsWith("Slate session title") && lines[2]!.endsWith("session-"));
   assert(lines[5]!.startsWith("CONTEXT") && lines[5]!.includes("16%") && lines[5]!.includes("31.6k/200k"));
-  assert(/^[█-▏░]+$/.test(lines[6]!) && lines[7] === "", "one-row context bar");
+  assert(/^[█-▏░]+$/.test(lines[6]!), "one-row context bar");
+  assert(lines[7]!.startsWith("SPEED"), "performance starts directly after the bar");
 });
 
 test("context row keeps the heading grammar and degrades gracefully when narrow", () => {
@@ -792,12 +793,12 @@ test("sidebar closes both rails and joins every horizontal divider at the right 
 test("working status shows the running turn's elapsed time and ticks each second", () => {
   const { sidebar, advance } = fixture();
   sidebar.setSession({ ...session, working: true, turnStartedAt: 4000 - 42_000 });
-  assert.match(plain(sidebar.render(44))[1]!, /● Working\s+\$0\.12 · 0:42$/);
+  assert.match(plain(sidebar.render(44))[1]!, /● Working\s+0:42 · \$0\.12$/);
   assert.match(plain(sidebar.render(24))[1]!, /● Working\s+0:42$/);
   advance(1000);
-  assert.match(plain(sidebar.render(44))[1]!, /0:43$/);
+  assert.match(plain(sidebar.render(44))[1]!, /0:43 · \$0\.12$/);
   sidebar.setSession({ ...session, working: false, turnStartedAt: null });
-  assert.match(plain(sidebar.render(44))[1]!, /○ Idle · 2 turns\s+\$0\.12 · last 5s$/);
+  assert.match(plain(sidebar.render(44))[1]!, /○ Idle · 2 turns\s+last 5s · \$0\.12$/);
 });
 
 test("status spend is normal text, shown only for positive known cost", () => {
