@@ -371,13 +371,16 @@ export class WebSearchPanel implements Component, Focusable {
 	}
 
 	async handleInput(data: string): Promise<void> {
-		if (this.closed || isKeyRepeat(data) || isKeyRelease(data)) return;
-		if (matchesKey(data, "ctrl+c")) { this.finish(); return; }
+		if (this.closed || isKeyRelease(data)) return;
+		// Held keys repeat only inside the key editor; repeated commands stay blocked.
+		const repeat = isKeyRepeat(data);
+		if (repeat && this.editor?.kind !== "key") return;
+		if (!repeat && matchesKey(data, "ctrl+c")) { this.finish(); return; }
 		if (this.busy) return;
 		const editor = this.editor;
 		try {
 			const action = this.actions().find((candidate) => candidate.matches(data));
-			if (action) await action.run(data);
+			if (action) { if (!repeat) await action.run(data); }
 			else if (editor?.kind === "key") this.keyInput(data, editor);
 			else if (this.removing) this.removal = undefined;
 		} catch {

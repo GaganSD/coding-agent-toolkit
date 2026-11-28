@@ -705,3 +705,14 @@ test("wide provider names cannot hide the aligned status glyphs or GitHub's curr
 	}
 }));
 
+
+test("held keys repeat in the key editor while repeated commands stay blocked", () => isolated(async ({ make }) => {
+	let checked = 0;
+	const panel = await make("parallel", { check: async () => { checked++; return "accepted"; } });
+	await press(panel, right, enter);
+	for (const chunk of ["a", "\x1b[97;1:2u", "\x1b[97;1:2u", "\x1b[127;1:2u"]) await panel.handleInput(chunk);
+	assert.equal((panel.editor as { value?: string } | undefined)?.value, "aa");
+	await panel.handleInput("\x1b[13;1:2u");
+	assert.equal(checked, 0);
+	assert.ok(panel.editor);
+}));
