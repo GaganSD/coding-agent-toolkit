@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { promisify } from "node:util";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const collector = path.join(here, "../../herdr-insights", "mods", "insights", "collector.mjs");
@@ -133,6 +134,33 @@ test("OpenCode malformed message rows report bounded warnings, including on unch
   const warm = await snapshot(context);
   assert.equal(warm.stats.filesRead, 0);
   assert.equal(warm.sourceStats.opencode.status, "error", "cached malformed state must not become falsely healthy");
+});
+
+test("OpenCode keeps the SQLite statement alive when GC runs during iteration", async (t) => {
+  const context = await env();
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const insert = context.db.prepare("INSERT INTO message VALUES (?, ?, ?, ?)");
+  insert.run("valid", "ses", 1790400000000, assistantMessage("valid"));
+  for (let i = 0; i < 3; i++) insert.run(`bad-${i}`, "ses", 1790400000000, "{malformed");
+  context.db.close();
+
+  const core = new URL("../../herdr-insights/mods/insights/core/", import.meta.url);
+  const script = `
+    import assert from "node:assert/strict";
+    import { scanSources } from ${JSON.stringify(new URL("scan.mjs", core).href)};
+    import { emptyStore, snapshotRows } from ${JSON.stringify(new URL("store.mjs", core).href)};
+    const store = emptyStore();
+    let collected = false;
+    const result = await scanSources(store, { home: process.argv[1], now: () => {
+      if (!collected) globalThis.gc();
+      collected = true;
+      return Date.now();
+    } });
+    assert.ok(collected, "GC ran while the iterator was live");
+    assert.match(result.warnings.join(" "), /3 malformed message rows/);
+    assert.equal(snapshotRows(store)[0].messages, 1);
+  `;
+  await promisify(execFile)(process.execPath, ["--expose-gc", "--input-type=module", "-e", script, context.home]);
 });
 
 test("OpenCode adapter skips a missing database without errors", async () => {

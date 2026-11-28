@@ -65,12 +65,13 @@ export async function grepSearch(
 	// always a no-match though, so the warning distinguishes the cases rather
 	// than asserting a negative the tool cannot know.
 	const upstream = text.trim();
+	const noMatches = /no results found/i.test(upstream);
 	const noMatchWarnings =
 		results.length > 0
 			? []
 			: upstream.length === 0
 				? ["grep.app returned an empty reply."]
-				: /no results found/i.test(upstream)
+				: noMatches
 					? [
 						parsed.repo !== undefined
 							? `grep.app found no matches in repo:${parsed.repo}. That repository may not be indexed; retry without the repo: qualifier, or with a shorter literal identifier.`
@@ -78,6 +79,7 @@ export async function grepSearch(
 					]
 					: [`grep.app replied with content this tool could not parse: ${excerpt(upstream)}`];
 
+	const unreadable = results.length === 0 && !noMatches;
 	const allWarnings = [...warnings, ...noMatchWarnings];
 
 	return {
@@ -86,6 +88,7 @@ export async function grepSearch(
 		sources: sourcesFromResults(results),
 		searchResults: results,
 		requestId: "mcp",
+		...(unreadable ? { unreadable: true } : {}),
 		...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
 	};
 }

@@ -5,7 +5,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type, type Static } from "@earendil-works/pi-ai";
 import { MAX_QUERY_CHARS } from "./providers/config.ts";
-import { PARALLEL_MCP_SERVER } from "./providers/parallel.ts";
 import { executeSearch, trimQuery } from "./execute.ts";
 import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
@@ -141,23 +140,21 @@ function validateSearchParams(params: SearchInput): ValidatedSearch | Error {
 	return { kind: "ref", ref: params.ref };
 }
 
-/**
- * Parallel's native MCP namespace is reachable only by calls that can perform
- * web retrieval. Code-only and local ref reads do not wait for MCP startup.
- */
-export function searchReachesTools(input: SearchInput): string[] {
-	if (input.ref !== undefined) {
-		return [];
-	}
-	if (input.urls === undefined && (input.scope ?? "web") === "code") {
-		return [];
-	}
-	return [`mcp__${PARALLEL_MCP_SERVER}`];
-}
-
 /** Unified model-facing search: query, URL extraction, or local evidence read. */
 export async function search(
 	_toolCallId: string,
+	params: SearchInput,
+	signal: AbortSignal | undefined,
+	onUpdate: AgentToolUpdateCallback<WebSearchDetails> | undefined,
+	ctx: ExtensionContext,
+	options: UnifiedSearchOptions = {},
+): Promise<AgentToolResult<WebSearchDetails>> {
+	const start = performance.now();
+	const result = await run(params, signal, onUpdate, ctx, options);
+	return { ...result, details: { ...result.details, durationMs: Math.round(performance.now() - start) } };
+}
+
+async function run(
 	params: SearchInput,
 	signal: AbortSignal | undefined,
 	onUpdate: AgentToolUpdateCallback<WebSearchDetails> | undefined,
@@ -195,7 +192,6 @@ export async function search(
 				tool: SEARCH_TOOL,
 				rawParams: params,
 				acceptedParams: SEARCH_PARAMS,
-				progress: `Fetching ${validated.urls.length} URL(s)...`,
 			},
 			signal,
 			onUpdate,
@@ -216,11 +212,6 @@ export async function search(
 			rawParams: params,
 			acceptedParams: SEARCH_PARAMS,
 			requireResearch: effort === "thorough",
-			progress: effort === "thorough"
-				? `Searching multiple sources for "${query}" (${scope})...`
-				: scope === "code"
-					? `Searching public code for "${query}"...`
-					: `Searching the web for "${query}"...`,
 		},
 		signal,
 		onUpdate,

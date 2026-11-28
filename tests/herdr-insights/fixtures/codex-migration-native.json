@@ -1,0 +1,5202 @@
+{
+  "fork": {
+    "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": "{\"timestamp\":\"2026-11-01T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-1000-7000-8000-000000000001\",\"session_id\":\"019fa000-1000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.152.0\",\"model_provider\":\"openai\",\"source\":\"cli\"}}\n{\"timestamp\":\"2026-11-01T00:00:01.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"model\":\"initial\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"last_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"model_context_window\":20000}}}\n",
+    "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl": "{\"timestamp\":\"2026-11-01T00:00:12.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.152.0\",\"model_provider\":\"openai\",\"source\":\"cli\",\"forked_from_id\":\"019fa000-1000-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-1000-7000-8000-000000000001\",\"session_id\":\"019fa000-1000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.152.0\",\"model_provider\":\"openai\",\"source\":\"cli\"}}\n{\"timestamp\":\"2026-11-01T00:00:01.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"model\":\"initial\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"last_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:16.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"thread_settings_applied\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"thread_settings\":{}}}\n{\"timestamp\":\"2026-11-01T00:00:17.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"model\":\"child\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:18.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":105,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":105},\"last_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"model_context_window\":20000}}}\n"
+  },
+  "shell": "{\"timestamp\":\"2026-11-01T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.154.0\",\"model_provider\":\"openai\",\"source\":\"cli\"}}\n{\"timestamp\":\"2026-11-01T00:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:02.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"model\":\"initial\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:03.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"r1\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"turn_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"thread_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5}}}\n{\"timestamp\":\"2026-11-01T00:00:04.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"last_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:05.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"duration_ms\":3000}}\n{\"timestamp\":\"2026-11-01T00:00:06.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:07.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"exec_command_begin\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"call_id\":\"local\",\"source\":\"user_shell\",\"command\":[\"echo\",\"ok\"]}}\n{\"timestamp\":\"2026-11-01T00:00:08.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"exec_command_end\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"call_id\":\"local\",\"source\":\"user_shell\",\"exit_code\":0}}\n{\"timestamp\":\"2026-11-01T00:00:09.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"duration_ms\":7000}}\n",
+  "suffix": "{\"timestamp\":\"2026-11-01T00:00:30.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-4000-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:31.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"model\":\"next\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:32.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"r3\",\"turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"turn_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"thread_token_usage\":{\"input_tokens\":15,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":15}}}\n{\"timestamp\":\"2026-11-01T00:00:33.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":15,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":15},\"last_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:34.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"duration_ms\":4000}}\n",
+  "replays": {
+    "context": "codex-fork-replay-context.jsonl",
+    "bare": "codex-fork-replay-bare.jsonl"
+  },
+  "parsers": {
+    "5": {
+      "commit": "83a4e9a",
+      "samples": {
+        "fork": {
+          "version": 1,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 5
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1935,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1935,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                },
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 1
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2239af50901ed28fbc217c60": [
+              2,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              1,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "archive": {
+          "version": 1,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 5
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst",
+              "dev": "0",
+              "ino": "0",
+              "size": 426,
+              "mtimeMs": 0,
+              "compressed": true,
+              "offset": 426,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                },
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 1
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "2239af50901ed28fbc217c60": [
+              2,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              1,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "shell": {
+          "version": 1,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000shell.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "shell.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 2631,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 2631,
+              "lineNo": 10,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        },
+        "context": {
+          "version": 1,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000codex-fork-replay-context.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "codex-fork-replay-context.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 2244,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 2244,
+              "lineNo": 10,
+              "rows": [
+                {
+                  "day": "2026-03-08",
+                  "session": "codex:019f0000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "parent-model",
+                  "project": "/repo/fork-replay",
+                  "input": 2000,
+                  "output": 500,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                },
+                {
+                  "day": "2026-03-08",
+                  "session": "codex:019f0000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child-model",
+                  "project": "/repo/fork-replay",
+                  "input": 200,
+                  "output": 50,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019f0000-1000-7000-8000-000000000001",
+                "project": "/repo/fork-replay",
+                "provider": "openai",
+                "timestamp": 1772956800000,
+                "model": "child-model",
+                "turns": {
+                  "019f0000-0001-7000-8000-000000000003": {
+                    "model": "parent-model",
+                    "provider": "openai",
+                    "project": "/repo/fork-replay",
+                    "lastRow": null
+                  },
+                  "019f0000-2000-7000-8000-000000000004": {
+                    "model": "child-model",
+                    "provider": "openai",
+                    "project": "/repo/fork-replay",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "28b2e476661eaa1aab25766f",
+                  "tokens": [
+                    120,
+                    30,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1772956812000,
+                  "cumulative": [
+                    2200,
+                    550,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 2200,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 550,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 1
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "3bf6dc99bf5b81bf883133d7": [
+              1,
+              0,
+              800,
+              200,
+              0,
+              0,
+              0
+            ],
+            "f0cc8e50678add396fe79ab0": [
+              1,
+              0,
+              1200,
+              300,
+              0,
+              0,
+              0
+            ],
+            "7a254df8e3df4575d74313ce": [
+              1,
+              1,
+              80,
+              20,
+              0,
+              0,
+              0
+            ],
+            "28b2e476661eaa1aab25766f": [
+              1,
+              1,
+              120,
+              30,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "bare": {
+          "version": 1,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000codex-fork-replay-bare.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "codex-fork-replay-bare.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1718,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1718,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-03-08",
+                  "session": "codex:019f0000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "unknown",
+                  "project": "/repo/fork-replay",
+                  "input": 2000,
+                  "output": 500,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                },
+                {
+                  "day": "2026-03-08",
+                  "session": "codex:019f0000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child-model",
+                  "project": "/repo/fork-replay",
+                  "input": 200,
+                  "output": 50,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 2
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019f0000-1000-7000-8000-000000000001",
+                "project": "/repo/fork-replay",
+                "provider": "openai",
+                "timestamp": 1772956800000,
+                "model": "child-model",
+                "pendingTwin": {
+                  "key": "28b2e476661eaa1aab25766f",
+                  "tokens": [
+                    120,
+                    30,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1772956812000,
+                  "cumulative": [
+                    2200,
+                    550,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "turns": {
+                  "019f0000-2000-7000-8000-000000000004": {
+                    "model": "child-model",
+                    "provider": "openai",
+                    "project": "/repo/fork-replay",
+                    "lastRow": null
+                  }
+                },
+                "legacyTotals": {
+                  "input_tokens": 2200,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 550,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 1
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "3bf6dc99bf5b81bf883133d7": [
+              1,
+              0,
+              800,
+              200,
+              0,
+              0,
+              0
+            ],
+            "f0cc8e50678add396fe79ab0": [
+              1,
+              0,
+              1200,
+              300,
+              0,
+              0,
+              0
+            ],
+            "7a254df8e3df4575d74313ce": [
+              1,
+              1,
+              80,
+              20,
+              0,
+              0,
+              0
+            ],
+            "28b2e476661eaa1aab25766f": [
+              1,
+              1,
+              120,
+              30,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "archivedParent": {
+          "version": 1,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 4105,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 4105,
+              "lineNo": 13,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "parent",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                },
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f",
+                "db5cd73438c3f1b2c3783502"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 1
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "36c6f15ede5eede5fab5fab2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "63a878d1d2dfa3f3dd85bda5",
+                    "tokens": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "parent-response",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  },
+                  {
+                    "key": "36c6f15ede5eede5fab5fab2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491222000,
+                    "thread": [
+                      105,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "child-response",
+                    "turnId": "019fa000-3100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 1
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 5
+              }
+            },
+            "codex\u0000archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1943,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1943,
+              "lineNo": 6,
+              "rows": [],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "parent",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "63a878d1d2dfa3f3dd85bda5",
+                    "tokens": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "parent-response",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "63a878d1d2dfa3f3dd85bda5": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0,
+              {
+                "copies": [
+                  2
+                ],
+                "meta": {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "parent",
+                  "project": "/repo"
+                }
+              }
+            ],
+            "36c6f15ede5eede5fab5fab2": [
+              1,
+              1,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              1,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "db5cd73438c3f1b2c3783502": [
+              1,
+              0,
+              3000,
+              1,
+              "87156052a667fdaa09d3bfca"
+            ]
+          }
+        },
+        "compact": {
+          "version": 1,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000compact.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "compact.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 3827,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 3827,
+              "lineNo": 12,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "compact",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "compact",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 5
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        }
+      }
+    },
+    "6": {
+      "commit": "16d81c8",
+      "samples": {
+        "fork": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 6
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1935,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1935,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 6
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "archive": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 6
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst",
+              "dev": "0",
+              "ino": "0",
+              "size": 426,
+              "mtimeMs": 0,
+              "compressed": true,
+              "offset": 426,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 6
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "shell": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000shell.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "shell.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 2631,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 2631,
+              "lineNo": 10,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 6
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        },
+        "archivedParent": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 4105,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 4105,
+              "lineNo": 13,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "pendingTwin": null,
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modern": true,
+                "modernObserved": {
+                  "36c6f15ede5eede5fab5fab2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "modernRecent": [
+                  {
+                    "key": "36c6f15ede5eede5fab5fab2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491222000,
+                    "thread": [
+                      105,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "child-response",
+                    "turnId": "019fa000-3100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 6
+              }
+            },
+            "codex\u0000archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1943,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1943,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "parent",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "db5cd73438c3f1b2c3783502"
+              ],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "parent",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 2,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "63a878d1d2dfa3f3dd85bda5",
+                    "tokens": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "parent-response",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 6
+              }
+            }
+          },
+          "dedup": {
+            "36c6f15ede5eede5fab5fab2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ],
+            "63a878d1d2dfa3f3dd85bda5": [
+              2,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "db5cd73438c3f1b2c3783502": [
+              2,
+              0,
+              3000,
+              1,
+              "87156052a667fdaa09d3bfca"
+            ]
+          }
+        },
+        "compact": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000compact.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "compact.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 3827,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 3827,
+              "lineNo": 12,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "compact",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "compact",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 6
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        }
+      }
+    },
+    "7": {
+      "commit": "fda4836",
+      "samples": {
+        "fork": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 7
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1935,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1935,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 7
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "archive": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 7
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst",
+              "dev": "0",
+              "ino": "0",
+              "size": 426,
+              "mtimeMs": 0,
+              "compressed": true,
+              "offset": 426,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 7
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "shell": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000shell.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "shell.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 2631,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 2631,
+              "lineNo": 10,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 7
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        },
+        "archivedParent": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 4105,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 4105,
+              "lineNo": 13,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "pendingTwin": null,
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modern": true,
+                "modernObserved": {
+                  "36c6f15ede5eede5fab5fab2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "modernRecent": [
+                  {
+                    "key": "36c6f15ede5eede5fab5fab2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491222000,
+                    "thread": [
+                      105,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "child-response",
+                    "turnId": "019fa000-3100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 7
+              }
+            },
+            "codex\u0000archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1943,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1943,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "parent",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "db5cd73438c3f1b2c3783502"
+              ],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "parent",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 2,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "63a878d1d2dfa3f3dd85bda5",
+                    "tokens": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "parent-response",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 7
+              }
+            }
+          },
+          "dedup": {
+            "36c6f15ede5eede5fab5fab2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ],
+            "63a878d1d2dfa3f3dd85bda5": [
+              2,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "db5cd73438c3f1b2c3783502": [
+              2,
+              0,
+              3000,
+              1,
+              "87156052a667fdaa09d3bfca"
+            ]
+          }
+        },
+        "compact": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000compact.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "compact.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 3827,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 3827,
+              "lineNo": 12,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "compact",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "compact",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 7
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        }
+      }
+    },
+    "8": {
+      "commit": "125d623",
+      "samples": {
+        "fork": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 8
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1935,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1935,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 8
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "archive": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "4d93d813fa79902b1f6bbd54",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 8
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst",
+              "dev": "0",
+              "ino": "0",
+              "size": 426,
+              "mtimeMs": 0,
+              "compressed": true,
+              "offset": 426,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": {
+                  "key": "e8efa0dc993b028c23299aef",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 8
+              }
+            }
+          },
+          "dedup": {
+            "4d93d813fa79902b1f6bbd54": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "e8efa0dc993b028c23299aef": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "shell": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000shell.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "shell.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 2631,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 2631,
+              "lineNo": 10,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 8
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        },
+        "archivedParent": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 4105,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 4105,
+              "lineNo": 13,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "36c6f15ede5eede5fab5fab2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "36c6f15ede5eede5fab5fab2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491222000,
+                    "thread": [
+                      105,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "child-response",
+                    "turnId": "019fa000-3100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 8
+              }
+            },
+            "codex\u0000archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1943,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1943,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "parent",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "db5cd73438c3f1b2c3783502"
+              ],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "parent",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 2,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "63a878d1d2dfa3f3dd85bda5",
+                    "tokens": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      100,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "parent-response",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 8
+              }
+            }
+          },
+          "dedup": {
+            "36c6f15ede5eede5fab5fab2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ],
+            "63a878d1d2dfa3f3dd85bda5": [
+              2,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "db5cd73438c3f1b2c3783502": [
+              2,
+              0,
+              3000,
+              1,
+              "87156052a667fdaa09d3bfca"
+            ]
+          }
+        },
+        "compact": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000compact.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "compact.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 3827,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 3827,
+              "lineNo": 12,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "compact",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "compact",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [
+                  {
+                    "key": "8add29e3ad9e87a17e7066c2",
+                    "tokens": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "timestamp": 1793491203000,
+                    "thread": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "turn": [
+                      5,
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "responseId": "r1",
+                    "turnId": "019fa000-1100-7000-8000-000000000001"
+                  }
+                ],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "codexParserVersion": 8
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        }
+      }
+    },
+    "9": {
+      "commit": "8ec1106",
+      "samples": {
+        "fork": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "18212da7f836f0a67b4a8604",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1935,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1935,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": {
+                  "key": "f030211ab3bb77029c6e81e3",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "18212da7f836f0a67b4a8604": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "f030211ab3bb77029c6e81e3": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "archive": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 854,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 854,
+              "lineNo": 3,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "pendingTwin": {
+                  "key": "18212da7f836f0a67b4a8604",
+                  "tokens": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491202000,
+                  "cumulative": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            },
+            "codex\u0000rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "rollout-2026-11-01T00-00-00-019fa000-3000-7000-8000-000000000001.jsonl.zst",
+              "dev": "0",
+              "ino": "0",
+              "size": 426,
+              "mtimeMs": 0,
+              "compressed": true,
+              "offset": 426,
+              "lineNo": 7,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": {
+                  "key": "f030211ab3bb77029c6e81e3",
+                  "tokens": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "timestamp": 1793491218000,
+                  "cumulative": [
+                    105,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "responseId": "",
+                  "turnId": ""
+                },
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "18212da7f836f0a67b4a8604": [
+              1,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ],
+            "f030211ab3bb77029c6e81e3": [
+              2,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {}
+        },
+        "shell": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000shell.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "shell.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 2631,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 2631,
+              "lineNo": 10,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "initial",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "legacyTwinKeys": {
+                  "02e8b2c0e940ee8f41b16f14": "8add29e3ad9e87a17e7066c2"
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        },
+        "archivedParent": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 3,
+          "files": {
+            "codex\u0000sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 4105,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 4105,
+              "lineNo": 13,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "child",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "forkReplay": false,
+                "forkStartMs": 1785095794688,
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491212000,
+                "model": "child",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "child",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "legacyTotals": {
+                  "input_tokens": 105,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "36c6f15ede5eede5fab5fab2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "pendingTwin": null,
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTwinKeys": {
+                  "f030211ab3bb77029c6e81e3": "36c6f15ede5eede5fab5fab2"
+                },
+                "codexParserVersion": 9
+              }
+            },
+            "codex\u0000archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": {
+              "id": 2,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 1943,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 1943,
+              "lineNo": 6,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-1000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "parent",
+                  "project": "/repo",
+                  "input": 100,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "db5cd73438c3f1b2c3783502"
+              ],
+              "state": {
+                "session": "019fa000-1000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "parent",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "parent",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 2,
+                      "rowIdx": 0
+                    }
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "63a878d1d2dfa3f3dd85bda5": [
+                    100,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 2,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 100,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "legacyTwinKeys": {
+                  "18212da7f836f0a67b4a8604": "63a878d1d2dfa3f3dd85bda5"
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "36c6f15ede5eede5fab5fab2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ],
+            "63a878d1d2dfa3f3dd85bda5": [
+              2,
+              0,
+              100,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "db5cd73438c3f1b2c3783502": [
+              2,
+              0,
+              3000,
+              1,
+              "87156052a667fdaa09d3bfca"
+            ]
+          }
+        },
+        "compact": {
+          "version": 1,
+          "generation": 0,
+          "nextFileId": 2,
+          "files": {
+            "codex\u0000compact.jsonl": {
+              "id": 1,
+              "sourceId": "codex",
+              "adapter": "codex",
+              "path": "compact.jsonl",
+              "dev": "0",
+              "ino": "0",
+              "size": 3827,
+              "mtimeMs": 0,
+              "compressed": false,
+              "offset": 3827,
+              "lineNo": 12,
+              "rows": [
+                {
+                  "day": "2026-11-01",
+                  "session": "codex:019fa000-3000-7000-8000-000000000001",
+                  "harness": "codex",
+                  "provider": "openai",
+                  "model": "initial",
+                  "project": "/repo",
+                  "input": 5,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0,
+                  "messages": 1
+                }
+              ],
+              "tasks": [
+                "4e0484cb5196916f6e08d780",
+                "e08bc73e742227c34ad70a8f"
+              ],
+              "state": {
+                "session": "019fa000-3000-7000-8000-000000000001",
+                "project": "/repo",
+                "provider": "openai",
+                "timestamp": 1793491200000,
+                "model": "compact",
+                "turns": {
+                  "019fa000-1100-7000-8000-000000000001": {
+                    "model": "initial",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": {
+                      "fileId": 1,
+                      "rowIdx": 0
+                    }
+                  },
+                  "019fa000-3100-7000-8000-000000000001": {
+                    "model": "compact",
+                    "provider": "openai",
+                    "project": "/repo",
+                    "lastRow": null
+                  }
+                },
+                "modern": true,
+                "modernObserved": {
+                  "8add29e3ad9e87a17e7066c2": [
+                    5,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "modernPending": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "reasoning": 0
+                },
+                "pendingTwin": null,
+                "modernRecent": [],
+                "lastRow": {
+                  "fileId": 1,
+                  "rowIdx": 0
+                },
+                "legacyTotals": {
+                  "input_tokens": 5,
+                  "cached_input_tokens": 0,
+                  "cache_write_input_tokens": 0,
+                  "output_tokens": 0,
+                  "reasoning_output_tokens": 0
+                },
+                "legacyTwinKeys": {
+                  "02e8b2c0e940ee8f41b16f14": "8add29e3ad9e87a17e7066c2"
+                },
+                "codexParserVersion": 9
+              }
+            }
+          },
+          "dedup": {
+            "8add29e3ad9e87a17e7066c2": [
+              1,
+              0,
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "tasks": {
+            "4e0484cb5196916f6e08d780": [
+              1,
+              0,
+              3000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ],
+            "e08bc73e742227c34ad70a8f": [
+              1,
+              0,
+              7000,
+              1,
+              "2a69041e4717f334dba34cba"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "compact": "{\"timestamp\":\"2026-11-01T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.154.0\",\"model_provider\":\"openai\",\"source\":\"cli\"}}\n{\"timestamp\":\"2026-11-01T00:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:02.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"model\":\"initial\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:03.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"r1\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"turn_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"thread_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5}}}\n{\"timestamp\":\"2026-11-01T00:00:04.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"last_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:05.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"duration_ms\":3000}}\n{\"timestamp\":\"2026-11-01T00:00:06.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:07.000Z\",\"type\":\"compacted\",\"payload\":{\"message\":\"\",\"window_number\":2,\"replacement_history\":[],\"latest_token_usage_record\":{\"response_id\":\"r1\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"turn_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"thread_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5}}}}\n{\"timestamp\":\"2026-11-01T00:00:08.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"model\":\"compact\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:09.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"thread_settings_applied\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"thread_settings\":{}}}\n{\"timestamp\":\"2026-11-01T00:00:10.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"last_token_usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":17},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:11.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"duration_ms\":7000}}\n",
+  "archivedParent": {
+    "archived_sessions/rollout-2026-11-01T00-00-00-019fa000-1000-7000-8000-000000000001.jsonl": "{\"timestamp\":\"2026-11-01T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-1000-7000-8000-000000000001\",\"session_id\":\"019fa000-1000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.154.0\",\"model_provider\":\"openai\",\"source\":\"cli\"}}\n{\"timestamp\":\"2026-11-01T00:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:02.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"model\":\"parent\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:03.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"parent-response\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"thread_id\":\"019fa000-1000-7000-8000-000000000001\",\"session_id\":\"019fa000-1000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"turn_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"thread_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100}}}\n{\"timestamp\":\"2026-11-01T00:00:04.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"last_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:05.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"duration_ms\":3000}}\n",
+    "sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl": "{\"timestamp\":\"2026-11-01T00:00:12.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.154.0\",\"model_provider\":\"openai\",\"source\":\"cli\",\"forked_from_id\":\"019fa000-1000-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"019fa000-1000-7000-8000-000000000001\",\"session_id\":\"019fa000-1000-7000-8000-000000000001\",\"cwd\":\"/repo\",\"cli_version\":\"0.154.0\",\"model_provider\":\"openai\",\"source\":\"cli\"}}\n{\"timestamp\":\"2026-11-01T00:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:02.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"model\":\"parent\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:03.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"parent-response\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"thread_id\":\"019fa000-1000-7000-8000-000000000001\",\"session_id\":\"019fa000-1000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"turn_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"thread_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100}}}\n{\"timestamp\":\"2026-11-01T00:00:04.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"last_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:05.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-1100-7000-8000-000000000001\",\"duration_ms\":3000}}\n{\"timestamp\":\"2026-11-01T00:00:19.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"thread_settings_applied\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"thread_settings\":{}}}\n{\"timestamp\":\"2026-11-01T00:00:20.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:21.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"model\":\"child\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:22.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"child-response\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"turn_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"thread_token_usage\":{\"input_tokens\":105,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":105}}}\n{\"timestamp\":\"2026-11-01T00:00:23.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":105,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":105},\"last_token_usage\":{\"input_tokens\":5,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":5},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:24.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-3100-7000-8000-000000000001\",\"duration_ms\":7000}}\n"
+  },
+  "forkChild": "sessions/rollout-2026-11-01T00-00-11-019fa000-3000-7000-8000-000000000001.jsonl",
+  "forkSuffix": "{\"timestamp\":\"2026-11-01T00:00:30.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019fa000-4000-7000-8000-000000000001\"}}\n{\"timestamp\":\"2026-11-01T00:00:31.000Z\",\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"model\":\"next\",\"cwd\":\"/repo\"}}\n{\"timestamp\":\"2026-11-01T00:00:32.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"child-next\",\"turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"root_turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"thread_id\":\"019fa000-3000-7000-8000-000000000001\",\"session_id\":\"019fa000-3000-7000-8000-000000000001\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"turn_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"thread_token_usage\":{\"input_tokens\":115,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":115}}}\n{\"timestamp\":\"2026-11-01T00:00:33.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":115,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":115},\"last_token_usage\":{\"input_tokens\":10,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":10},\"model_context_window\":20000}}}\n{\"timestamp\":\"2026-11-01T00:00:34.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"019fa000-4000-7000-8000-000000000001\",\"duration_ms\":4000}}\n"
+}

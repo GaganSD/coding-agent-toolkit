@@ -1,0 +1,1537 @@
+{
+  "main": "8ec1106ee71e11fbdd6a91a07b5baa19de1010d3",
+  "initial": {
+    "history-a.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"history-copy\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"before-history-only\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10},\"last_token_usage\":{\"input_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:03.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30},\"last_token_usage\":{\"input_tokens\":20}}}}\n",
+    "history-b.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"history-copy\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"before-history-only\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10},\"last_token_usage\":{\"input_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:03.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30},\"last_token_usage\":{\"input_tokens\":20}}}}\n",
+    "capped.jsonl": "!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n!\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"capped-warnings\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"capped-warnings-first\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"capped-warnings-second\",\"usage\":{\"input_tokens\":20}}}\n",
+    "legacy-a.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"legacy-copy\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10},\"last_token_usage\":{\"input_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":25},\"last_token_usage\":{\"input_tokens\":15}}}}\n",
+    "legacy-b.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"legacy-copy\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10},\"last_token_usage\":{\"input_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":25},\"last_token_usage\":{\"input_tokens\":15}}}}\n",
+    "mixed-a.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"mixed-copy\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10},\"last_token_usage\":{\"input_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":25},\"last_token_usage\":{\"input_tokens\":15}}}}\n{\"timestamp\":\"2026-11-01T10:00:03.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"mixed-third\",\"usage\":{\"input_tokens\":5}}}\n{\"timestamp\":\"2026-11-01T10:00:04.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30},\"last_token_usage\":{\"input_tokens\":5}}}}\n",
+    "mixed-b.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"mixed-copy\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":10},\"last_token_usage\":{\"input_tokens\":10}}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":25},\"last_token_usage\":{\"input_tokens\":15}}}}\n{\"timestamp\":\"2026-11-01T10:00:03.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"mixed-third\",\"usage\":{\"input_tokens\":5}}}\n{\"timestamp\":\"2026-11-01T10:00:04.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":30},\"last_token_usage\":{\"input_tokens\":5}}}}\n",
+    "bad-plain.jsonl": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"bad-plain\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"bad-plain-first\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"bad-plain-second\",\"usage\":{\"input_tokens\":20}}}\n",
+    "bad-zstd.jsonl.zst": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"bad-zstd\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"bad-zstd-first\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"bad-zstd-second\",\"usage\":{\"input_tokens\":20}}}\n",
+    "old-bad-zstd.jsonl.zst": "bad\n{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"old-bad-zstd\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"old-bad-zstd-first\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"old-bad-zstd-second\",\"usage\":{\"input_tokens\":20}}}\n",
+    "repack.jsonl.zst": "{\"timestamp\":\"2026-11-01T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"repack\"}}\n{\"timestamp\":\"2026-11-01T10:00:01.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"repack-0\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:02.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"repack-1\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:03.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"repack-2\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:04.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"repack-3\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:05.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"repack-4\",\"usage\":{\"input_tokens\":10}}}\n{\"timestamp\":\"2026-11-01T10:00:06.000Z\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"repack-5\",\"usage\":{\"input_tokens\":10}}}\n"
+  },
+  "store": {
+    "version": 1,
+    "config": {
+      "profile": {
+        "name": "Developer",
+        "handle": "",
+        "avatar": ""
+      },
+      "palette": "blue",
+      "includeCache": true,
+      "weekStartsOn": 0,
+      "refreshSeconds": 60,
+      "sources": [
+        {
+          "id": "pi",
+          "label": "Pi",
+          "adapter": "pi",
+          "enabled": true,
+          "roots": [
+            "~/.pi/agent/sessions"
+          ]
+        },
+        {
+          "id": "codex",
+          "label": "Codex",
+          "adapter": "codex",
+          "enabled": true,
+          "roots": [
+            "~/.codex/sessions",
+            "~/.codex/archived_sessions"
+          ]
+        },
+        {
+          "id": "opencode",
+          "label": "OpenCode",
+          "adapter": "opencode",
+          "enabled": true,
+          "roots": [
+            "~/.local/share/opencode"
+          ]
+        },
+        {
+          "id": "claude",
+          "label": "Claude Code",
+          "adapter": "claude",
+          "enabled": true,
+          "roots": [
+            "~/.claude/projects"
+          ]
+        },
+        {
+          "id": "antigravity",
+          "label": "Antigravity",
+          "adapter": "antigravity",
+          "enabled": true,
+          "roots": [
+            "~/.gemini/antigravity-cli/conversations",
+            "~/.gemini/antigravity-cli/brain"
+          ]
+        }
+      ]
+    },
+    "generation": 0,
+    "nextFileId": 12,
+    "files": {
+      "codex\u0000bad-plain.jsonl": {
+        "id": 1,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "bad-plain.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 375,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 375,
+        "lineNo": 3,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:bad-plain",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "bad-plain",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "fc0688045f34f2794a2ec86b": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "ce7a7661b51bbc2f8d5e046d": [
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": null,
+          "modernRecent": [
+            {
+              "key": "fc0688045f34f2794a2ec86b",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527201000,
+              "thread": null,
+              "turn": null,
+              "responseId": "bad-plain-first",
+              "turnId": ""
+            },
+            {
+              "key": "ce7a7661b51bbc2f8d5e046d",
+              "tokens": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527202000,
+              "thread": null,
+              "turn": null,
+              "responseId": "bad-plain-second",
+              "turnId": ""
+            }
+          ],
+          "lastRow": {
+            "fileId": 1,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000bad-zstd.jsonl.zst": {
+        "id": 2,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "bad-zstd.jsonl.zst",
+        "dev": "0",
+        "ino": "0",
+        "size": 339,
+        "mtimeMs": 0,
+        "compressed": true,
+        "offset": 339,
+        "lineNo": 3,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:bad-zstd",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "bad-zstd",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "5acba9f4cfab346c45da5a5e": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "f590212bebc0e1c726ae4cdf": [
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": null,
+          "modernRecent": [
+            {
+              "key": "5acba9f4cfab346c45da5a5e",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527201000,
+              "thread": null,
+              "turn": null,
+              "responseId": "bad-zstd-first",
+              "turnId": ""
+            },
+            {
+              "key": "f590212bebc0e1c726ae4cdf",
+              "tokens": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527202000,
+              "thread": null,
+              "turn": null,
+              "responseId": "bad-zstd-second",
+              "turnId": ""
+            }
+          ],
+          "lastRow": {
+            "fileId": 2,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000capped.jsonl": {
+        "id": 3,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "capped.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 495,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 495,
+        "lineNo": 54,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:capped-warnings",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "capped-warnings",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "2af2dd0b3269fba36963710c": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "f1e58115b65a30aed7da6c8e": [
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": null,
+          "modernRecent": [
+            {
+              "key": "2af2dd0b3269fba36963710c",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527201000,
+              "thread": null,
+              "turn": null,
+              "responseId": "capped-warnings-first",
+              "turnId": ""
+            },
+            {
+              "key": "f1e58115b65a30aed7da6c8e",
+              "tokens": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527202000,
+              "thread": null,
+              "turn": null,
+              "responseId": "capped-warnings-second",
+              "turnId": ""
+            }
+          ],
+          "lastRow": {
+            "fileId": 3,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000history-a.jsonl": {
+        "id": 4,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "history-a.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 602,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 602,
+        "lineNo": 4,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:history-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "history-copy",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "20071d2e134e6664e4b39677": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": {
+            "key": "fdf93eb680279753cf02301e",
+            "tokens": [
+              20,
+              0,
+              0,
+              0,
+              0
+            ],
+            "timestamp": 1793527203000,
+            "cumulative": [
+              30,
+              0,
+              0,
+              0,
+              0
+            ],
+            "responseId": "",
+            "turnId": ""
+          },
+          "modernRecent": [],
+          "lastRow": {
+            "fileId": 4,
+            "rowIdx": 0
+          },
+          "legacyTotals": {
+            "input_tokens": 30,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "legacyTwinKeys": {
+            "afef22aee4dbebdf289cb669": "20071d2e134e6664e4b39677"
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000history-b.jsonl": {
+        "id": 5,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "history-b.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 602,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 602,
+        "lineNo": 4,
+        "rows": [],
+        "tasks": [],
+        "state": {
+          "session": "history-copy",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "20071d2e134e6664e4b39677": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": {
+            "key": "fdf93eb680279753cf02301e",
+            "tokens": [
+              20,
+              0,
+              0,
+              0,
+              0
+            ],
+            "timestamp": 1793527203000,
+            "cumulative": [
+              30,
+              0,
+              0,
+              0,
+              0
+            ],
+            "responseId": "",
+            "turnId": ""
+          },
+          "modernRecent": [],
+          "lastRow": {
+            "fileId": 4,
+            "rowIdx": 0
+          },
+          "legacyTotals": {
+            "input_tokens": 30,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "legacyTwinKeys": {
+            "afef22aee4dbebdf289cb669": "20071d2e134e6664e4b39677"
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000legacy-a.jsonl": {
+        "id": 6,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "legacy-a.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 456,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 456,
+        "lineNo": 3,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:legacy-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 25,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "legacy-copy",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "pendingTwin": {
+            "key": "a8523de7697ed8c473d589b2",
+            "tokens": [
+              15,
+              0,
+              0,
+              0,
+              0
+            ],
+            "timestamp": 1793527202000,
+            "cumulative": [
+              25,
+              0,
+              0,
+              0,
+              0
+            ],
+            "responseId": "",
+            "turnId": ""
+          },
+          "turns": {},
+          "legacyTotals": {
+            "input_tokens": 25,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "lastRow": {
+            "fileId": 6,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000legacy-b.jsonl": {
+        "id": 7,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "legacy-b.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 456,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 456,
+        "lineNo": 3,
+        "rows": [],
+        "tasks": [],
+        "state": {
+          "session": "legacy-copy",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "pendingTwin": {
+            "key": "a8523de7697ed8c473d589b2",
+            "tokens": [
+              15,
+              0,
+              0,
+              0,
+              0
+            ],
+            "timestamp": 1793527202000,
+            "cumulative": [
+              25,
+              0,
+              0,
+              0,
+              0
+            ],
+            "responseId": "",
+            "turnId": ""
+          },
+          "turns": {},
+          "legacyTotals": {
+            "input_tokens": 25,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "lastRow": {
+            "fileId": 6,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000mixed-a.jsonl": {
+        "id": 8,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "mixed-a.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 771,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 771,
+        "lineNo": 5,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:mixed-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 3
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "mixed-copy",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "pendingTwin": null,
+          "turns": {},
+          "legacyTotals": {
+            "input_tokens": 30,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "lastRow": {
+            "fileId": 8,
+            "rowIdx": 0
+          },
+          "modern": true,
+          "modernObserved": {
+            "a1e46be01f463874ed1782aa": [
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernRecent": [],
+          "legacyTwinKeys": {
+            "ef4e8aba1052aeb9eed7e037": "a1e46be01f463874ed1782aa"
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000mixed-b.jsonl": {
+        "id": 9,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "mixed-b.jsonl",
+        "dev": "0",
+        "ino": "0",
+        "size": 771,
+        "mtimeMs": 0,
+        "compressed": false,
+        "offset": 771,
+        "lineNo": 5,
+        "rows": [],
+        "tasks": [],
+        "state": {
+          "session": "mixed-copy",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "pendingTwin": null,
+          "turns": {},
+          "legacyTotals": {
+            "input_tokens": 30,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_output_tokens": 0
+          },
+          "modernPending": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "lastRow": {
+            "fileId": 8,
+            "rowIdx": 0
+          },
+          "modern": true,
+          "modernObserved": {
+            "a1e46be01f463874ed1782aa": [
+              5,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernRecent": [],
+          "legacyTwinKeys": {
+            "ef4e8aba1052aeb9eed7e037": "a1e46be01f463874ed1782aa"
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000old-bad-zstd.jsonl.zst": {
+        "id": 10,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "old-bad-zstd.jsonl.zst",
+        "dev": "0",
+        "ino": "0",
+        "size": 366,
+        "mtimeMs": 0,
+        "compressed": true,
+        "offset": 366,
+        "lineNo": 4,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:old-bad-zstd",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 2
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "old-bad-zstd",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "3f19f4be220cafc2b537cd0f": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "487e4f3627fff85803691e48": [
+              20,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 30,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": null,
+          "modernRecent": [
+            {
+              "key": "3f19f4be220cafc2b537cd0f",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527201000,
+              "thread": null,
+              "turn": null,
+              "responseId": "old-bad-zstd-first",
+              "turnId": ""
+            },
+            {
+              "key": "487e4f3627fff85803691e48",
+              "tokens": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                20,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527202000,
+              "thread": null,
+              "turn": null,
+              "responseId": "old-bad-zstd-second",
+              "turnId": ""
+            }
+          ],
+          "lastRow": {
+            "fileId": 10,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      },
+      "codex\u0000repack.jsonl.zst": {
+        "id": 11,
+        "sourceId": "codex",
+        "adapter": "codex",
+        "path": "repack.jsonl.zst",
+        "dev": "0",
+        "ino": "0",
+        "size": 808,
+        "mtimeMs": 0,
+        "compressed": true,
+        "offset": 808,
+        "lineNo": 7,
+        "rows": [
+          {
+            "day": "2026-11-01",
+            "session": "codex:repack",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown",
+            "input": 60,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0,
+            "messages": 6
+          }
+        ],
+        "tasks": [],
+        "state": {
+          "session": "repack",
+          "project": "unknown",
+          "provider": "unknown",
+          "timestamp": 1793527200000,
+          "model": "unknown",
+          "modern": true,
+          "turns": {},
+          "modernObserved": {
+            "2faa794c3b0f1acbd85e0253": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "aec1bc73ab81cae6cb9de77f": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "0ec80516466dab3dfc32cab4": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "5dcbfd972c38509bca068f8f": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "542059074fe2fc42701acb17": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ],
+            "d614e1281671ef043c9052cf": [
+              10,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "modernPending": {
+            "input": 60,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "reasoning": 0
+          },
+          "pendingTwin": null,
+          "modernRecent": [
+            {
+              "key": "2faa794c3b0f1acbd85e0253",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527201000,
+              "thread": null,
+              "turn": null,
+              "responseId": "repack-0",
+              "turnId": ""
+            },
+            {
+              "key": "aec1bc73ab81cae6cb9de77f",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527202000,
+              "thread": null,
+              "turn": null,
+              "responseId": "repack-1",
+              "turnId": ""
+            },
+            {
+              "key": "0ec80516466dab3dfc32cab4",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527203000,
+              "thread": null,
+              "turn": null,
+              "responseId": "repack-2",
+              "turnId": ""
+            },
+            {
+              "key": "5dcbfd972c38509bca068f8f",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527204000,
+              "thread": null,
+              "turn": null,
+              "responseId": "repack-3",
+              "turnId": ""
+            },
+            {
+              "key": "542059074fe2fc42701acb17",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527205000,
+              "thread": null,
+              "turn": null,
+              "responseId": "repack-4",
+              "turnId": ""
+            },
+            {
+              "key": "d614e1281671ef043c9052cf",
+              "tokens": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "delta": [
+                10,
+                0,
+                0,
+                0,
+                0
+              ],
+              "timestamp": 1793527206000,
+              "thread": null,
+              "turn": null,
+              "responseId": "repack-5",
+              "turnId": ""
+            }
+          ],
+          "lastRow": {
+            "fileId": 11,
+            "rowIdx": 0
+          },
+          "codexParserVersion": 9
+        }
+      }
+    },
+    "dedup": {
+      "fc0688045f34f2794a2ec86b": [
+        1,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "ce7a7661b51bbc2f8d5e046d": [
+        1,
+        0,
+        20,
+        0,
+        0,
+        0,
+        0
+      ],
+      "5acba9f4cfab346c45da5a5e": [
+        2,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "f590212bebc0e1c726ae4cdf": [
+        2,
+        0,
+        20,
+        0,
+        0,
+        0,
+        0
+      ],
+      "2af2dd0b3269fba36963710c": [
+        3,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "f1e58115b65a30aed7da6c8e": [
+        3,
+        0,
+        20,
+        0,
+        0,
+        0,
+        0
+      ],
+      "20071d2e134e6664e4b39677": [
+        4,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            5
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:history-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "fdf93eb680279753cf02301e": [
+        4,
+        0,
+        20,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            5
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:history-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "9b9044e39368508030b332ae": [
+        6,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            7
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:legacy-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "a8523de7697ed8c473d589b2": [
+        6,
+        0,
+        15,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            7
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:legacy-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "c79380a31b5b82c3af3d6d8b": [
+        8,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            9
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:mixed-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "a199f2d096ebf8cab2bbc517": [
+        8,
+        0,
+        15,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            9
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:mixed-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "a1e46be01f463874ed1782aa": [
+        8,
+        0,
+        5,
+        0,
+        0,
+        0,
+        0,
+        {
+          "copies": [
+            9
+          ],
+          "meta": {
+            "day": "2026-11-01",
+            "session": "codex:mixed-copy",
+            "harness": "codex",
+            "provider": "unknown",
+            "model": "unknown",
+            "project": "unknown"
+          }
+        }
+      ],
+      "3f19f4be220cafc2b537cd0f": [
+        10,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "487e4f3627fff85803691e48": [
+        10,
+        0,
+        20,
+        0,
+        0,
+        0,
+        0
+      ],
+      "2faa794c3b0f1acbd85e0253": [
+        11,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "aec1bc73ab81cae6cb9de77f": [
+        11,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "0ec80516466dab3dfc32cab4": [
+        11,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "5dcbfd972c38509bca068f8f": [
+        11,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "542059074fe2fc42701acb17": [
+        11,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "d614e1281671ef043c9052cf": [
+        11,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "tasks": {},
+    "lastScanAt": "2026-11-28T06:47:43.019Z",
+    "lastCompletedScanAt": "2026-11-28T06:47:43.019Z",
+    "scan": {
+      "warnings": [
+        "[codex] codex capped.jsonl: line 1 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 2 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 3 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 4 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 5 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 6 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 7 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 8 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 9 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 10 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 11 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 12 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 13 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 14 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 15 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 16 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 17 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 18 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 19 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 20 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 21 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 22 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 23 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 24 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 25 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 26 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 27 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 28 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 29 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 30 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 31 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 32 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 33 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 34 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 35 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 36 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 37 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 38 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 39 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 40 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 41 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 42 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 43 is not valid JSON; skipped.",
+        "[codex] codex capped.jsonl: line 44 is not valid JSON; skipped."
+      ]
+    }
+  }
+}

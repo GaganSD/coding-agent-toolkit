@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { isCodeSource, sourceFamily } from "./providers/types.ts";
 import type {
+	EvidenceProvider,
 	SearchResultDetail,
 	Source,
 	StreamResult,
@@ -33,8 +34,29 @@ export const WARNINGS_HEADING = "## Warnings";
 
 const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("sourcegraph"), Type.Literal("github"), Type.Literal("brave"), Type.Literal("jina")]);
 
-/** One declared data contract for renderers, scripts, and failure results. */
-const DetailsSchema = Type.Object({
+interface TranscriptDetails {
+	durationMs?: number;
+	cached?: boolean;
+	attempted?: EvidenceProvider[];
+	contributors?: EvidenceProvider[];
+	withheldMatches?: boolean;
+	incompleteSearch?: boolean;
+	unreadableProviders?: EvidenceProvider[];
+	failedProviders?: EvidenceProvider[];
+	webUnavailable?: boolean;
+	allRateLimited?: boolean;
+	configIssue?: string;
+	urlsRequested?: number;
+	urlsRead?: number;
+	excerptsShortened?: number;
+	thoroughOff?: boolean;
+	passageSource?: string;
+	unparsedRows?: number[];
+	unparsedReply?: boolean;
+	parallelHttpStatus?: number;
+}
+
+const EvidenceDetailsSchema = Type.Object({
 	resultId: Type.Optional(Type.String()),
 	storedCount: Type.Optional(Type.Integer({ minimum: 0 })),
 	storedClipped: Type.Optional(Type.Boolean()),
@@ -71,12 +93,12 @@ const DetailsSchema = Type.Object({
 	})),
 }, { additionalProperties: false });
 
-export type WebSearchDetails = Static<typeof DetailsSchema>;
+export type WebSearchDetails = Static<typeof EvidenceDetailsSchema> & TranscriptDetails;
 
 export const SearchOutputSchema = Type.Object({
 	status: Type.Union([Type.Literal("success"), Type.Literal("error")]),
 	text: Type.Optional(Type.String()),
-	...DetailsSchema.properties,
+	...EvidenceDetailsSchema.properties,
 }, { additionalProperties: false });
 
 export interface TruncationLimits {
@@ -107,7 +129,10 @@ export function formatResult(text: string, details: WebSearchDetails, limits?: T
 
 function structuredEvidence(details: WebSearchDetails, text: string) {
 	// Failure contracts retain diagnostics; successful evidence has one compact representation.
-	if (details.error) return JSON.parse(JSON.stringify({ status: "error", text, ...details }));
+	if (details.error) {
+		const evidence = Object.fromEntries(Object.entries(details).filter(([key]) => Object.hasOwn(EvidenceDetailsSchema.properties, key)));
+		return JSON.parse(JSON.stringify({ status: "error", text, ...evidence }));
+	}
 	const hits = details.searchResults ?? [];
 	return JSON.parse(JSON.stringify({
 		status: "success",
@@ -226,6 +251,8 @@ export function formatWebSearchResult(
 		providers: compact.providers, requestId: compact.requestId, usage: compact.usage,
 		grounded: cited.size > 0, scope: compact.scope, classifier: compact.classifier, classifierStatus: compact.classifierStatus,
 		resultCount: selected.length || sources.length,
+		excerptsShortened: (compact.searchResults ?? []).filter((hit, index) =>
+			normalizedText(hit).length > EXCERPT_MAX_CHARS || (hits[index]?.citedText.length ?? 0) < previewText(hit).length).length,
 	}, limits);
 	output.structuredContent = structuredEvidence(visible, text);
 	return output;

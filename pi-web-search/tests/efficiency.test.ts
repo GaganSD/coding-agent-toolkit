@@ -10,6 +10,7 @@ import { normalizeHttpError, retryAfterMs } from "../src/providers/http.ts";
 import { providerError, type StreamResult } from "../src/providers/types.ts";
 import type { SearchRequest } from "../src/providers/index.ts";
 import { parallelSearch } from "../src/providers/parallel.ts";
+import { parallelHttp } from "./fixtures/parallel-http.ts";
 import { exaSearch } from "../src/providers/exa.ts";
 
 const result: StreamResult = { text: "", providerKind: "exa", searchResults: [{ url: "https://example.com/doc", citedText: "prefix " + "text ".repeat(200) + "NEEDLE useful detail" }] };
@@ -88,7 +89,7 @@ test("preview deduplicates exact evidence but retains distinct passages, queries
 	assert.match(preview.warnings!.join(), /3 additional/);
 });
 
-test("reuse coalesces work, isolates caller cancellation, clones results and skips native permissions", async () => {
+test("reuse coalesces work, isolates caller cancellation, clones results and leaves Parallel uncached", async () => {
 	clearRetrievalCache();
 	let calls = 0;
 	let resolve!: (value: StreamResult) => void;
@@ -109,6 +110,7 @@ test("reuse coalesces work, isolates caller cancellation, clones results and ski
 	assert.equal(calls, 1);
 	assert.notEqual(cached.searchResults![0].citedText, "mutated");
 	assert.match(cached.warnings!.join(), /Reused session/);
+	assert.equal(cached.cached, true);
 	let native = 0;
 	for (let i = 0; i < 2; i++) await reuseTransport("parallel", req, async () => { native++; return result; });
 	assert.equal(native, 2);
@@ -227,20 +229,14 @@ test("keyless Exa URL-only retrieval makes no search RPC", async () => {
 	} finally { if (old === undefined) delete process.env.EXA_API_KEY; else process.env.EXA_API_KEY = old; }
 });
 
-test("Parallel URL-only calls only fetch; combined operations start concurrently", async () => {
-	const calls: string[] = [];
+test("Parallel combined operations start concurrently", { timeout: 3000 }, async () => {
 	let release!: () => void;
-	let gate = new Promise<void>((done) => { release = done; });
-	const runtime = { executeTool: async (name: string) => {
-		calls.push(name);
-		if (name.endsWith("web_search")) await gate;
+	const gate = new Promise<void>((done) => { release = done; });
+	const fixture = parallelHttp(async ({ name }) => {
+		if (name === "web_search") await gate;
 		else release();
-		return { isError: false, result: { structuredContent: { structuredContent: { results: [{ url: "https://example.com/doc", title: "Doc", excerpts: ["evidence"] }] } } } };
-	} } as unknown as SearchRequest["runtime"];
-	await parallelSearch(request({ query: "", fetchOnly: true, urls: ["https://example.com/doc"], runtime }));
-	assert.deepEqual(calls, ["mcp__pi_web_search_parallel__web_fetch"]);
-	calls.length = 0;
-	gate = new Promise<void>((done) => { release = done; });
-	await parallelSearch(request({ urls: ["https://example.com/doc"], runtime }));
-	assert.equal(calls.length, 2);
+		return { structuredContent: { results: [{ url: "https://example.com/doc", excerpts: ["evidence"] }] } };
+	});
+	await parallelSearch(request({ urls: ["https://example.com/doc"] }), { fetchImpl: fixture.fetch });
+	assert.deepEqual(fixture.calls.map(({ name }) => name), ["web_search", "web_fetch"]);
 });

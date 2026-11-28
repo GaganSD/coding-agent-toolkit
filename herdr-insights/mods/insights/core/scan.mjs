@@ -8,13 +8,20 @@ import { pipeline } from "node:stream/promises";
 import * as zlib from "node:zlib";
 import { parseAdapterRecord } from "./adapters.mjs";
 import { antigravityConversation, scanAntigravityDb } from "./antigravity.mjs";
+import { codexTailContext } from "./codex-migration.mjs";
+import { CODEX_PARSER_VERSION } from "./codex-spend.mjs";
 import {
   MAX_LINE_BYTES,
   expandHome,
   isPlainObject,
   localDay,
+  sessionHash,
 } from "./util.mjs";
 import {
+  addCodexUsage,
+  codexIndexedEvidence,
+  unresolvedCodexReferences,
+  addCodexTask,
   addTask,
   addUsage,
   beginStoreTransaction,
@@ -22,6 +29,8 @@ import {
   dedupKeyFor,
   deleteFileEntry,
   fileKey,
+  getOrCreateRow,
+  linkCodexSnapshot,
   newFileEntry,
   removeLatestFallbackTaskForSession,
   resetFileEntry,
@@ -32,8 +41,9 @@ import {
 const CHUNK_BYTES = 256 * 1024;
 const MAX_WARNINGS = 50;
 const MAX_TRAVERSAL_ENTRIES = 250_000;
-const PARSER_VERSIONS = { pi: 3, codex: 9, claude: 2, antigravity: 2 };
+const PARSER_VERSIONS = { pi: 3, codex: CODEX_PARSER_VERSION, claude: 2, antigravity: 2 };
 const PROGRESS_CHUNK_INTERVAL = 64;
+const TRANSIENT_ARCHIVE_READ_CODES = new Set(["EAGAIN", "EBUSY", "EINTR", "EIO", "EMFILE", "ENFILE", "ENOENT", "ESTALE"]);
 
 export class ScanStopError extends Error {
   constructor(reason) {
@@ -232,6 +242,7 @@ function createLineConsumer(onLine) {
     }
     onLine(value, {
       lineNo,
+      lineEnd: absoluteEnd,
       hash: hashBytes(line),
       parseError: false,
     });
@@ -262,6 +273,7 @@ function createLineConsumer(onLine) {
         lineNo += 1;
         offset = absoluteEnd;
         discarding = false;
+        onLine(null, { lineNo, oversized: true });
         start = newline + 1;
         continue;
       }
@@ -274,6 +286,7 @@ function createLineConsumer(onLine) {
           lineNo += 1;
           offset = absoluteEnd;
           skippedLargeLine = true;
+          onLine(null, { lineNo, oversized: true });
         } else {
           processLine(whole, absoluteEnd, true);
         }
@@ -281,6 +294,7 @@ function createLineConsumer(onLine) {
         lineNo += 1;
         offset = absoluteEnd;
         skippedLargeLine = true;
+        onLine(null, { lineNo, oversized: true });
       } else {
         processLine(piece, absoluteEnd, true);
       }
@@ -521,6 +535,15 @@ function lineContext(store, entry, source, sink) {
     addUsage(meta, tokens, key) {
       return addUsage(store, entry, meta, tokens, key);
     },
+    addCodexUsage(meta, tokens, key) {
+      return addCodexUsage(store, entry, meta, tokens, key, CODEX_PARSER_VERSION);
+    },
+    addCodexTask(usageKey, taskKey, durationMs, session) {
+      return addCodexTask(store, entry, usageKey, taskKey, durationMs, session);
+    },
+    linkCodexSnapshot(snapshotKey, responseKey) {
+      linkCodexSnapshot(store, snapshotKey, responseKey);
+    },
     addTask(fileId, rowIdx, key, durationMs, session, exact) {
       return addTask(
         store,
@@ -539,9 +562,71 @@ function lineContext(store, entry, source, sink) {
   };
 }
 
-function createRecordConsumer(store, entry, source, sink) {
+function createRecordConsumer(store, entry, source, sink, verification) {
   const context = lineContext(store, entry, source, sink);
+  let tailContext;
+  if (verification) {
+    let named;
+    const witness = (keys, key, value, requireValue = false) => {
+      if (!keys.has(key)) return;
+      const expected = keys.get(key);
+      if (expected && requireValue && !value) return;
+      const remaining = expected && value && expected.map((n, i) => value[i] >= n ? 0 : n);
+      if (remaining?.some(Boolean)) keys.set(key, remaining);
+      else keys.delete(key);
+    };
+    context.observeCodexLegacyKey = (key, value, standalone = false) => {
+      const inPrefix = context.lineNo <= verification.prefix;
+      if (inPrefix) witness(verification.missing, key, value);
+      witness(verification.missingTail, key, value, true);
+      if (standalone && !inPrefix) named = key;
+    };
+    context.observeCodexTask = (key, duration, copied, materializedKey = key) => {
+      const inPrefix = context.lineNo <= verification.prefix;
+      if (copied) {
+        if (!inPrefix || !verification.legacy) return;
+        // Inherited completions don't charge the child. If the old index
+        // put an exact parent task in this file, keep its verified duration
+        // and attribution under the original key. The parent's own reparse
+        // can then adopt the same key instead of charging it again.
+        const { parentKey, parent } = copied;
+        const row = verification.foreignTaskRows.get(parentKey);
+        const expected = verification.tasks.get(parentKey);
+        if (parent && duration >= expected) {
+          if (!store.tasks[parentKey] && row?.session === parent) {
+            addTask(store, entry.id, getOrCreateRow(entry, row), parentKey, expected, parent, true);
+          }
+          const retained = store.tasks[parentKey];
+          if (retained?.[4] === sessionHash(parent) && retained[2] >= expected) verification.tasks.delete(parentKey);
+        }
+        if (!verification.foreignTaskRows.has(key) && duration >= verification.tasks.get(key)) verification.tasks.delete(key);
+        return;
+      }
+      // A completion alone cannot justify removing previously indexed time.
+      const retained = Math.min(duration, store.tasks[materializedKey]?.[2] ?? 0);
+      if (inPrefix && retained >= verification.tasks.get(key)) verification.tasks.delete(key);
+      if (retained >= verification.missingTailTasks.get(key)) verification.missingTailTasks.delete(key);
+    };
+    const addTimedTask = context.addCodexTask;
+    context.addCodexTask = (...task) => {
+      if (context.lineNo > verification.prefix && (entry.compressed || context.lineEnd > verification.priorOffset)) {
+        verification.tailTasks.push(task);
+      }
+      return addTimedTask(...task);
+    };
+    const add = context.addCodexUsage;
+    context.addCodexUsage = (meta, tokens, key) => {
+      if (verification.missingTail.has(key)) witness(verification.missingTail, key,
+        [tokens.input + tokens.cacheRead + tokens.cacheWrite, tokens.output, tokens.reasoning, tokens.cacheRead, tokens.cacheWrite]);
+      if (named === key) verification.tail.push([meta, tokens, key]);
+      named = null;
+      return add(meta, tokens, key);
+    };
+  }
   return createLineConsumer((record, info) => {
+    if (info.oversized) {
+      return;
+    }
     if (info.parseError) {
       sink.warn(
         `${source.adapter} ${entry.path}: line ${info.lineNo} is not valid JSON; skipped.`,
@@ -550,8 +635,23 @@ function createRecordConsumer(store, entry, source, sink) {
     }
     if (!isPlainObject(record)) return;
     context.lineHash = info.hash;
+    context.lineNo = info.lineNo;
+    context.lineEnd = info.lineEnd;
     try {
       parseAdapterRecord(source.adapter, record, context);
+      if (verification && info.lineNo > verification.prefix &&
+        (entry.compressed || info.lineEnd > verification.priorOffset) && record.type !== "session_meta") {
+        if (tailContext === undefined) tailContext = codexTailContext(verification.priorFile,
+          (...usage) => verification.tail.push(usage), (...task) => verification.tailTasks.push(task));
+        if (tailContext) {
+          tailContext.lineNo = info.lineNo;
+          tailContext.lineEnd = info.lineEnd;
+          tailContext.lineHash = info.hash;
+          tailContext.history = record.type === "event_msg" && record.payload?.type === "token_count" &&
+            isPlainObject(record.payload.info?.total_token_usage);
+          parseAdapterRecord("codex", record, tailContext);
+        }
+      }
     } catch (error) {
       sink.warn(
         `${source.adapter} ${entry.path}: line ${info.lineNo} could not be parsed: ${error.message}`,
@@ -581,7 +681,7 @@ async function scanPlainFile(
     return { dirty: false, pending: false };
   }
 
-  const consumer = createRecordConsumer(store, entry, source, sink);
+  const consumer = createRecordConsumer(store, entry, source, sink, options.verification);
   consumer.offset = start;
   consumer.lineNo = entry.lineNo ?? 0;
   consumer.discarding = entry.state.discardingLargeLine;
@@ -604,6 +704,9 @@ async function scanPlainFile(
     });
     bytes = result.bytes;
     stopped = result.stopped;
+    if (options.codexMigration && !stopped && result.position < fileStat.size) {
+      throw new Error("the file ended before its recorded size");
+    }
     // Finish a partial tail only at true EOF. A budget stop can land after a
     // prefix that happens to parse as JSON but is still part of a longer line;
     // committing it would invent rows and advance the offset into the line.
@@ -614,7 +717,8 @@ async function scanPlainFile(
     // Keep the accepted complete prefix and its parser state together. The
     // unfinished suffix is retried even if the file metadata is unchanged.
     entry.state.readFailed = true;
-    sink.warn(`${adapter} ${entry.path}: read failed; accepted prefix retained: ${error.message}`);
+    const reason = options.codexMigration ? "upgrade read failed; prior usage retained" : "read failed; accepted prefix retained";
+    sink.warn(`${adapter} ${entry.path}: ${reason}: ${error.message}`);
   }
   stats.bytesRead += bytes;
   if (bytes > 0) stats.filesRead += 1;
@@ -667,6 +771,7 @@ async function scanCompressedFile(
   let decoderInput = null;
   let decoderDone = null;
   let consumer;
+  let readError;
   const now = nowFn(options);
   const delay = pausableDelay(options.streamDelayMs);
   let frameBoundaries = 0;
@@ -739,11 +844,13 @@ async function scanCompressedFile(
   try {
     if (entry.offset || entry.rows.length || Object.keys(entry.state).length) resetFileEntry(store, entry);
     // Bind parser context only after resetting the archive's previous state.
-    consumer = createRecordConsumer(store, entry, source, sink);
+    consumer = createRecordConsumer(store, entry, source, sink, options.verification);
     consumer.offset = 0;
     consumer.lineNo = entry.lineNo ?? 0;
     let sawCompressedChunk = false;
-    for await (const chunk of createReadStream(filePath)) {
+    const input = createReadStream(filePath);
+    input.on("error", (error) => { readError = error; });
+    for await (const chunk of input) {
       if (sawCompressedChunk) enforceCompressedLimit();
       if (deliberateStop) break;
       await splitter.push(chunk);
@@ -767,15 +874,17 @@ async function scanCompressedFile(
     if (stop) {
       return { status: "stopped", reason: stop.reason, dirty: false };
     }
-    return { status: "corrupt", error, dirty: false };
+    const retry = (error === readError || error?.syscall) && TRANSIENT_ARCHIVE_READ_CODES.has(error.code);
+    return { status: retry ? "read-failed" : "corrupt", error, dirty: false };
   }
   stats.bytesRead += fileStat.size;
   if (fileStat.size > 0) stats.filesRead += 1;
   stats.decompressedBytes = (stats.decompressedBytes ?? 0) + decompressedBytes;
   entry.offset = fileStat.size;
   entry.lineNo = consumer.lineNo;
+  if (entry.adapter === "codex") entry.state.codexDecodedBytes = consumer.offset;
   delete entry.state.zstdError;
-  return { status: "ok", dirty: true };
+  return { status: "ok", dirty: true, completeJsonl: consumer.offset === chunkStart && !consumer.discarding };
 }
 
 function openCodeString(value) {
@@ -868,7 +977,9 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats, options = {}
   try {
     // Never open an external source writable, including on recovery errors.
     db = new sqlite.DatabaseSync(filePath, { readOnly: true });
-    const records = db.prepare("SELECT session_id, id, time_created, data FROM message").iterate();
+    // Node 22.15 iterators do not keep their prepared statement alive across GC.
+    const query = db.prepare("SELECT session_id, id, time_created, data FROM message");
+    const records = Object.assign(query.iterate(), { statementOwner: query });
     resetFileEntry(store, entry);
     delete entry.state.unsupported;
     for (const record of records) {
@@ -956,6 +1067,18 @@ function noteCodexForkReplay(entry, sink, { pending = false } = {}) {
   if (entry.state.forkUsageAmbiguous) {
     sink.note(`codex ${entry.path}: copied usage carriers lack a reliable shared identity; fork accounting may be inaccurate.`);
   }
+  if (entry.state.codexAmbiguousEcho) {
+    sink.note(`codex ${entry.path}: ambiguous usage was retained; some responses may be counted twice.`);
+  }
+  if (entry.state.codexCarrierOrderAmbiguous) {
+    sink.note(`codex ${entry.path}: usage carrier timestamps disagree with rollout order; interval accounting may be inaccurate.`);
+  }
+  if (entry.state.codexPossibleSnapshotFirst && !entry.state.codexCarrierOrderAmbiguous) {
+    sink.note(`codex ${entry.path}: ambiguous carrier order at the legacy-to-record boundary (possible snapshot-first import); interval accounting may be inaccurate.`);
+  }
+  if (entry.state.codexUpgradeRejected) {
+    sink.note(`codex ${entry.path}: prior usage preserved because the rollout could not be reparsed; counts may still reflect an older parser.`);
+  }
 }
 
 async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
@@ -994,17 +1117,24 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   const parserKey = `${existing?.adapter ?? source.adapter}ParserVersion`;
   const parserCurrent = (!parserVersion || existing?.state[parserKey] === parserVersion)
     && !(existing?.state.unsupported === "zstd" && hasZstdSupport());
-  if (
+  const codexMigration = existing?.adapter === "codex" && !parserCurrent;
+  const rejected = existing?.state.codexUpgradeRejected;
+  // ctime also changes on permission fixes that leave size and mtime intact.
+  const archiveFingerprint = `${dev}:${ino}:${fileStat.size}:${fileStat.mtimeMs}:${fileStat.ctimeMs}`;
+  const cachedRejection = codexMigration && rejected?.fingerprint === archiveFingerprint
+    && rejected.version === parserVersion && (rejected.reason !== "unsupported" || !hasZstdSupport());
+  const changedRejection = existing?.state.zstdError && existing.state.zstdError !== archiveFingerprint;
+  if (supersededKeys.length === 0 && (cachedRejection || (
     existing
-    && supersededKeys.length === 0
     && parserCurrent
+    && !changedRejection
     && !existing.state.readFailed
     && !existing.state.scanPending
     && existing.dev === dev
     && existing.ino === ino
     && existing.size === fileStat.size
     && existing.mtimeMs === fileStat.mtimeMs
-  ) {
+  ))) {
     stats.unchangedFiles += 1;
     noteCodexForkReplay(existing, sourceSink);
     return { dirty: false, aborted: false };
@@ -1014,10 +1144,80 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
   // contributions stay visible until the whole file is accepted, and a failure
   // restores rows, dedup/task ownership, parser state, and nextFileId.
   const tx = beginStoreTransaction(store, { fileId: existing?.id });
+  const priorOffset = existing?.offset ?? 0;
+  const priorLine = existing?.lineNo ?? 0;
+  const priorSession = existing?.state.session;
+  const priorParser = existing?.state.codexParserVersion;
+  const evidence = codexMigration ? codexIndexedEvidence(store, existing) : null;
+  const previousTail = priorLine > 0 && existing?.state.codexUpgradeTailBoundary === priorLine
+    ? (existing.state.codexUpgradeTailKeys ?? []).filter((key) => evidence?.usage.has(key)) : [];
+  const previousTailTasks = priorLine > 0 && existing?.state.codexUpgradeTailBoundary === priorLine
+    ? (existing.state.codexUpgradeTailTasks ?? []).filter((key) => evidence?.tasks.has(key)) : [];
+  // If the old v9 cursor itself is missing, look for its indexed values
+  // across the whole file. There is no verified boundary for accepting a tail.
+  const mustVerify = priorLine > 0 || priorParser <= 9;
+  const verification = codexMigration ? { prefix: priorLine || Infinity, missing: new Map(mustVerify ? evidence.usage : []),
+    priorOffset, priorFile: { path: existing.path, state: existing.state }, missingTail: new Map(),
+    tasks: mustVerify ? evidence.tasks : new Map(), legacy: priorParser <= 9, foreignTaskRows: evidence.foreignTaskRows,
+    missingTailTasks: new Map(), tail: [], tailTasks: [] } : null;
+  for (const key of previousTail) {
+    verification.missingTail.set(key, verification.missing.get(key));
+    verification.missing.delete(key);
+  }
+  for (const key of previousTailTasks) {
+    verification.missingTailTasks.set(key, verification.tasks.get(key));
+    verification.tasks.delete(key);
+  }
+  const prefixTasks = new Set(verification?.tasks.keys());
+  if (verification) options = { ...options, verification };
+  async function rejectIncompleteMigration(completeJsonl) {
+    if (!codexMigration) return false;
+    const after = await stat(filePath).catch(() => null);
+    const stable = after?.isFile() && after.dev === fileStat.dev && after.ino === fileStat.ino && after.size === fileStat.size &&
+      after.mtimeMs === fileStat.mtimeMs && after.ctimeMs === fileStat.ctimeMs;
+    const sameSession = !priorSession || entry.state.session === priorSession;
+    if (stable && sameSession && completeJsonl && entry.lineNo >= priorLine &&
+      (!(priorParser <= 9) || evidence.consistent) &&
+      !verification.missing.size && !verification.missingTail.size && !verification.tasks.size &&
+      !verification.missingTailTasks.size &&
+      (entry.compressed || fileStat.size >= priorOffset)) return false;
+    rollbackStoreTransaction(tx);
+    delete existing.state.codexUpgradeEvidence;
+    // Named suffix records are independently authoritative. A history
+    // suffix also qualifies when settled from the retained index's baseline,
+    // never from the damaged prefix. Keep the old verification boundary.
+    if (stable && sameSession && priorSession && evidence.consistent && verification.tail.length) {
+      const accepted = new Set(previousTail);
+      for (const [meta, tokens, key] of verification.tail) {
+        addCodexUsage(store, existing, meta, tokens, key, parserVersion);
+        accepted.add(key);
+      }
+      // Task evidence alone proves the duration, not its attribution. Commit
+      // suffix time only where this transaction accepted the target usage.
+      const acceptedTasks = new Set(previousTailTasks);
+      for (const [target, key, duration, session] of verification.tailTasks) {
+        if (!accepted.has(target) || prefixTasks.has(key)) continue;
+        addCodexTask(store, existing, target, key, duration, session);
+        if (store.tasks[key]) acceptedTasks.add(key);
+      }
+      existing.state.codexUpgradeTailKeys = [...accepted];
+      if (acceptedTasks.size) existing.state.codexUpgradeTailTasks = [...acceptedTasks];
+      existing.state.codexUpgradeTailBoundary = priorLine;
+    }
+    existing.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "incomplete", version: parserVersion };
+    sourceSink.warn(`codex ${filePath}: upgrade could not verify a complete reparse; prior usage retained`);
+    return true;
+  }
   let entry = existing;
   let dirty = false;
   try {
     for (const superseded of supersededKeys) deleteFileEntry(store, superseded);
+    if (cachedRejection) {
+      commitStoreTransaction(tx);
+      stats.unchangedFiles += 1;
+      noteCodexForkReplay(existing, sourceSink);
+      return { dirty: true, aborted: false };
+    }
     if (!entry) {
       entry = newFileEntry(store, {
         sourceId: source.id,
@@ -1038,6 +1238,12 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       dirty = true;
     }
     if (!isNew && parserVersion && entry.state[parserKey] !== parserVersion) {
+      if (codexMigration && filePath.endsWith(".jsonl.zst") && !hasZstdSupport()) {
+        entry.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "unsupported", version: parserVersion };
+        commitStoreTransaction(tx);
+        noteCodexForkReplay(entry, sourceSink);
+        return { dirty: true, aborted: false };
+      }
       // Migrate existing history once for accounting fixes. New files own no
       // metadata and must never trigger a global ownership cleanup scan.
       resetFileEntry(store, entry);
@@ -1068,6 +1274,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
 
     if (
       !forceRead &&
+      !changedRejection &&
       !entry.state.readFailed &&
       !entry.state.scanPending &&
       entry.size === fileStat.size &&
@@ -1107,8 +1314,18 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
           },
         };
       }
+      if (compressed.status === "read-failed") {
+        rollbackStoreTransaction(tx);
+        sourceSink.warn(`${source.adapter} ${filePath}: archive read failed; prior usage retained: ${compressed.error.message}`);
+        return { dirty: false, aborted: false };
+      }
       if (compressed.status === "corrupt") {
         rollbackStoreTransaction(tx);
+        if (codexMigration) {
+          existing.state.codexUpgradeRejected = { fingerprint: archiveFingerprint, reason: "corrupt", version: parserVersion };
+          sourceSink.warn(`codex ${existing.path}: archive upgrade failed; prior usage retained: ${compressed.error.message}`);
+          return { dirty: true, aborted: false };
+        }
         // A first-seen archive was detached by rollback. Persist a rowless
         // fingerprint stub so an unchanged corrupt file is not re-read and
         // re-warned on every refresh. A previously indexed archive keeps its
@@ -1129,7 +1346,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
         entry.size = fileStat.size;
         entry.mtimeMs = fileStat.mtimeMs;
         entry.offset = fileStat.size;
-        entry.state.zstdError = `${fileStat.mtimeMs}:${fileStat.size}`;
+        entry.state.zstdError = archiveFingerprint;
         // Mark the fingerprint as current so a first-seen stub is not treated
         // as a parser migration and re-read on the next refresh.
         if (parserVersion) entry.state[parserKey] = parserVersion;
@@ -1138,6 +1355,7 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
         );
         return { dirty: true, aborted: false };
       }
+      if (await rejectIncompleteMigration(compressed.completeJsonl)) return { dirty: true, aborted: false };
       dirty = compressed.dirty || dirty;
       commitStoreTransaction(tx);
       entry.size = fileStat.size;
@@ -1158,13 +1376,18 @@ async function scanOneFile(store, source, filePath, sink, stats, options = {}) {
       fileStat,
       sourceSink,
       stats,
-      options,
+      { ...options, codexMigration },
     );
-    // A partial fallback must not replace the conversation's last complete snapshot.
-    if (source.adapter === "antigravity" && plain.pending) {
+    if (codexMigration && entry.state.readFailed) {
+      rollbackStoreTransaction(tx);
+      return { dirty: false, aborted: false };
+    }
+    // Never replace a complete contribution with a partial migration/reparse.
+    if ((codexMigration || source.adapter === "antigravity") && plain.pending) {
       rollbackStoreTransaction(tx);
       return { dirty: false, aborted: true, reason: stopRequested(options) ? "stop" : "budget" };
     }
+    if (await rejectIncompleteMigration(entry.offset === fileStat.size && !entry.state.discardingLargeLine)) return { dirty: true, aborted: false };
     dirty = plain.dirty || dirty;
     commitStoreTransaction(tx);
     entry.path = filePath;
@@ -1356,6 +1579,9 @@ export async function scanSources(store, {
     };
   }
 
+  for (const file of unresolvedCodexReferences(store)) {
+    sink.note(`[${file.sourceId}] codex ${file.path}: referenced history baseline is unavailable or conflicting; possible inherited spend retained.`);
+  }
   const warningCount = sink.finish();
   return {
     stats,

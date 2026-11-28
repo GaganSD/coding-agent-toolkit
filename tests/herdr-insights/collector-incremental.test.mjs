@@ -491,8 +491,23 @@ test("Codex mixed upgrade keeps the legacy prefix and appends without double cou
       payload: { turn_id: "modern-1", model: "modern-model", cwd: "/repo/mixed" },
     },
     {
-      type: "event_msg",
+      type: "token_usage_record",
       timestamp: "2026-03-05T05:00:05Z",
+      payload: {
+        response_id: "mixed-resp-1",
+        turn_id: "modern-1",
+        usage: {
+          input_tokens: 100,
+          cached_input_tokens: 20,
+          cache_write_input_tokens: 0,
+          output_tokens: 20,
+          reasoning_output_tokens: 5,
+        },
+      },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-03-05T05:00:06Z",
       payload: {
         type: "token_count",
         info: {
@@ -510,21 +525,6 @@ test("Codex mixed upgrade keeps the legacy prefix and appends without double cou
             output_tokens: 35,
             reasoning_output_tokens: 5,
           },
-        },
-      },
-    },
-    {
-      type: "token_usage_record",
-      timestamp: "2026-03-05T05:00:06Z",
-      payload: {
-        response_id: "mixed-resp-1",
-        turn_id: "modern-1",
-        usage: {
-          input_tokens: 100,
-          cached_input_tokens: 20,
-          cache_write_input_tokens: 0,
-          output_tokens: 20,
-          reasoning_output_tokens: 5,
         },
       },
     },
@@ -758,11 +758,68 @@ const countInput = (last, total, identity = {}) => {
   return { ...record, payload: { ...record.payload, ...identity } };
 };
 
-for (const { name, records, echo, expectedInput, expectedMessages } of [
+for (const { name, records, echo, expectedInput, expectedMessages, separateSessions } of [
   {
     name: "preserves independent legacy usage after a modern response",
     records: [countInput(100, 100), codexTurnUsage("modern", codexUsage(30, 0), codexUsage(130, 0)), countInput(50, 180)],
     expectedInput: 180,
+    expectedMessages: 3,
+  },
+  {
+    name: "does not swallow an independent equal-vector legacy suffix",
+    records: [countInput(100, 100), codexTurnUsage("modern", codexUsage(30, 0), codexUsage(130, 0)), countInput(30, 160)],
+    expectedInput: 160,
+    expectedMessages: 3,
+  },
+  {
+    name: "looks up a delayed first echo outside the recent queue",
+    records: Array.from({ length: 10 }, (_, i) => codexTurnUsage(`rsp-${i}`, codexUsage(i + 1, 0), codexUsage((i + 1) * (i + 2) / 2, 0))),
+    echo: countInput(1, 1),
+    expectedInput: 55,
+    expectedMessages: 10,
+  },
+  {
+    name: "does not charge stale last usage alongside a new modern cumulative total",
+    records: [
+      codexTurnUsage("one", codexUsage(10, 0), codexUsage(10, 0)),
+      countInput(10, 10),
+      codexTurnUsage("two", codexUsage(7, 0), codexUsage(17, 0)),
+      countInput(10, 17),
+    ],
+    expectedInput: 17,
+    expectedMessages: 2,
+  },
+  {
+    name: "does not use another thread's matching vector to discard a local response",
+    records: [
+      { ...codexTurnUsage("foreign", codexUsage(10, 0), codexUsage(10, 0)),
+        payload: { ...codexTurnUsage("foreign", codexUsage(10, 0), codexUsage(10, 0)).payload, thread_id: "other-thread" } },
+      countInput(10, 10),
+    ],
+    expectedInput: 20,
+    expectedMessages: 2,
+    separateSessions: true,
+  },
+  {
+    name: "does not turn context-window estimates into spend or a spending baseline",
+    records: [
+      codexTurnUsage("one", codexUsage(10, 0), codexUsage(10, 0)),
+      codexTokenCount({ ...codexUsage(0, 0), total_tokens: 200000 }, { ...codexUsage(0, 0), total_tokens: 200000 }),
+      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: codexUsage(15, 0) } } },
+    ],
+    expectedInput: 15,
+    expectedMessages: 2,
+  },
+  {
+    name: "does not clear newer pending usage at an unchanged snapshot",
+    records: [
+      codexTurnUsage("one", codexUsage(10, 0), codexUsage(10, 0)),
+      countInput(10, 10),
+      codexTurnUsage("two", codexUsage(20, 0), codexUsage(30, 0)),
+      countInput(10, 10),
+      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: codexUsage(35, 0) } } },
+    ],
+    expectedInput: 35,
     expectedMessages: 3,
   },
   {
@@ -777,6 +834,7 @@ for (const { name, records, echo, expectedInput, expectedMessages } of [
     records: [
       countInput(20, 20, { response_id: "before-a" }),
       countInput(10, 30, { response_id: "before-b" }),
+      countInput(0, 0),
       countInput(20, 20, { response_id: "after-a" }),
       countInput(10, 30, { response_id: "after-b" }),
     ],
@@ -785,13 +843,13 @@ for (const { name, records, echo, expectedInput, expectedMessages } of [
     expectedMessages: 4,
   },
   {
-    name: "remembers a matching modern response across scans and delayed legacy echoes",
+    name: "recognizes an exact re-emission of a history carrier across scans",
     records: [
       codexTurnUsage("modern", codexUsage(30, 0), codexUsage(30, 0)),
       countInput(30, 30),
       countInput(50, 80),
     ],
-    echo: countInput(30, 30),
+    echo: { ...countInput(30, 30), timestamp: "2026-03-09T09:00:02.000Z" },
     expectedInput: 80,
     expectedMessages: 2,
   },
@@ -802,10 +860,14 @@ for (const { name, records, echo, expectedInput, expectedMessages } of [
     await mkdir(path.dirname(file), { recursive: true });
     const started = Date.UTC(2026, 2, 9, 9);
     const header = { type: "session_meta", payload: { id: "accounting", cwd: "/repo/accounting" } };
-    const line = (record, offset) => `${JSON.stringify({ ...record, timestamp: new Date(started + offset).toISOString() })}\n`;
+    const line = (record, offset) => `${JSON.stringify({ timestamp: new Date(started + offset).toISOString(), ...record })}\n`;
     await writeFile(file, [header, ...records].map((record, index) => line(record, index * 1000)).join(""));
     const first = await snapshot(context);
-    assert.deepEqual(first.rows.map((row) => [row.tokens.input, row.messages]), [[expectedInput, expectedMessages]]);
+    if (separateSessions) {
+      assert.deepEqual(first.rows.map((row) => [row.tokens.input, row.messages]), [[10, 1], [10, 1]]);
+    } else {
+      assert.deepEqual(first.rows.map((row) => [row.tokens.input, row.messages]), [[expectedInput, expectedMessages]]);
+    }
 
     if (echo) {
       const appended = line(echo, 10 * 60 * 1000);
@@ -816,6 +878,74 @@ for (const { name, records, echo, expectedInput, expectedMessages } of [
     }
   });
 }
+
+test("Codex promotes a named legacy prefix to the response day and moves its task", async () => {
+  const context = await env();
+  const dir = path.join(context.home, ".codex", "sessions");
+  const file = path.join(dir, "a.jsonl");
+  const copy = path.join(dir, "b.jsonl");
+  await mkdir(dir, { recursive: true });
+  const line = (timestamp, record) => JSON.stringify({ timestamp, ...record }) + "\n";
+  const start = "2026-03-09T23:59:59Z";
+  const next = "2026-03-10T00:00:10Z";
+  const header = line(start, { type: "session_meta", payload: { id: "promote", cwd: "/repo/old" } });
+  const scope = (model, cwd) => ({ type: "turn_context", payload: { turn_id: "turn-1", model, cwd } });
+  // Last-first only has provable identity in the old named shape.
+  const named = codexTokenCount(codexUsage(100, 10), codexUsage(100, 10));
+  named.payload.response_id = "midnight";
+  const echo = line(next, named);
+  const task = line(next, { type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1", duration_ms: 3000 } });
+  const response = line(start, codexTurnUsage("midnight", codexUsage(100, 10), codexUsage(100, 10)));
+  await writeFile(file, header + line(next, scope("older-model", "/repo/old")) + echo + task);
+  const provisional = await snapshot(context);
+  assert.deepEqual(provisional.rows.map((row) => [row.day, row.tokens.total, row.messages, row.activeMs]), [["2026-03-10", 110, 1, 3000]]);
+
+  const addition = line(start, scope("canonical-model", "/repo/current")) + response;
+  await appendFile(file, addition);
+  const promoted = await snapshot(context);
+  assert.equal(promoted.stats.bytesRead, Buffer.byteLength(addition));
+  assert.deepEqual(promoted.rows.map((row) => [row.day, row.model, row.project, row.tokens.total, row.messages, row.activeMs, row.longestTaskMs]),
+    [["2026-03-09", "canonical-model", "/repo/current", 110, 1, 3000, 3000]]);
+  await writeFile(copy, header + addition + echo + task);
+  assert.deepEqual((await snapshot(context)).rows, promoted.rows, "modern-first copy must use the same canonical key");
+  await writeFile(file, "");
+  assert.deepEqual((await snapshot(context)).rows, promoted.rows, "copy owns corrected usage and duration after truncation");
+
+  for (const [i, files] of [[0, [response, echo]], [1, [echo, response]]]) {
+    const fresh = await env();
+    const sessions = path.join(fresh.home, ".codex", "sessions");
+    await mkdir(sessions, { recursive: true });
+    await Promise.all(files.map((first, index) => writeFile(path.join(sessions, `${index}.jsonl`),
+      header + line(start, scope("canonical-model", "/repo/current")) + first + task + files[1 - index])));
+    assert.deepEqual((await snapshot(fresh)).rows, promoted.rows, `cold scan discovery order ${i}`);
+  }
+});
+
+test("Codex offset reconciliation survives append, restart, and a turn change", async () => {
+  const context = await env();
+  const source = await readFile(path.join(fixtures, "codex-offset-echo.jsonl"), "utf8");
+  const records = source.trimEnd().split("\n").map((line) => JSON.parse(line));
+  records[0].payload.cli_version = "0.152.0"; // resume can append records from a new writer
+  const turnId = "019f0000-4000-7000-8000-000000000001";
+  records[5].payload.turn_id = turnId;
+  records.splice(5, 0, { ...records[1], payload: { ...records[1].payload, turn_id: turnId } });
+  const lines = records.map((record) => JSON.stringify(record) + "\n");
+  const dir = path.join(context.home, ".codex", "sessions");
+  const file = path.join(dir, "offset.jsonl");
+  await mkdir(dir, { recursive: true });
+  await writeFile(file, lines.slice(0, 5).join(""));
+  const first = await snapshot(context);
+  assert.deepEqual(first.rows.map((row) => [row.tokens.total, row.messages]), [[330, 2]]);
+  const tail = lines.slice(5).join("");
+  await appendFile(file, tail);
+  const full = await snapshot(context);
+  assert.equal(full.stats.bytesRead, Buffer.byteLength(tail));
+  assert.deepEqual(full.rows.map((row) => [row.tokens.total, row.messages]), [[660, 3]]);
+  const unchanged = await snapshot(context);
+  assert.equal(unchanged.stats.bytesRead, 0);
+  assert.deepEqual(unchanged.rows, full.rows);
+  assert.doesNotMatch(unchanged.warnings.join("\n"), /ambiguous usage|inferred from separate usage counters/);
+});
 
 test("old file-level Codex modern state is rescanned once to recover the prefix", async () => {
   const context = await env();

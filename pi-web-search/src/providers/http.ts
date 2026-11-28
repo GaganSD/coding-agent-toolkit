@@ -24,13 +24,14 @@ export interface RequestInitLike {
 }
 
 export interface JsonRequestOptions {
+	httpError?: typeof normalizeHttpError;
 	headers?: Record<string, string>;
 	body: unknown;
 	signal?: AbortSignal;
 	timeoutMs?: number;
 	fetchImpl?: FetchLike;
 	/** Receives the raw response before the body is read (captures the MCP session id). */
-	onResponse?: (response: ResponseLike) => void;
+	onResponse?: (response: ResponseLike, redact?: Redact) => void;
 	/** Resolve with `undefined` instead of throwing when the body is empty. */
 	allowEmptyBody?: boolean;
 	/** Hard cap on the decoded response body; oversized bodies fail as parse_error. */
@@ -53,7 +54,7 @@ export async function postJson<T>(
 	url: string,
 	options: JsonRequestOptions,
 ): Promise<T> {
-	return send(url, options, (bodyText) => parseJsonBody<T>(url, bodyText));
+	return send(url, options, (bodyText, redact) => parseJsonBody<T>(url, bodyText, redact));
 }
 
 /** GET JSON with the same bounds, cancellation and error handling as POST. */
@@ -61,7 +62,7 @@ export async function getJson<T>(
 	url: string,
 	options: Omit<JsonRequestOptions, "body">,
 ): Promise<T> {
-	return send(url, { ...options, body: undefined }, (text) => parseJsonBody<T>(url, text), "GET");
+	return send(url, { ...options, body: undefined }, (text, redact) => parseJsonBody<T>(url, text, redact), "GET");
 }
 
 /** GET a raw body (used for Sourcegraph's search stream). */
@@ -81,12 +82,13 @@ export async function postSseJson<T>(
 	url: string,
 	options: JsonRequestOptions,
 ): Promise<T> {
-	return send(url, options, (bodyText) =>
+	return send(url, options, (bodyText, redact) =>
 		parseEnvelope<T>(
 			url,
 			bodyText,
 			options.allowEmptyBody === true,
 			options.selectMessage,
+			redact,
 		),
 		"POST",
 		options.selectMessage,
@@ -237,7 +239,7 @@ export function abortedError(): ProviderError {
 async function send<T>(
 	url: string,
 	options: JsonRequestOptions,
-	decode: (bodyText: string) => T,
+	decode: (bodyText: string, redact?: Redact) => T,
 	method: "POST" | "GET" = "POST",
 	selectSseMessage?: (message: unknown) => boolean,
 ): Promise<T> {
@@ -251,6 +253,7 @@ async function send<T>(
 		);
 	}
 
+	const redact = credentialRedactor(options.headers);
 	const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 	const composed = withTimeout(options.signal, timeoutMs);
 
@@ -267,8 +270,10 @@ async function send<T>(
 			},
 			...(method === "POST" ? { body: JSON.stringify(options.body) } : {}),
 			signal: composed.signal,
-		}), composed.signal);
-		options.onResponse?.(response);
+		}), composed.signal).catch((error: unknown) => {
+			throw error instanceof Error && isProviderErrorLike(error) ? redactError(error, redact) : error;
+		});
+		options.onResponse?.(response, redact);
 
 		let bodyText: string;
 		try {
@@ -282,26 +287,27 @@ async function send<T>(
 			), composed.signal);
 		} catch (error) {
 			if (error instanceof Error && isProviderErrorLike(error)) {
-				throw error;
+				throw redactError(error, redact);
 			}
 			throw composed.signal.aborted
 				? abortReason(composed.signal, timeoutMs)
 				: providerError(
 						"network_error",
 						`Failed to read response body from ${url}: ${
-							error instanceof Error ? error.message : String(error)
+							safeMessage(error, redact)
 						}`,
-						{ retryable: true, cause: error },
+						{ retryable: true, cause: redact ? undefined : error },
 					);
 		}
 
 		if (composed.signal.aborted) throw reasonFrom(composed.signal);
 		if (!response.ok) {
-			throw normalizeHttpError(response, bodyText);
+			throw (options.httpError ?? normalizeHttpError)(response, redact?.(bodyText) ?? bodyText);
 		}
-		return decode(bodyText);
+		const value = decode(bodyText, redact);
+		return redact ? redactValues(value, redact) as T : value;
 	} catch (error) {
-		throw toProviderError(error, composed.signal, timeoutMs);
+		throw toProviderError(error, composed.signal, timeoutMs, redact);
 	} finally {
 		composed.dispose();
 	}
@@ -311,6 +317,7 @@ function toProviderError(
 	error: unknown,
 	signal: AbortSignal,
 	timeoutMs: number,
+	redact?: Redact,
 ): ProviderError {
 	if (error instanceof Error && isProviderErrorLike(error)) {
 		return error;
@@ -321,11 +328,61 @@ function toProviderError(
 	if (isAbortLikeError(error)) {
 		return abortedError();
 	}
-	const message = error instanceof Error ? error.message : String(error);
+	const message = safeMessage(error, redact);
 	return providerError("network_error", `Request failed: ${message}`, {
 		retryable: true,
-		cause: error,
+		cause: redact ? undefined : error,
 	});
+}
+
+type Redact = (text: string) => string;
+
+export function credentialRedactor(headers?: Record<string, string>): Redact | undefined {
+	const values = Object.entries(headers ?? {}).flatMap(([name, value]) => {
+		switch (name.toLowerCase()) {
+			case "authorization": return [value.replace(/^Bearer\s+/iu, "")];
+			case "x-api-key": case "x-subscription-token": return [value];
+			default: return [];
+		}
+	}).filter(Boolean);
+	if (!values.length) return;
+	const variants = new Set(values.flatMap((value) => [value, JSON.stringify(value).slice(1, -1)]));
+	for (const value of values) {
+		try { variants.add(encodeURIComponent(value)); } catch { /* Malformed input. */ }
+	}
+	const pattern = [...variants].sort((a, b) => b.length - a.length)
+		.map((value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|");
+	const expression = new RegExp(pattern, "gu");
+	return (text) => text.replace(expression, "[redacted]");
+}
+
+export function safeMessage(error: unknown, redact?: Redact) {
+	const message = error instanceof Error ? error.message : String(error);
+	return redact?.(message) ?? message;
+}
+
+function redactError(error: ProviderError, redact?: Redact): ProviderError {
+	const message = redact?.(error.message) ?? error.message;
+	return message === error.message ? error : providerError(error.code, message, {
+		status: error.status, rpcCode: error.rpcCode, retryable: error.retryable, retryAfterMs: error.retryAfterMs,
+	});
+}
+
+/** JSON responses can echo credentials in tool errors, warnings or metadata. */
+function redactValues(value: unknown, redact: Redact): unknown {
+	if (typeof value === "string") return redact(value);
+	if (value && typeof value === "object") {
+		const pending = [value as Record<string, unknown>];
+		while (pending.length) {
+			const object = pending.pop()!;
+			for (const key of Object.keys(object)) {
+				const child = object[key];
+				if (typeof child === "string" && !(object === value && key === "jsonrpc" && child === "2.0")) object[key] = redact(child);
+				else if (child && typeof child === "object") pending.push(child as Record<string, unknown>);
+			}
+		}
+	}
+	return value;
 }
 
 function abortReason(signal: AbortSignal, timeoutMs: number): ProviderError {
@@ -457,6 +514,7 @@ function parseEnvelope<T>(
 	bodyText: string,
 	allowEmptyBody: boolean,
 	selectMessage?: (message: unknown) => boolean,
+	redact?: (text: string) => string,
 ): T {
 	if (bodyText.trim().length === 0) {
 		if (allowEmptyBody) {
@@ -466,11 +524,13 @@ function parseEnvelope<T>(
 	}
 	const trimmed = bodyText.trimStart();
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-		const message = parseJsonBody<T>(url, bodyText);
-		if (selectMessage && !selectMessage(message)) {
+		const message = parseJsonBody<T>(url, bodyText, redact);
+		if (!selectMessage) return message;
+		const reply = (Array.isArray(message) ? message : [message]).find(selectMessage);
+		if (reply === undefined) {
 			throw providerError("parse_error", `No JSON-RPC response matching the request id in the response from ${url}.`);
 		}
-		return message;
+		return reply as T;
 	}
 	const frames = extractSseData(bodyText);
 	if (frames.length === 0) {
@@ -480,7 +540,7 @@ function parseEnvelope<T>(
 		);
 	}
 	if (!selectMessage) {
-		return parseJsonBody<T>(url, frames[frames.length - 1]);
+		return parseJsonBody<T>(url, frames[frames.length - 1], redact);
 	}
 	// JSON-RPC: pick the message whose id matches the outstanding request and
 	// tolerate unrelated notifications (progress/log events carry no id).
@@ -501,17 +561,19 @@ function parseEnvelope<T>(
 	);
 }
 
-function parseJsonBody<T>(url: string, bodyText: string): T {
+function parseJsonBody<T>(url: string, bodyText: string, redact?: (text: string) => string): T {
 	try {
 		return JSON.parse(bodyText) as T;
 	} catch (error) {
-		throw providerError(
-			"parse_error",
-			`Response from ${url} was not valid JSON: ${
-				error instanceof Error ? error.message : String(error)
-			}`,
-			{ cause: error },
-		);
+		// V8 may quote only part of a token. Generate the diagnostic from the scrubbed body.
+		const safeBody = redact?.(bodyText) ?? bodyText;
+		let cause: unknown = error;
+		if (safeBody !== bodyText) {
+			cause = undefined;
+			try { JSON.parse(safeBody); } catch (safeError) { cause = safeError; }
+		}
+		const diagnostic = cause === undefined ? "Invalid JSON (credential redacted)." : safeMessage(cause);
+		throw providerError("parse_error", `Response from ${url} was not valid JSON: ${diagnostic}`, { cause });
 	}
 }
 

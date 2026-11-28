@@ -64,9 +64,9 @@ test("Brave is key-required, respects stored key rotation and both environment a
 		const dir = await mkdtemp(join(tmpdir(), "brave-auth-"));
 		const path = join(dir, "auth.json");
 		try {
-			await writeFile(path, JSON.stringify({ brave: { key: "old" } })); enableStoredCredentials(path);
+			await writeFile(path, JSON.stringify({ brave: { type: "api_key", key: "old" } })); enableStoredCredentials(path);
 			assert.equal(braveApiKey(), "old");
-			await writeFile(path, JSON.stringify({ brave: { key: "new" } }));
+			await writeFile(path, JSON.stringify({ brave: { type: "api_key", key: "new" } }));
 			assert.equal(braveApiKey(), "new");
 		} finally { disableStoredCredentials(); await rm(dir, { recursive: true, force: true }); }
 	});

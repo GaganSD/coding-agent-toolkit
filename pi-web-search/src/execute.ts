@@ -2,19 +2,21 @@ import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	ExtensionContext,
-	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
-import { previewEvidence, uniqueEvidence } from "./providers/results.ts";
+import { extractedDocuments, extractionUrlKey, previewEvidence, uniqueEvidence } from "./providers/results.ts";
 import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
 import { augmentResults, type AugmentedStreamResult } from "./classifier/augment.ts";
 import { resolveSettings } from "./providers/config.ts";
 import { awaitWithSignal, withTimeout } from "./providers/http.ts";
+import { retrievalProgress } from "./ui/search-progress.ts";
 import { jinaFetch } from "./providers/jina.ts";
 import { reuseTransport } from "./providers/reuse.ts";
 import {
+	NO_WEB_PROVIDER_MESSAGE,
 	type RunSearchOptions,
 	type SearchRequest,
+	outcome,
 	providerAvailability,
 	runParallelSearch,
 	runSearch,
@@ -37,7 +39,6 @@ export interface ExecuteSearchParams {
 	scope: SearchScope;
 	parallel: boolean;
 	judge: boolean;
-	progress: string;
 	/** The registered tool this run belongs to; used in every failure message. */
 	tool: SearchToolName;
 	/**
@@ -133,13 +134,18 @@ export async function executeSearch(
 	options: RunSearchOptions = {},
 ): Promise<AgentToolResult<WebSearchDetails>> {
 	const progress = createProgressObserver(onUpdate, signal);
+	const retrieval = retrievalProgress((line) => progress.emit(line));
+	let configIssue: string | undefined;
+	let thoroughOff = false;
 	try {
 		if (signal?.aborted) throw abortedError(signal.reason);
 		const resolved = await resolveSettings();
 		if ("error" in resolved) {
+			configIssue = resolved.error.issue?.summary.slice(0, 240);
 			throw resolved.error;
 		}
 		if (params.requireResearch && !resolved.researchEnabled) {
+			thoroughOff = true;
 			throw providerError(
 				"invalid_config",
 				`${params.tool === "search" ? "thorough search" : "multi_search"} is disabled. Set "research": { "enabled": true } in ${resolved.configPath}.`,
@@ -163,8 +169,6 @@ export async function executeSearch(
 		if (params.fetchOnly && urls.urls.length === 0) {
 			throw providerError("unknown", "Supply a query or at least one valid HTTP(S) URL.");
 		}
-		progress.emit(params.progress);
-
 		const family = params.scope === "both" ? undefined : params.scope;
 		const composed = withTimeout(signal, resolved.timeoutMs);
 		try {
@@ -174,18 +178,15 @@ export async function executeSearch(
 				reuseScope: options.transports || options.loadTransports ? undefined : evidenceOwner(ctx),
 				urls: urls.urls.length > 0 ? urls.urls : undefined,
 				signal: composed.signal,
-				onUpdate: (partial) => {
-					if (composed.signal.aborted) return;
-					const text = partial.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
-					progress.emit(text);
-				},
 				settings: resolved,
-				...(typeof (ctx as Partial<ExtensionToolContext>).executeTool === "function"
-					? { runtime: ctx as ExtensionToolContext } : {}),
+				sessionId: ctx.sessionManager?.getSessionId?.(),
+				modelId: ctx.model?.id,
+				onRetrieval: retrieval.observe,
 			};
 
 			const availability = options.availability ?? providerAvailability(family);
-			const raw = params.fetchOnly && (options.fetchUrls || (!options.transports && !options.loadTransports))
+			const urlOnly = params.fetchOnly && (options.fetchUrls || (!options.transports && !options.loadTransports));
+			const raw = urlOnly
 				? await runUrlOnly(req, options, availability)
 				: params.parallel
 				? await runParallelSearch(req, { ...options, family, availability })
@@ -254,22 +255,35 @@ export async function executeSearch(
 			if (judged.classifierUsage) {
 				formatted.usage = judged.classifierUsage;
 			}
+			Object.assign(formatted.details, retrieval.details(), { cached: raw.cached ?? false,
+				...(params.scope !== "code" && params.urls?.length ? {
+					urlsRequested: (params.urls?.length ?? 0) - urls.urls.length + new Set(urls.urls.map(extractionUrlKey)).size,
+					// A preview cap is not an extraction failure: count before preview selection.
+					urlsRead: extractedDocuments(raw, urls.urls),
+				} : {}) });
 			return formatted;
 		} finally {
 			composed.dispose();
 		}
 	} catch (error) {
 		progress.finish();
-		return formatSearchError(params.tool, error);
+		const result = formatSearchError(params.tool, error);
+		Object.assign(result.details, retrieval.details(), { configIssue, thoroughOff,
+			...(isProviderError(error) && error.code === "missing_credentials" && error.message.endsWith(NO_WEB_PROVIDER_MESSAGE) ? { webUnavailable: true } : {}) });
+		return result;
 	}
 }
 
 /** Keep URL-only reads keyless and independent of the selected search provider. */
 async function runUrlOnly(req: SearchRequest, options: RunSearchOptions, availability: Partial<Record<ProviderKind, boolean>>): Promise<StreamResult> {
+	req.onRetrieval?.({ type: "started", kinds: ["jina"] });
 	try {
 		const pending = reuseTransport("jina", req, options.fetchUrls ?? jinaFetch);
-		return req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
+		const result = req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
+		req.onRetrieval?.(outcome("jina", result));
+		return result;
 	} catch (error) {
+		if (isProviderError(error)) req.onRetrieval?.({ type: "failed", kind: "jina", code: error.code });
 		if (req.signal?.aborted || !isProviderError(error) || !error.retryable) throw error;
 		// Brave also delegates extraction to Jina: never retry it through that path.
 		const chain = [req.settings.web.provider, ...req.settings.web.fallback];

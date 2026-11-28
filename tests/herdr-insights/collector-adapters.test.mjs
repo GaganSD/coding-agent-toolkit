@@ -690,6 +690,18 @@ test("Codex non-fork session still counts its first cumulative total in full", a
   assert.ok(rows.some((row) => row.model === "unknown"), "records before any turn_context keep today's behavior");
 });
 
+for (const [fixture, input, output, messages] of [
+  ["codex-first-late-echo.jsonl", 100, 10, 1],
+  ["codex-offset-echo.jsonl", 600, 60, 3],
+]) {
+  test(`Codex counts modern responses only once (${fixture})`, async () => {
+    const rows = await codexRows(fixture);
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0].tokens, { input, output, cacheRead: 0, cacheWrite: 0, reasoning: 0, total: input + output });
+    assert.equal(rows[0].messages, messages);
+  });
+}
+
 test("Codex interleaved cumulative counters count each response once, not a reset", async () => {
   const rows = await codexRows("codex-concurrent-counters.jsonl");
   const total = rows.reduce((sum, row) => sum + row.tokens.total, 0);

@@ -40,30 +40,121 @@ click-state rules. Set `HERDR_APP_HOME` to use a different app home.
   computer**, or one machine to scope the whole dashboard. Turn a machine off
   under **Settings > Remote machines**.
 
-### Codex fork accounting
+### Codex accounting
 
-For fork headers with canonical UUIDv7 thread IDs, Insights excludes replayed
-usage until a turn ID has a strictly newer UUIDv7 millisecond. Equal-millisecond,
-missing, malformed, or non-v7 turn IDs are ambiguous: child usage can be excluded,
-with a bounded scan warning that remains visible even after a later boundary.
-Non-v7 initial thread IDs retain the previous accounting behavior. A healthy
-unfinished scan slice is not itself an ambiguous boundary; reaching EOF without
-a boundary is diagnosed. Existing available Codex files are automatically
-rescanned once for this parser update.
+Insights counts recorded response usage, not provider billing. Codex writes
+`token_usage_record` before publishing the `token_count` history snapshot that
+covers it, even if publishing is deferred (verified at upstream
+`8cae463a69aced7705440acaaa9c9cba2d36e056`). The history and response counters
+can start at different values; their absolute totals are not compared.
 
-Current upstream Codex (`090be4df0724cdef5758e6a0934ba557af8b6bbe`) requires
-per-response, turn, and thread usage together, and pairs legacy total and last
-usage. Missing-cumulative/last-only records remain compatibility inputs, not an
-established current native rollout format. Copied last-only observations use
-response IDs or exact legacy record identities, never just equal amounts within
-a turn. Mixed carriers lacking a reliable shared identity can be indistinguishable
-from distinct responses: Insights retains a bounded diagnostic that accounting
-may be inaccurate, preserves trustworthy copied cumulative baselines, and does
-not subtract an unidentified last-only echo from them twice. Exact repeated
-records are recognized; rewritten echoes without identity cannot be guaranteed.
-Production ordering of these historical/imported shapes remains unverified.
-Modern thread cumulative counters and legacy totals share the raw baseline;
-turn-only counters are not treated as thread totals.
+For each thread, Insights counts one record per response ID and max-merges
+revisions. An advancing history snapshot contributes only the positive part of
+its increment not covered by record increments since the previous snapshot.
+For example, an incomplete response without an ID can advance history without
+writing a record or replacing `last_token_usage`. A positive residual is kept
+even if `last_token_usage` matches an earlier record. One residual counts as one
+message; the snapshot cannot tell how many unrecorded responses it represents.
+The record's turn and date determine its attribution; an unrecorded residual
+uses the publishing snapshot's turn and date. Like the older collector, a
+completed turn with no model usage (such as a standalone shell or a manual
+compaction without a model call) attaches its duration to the thread's last
+usage bucket, if any. It adds no tokens or messages.
+
+Unchanged snapshots do not settle a pending interval. A new zero or synthetic
+context-window reset starts a history epoch without adding a message; repeating
+an unchanged window fill does not reset it again. A completed turn can leave
+records pending for the next history snapshot. Reopening a rollout need not
+write another header. When the new last response accounts for the whole history
+increase, distinct records from an interrupted turn cannot cover it. The
+comparison includes raw input, cache reads, cache writes, output, and reasoning.
+Those records still count as spend. A resume without distinguishing history evidence
+may be indistinguishable from an ordinary turn. An advancing snapshot cannot
+subtract part of a record larger than the increase.
+
+Remote-v2 compaction can spend without advancing history. Its installed marker
+excludes the compaction response from the pending balance. A checkpoint can also
+recover a missing `latest_token_usage_record` by its own ID, even if the compaction
+ID is absent or different. If an attempt
+writes a record but never writes its marker, it cannot always be distinguished
+from an ordinary deferred response. Cache reads
+and writes partition raw input. Classification-only changes do not add spend, and
+negative category changes never cancel new raw input or output. A decrease in
+raw input or output is treated as a reset of the whole vector. If an imported
+log mixes a decrease in one with an increase in the other, that treatment can
+retain extra spend rather than discard possible new-epoch usage. The exact
+cache split of an unrecorded residual may be unknowable after reclassification.
+
+Older prefixes without records still use legacy accounting. Imported logs that
+publish a snapshot before its record, or move a later record ahead of an older
+snapshot, can miscount: equal vectors and nearby timestamps are not enough to
+identify an echo. If adjacent response counters prove the records are inverted
+and history advances by exactly the earlier response, the later response stays
+pending for the next interval. When carrier timestamps disagree with rollout order, the
+collector reports a bounded warning without changing its accounting. It also
+warns on a possible snapshot-first import at the legacy-to-record transition.
+For identical snapshots in prefix and suffix copies, the prefix with more usage
+carriers normally wins. An identical revised record can also link complementary
+fragments, and a verified copy can supply the task's model and day.
+Arbitrary overlapping imports without shared carrier identities may still miscount.
+
+Parser upgrades verify the decoded JSONL prefix against evidence rebuilt from
+the current index, including after a downgrade and append. Historical parsers
+v5–v8 used timestamp-and-total history keys; v9 added per-response keys. A copied
+carrier can verify an old entry even if the child does not pay for it, and a
+completion only verifies previously indexed time if that time is retained or the
+completion is verified copied history. A copied parent task can be retained once
+under its original key, even when an old index assigned it to the child file. An auxiliary
+observation only verifies spend while its copy is still indexed by the parser
+that wrote it. Blank or malformed
+lines cannot replace accepted carriers, and a zero-charge snapshot cannot attest
+to a missing named response. The scan retains prior counts if response maxima
+or indexed task durations cannot be recovered. On failure it warns;
+named responses and history increases beyond the old boundary can still count
+for the same session. The latter use the retained index's baseline, never a
+baseline from the damaged prefix. Completed suffix tasks can also count when
+their target is accepted suffix usage. Without a trustworthy baseline,
+history-only appends remain ambiguous. v9 did not retain exact line provenance, so replays
+that preserve an indexed identity and value cannot be verified byte-for-byte.
+During a v9 upgrade, an unreadable copy still owns its legacy contribution; a
+readable copy with the same v9 usage key contributes only any uncovered spend.
+
+#### Known limits
+
+- If a rollout resumes without a new header and the old and new usage vectors are indistinguishable, new spend can look already counted. One such rollout yields 4,128 tokens and 2 messages instead of 6,192 and 3.
+- If a response record fails to persist, a history snapshot can count its spend first and a later checkpoint can count it again. One such rollout yields 70 tokens and 3 messages instead of 40 and 2.
+- Without a compaction marker, a remote compaction response can look like an ordinary response whose history snapshot was deferred.
+- A history increase covering several unrecorded responses counts as one inferred message. It cannot recover the individual responses’ times, models, or cache splits.
+- Imports that reorder records and snapshots, or overlap without enough shared history, can count too much or too little. Timestamps alone do not identify a response.
+- Without a reliable fork boundary or ancestor reference, child spend can be excluded or inherited spend retained. Recognized ambiguous boundaries and unresolved references produce a warning; unrecognized fork metadata may not.
+- If an upgrade cannot verify the old prefix, Insights retains the prior index. Without a verified baseline or task target, later history-only spend or task time can remain incomplete until the source is repaired.
+- Upgrading a v5 index of copied forks can preserve duplicate task time. With both files live and the parent scanned first, one upgrade retains 13,000 ms where a fresh index gives 10,000 ms. Nested copies can retain duplicate time as well; token and message totals matched in these cases.
+
+#### Fork accounting
+
+For copied forks, an explicitly child-owned settings event establishes the
+boundary, even for an equal-millisecond child turn. Paginated subagents can
+also use the persisted first-child ordinal or a child-owned record. Older record-less producers can retain the UUIDv7
+fallback for turns already inside their copied range. Without reliable ordinal
+or ownership evidence, a UUIDv7 child turn must have a strictly newer millisecond.
+Equal-millisecond, missing, malformed, or non-v7 turn IDs in that fallback can
+exclude child usage and trigger a bounded warning.
+
+A copied history total may establish the child's history baseline. For a
+referenced fork, Insights looks up the last history total at the ancestor's
+`history_base` byte and inherited ordinal boundary, using the physical rollout
+ID rather than its logical session ID. Renamed files without a physical ID can only be resolved when the logical ID and boundary still identify the ancestor.
+An inherited-session paginated agent fork filters the ancestor's token history,
+so its initial baseline is zero even when the context has a physical reference.
+A copied `thread_token_usage` counter never serves as a history baseline. A
+paginated root without a history reference uses the history increase like other
+roots. A referenced observation can acquire spend when its ancestor becomes
+available, even if the provisional charge was zero. If a reference cannot be
+verified, inherited and new history-only spend may be indistinguishable;
+Insights retains the residual and warns.
+Older last-only replay carriers remain compatibility inputs, not an established
+current native rollout format. Their copied usage is excluded; when identity is
+ambiguous, the scan reports that fork accounting may be inaccurate.
 
 ## Privacy
 

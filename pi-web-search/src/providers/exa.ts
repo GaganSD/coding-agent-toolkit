@@ -2,7 +2,7 @@ import { exaApiKey } from "../env.ts";
 import { type FetchLike, postJson } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
 import { withMcpSession } from "./mcp.ts";
-import { sourcesFromResults } from "./results.ts";
+import { extractionUrlKey, sourcesFromResults } from "./results.ts";
 import {
 	type SearchResultDetail,
 	type StreamResult,
@@ -240,11 +240,11 @@ async function keyedSearch(
 
 /** A URL fetch cannot introduce documents outside the caller's requested set. */
 function requestedContents(results: SearchResultDetail[], urls: string[], warnings: string[]): SearchResultDetail[] {
-	const allowed = new Set(urls.map(contentUrlKey));
+	const allowed = new Set(urls.map(extractionUrlKey));
 	const returned = new Set<string>();
 	const kept = results.filter((result) => {
 		if (typeof result.url !== "string") return false;
-		const key = contentUrlKey(result.url);
+		const key = extractionUrlKey(result.url);
 		if (!allowed.has(key)) return false;
 		returned.add(key);
 		return true;
@@ -252,30 +252,11 @@ function requestedContents(results: SearchResultDetail[], urls: string[], warnin
 	const dropped = results.length - kept.length;
 	if (dropped > 0) warnings.push(`Exa URL fetch withheld ${dropped} unrequested or unidentified document(s).`);
 	for (const url of urls) {
-		if (!returned.has(contentUrlKey(url))) {
+		if (!returned.has(extractionUrlKey(url))) {
 			warnings.push(`Exa URL fetch returned no parsed content for ${url}.`);
 		}
 	}
 	return kept;
-}
-
-/**
- * Fragments do not identify a different fetched document. URL serialization
- * also normalizes host case, default ports and the root slash, but retains
- * scheme, credentials, query order, path case and non-root trailing slashes.
- * No redirect destinations or other unrequested URLs are inferred.
- */
-function contentUrlKey(value: string): string {
-	try {
-		const url = new URL(value);
-		if (url.protocol === "http:" || url.protocol === "https:") {
-			url.hash = "";
-			return url.href;
-		}
-	} catch {
-		// Invalid/non-HTTP values retain the previous exact-match behavior.
-	}
-	return value;
 }
 
 function contentsDetail(result: ExaContentsResult): SearchResultDetail {
