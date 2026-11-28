@@ -86,11 +86,11 @@ With `editor` and a fullscreen `sidebar` selected, Slate can lend the sidebar's 
 
 Open `/theme` for a larger, centered theme selector with live preview (`/theme slate` remains an alias):
 
-- **↑ / ↓** selects and previews a theme; **→** (or the remapped open key) opens its palette list, where **↑ / ↓** changes the palette and **←** returns to the theme list. Both lists show selection, position, and overflow counts and scroll without changing the dialog's shape.
-- Themes are grouped into **Catppuccin · Light** (Latte, Frappé), **Catppuccin · Dark** (Macchiato, Mocha), and **Other** (Tokyo Night, Black Metal). System default sits above the sections. Frappé is a mid-dark palette shipped under Light by choice; its effort ramp behaves like the other dark flavors.
+- **↑ / ↓** selects and immediately applies a theme; **← / →** changes its palette. Dedicated theme and color-swatch lists show selection, position, and overflow counts; both scroll without changing the dialog's shape.
+- Themes are grouped into **Light** and **Dark** sections. Light holds Catppuccin Latte and Frappé; Dark holds Macchiato, Mocha, Tokyo Night, and Black Metal. Frappé is a mid-dark palette shipped under Light by choice; its effort ramp behaves like the other dark flavors.
 - Wide terminals use two columns; narrow terminals stack the lists, and very small screens keep the selected identity and essential controls. The dialog resizes to fit the terminal, not the selected theme or palette.
 - Every Catppuccin flavor carries the same **15 palettes**: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default (a neutral frame that reuses the flavor's lavender accent). Each flavor remembers its palette while the selector is open, and Mocha additionally lists the legacy Quiet palette.
-- **Enter** saves from the palette list. **Escape** backs out one pane (or cancels a recording) and closes from the theme list; **Ctrl+C** closes from anywhere and restores the original visible theme without changing saved theme settings or Slate configuration.
+- **Enter** confirms and saves; **Escape** (or **Ctrl+C**) restores the original visible theme without changing saved theme settings or Slate configuration.
 
 All colors come from the official Catppuccin palette (https://catppuccin.com/palette). Every bundled theme is generated from one registry, so `npm run themes` reproduces `themes/*.json` exactly.
 
@@ -98,9 +98,7 @@ The selector requires interactive terminal mode. Pi 1.4 has no built-in `/theme`
 
 Saved names such as `catppuccin-latte-mauve` stay valid and can still be set directly through Pi's own `/settings`.
 
-Confirming a Slate theme also writes a fallback copy to `~/.pi/agent/themes/<theme>.json`. The file keeps the selected theme's name so `theme: "<theme>"` still resolves if pi-slate is disabled or removed, but its internal name is `slate-<theme>`. Pi de-duplicates themes by internal name, so the bundled theme stays authoritative (and keeps receiving palette updates) while the package is installed, with no theme-conflict warning. Existing custom files are never overwritten; a stock copy written by an earlier build is migrated in place. Fallback copies appear in Pi's own `/settings` list as `slate-<theme>`.
-
-Black Metal is an optional bundled theme, not an install default: pick it from `/theme` under Other. Confirmed selections are saved and also appear in `/settings`.
+Black Metal is an optional bundled theme, not an install default: pick it from `/theme` under Dark. Confirmed selections are saved and also appear in `/settings`.
 
 With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin palette, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; on light flavors the ramp deepens toward the accent instead of brightening. The effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
 
@@ -147,7 +145,7 @@ These work when `editor` is selected. No terminal configuration.
 
 ### Shortcuts
 
-Open `/shortcuts`. ↑↓ selects an action; Enter (or →) opens its detail pane. Choose **Record shortcut** and press the key you want, or choose **Remove shortcut** and press its confirmation key again; Del or Backspace twice also removes from either pane. A different key cancels removal. Each accepted change saves immediately. If a save conflicts with another session, the panel keeps the previous binding and shows the reason. ← returns to the action list; Esc backs out one pane (or cancels recording) and closes from the list; Ctrl+C closes from anywhere. If you saved any changes, Pi reloads once after the panel closes and Pi is idle.
+Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del twice (or Backspace twice) to remove it. A different key cancels removal. Each accepted change saves immediately. If a save conflicts with another session, the panel keeps the previous binding and shows the reason. Esc or the remapped cancel key cancels recording or closes the panel; Ctrl+C closes from anywhere. If you saved any changes, Pi reloads once after the panel closes and Pi is idle.
 
 Pi-reserved keys, viewport keys, and Slate editor keys (when the editor surface is selected) are blocked. The panel labels other shared keys “Also bound in Pi”; those bindings may only apply in another view. Printable, navigation, and editing keys require Ctrl, Alt, or Cmd/Win; Shift alone isn't enough. There are no default Slate shortcut keys.
 
