@@ -114,6 +114,8 @@ export type ProviderErrorCode = (typeof CODES)[number];
 export interface ProviderError extends Error {
 	code: ProviderErrorCode;
 	status?: number;
+	/** HTTP status hidden by a legacy transport wrapper; renderer only. */
+	parallelHttpStatus?: number;
 	/** JSON-RPC error code, kept separate from `status` (which is HTTP). */
 	rpcCode?: number;
 	retryable?: boolean;

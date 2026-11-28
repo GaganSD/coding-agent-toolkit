@@ -1,4 +1,4 @@
-import type { AgentToolUpdateCallback, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import { braveApiKey, githubToken, parallelApiKey } from "../env.ts";
 import { type ResolvedSettings } from "./config.ts";
 import { awaitWithSignal } from "./http.ts";
@@ -25,8 +25,9 @@ export interface SearchRequest {
 	signal?: AbortSignal;
 	onUpdate?: AgentToolUpdateCallback;
 	settings: ResolvedSettings;
-	/** Present only for registered Pi tools; forwarded per operation, never cached. */
-	runtime?: ExtensionToolContext;
+	/** Optional analytics for Parallel; the session ID is hashed before sending. */
+	sessionId?: string;
+	modelId?: string;
 }
 
 /** What a transport gets; identical to SearchRequest so transports stay thin. */
@@ -48,8 +49,7 @@ export interface RunSearchOptions {
 }
 
 /**
- * Capability knowledge at the registry level. Parallel's native MCP server
- * is anonymous by default; connection errors surface from the host call.
+ * Capability knowledge at the registry level. Parallel is anonymous by default.
  */
 export function providerAvailability(
 	family?: ProviderFamily,

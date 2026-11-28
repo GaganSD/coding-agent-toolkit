@@ -21,7 +21,7 @@ export function clearRetrievalCache(owner?: string): void {
 	for (const [key, item] of cooldowns) if (!owner || item.owner === owner) cooldowns.delete(key);
 }
 
-/** Native nested calls must execute on every invocation: never cache permission decisions. */
+/** Parallel keeps its previous uncached policy; other providers may reuse session evidence. */
 export async function reuseTransport(kind: EvidenceProvider, req: SearchRequest, transport: SearchTransport): Promise<StreamResult> {
 	const owner = req.reuseScope;
 	if (!owner || kind === "parallel") return transport(req);

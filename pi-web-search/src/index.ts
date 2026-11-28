@@ -10,10 +10,8 @@ import {
 	WEB_SEARCH_COMMAND,
 	webSearchCompletions,
 } from "./command.ts";
-import { enableStoredCredentials, parallelApiKey } from "./env.ts";
-import { PARALLEL_MCP_SERVER, PARALLEL_MCP_URL } from "./providers/parallel.ts";
+import { enableStoredCredentials } from "./env.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
-import { resolveSettingsSync } from "./providers/config.ts";
 import { maybeShowWelcome } from "./welcome.ts";
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
 import { clearRetrievalCache } from "./providers/reuse.ts";
@@ -21,7 +19,6 @@ import {
 	type SearchInput,
 	SearchSchema,
 	search,
-	searchReachesTools,
 } from "./search.ts";
 
 /** Fail closed on unsupported or malformed host versions. */
@@ -56,7 +53,6 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 	pi.registerTool<typeof SearchSchema, WebSearchDetails>({
 		name: "search",
 		label: "Search",
-		reachesTools: searchReachesTools,
 		description:
 			"Search public web/code, fetch URLs, or read stored evidence refs.",
 		promptSnippet:
@@ -85,19 +81,6 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		},
 		renderResult,
 	});
-
-	// Pi gives an explicit same-name mcp.json entry precedence over this registration.
-	// Register at load time only when the configured web/research policy can use it.
-	const registered = resolveSettingsSync();
-	if (!("error" in registered) &&
-		(registered.web.provider === "parallel" || registered.web.fallback.includes("parallel") || registered.researchEnabled)) {
-		const key = parallelApiKey();
-		pi.registerMcpServer(PARALLEL_MCP_SERVER, {
-			url: PARALLEL_MCP_URL,
-			exposure: "codemode",
-			...(key ? { headers: { Authorization: `Bearer ${key}` } } : {}),
-		});
-	}
 
 	const command = {
 		description: "Search settings, provider keys, or classifier pin",

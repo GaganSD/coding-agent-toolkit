@@ -5,7 +5,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type, type Static } from "@earendil-works/pi-ai";
 import { MAX_QUERY_CHARS } from "./providers/config.ts";
-import { PARALLEL_MCP_SERVER } from "./providers/parallel.ts";
 import { executeSearch, trimQuery } from "./execute.ts";
 import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
@@ -139,20 +138,6 @@ function validateSearchParams(params: SearchInput): ValidatedSearch | Error {
 		return providerError("unknown", "ref does not accept effort.");
 	}
 	return { kind: "ref", ref: params.ref };
-}
-
-/**
- * Parallel's native MCP namespace is reachable only by calls that can perform
- * web retrieval. Code-only and local ref reads do not wait for MCP startup.
- */
-export function searchReachesTools(input: SearchInput): string[] {
-	if (input.ref !== undefined) {
-		return [];
-	}
-	if (input.urls === undefined && (input.scope ?? "web") === "code") {
-		return [];
-	}
-	return [`mcp__${PARALLEL_MCP_SERVER}`];
 }
 
 /** Unified model-facing search: query, URL extraction, or local evidence read. */

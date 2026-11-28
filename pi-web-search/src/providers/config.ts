@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
-import { errorCode, readOptionalText, resolveWriteTarget, withFileLock, writeAtomicText } from "../file-write.ts";
+import { readOptionalText, resolveWriteTarget, withFileLock, writeAtomicText } from "../file-write.ts";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
@@ -135,34 +134,6 @@ export async function readWebSearchConfig(
 		return { status: "invalid", path: configPath,
 			error: invalidConfig(configPath, `Could not read ${configPath}: ${errorMessage(error)}`) };
 	}
-}
-
-export function readWebSearchConfigSync(path?: string): WebSearchConfigResult {
-	const configPath = path ?? defaultWebSearchConfigPath();
-	let raw: string;
-	try {
-		raw = readFileSync(configPath, "utf-8");
-	} catch (error) {
-		return readFailure(configPath, error);
-	}
-	return parseWebSearchConfigRaw(raw, configPath);
-}
-
-function readFailure(
-	configPath: string,
-	error: unknown,
-): WebSearchConfigResult {
-	if (errorCode(error) === "ENOENT") {
-		return { status: "missing", path: configPath };
-	}
-	return {
-		status: "invalid",
-		path: configPath,
-		error: invalidConfig(
-			configPath,
-			`Could not read ${configPath}: ${errorMessage(error)}`,
-		),
-	};
 }
 
 function parseWebSearchConfigRaw(
@@ -461,16 +432,6 @@ export async function resolveSettings(
 	path?: string,
 ): Promise<ResolvedSettings | { error: InvalidConfigError }> {
 	const result = await readWebSearchConfig(path);
-	if (result.status === "invalid") {
-		return { error: result.error };
-	}
-	return applyConfig(result.path, result.status === "ok" ? result.config : {});
-}
-
-export function resolveSettingsSync(
-	path?: string,
-): ResolvedSettings | { error: InvalidConfigError } {
-	const result = readWebSearchConfigSync(path);
 	if (result.status === "invalid") {
 		return { error: result.error };
 	}

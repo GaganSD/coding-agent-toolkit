@@ -2,7 +2,6 @@ import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	ExtensionContext,
-	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
 import { previewEvidence, uniqueEvidence } from "./providers/results.ts";
@@ -180,8 +179,8 @@ export async function executeSearch(
 					progress.emit(text);
 				},
 				settings: resolved,
-				...(typeof (ctx as Partial<ExtensionToolContext>).executeTool === "function"
-					? { runtime: ctx as ExtensionToolContext } : {}),
+				sessionId: ctx.sessionManager?.getSessionId?.(),
+				modelId: ctx.model?.id,
 			};
 
 			const availability = options.availability ?? providerAvailability(family);

@@ -1,8 +1,6 @@
 import {
 	type FetchLike,
-	awaitWithSignal,
-	credentialRedactor,
-	safeMessage,
+	DEFAULT_REQUEST_TIMEOUT_MS, awaitWithSignal, credentialRedactor, safeMessage,
 	postSseJson,
 	withTimeout,
 } from "./http.ts";
@@ -21,6 +19,8 @@ const PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version";
 const CLOSE_TIMEOUT_MS = 2000;
 
 export interface McpClientOptions {
+	httpError?: import("./http.ts").JsonRequestOptions["httpError"];
+	retryExpiredSession?: boolean;
 	url: string;
 	fetchImpl?: FetchLike;
 	timeoutMs?: number;
@@ -33,6 +33,8 @@ export interface McpClient {
 	initialize(): Promise<void>;
 	/** Returns the concatenated text of the tool's text content blocks. */
 	callTool(name: string, args: Record<string, unknown>): Promise<string>;
+	/** Raw envelope for providers that prefer structuredContent over text. */
+	callToolResult(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
 	close(): Promise<void>;
 }
 
@@ -53,13 +55,43 @@ export async function withMcpSession<T>(
 	options: McpClientOptions,
 	body: (client: McpClient) => Promise<T>,
 ): Promise<T> {
-	const client = createMcpClient(options);
+	const deadline = options.retryExpiredSession ? withTimeout(options.signal, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS) : undefined;
+	const start = () => {
+		const client = createMcpClient({ ...options, signal: deadline?.signal ?? options.signal });
+		return { client, ready: client.initialize() };
+	};
+	let current = start();
+	const run = async <R>(call: (client: McpClient) => Promise<R>) => {
+		const first = current;
+		await first.ready;
+		try { return await call(first.client); }
+		catch (error) {
+			if (!options.retryExpiredSession || !(error instanceof McpSessionExpiredError)) throw error;
+			deadline?.signal.throwIfAborted();
+			// Detach the expired session without interrupting concurrent calls.
+			if (current === first) current = start();
+			const fresh = current;
+			await fresh.ready;
+			return call(fresh.client);
+		}
+	};
 	try {
-		await client.initialize();
-		return await body(client);
+		await current.ready;
+		return await body(options.retryExpiredSession ? {
+			...current.client,
+			callTool: (name, args) => run((client) => client.callTool(name, args)),
+			callToolResult: (name, args) => run((client) => client.callToolResult(name, args)),
+		} : current.client);
 	} finally {
-		await client.close().catch(() => {});
+		deadline?.dispose();
+		await current.client.close().catch(() => {});
 	}
+}
+
+class McpSessionExpiredError extends Error {
+	readonly code = "http_error" as const;
+	readonly status = 404;
+	constructor() { super("MCP session expired"); }
 }
 
 export function createMcpClient(options: McpClientOptions): McpClient {
@@ -90,16 +122,23 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 			body.params = params;
 		}
 
+		const requestHadSession = sessionId !== undefined;
 		const message = await postSseJson<JsonRpcResponse>(url, {
 			body,
 			fetchImpl: options.fetchImpl,
 			timeoutMs: options.timeoutMs,
 			signal: options.signal,
 			headers: requestHeaders(),
+			httpError: options.httpError,
 			// Correlate on the request id: a trailing notification (progress/log)
 			// must not be mistaken for the reply.
 			selectMessage: (value) => isJsonRpcMessage(value) && value.id === id,
 			onResponse: (response) => {
+				if (options.retryExpiredSession && requestHadSession && response.status === 404) {
+					void response.body?.cancel().catch(() => {});
+					throw new McpSessionExpiredError();
+				}
+				if (!response.ok) return;
 				const header = response.headers.get(SESSION_ID_HEADER);
 				if (header) {
 					sessionId = header;
@@ -114,7 +153,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 			);
 		}
 		if (message.error) {
-			throw rpcError(method, message.error);
+			throw rpcError(method, message.error, options.retryExpiredSession === true);
 		}
 		if (message.result === undefined || message.result === null) {
 			throw providerError(
@@ -123,6 +162,14 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 			);
 		}
 		return message.result;
+	}
+
+	async function callToolResult(name: string, args: Record<string, unknown>) {
+		const result = await rpc("tools/call", { name, arguments: args });
+		if (!isPlainObject(result)) {
+			throw providerError("parse_error", `MCP tool ${name} returned a non-object result.`);
+		}
+		return result;
 	}
 
 	return {
@@ -144,23 +191,15 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 				timeoutMs: options.timeoutMs,
 				signal: options.signal,
 				allowEmptyBody: true,
+				httpError: options.httpError,
 				headers: requestHeaders(),
 			});
 		},
 
-		async callTool(name: string, args: Record<string, unknown>) {
-			const result = await rpc("tools/call", {
-				name,
-				arguments: args,
-			});
-			if (!isPlainObject(result)) {
-				throw providerError(
-					"parse_error",
-					`MCP tool ${name} returned a non-object result.`,
-				);
-			}
+		callToolResult,
 
-			const toolResult = result as McpToolResult;
+		async callTool(name: string, args: Record<string, unknown>) {
+			const toolResult: McpToolResult = await callToolResult(name, args);
 			const text = collectTextContent(toolResult.content);
 			if (toolResult.isError === true) {
 				// A tool-level failure is a provider failure, not a malformed
@@ -240,12 +279,13 @@ function isJsonRpcMessage(value: unknown): value is JsonRpcResponse {
 function rpcError(
 	method: string,
 	error: { code?: number; message?: string },
+	nativeMessage: boolean,
 ): ProviderError {
 	const rpcCode = typeof error.code === "number" ? error.code : undefined;
 	const message = typeof error.message === "string" && error.message.length > 0
 		? error.message
 		: "unknown error";
-	return providerError("rpc_error", `MCP ${method} failed: ${message}`, {
+	return providerError("rpc_error", nativeMessage ? message : `MCP ${method} failed: ${message}`, {
 		rpcCode,
 		retryable: rpcCode === undefined ? true : isTransientRpcCode(rpcCode),
 	});
@@ -257,7 +297,7 @@ function isTransientRpcCode(code: number): boolean {
 }
 
 /** Joins every `text` block of a `tools/call` content array. */
-function collectTextContent(content: unknown): string {
+export function collectTextContent(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
 	}

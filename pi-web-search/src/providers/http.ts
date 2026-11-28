@@ -24,6 +24,7 @@ export interface RequestInitLike {
 }
 
 export interface JsonRequestOptions {
+	httpError?: typeof normalizeHttpError;
 	headers?: Record<string, string>;
 	body: unknown;
 	signal?: AbortSignal;
@@ -301,7 +302,7 @@ async function send<T>(
 
 		if (composed.signal.aborted) throw reasonFrom(composed.signal);
 		if (!response.ok) {
-			throw normalizeHttpError(response, redact?.(bodyText) ?? bodyText);
+			throw (options.httpError ?? normalizeHttpError)(response, redact?.(bodyText) ?? bodyText);
 		}
 		const value = decode(bodyText, redact);
 		return redact ? redactValues(value, redact) as T : value;
@@ -524,10 +525,12 @@ function parseEnvelope<T>(
 	const trimmed = bodyText.trimStart();
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
 		const message = parseJsonBody<T>(url, bodyText, redact);
-		if (selectMessage && !selectMessage(message)) {
+		if (!selectMessage) return message;
+		const reply = (Array.isArray(message) ? message : [message]).find(selectMessage);
+		if (reply === undefined) {
 			throw providerError("parse_error", `No JSON-RPC response matching the request id in the response from ${url}.`);
 		}
-		return message;
+		return reply as T;
 	}
 	const frames = extractSseData(bodyText);
 	if (frames.length === 0) {

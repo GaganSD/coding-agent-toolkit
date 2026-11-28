@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
-import { awaitWithSignal } from "./http.ts";
+import { parallelApiKey } from "../env.ts";
+import type { FetchLike, JsonRequestOptions } from "./http.ts";
+import { collectTextContent, type McpClient, withMcpSession } from "./mcp.ts";
 import type { SearchRequest } from "./index.ts";
 import {
 	type SearchResultDetail,
@@ -10,34 +11,63 @@ import {
 	providerError,
 } from "./types.ts";
 
-export const PARALLEL_MCP_SERVER = "pi_web_search_parallel";
 export const PARALLEL_MCP_URL = "https://search.parallel.ai/mcp";
-const SEARCH_TOOL = `mcp__${PARALLEL_MCP_SERVER}__web_search`;
-const FETCH_TOOL = `mcp__${PARALLEL_MCP_SERVER}__web_fetch`;
+const PARALLEL_MCP_SERVER = "pi_web_search_parallel";
+const SEARCH_TOOL = "web_search";
+const FETCH_TOOL = "web_fetch";
 const MAX_FETCH_URLS = 20;
 
-/** Pi owns the MCP connection, permissions and lifecycle; this adapter only normalizes evidence. */
-export async function parallelSearch(req: SearchRequest): Promise<StreamResult> {
-	const runtime = req.runtime;
-	if (!runtime || typeof runtime.executeTool !== "function") {
-		throw unavailable("No Pi tool context was supplied");
+export async function parallelSearch(req: SearchRequest, options: { fetchImpl?: FetchLike } = {}): Promise<StreamResult> {
+	const key = parallelApiKey();
+	const signal = req.signal;
+	let initialized = false;
+	try {
+		return await withMcpSession(sessionOptions(key, signal, options.fetchImpl, req.settings.timeoutMs), (client) => {
+			initialized = true;
+			return retrieve(req, client);
+		});
+	} catch (error) {
+		if (initialized) throw error;
+		throw transportFailure(req.fetchOnly ? FETCH_TOOL : SEARCH_TOOL, error, signal, false);
 	}
-	const metadata = requestMetadata(runtime);
+}
+
+/** The probe uses the same wire call and error classification as retrieval. */
+export async function probeParallelKey(key: string, signal: AbortSignal, fetchImpl: FetchLike): Promise<void> {
+	await withMcpSession(sessionOptions(key, signal, fetchImpl), async (client) => {
+		readPayload(await checkedCall(client, SEARCH_TOOL, { objective: "Find example.com", search_queries: ["example.com"] }), SEARCH_TOOL);
+	});
+}
+
+function sessionOptions(key: string | undefined, signal?: AbortSignal, fetchImpl?: FetchLike, timeoutMs?: number) {
+	const httpError: JsonRequestOptions["httpError"] = (response, body) => {
+		const text = body.trim();
+		const snippet = text.length > 500 ? text.slice(0, 497) + "..." : text;
+		const status = response.status;
+		return providerError("http_error", status === 401 ? "MCP server requires authentication"
+			: `MCP HTTP request failed with status ${status}${snippet ? `: ${snippet}` : ""}`, { status });
+	};
+	return { url: PARALLEL_MCP_URL, signal, timeoutMs, fetchImpl, httpError, retryExpiredSession: true,
+		headers: key ? { Authorization: `Bearer ${key}` } : undefined };
+}
+
+async function retrieve(req: SearchRequest, client: McpClient): Promise<StreamResult> {
+	const metadata = requestMetadata(req);
 	const searchQueries = [req.query];
 	// Observe both promises immediately; search and URL extraction are independent.
 	const [searchOutcome, fetchOutcome] = await Promise.allSettled([
-		req.fetchOnly ? Promise.resolve<Record<string, unknown>>({ results: [] }) : callNative(runtime, SEARCH_TOOL, {
+		req.fetchOnly ? Promise.resolve<Record<string, unknown>>({ results: [] }) : callParallel(client, SEARCH_TOOL, {
 			objective: req.query,
 			search_queries: searchQueries,
 			...metadata,
-		}, req.signal).then((raw) => readPayload(raw, "web_search")),
-		req.urls?.length ? callNative(runtime, FETCH_TOOL, {
+		}, req.signal),
+		req.urls?.length ? callParallel(client, FETCH_TOOL, {
 			urls: req.urls.slice(0, MAX_FETCH_URLS),
 			objective: req.query.slice(0, 200) || "Extract the requested pages.",
 			search_queries: req.fetchOnly ? [] : searchQueries,
 			full_content: false,
 			...metadata,
-		}, req.signal).then((raw) => readPayload(raw, "web_fetch")) : Promise.resolve(undefined),
+		}, req.signal) : Promise.resolve(undefined),
 	]);
 	if (searchOutcome.status === "rejected") throw searchOutcome.reason;
 	const search = searchOutcome.value;
@@ -73,44 +103,50 @@ export async function parallelSearch(req: SearchRequest): Promise<StreamResult> 
 	};
 }
 
-function requestMetadata(runtime: ExtensionToolContext): Record<string, string> {
-	const sessionId = runtime.sessionManager?.getSessionId();
-	const modelId = runtime.model?.id;
+function requestMetadata({ sessionId, modelId }: SearchRequest): Record<string, string> {
 	return {
 		...(sessionId ? { session_id: createHash("sha256").update(sessionId).digest("hex") } : {}),
 		...(modelId && modelId !== "unknown" && modelId.length <= 100 ? { model_name: modelId } : {}),
 	};
 }
 
-/** A nested outcome contains a Pi result, whose structuredContent is the MCP CallToolResult. */
-async function callNative(
-	runtime: ExtensionToolContext,
-	name: string,
-	args: Record<string, unknown>,
-	signal: AbortSignal | undefined,
-): Promise<Record<string, unknown>> {
-	if (signal?.aborted) throw abortError(signal);
-	const pending = runtime.executeTool(name, args, { signal });
-	const outcome = signal ? await awaitWithSignal(pending, signal) : await pending;
-	if (signal?.aborted) throw abortError(signal);
-	const result = outcome.result;
-	const inner = record(result?.structuredContent);
-	if (outcome.isError || result?.isError || inner?.isError === true) {
-		// Only an MCP CallToolResult that itself declares isError can authorize
-		// interpreting its text as a server status. Pi permission hooks and other
-		// host failures return arbitrary text without this envelope.
-		if (inner?.isError === true && Array.isArray(inner.content)) {
-			throw nativeError(name, textBlocks(inner.content) || "no error details");
-		}
-		const message = (textBlocks(result?.content) || "no error details").slice(0, 500);
-		throw providerError("tool_error", `${name} failed in Pi's tool pipeline: ${message}. Check /mcp for ${PARALLEL_MCP_SERVER} and run /reload.`, { retryable: false });
+const toolName = (name: string) => `mcp__${PARALLEL_MCP_SERVER}__${name}`;
+
+async function checkedCall(client: McpClient, name: string, args: Record<string, unknown>,
+	transportError?: (error: unknown) => Error,
+) {
+	const result = await client.callToolResult(name, args).catch((error) => { throw transportError?.(error) ?? error; });
+	const content = result.content === undefined ? [] : result.content;
+	if (!Array.isArray(content)) {
+		const error = providerError("parse_error", "Invalid MCP tools/call result");
+		throw transportError?.(error) ?? error;
 	}
-	if (!inner) throw providerError("parse_error", `${name} returned no MCP CallToolResult.`);
-	return inner;
+	if (result.isError === true) throw nativeError(toolName(name), collectTextContent(content) || "no error details");
+	return result;
 }
 
-function abortError(signal: AbortSignal) {
-	return isProviderError(signal.reason) ? signal.reason : providerError("aborted", "Parallel search was aborted.");
+async function callParallel(client: McpClient, name: string, args: Record<string, unknown>, signal?: AbortSignal) {
+	// Only a transport failure follows the legacy host's outer error path.
+	const result = await checkedCall(client, name, args, (error) => transportFailure(name, error, signal, true));
+	return readPayload(result, name);
+}
+
+function pipelineFailure(name: string, message: string, status?: number) {
+	const error = providerError("tool_error", `${toolName(name)} failed in Pi's tool pipeline: ${message.slice(0, 500)}. Check /mcp for ${PARALLEL_MCP_SERVER} and run /reload.`, { retryable: false });
+	if (status !== undefined) error.parallelHttpStatus = status;
+	return error;
+}
+
+function transportFailure(name: string, error: unknown, signal: AbortSignal | undefined, initialized: boolean) {
+	if (signal?.aborted) return isProviderError(signal.reason) ? signal.reason : providerError("aborted", "Parallel search was aborted.");
+	if (isProviderError(error) && error.code === "aborted") return error;
+	const status = isProviderError(error) ? error.status : undefined;
+	if (!initialized) return pipelineFailure(name, `Tool ${toolName(name)} not found`, status);
+	const message = (error instanceof Error ? error.message : String(error)).replace(/^Request failed: /u, "")
+		.replace(/^Request timed out after (\d+ms)\.$/u, "MCP request timed out after $1")
+		.replace(/^Response from .*? was not valid JSON: /u, "");
+	return pipelineFailure(name, message.startsWith("MCP tool ") && message.endsWith("returned a non-object result.")
+		? "Invalid MCP tools/call result" : message, status);
 }
 
 function unavailable(reason: string) {
@@ -197,14 +233,6 @@ function toSource(entry: ParallelResult): Source {
 
 function record(value: unknown): Record<string, unknown> | undefined {
 	return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-}
-
-function textBlocks(value: unknown): string {
-	if (!Array.isArray(value)) return "";
-	return value.flatMap((block): string[] => {
-		const entry = record(block);
-		return entry?.type === "text" && typeof entry.text === "string" ? [entry.text] : [];
-	}).join("\n");
 }
 
 function normalizeWarnings(value: unknown): string[] {

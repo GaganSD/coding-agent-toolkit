@@ -14,7 +14,6 @@ import { CREDENTIAL_ENV_ALIASES, disableStoredCredentials, enableStoredCredentia
 import type { WebSearchDetails } from "../src/format.ts";
 import webSearchExtension, { assertSupportedPiVersion } from "../src/index.ts";
 import { CONFIG_PATH_ENV_VAR } from "../src/providers/config.ts";
-import { PARALLEL_MCP_SERVER, PARALLEL_MCP_URL } from "../src/providers/parallel.ts";
 
 test("host version gate rejects older and malformed versions, without fallback", () => {
 	for (const version of ["0.85.1", "0.98.99", "0.99.0-preview", "v0.98.0", "unknown", "", "0.99", "00.99.0"]) {
@@ -131,7 +130,7 @@ const ctx = {} as unknown as ExtensionContext;
 
 test("a missing config registers only the unified search tool directly", async () => {
 	await loadExtension(undefined, ({ tools, commands, servers }) => {
-		assert.equal(servers[0]?.name, PARALLEL_MCP_SERVER);
+		assert.deepEqual(servers, []);
 		assert.deepEqual(names({ tools, commands }), ["search"]);
 		assert.ok(commands.some((command) => command.name === "web-search"));
 		assert.equal(commands.some((command) => command.name === "web-search-settings"), false);
@@ -169,64 +168,12 @@ test("research.enabled=true does not add a legacy multi_search registration", as
 	);
 });
 
-test("Parallel registration is anonymous by default, or Bearer when a key already exists", async () => {
-	const oldKey = process.env.PARALLEL_API_KEY;
-	try {
-		delete process.env.PARALLEL_API_KEY;
-		await loadExtension("{}", async ({ servers, commands }) => {
-			assert.deepEqual(servers, [{ name: PARALLEL_MCP_SERVER, config: { url: PARALLEL_MCP_URL, exposure: "codemode" } }]);
-			let report = "";
-			await commands[0].handler("status", { hasUI: true, ui: { notify: (text) => { report = text; } } });
-			assert.match(report, /parallel: missing \(optional key\)/);
-			assert.match(report, /classifier: disabled/);
-			assert.doesNotMatch(report, /CLASSIFIER_API_KEY|package-visible|Classifier authentication/);
-			assert.match(report, /\/reload after changing.*Parallel key/);
-		});
-		process.env.PARALLEL_API_KEY = "  configured-key  ";
-		await loadExtension("{}", ({ servers }) => {
-			assert.deepEqual(servers[0]?.config.headers, { Authorization: "Bearer configured-key" });
-		});
-		delete process.env.PARALLEL_API_KEY;
-		await loadExtension("{}", ({ servers }) => {
-			assert.deepEqual(servers[0]?.config.headers, { Authorization: "Bearer stored-key" });
-		}, { parallel: { type: "api_key", key: "stored-key" } });
-		await loadExtension(JSON.stringify({ web: { provider: "exa", fallback: [] } }), ({ servers }) => {
-			assert.deepEqual(servers, []);
-		});
-	} finally {
-		if (oldKey === undefined) delete process.env.PARALLEL_API_KEY;
-		else process.env.PARALLEL_API_KEY = oldKey;
-	}
-});
-
-test("registered search forwards the live tool context through the native pipeline", async () => {
-	await loadExtension(JSON.stringify({ web: { provider: "parallel", fallback: [] } }), async ({ tools }) => {
-		const seen: string[] = [];
-		const runtime = {
-			sessionManager: { getSessionId: () => "session-registration" },
-			executeTool: async (name: string) => {
-				seen.push(name);
-				return { isError: false, result: { content: [], details: {}, structuredContent: {
-					content: [{ type: "text", text: JSON.stringify({ results: [{ url: "https://example.test", title: "Evidence", excerpts: ["citation"] }] }) }],
-				} } };
-			},
-		} as unknown as ExtensionContext;
-		const result = await tools.find((tool) => tool.name === "search")!.execute("call-1", { query: "native path" }, undefined, undefined, runtime);
-		assert.deepEqual(seen, [`mcp__${PARALLEL_MCP_SERVER}__web_search`]);
-		assert.equal(result.isError, false);
-		assert.equal(result.details.searchResults?.[0].citedText, "citation");
-	});
-});
-
-test("registered search reaches MCP only for calls that can retrieve the web", async () => {
-	await loadExtension("{}", ({ tools }) => {
-		const search = tools.find((tool) => tool.name === "search");
-		assert.ok(search?.reachesTools);
-		assert.deepEqual(search.reachesTools({ ref: "0:1" }), []);
-		assert.deepEqual(search.reachesTools({ query: "id", scope: "code" }), []);
-		assert.deepEqual(search.reachesTools({ query: "id", scope: "web" }), [`mcp__${PARALLEL_MCP_SERVER}`]);
-		assert.deepEqual(search.reachesTools({ urls: ["https://example.test"] }), [`mcp__${PARALLEL_MCP_SERVER}`]);
-	});
+test("Parallel stays behind search even when selected or keyed", async () => {
+	await loadExtension(JSON.stringify({ web: { provider: "parallel", fallback: [] } }), ({ tools, servers }) => {
+		assert.deepEqual(servers, []);
+		assert.equal(tools.length, 1);
+		assert.equal(tools[0]?.reachesTools, undefined);
+	}, { parallel: { type: "api_key", key: "stored-key" } });
 });
 
 test("research.enabled=false never registers legacy tools", async () => {
