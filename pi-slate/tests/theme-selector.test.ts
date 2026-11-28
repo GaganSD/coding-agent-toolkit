@@ -445,18 +445,19 @@ test("right pane layout is identical in both focus states", () => {
   }
 });
 
-test("description wrapping does not move the palette viewport", () => {
-  const slots = (initial: string) => {
+test("the palette list follows the theme title without a subtitle", () => {
+  for (const [initial, title] of [
+    ["system", "System default"], ["tokyo-night", "Tokyo Night"],
+    ["catppuccin-mocha-mauve", "Catppuccin Mocha"], ["external", "external"],
+  ] as const) {
     const f = fixture(initial);
-    f.terminal.rows = 20;
-    const lines = f.selector.render(70).join("\n").split("\n");
-    const cells = lines.map(line => line.split("│")[2] ?? "");
-    return {
-      header: cells.findIndex(cell => cell.includes("Palettes")),
-      option: cells.findIndex(cell => /^\s*[› ]\s*████/.test(cell)),
-    };
-  };
-  assert.deepEqual(slots("tokyo-night"), slots("catppuccin-mocha-mauve"));
+    const cells = pane(f.selector, 88).map(cell => cell.trim());
+    const titleIndex = cells.indexOf(title);
+    assert.notEqual(titleIndex, -1);
+    assert.equal(cells[titleIndex + 1], "");
+    assert.match(cells[titleIndex + 2]!, /^Palettes\b/);
+    assert.doesNotMatch(f.selector.render(88).join("\n"), /Preview updates live/);
+  }
 });
 
 test("wide theme and palette names keep the value and hex columns fixed", () => {

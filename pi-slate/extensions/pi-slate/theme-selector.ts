@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { isKeyRelease, isKeyRepeat, matchesKey, parseColor, visibleWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
+import { isKeyRelease, isKeyRepeat, matchesKey, parseColor, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { compactPicker, fit, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY, viewport } from "./picker-frame.ts";
 import { aligned, cycle, focusRow, footerHints, moveAction, panelAction, priorityLines, rightAlign, sectionedViewport, selectionKeys, type PanelAction, type PanelKeys, type SelectionKeys } from "./panel-focus.ts";
 import {
@@ -10,7 +10,7 @@ import { SLATE_NATIVE_THEME } from "./install-defaults.ts";
 import { slateTheme, slateThemeVars } from "./themes.ts";
 
 export type ThemeVariant = { name: string; label: string; color?: string };
-export type ThemeChoice = { label: string; variants: ThemeVariant[]; section?: string; family?: string; description?: string };
+export type ThemeChoice = { label: string; variants: ThemeVariant[]; section?: string; family?: string };
 
 /** Catppuccin flavor rows: one theme per flavor, with every palette that flavor ships. */
 function flavorChoices(): ThemeChoice[] {
@@ -24,7 +24,6 @@ function flavorChoices(): ThemeChoice[] {
       label: FLAVOR_LABELS[flavor],
       family: "Catppuccin",
       section: `Catppuccin · ${FLAVOR_SECTION[flavor]}`,
-      description: `${FLAVOR_SECTION[flavor]} · ${variants.length} palettes. Preview updates live.`,
       variants,
     };
   });
@@ -33,10 +32,10 @@ function flavorChoices(): ThemeChoice[] {
 export function slateThemeChoices(initial?: string): ThemeChoice[] {
   const selected = slateTheme(initial)?.name ?? initial;
   const choices: ThemeChoice[] = [
-    { label: "System default", description: "Terminal palette. Preview updates live.", variants: [{ name: SLATE_NATIVE_THEME, label: "Terminal palette" }] },
+    { label: "System default", variants: [{ name: SLATE_NATIVE_THEME, label: "Terminal palette" }] },
     ...flavorChoices(),
-    { label: "Tokyo Night", section: "Other", description: "1 palette. Preview updates live.", variants: [{ name: "tokyo-night", label: "Default", color: slateThemeVars("tokyo-night")?.accent }] },
-    { label: "Black Metal", section: "Other", description: "1 palette. Preview updates live.", variants: [{ name: "black-metal", label: "Default", color: slateThemeVars("black-metal")?.accent }] },
+    { label: "Tokyo Night", section: "Other", variants: [{ name: "tokyo-night", label: "Default", color: slateThemeVars("tokyo-night")?.accent }] },
+    { label: "Black Metal", section: "Other", variants: [{ name: "black-metal", label: "Default", color: slateThemeVars("black-metal")?.accent }] },
   ];
   // A saved theme outside the shipped rows (an external theme) stays re-selectable.
   if (selected && !choices.some(choice => choice.variants.some(variant => variant.name === selected))) {
@@ -129,12 +128,6 @@ export class ThemeSelector implements Component {
     return actions;
   }
 
-  private describe(choice: ThemeChoice): string {
-    const count = choice.variants.length;
-    if (!count) return "No palettes available.";
-    return choice.description ?? `${count} ${count === 1 ? "palette" : "palettes"}. Preview updates live.`;
-  }
-
   private paletteRow(th: Theme, columns: number, index: number): string {
     const variant = this.choice()?.variants[index];
     if (!variant) return "";
@@ -212,11 +205,8 @@ export class ThemeSelector implements Component {
     const detail = (columns: number, rows: number) => {
       if (!choice) return compactPicker([footer], columns, rows);
       const titleLine = th.style(themeTitle(choice), { fg: "accent", bold: true });
-      const description = columns > 0 ? wrapTextWithAnsi(th.fg("text", this.describe(choice)), columns) : [];
       if (rows < 5) return compactPicker([titleLine, this.paletteRow(th, columns, index)], columns, rows);
-      const desc = Array.from({ length: rows >= 9 ? 2 : rows >= 6 ? 1 : 0 }, (_, i) => description[i] ?? "");
-      const paletteRows = rows - 2 - desc.length;
-      const lines = [titleLine, ...desc, "", ...this.paletteViewport(th, columns, paletteRows)];
+      const lines = [titleLine, "", ...this.paletteViewport(th, columns, rows - 2)];
       return compactPicker(lines, columns, rows);
     };
     const body = pickerBody(th, width, inner, bodyHeight, themeViewport, detail);
