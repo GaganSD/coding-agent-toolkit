@@ -33,7 +33,7 @@ export async function reuseTransport(kind: EvidenceProvider, req: SearchRequest,
 	for (const [id, entry] of cache) if (entry.expires <= now) remove(id);
 	for (const [id, entry] of cooldowns) if (entry.until <= now) cooldowns.delete(id);
 	const hit = cache.get(key);
-	if (hit) return { ...structuredClone(hit.value), warnings: [...(hit.value.warnings ?? []), "Reused session evidence (at most 30 seconds old)."] };
+	if (hit) return { ...structuredClone(hit.value), cached: true, warnings: [...(hit.value.warnings ?? []), "Reused session evidence (at most 30 seconds old)."] };
 	const cooldown = cooldowns.get(policy);
 	if (cooldown) throw providerError("rate_limited", `${kind} is cooling down for ${Math.ceil((cooldown.until - now) / 1000)}s after rate limiting.`);
 	let job = pending.get(key);
@@ -44,7 +44,7 @@ export async function reuseTransport(kind: EvidenceProvider, req: SearchRequest,
 		const composed = withTimeout(controller.signal, req.settings.timeoutMs);
 		job = { owner, controller, users: 0, promise: Promise.resolve().then(async () => {
 			try {
-				const value = await awaitWithSignal(transport({ ...req, signal: composed.signal, onUpdate: undefined }), composed.signal);
+				const value = await awaitWithSignal(transport({ ...req, signal: composed.signal }), composed.signal);
 				if (composed.signal.aborted) throw composed.signal.reason;
 				const size = Buffer.byteLength(JSON.stringify(value));
 				// Do not reuse partial failures or quota diagnostics from URL extraction.

@@ -65,6 +65,7 @@ export async function githubSearch(
 		sources: sourcesFromResults(results),
 		searchResults: results,
 		requestId,
+		...(warnings.length ? { coverage: { withheld: withheldPrivate > 0, incomplete: raw.incomplete_results === true } } : {}),
 		...(warnings.length > 0 ? { warnings } : {}),
 	};
 }

@@ -1,4 +1,3 @@
-import type { AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import { braveApiKey, githubToken, parallelApiKey } from "../env.ts";
 import { type ResolvedSettings } from "./config.ts";
 import { awaitWithSignal } from "./http.ts";
@@ -10,6 +9,7 @@ import {
 	type ProviderFamily,
 	type ProviderKind,
 	type StreamResult,
+	type RetrievalEvent,
 	isProviderError,
 	providerError,
 	providerFamily,
@@ -23,11 +23,11 @@ export interface SearchRequest {
 	reuseScope?: string;
 	urls?: string[];
 	signal?: AbortSignal;
-	onUpdate?: AgentToolUpdateCallback;
 	settings: ResolvedSettings;
 	/** Optional analytics for Parallel; the session ID is hashed before sending. */
 	sessionId?: string;
 	modelId?: string;
+	onRetrieval?: (event: RetrievalEvent) => void;
 }
 
 /** What a transport gets; identical to SearchRequest so transports stay thin. */
@@ -161,6 +161,7 @@ export async function runSearch(
 			);
 			continue;
 		}
+		req.onRetrieval?.({ type: "started", kinds: [kind] });
 		try {
 			const result = await runTransport((request) => reuseTransport(kind, request, transport), req);
 			const hits = result.searchResults?.length ?? 0;
@@ -168,14 +169,17 @@ export async function runSearch(
 			if (hits === 0 && more) {
 				notes.push(...(result.warnings ?? []), `${kind} returned no results.`);
 				lastEmpty = withNotes(result, notes);
+				req.onRetrieval?.(outcome(kind, result, true));
 				continue;
 			}
+			req.onRetrieval?.(outcome(kind, result));
 			return notes.length > 0 ? withNotes(result, notes) : result;
 		} catch (error) {
 			if (isAborted(req.signal)) {
 				throw abortReason(req.signal?.reason);
 			}
 			const providerErr = toProviderError(error);
+			req.onRetrieval?.(retrievalFailure(kind, providerErr));
 			if (providerErr.code === "aborted" || providerErr.retryable !== true) {
 				throw providerErr;
 			}
@@ -188,6 +192,16 @@ export async function runSearch(
 		return withNotes(lastEmpty, notes);
 	}
 	throw lastError;
+}
+
+function retrievalFailure(kind: ProviderKind, error: ProviderError): RetrievalEvent {
+	return { type: "failed", kind, code: error.parallelHttpStatus === 429 ? "rate_limited" : error.code };
+}
+
+export function outcome(kind: StreamResult["providerKind"], result: StreamResult, empty = false): RetrievalEvent {
+	const hasEvidence = !empty && (result.searchResults?.some((hit) => hit.type !== "unparsed") || result.sources?.length);
+	return { type: result.unreadable ? "unreadable" : hasEvidence ? "contributed" : "empty", kind,
+		coverage: result.coverage, unparsed: result.searchResults?.some((hit) => hit.type === "unparsed") };
 }
 
 function withNotes(result: StreamResult, notes: string[]): StreamResult {
@@ -211,24 +225,13 @@ async function searchTransports(req: SearchRequest, options: RunSearchOptions): 
 
 /** Bound even signal-ignoring transports and stop their late progress updates. */
 async function runTransport(transport: SearchTransport, req: SearchRequest): Promise<StreamResult> {
-	let active = true;
-	try {
-		const pending = Promise.resolve().then(() => {
-			if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
-			return transport({
-				...req,
-				onUpdate: req.onUpdate ? (partial) => {
-					if (!active || isAborted(req.signal)) return;
-					try { req.onUpdate?.(partial); } catch { /* Progress is advisory. */ }
-				} : undefined,
-			});
-		});
-		const result = req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
+	const pending = Promise.resolve().then(() => {
 		if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
-		return result;
-	} finally {
-		active = false;
-	}
+		return transport(req);
+	});
+	const result = req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
+	if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
+	return result;
 }
 
 function missingCredentials(kind: ProviderKind, message: string): ProviderError {
@@ -328,6 +331,7 @@ export async function runParallelSearch(
 		);
 	}
 
+	req.onRetrieval?.({ type: "started", kinds: runnable });
 	const settled = await Promise.allSettled(
 		runnable.map(async (kind) => {
 			const transport = transports[kind];
@@ -353,10 +357,12 @@ export async function runParallelSearch(
 			if (hits === 0) {
 				warnings.push(`${kind} returned no results.`);
 			}
+			req.onRetrieval?.(outcome(kind, result));
 			successes.push(item.value);
 			continue;
 		}
 		const err = toProviderError(item.reason);
+		req.onRetrieval?.(retrievalFailure(kind, err));
 		if (err.code === "aborted") {
 			throw err;
 		}
@@ -373,13 +379,11 @@ export async function runParallelSearch(
 }
 
 /** Names the credential that would actually unlock the family in question. */
+export const NO_WEB_PROVIDER_MESSAGE = "No web provider is available. Enable Parallel's native MCP server in Pi (/mcp), or configure Exa.";
+
 function describeNoCredentials(target: ProviderFamily = "web"): string {
-	const hint = target === "code"
-		? "Set GITHUB_TOKEN or run gh auth login for GitHub; grep.app and Sourcegraph need no key."
-		: "Enable Parallel's native MCP server in Pi (/mcp), or configure Exa.";
-	return target === "web"
-		? `No web provider is available. ${hint}`
-		: `No code provider has credentials. ${hint}`;
+	return target === "web" ? NO_WEB_PROVIDER_MESSAGE
+		: "No code provider has credentials. Set GITHUB_TOKEN or run gh auth login for GitHub; grep.app and Sourcegraph need no key.";
 }
 
 /**

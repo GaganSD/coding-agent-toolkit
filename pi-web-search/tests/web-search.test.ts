@@ -21,6 +21,8 @@ import type { FetchLike } from "../src/providers/http.ts";
 import { droppedParamsWarning } from "../src/utils.ts";
 import { exaObjective } from "../src/providers/exa.ts";
 import { SearchSchema, type SearchInput, search } from "../src/search.ts";
+import { renderResult } from "../src/ui/transcript.ts";
+import { plainTheme } from "./fixtures/panel.ts";
 
 const VALID_CONFIG = JSON.stringify({ web: { provider: "exa", fallback: [] } });
 
@@ -206,11 +208,11 @@ test("successful URL extraction returns the formatted result and forwards the re
 		assert.deepEqual(calls, [
 			{ query: "", urls: ["https://exa.ai"], maxResults: 8 },
 		]);
-		assert.deepEqual(updates, ["Fetching 1 URL(s)..."]);
+		assert.deepEqual(updates, ["◌ Exa…"]);
 	});
 });
 
-test("the progress update names the query when no URLs are given", async () => {
+test("the progress update names the active provider", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		const calls: { query: string; urls?: string[]; maxResults: number }[] = [];
 		const updates: string[] = [];
@@ -223,7 +225,7 @@ test("the progress update names the query when no URLs are given", async () => {
 			transports: { exa: recordingTransport(SEARCH_RESULT, calls) },
 		});
 
-		assert.deepEqual(updates, ['Searching the web for "pi"...']);
+		assert.deepEqual(updates, ["◌ Exa…"]);
 		assert.deepEqual(calls, [{ query: "pi", urls: undefined, maxResults: 8 }]);
 	});
 });
@@ -364,7 +366,6 @@ async function runGrepProvider(query: string, reply: string) {
 			query,
 			settings: { timeoutMs: 5000, maxResults: 5, researchEnabled: false },
 			signal: undefined,
-			onUpdate: undefined,
 		} as unknown as Parameters<typeof grepSearch>[0],
 		{ fetchImpl },
 	);
@@ -392,7 +393,17 @@ test("zero code hits without a repo qualifier suggest a shorter pattern", async 
 	assert.match(result.warnings?.join(" ") ?? "", /shorter literal identifier/);
 });
 
-test("an unparseable upstream reply is not misreported as a no-match", async () => {
-	const result = await runGrepProvider("parseArgs", "500: Internal Server Error");
-	assert.match(result.warnings?.join(" ") ?? "", /could not parse: 500: Internal Server Error/);
-});
+test("an unparseable grep.app reply does not render as a no-match in either view", () => withConfigFile('{"code":{"provider":"grep","fallback":[]}}', async () => {
+	const args = { query: "parseArgs", scope: "code" } as const;
+	const result = await search("grep", args, undefined, undefined, ctx, {
+		availability: { grep: true }, transports: { grep: (req) => runGrepProvider(req.query, "500: Internal Server Error") },
+	});
+	assert.match(result.details.warnings?.join(" ") ?? "", /could not parse: 500: Internal Server Error/);
+	assert.deepEqual(result.details.unreadableProviders, ["grep"]);
+	assert.doesNotMatch(JSON.stringify(result.structuredContent), /unreadableProviders/);
+	for (const expanded of [false, true]) {
+		const text = renderResult(result, { expanded, isPartial: false }, plainTheme, { args, isError: false, state: {} }).render(78).join(" ");
+		assert.match(text, /Couldn’t interpret grep\.app’s response/u);
+		assert.doesNotMatch(text, /No matches|500: Internal Server Error/u);
+	}
+}));

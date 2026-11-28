@@ -149,6 +149,18 @@ export async function search(
 	ctx: ExtensionContext,
 	options: UnifiedSearchOptions = {},
 ): Promise<AgentToolResult<WebSearchDetails>> {
+	const start = performance.now();
+	const result = await run(params, signal, onUpdate, ctx, options);
+	return { ...result, details: { ...result.details, durationMs: Math.round(performance.now() - start) } };
+}
+
+async function run(
+	params: SearchInput,
+	signal: AbortSignal | undefined,
+	onUpdate: AgentToolUpdateCallback<WebSearchDetails> | undefined,
+	ctx: ExtensionContext,
+	options: UnifiedSearchOptions = {},
+): Promise<AgentToolResult<WebSearchDetails>> {
 	const validated = validateSearchParams(params);
 	if (validated instanceof Error) {
 		return formatSearchError(SEARCH_TOOL, validated);
@@ -180,7 +192,6 @@ export async function search(
 				tool: SEARCH_TOOL,
 				rawParams: params,
 				acceptedParams: SEARCH_PARAMS,
-				progress: `Fetching ${validated.urls.length} URL(s)...`,
 			},
 			signal,
 			onUpdate,
@@ -201,11 +212,6 @@ export async function search(
 			rawParams: params,
 			acceptedParams: SEARCH_PARAMS,
 			requireResearch: effort === "thorough",
-			progress: effort === "thorough"
-				? `Searching multiple sources for "${query}" (${scope})...`
-				: scope === "code"
-					? `Searching public code for "${query}"...`
-					: `Searching the web for "${query}"...`,
 		},
 		signal,
 		onUpdate,

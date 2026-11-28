@@ -110,6 +110,7 @@ test("reuse coalesces work, isolates caller cancellation, clones results and lea
 	assert.equal(calls, 1);
 	assert.notEqual(cached.searchResults![0].citedText, "mutated");
 	assert.match(cached.warnings!.join(), /Reused session/);
+	assert.equal(cached.cached, true);
 	let native = 0;
 	for (let i = 0; i < 2; i++) await reuseTransport("parallel", req, async () => { native++; return result; });
 	assert.equal(native, 2);

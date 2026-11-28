@@ -40,6 +40,7 @@ export async function sourcegraphSearch(
 		sources: sourcesFromResults(parsed.results),
 		searchResults: parsed.results,
 		requestId: "sourcegraph",
+		...(parsed.fatal === undefined ? {} : { coverage: { incomplete: true } }),
 		...(warnings.length > 0 ? { warnings } : {}),
 	};
 }

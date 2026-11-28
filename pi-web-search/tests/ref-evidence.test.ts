@@ -6,6 +6,8 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { EVIDENCE_MAX_LIFETIME_MS, EVIDENCE_TTL_MS, EvidenceStore, evidenceStore } from "../src/evidence.ts";
 import { REF_LIST_PAGE, REF_OUTPUT_CHARS, REF_PASSAGE_CHARS, searchReadRef } from "../src/search_read.ts";
 import type { StreamResult } from "../src/providers/types.ts";
+import { renderResult } from "../src/ui/transcript.ts";
+import { plainTheme } from "./fixtures/panel.ts";
 
 const detailsOf = (output: { details: WebSearchDetails; structuredContent?: unknown }) => {
 	assert.equal(Check(SearchOutputSchema, output.structuredContent), true, "continuation satisfies the public output schema");
@@ -414,4 +416,70 @@ test("default store is the shared session evidence store", () => {
 	assert.match(detailsOf(out).searchResults![0].citedText!, /evidence 1/);
 	evidenceStore.clear("shared");
 	assert.equal(searchReadRef({ ref: `${handle.resultId}:1` }, ctx("shared")).isError, true, "cleared sessions lose their handles");
+});
+
+test("ref transcript shows the actual character range for cursor and find reads", () => {
+	const store = new EvidenceStore();
+	const text = "x\n".repeat(2000) + "needle\n" + "more\n".repeat(400);
+	const handle = store.put("s", { text: "", providerKind: "exa",
+		searchResults: [{ url: "https://example.test", citedText: text }] })!;
+	const ref = `${handle.resultId}:1`;
+	const session = ctx("s");
+	const first = searchReadRef({ ref }, session, undefined, store);
+	const offset = first.details.passage!.nextOffset!;
+	assert.ok(offset > 0 && offset < REF_PASSAGE_CHARS);
+	const second = searchReadRef({ ref, cursor: first.details.cursor }, session, undefined, store);
+	const found = searchReadRef({ ref, find: "needle" }, session, undefined, store);
+	assert.equal(second.details.passage!.offset, offset);
+	assert.ok(found.details.passage!.offset > 0);
+	for (const result of [first, second, found]) {
+		const { offset, totalChars } = result.details.passage!;
+		const length = result.details.searchResults![0].citedText!.length;
+		for (const expanded of [false, true]) {
+			const lines = renderResult(result, { expanded, isPartial: false }, plainTheme,
+				{ args: { ref }, state: {}, isError: false }).render(100);
+			assert.ok(lines[0].includes(`characters ${offset + 1}–${offset + length} of ${totalChars}`));
+			assert.doesNotMatch(lines.join("\n"), /passage \d+ of \d+/);
+		}
+	}
+});
+
+test("mixed-search passages use the stored hit source only for rendering", () => {
+	const store = new EvidenceStore();
+	const handle = store.put("s", { text: "", providerKind: "exa", searchResults: [
+		{ url: "https://example.test", source: "exa", citedText: "Web excerpt" },
+		{ url: "https://github.com/open/project/blob/main/main.ts#L42", source: "grep", citedText: "const needle = 1;" },
+	] })!;
+	const ref = `${handle.resultId}:2`;
+	const result = searchReadRef({ ref }, ctx("s"), undefined, store);
+	assert.equal(detailsOf(result).provider, "exa");
+	assert.equal(detailsOf(result).passageSource, "grep");
+	assert.doesNotMatch(structuredOf(result), /"source"|"passageSource"|grep/);
+	assert.doesNotMatch(textOf(result), /grep/);
+	const lines = renderResult(result, { expanded: true, isPartial: false }, plainTheme,
+		{ args: { ref }, state: {}, isError: false }).render(100).join("\n");
+	assert.match(lines, /│ const needle = 1;/);
+	assert.match(lines, /via grep\.app/);
+	assert.doesNotMatch(lines, /via Exa/);
+});
+
+test("saved listings and passages label unparsed replies without changing continuation evidence", () => {
+	const store = new EvidenceStore();
+	const prose = "provider text without a citation";
+	const { resultId } = store.put("s", { text: "", providerKind: "exa",
+		searchResults: [{ source: "exa", type: "unparsed", citedText: prose }] })!;
+	for (const ref of [resultId, `${resultId}:1`]) {
+		const result = searchReadRef({ ref }, ctx("s"), undefined, store);
+		assert.equal(detailsOf(result).searchResults![0].ref, `${resultId}:1`);
+		assert.deepEqual(detailsOf(result).unparsedRows, [0]);
+		assert.doesNotMatch(structuredOf(result), /unparsed|passageSource/);
+		assert.doesNotMatch(textOf(result), /Unparsed provider reply/);
+		for (const expanded of [false, true]) {
+			const rendered = renderResult(result, { expanded, isPartial: false }, plainTheme,
+				{ args: { ref }, state: {}, isError: false }).render(100).join("\n");
+			assert.match(rendered, /Unparsed provider reply/);
+			assert.doesNotMatch(rendered, /Result 1|saved result/);
+			if (ref.includes(":")) assert.match(rendered, new RegExp(`characters 1–${prose.length} of ${prose.length}`));
+		}
+	}
 });

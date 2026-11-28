@@ -39,8 +39,8 @@ export function uniqueEvidence(result: StreamResult): StreamResult {
 /** One global preview count; URL evidence is prioritized rather than silently lost. */
 export function previewEvidence(result: StreamResult, maxResults: number, urls: string[] = [], continuation = false): StreamResult {
 	const all = result.searchResults ?? [];
-	const requested = new Set(urls.map(documentKey));
-	const priority = all.filter((hit) => hit.url && requested.has(documentKey(hit.url)) && ["extract", "content"].includes(hit.type ?? ""));
+	const requested = new Set(urls.map(extractionUrlKey));
+	const priority = all.filter((hit) => hit.url && requested.has(extractionUrlKey(hit.url)) && ["extract", "content"].includes(hit.type ?? ""));
 	const prioritized = new Set(priority);
 	const rest = all.filter((hit) => !prioritized.has(hit));
 	const ordered = [...priority, ...rest];
@@ -54,8 +54,24 @@ export function previewEvidence(result: StreamResult, maxResults: number, urls: 
 	};
 }
 
-function documentKey(value: string): string {
-	try { const url = new URL(value); url.hash = ""; return url.href; } catch { return value; }
+/** HTTP document identity: preserve the path/query; ignore fragments. */
+export function extractionUrlKey(value: string): string {
+	try {
+		const url = new URL(value);
+		if (url.protocol === "http:" || url.protocol === "https:") { url.hash = ""; return url.href; }
+	} catch { /* Invalid values retain exact-match behavior. */ }
+	return value;
+}
+
+export function extractedDocuments(result: StreamResult, urls: string[]): number {
+	const requested = new Set(urls.map(extractionUrlKey));
+	const read = new Set<string>();
+	for (const hit of result.searchResults ?? []) {
+		if (!hit.citedText?.trim() || (hit.type !== "content" && hit.type !== "extract")) continue;
+		const url = hit.url;
+		if (url && requested.has(extractionUrlKey(url))) read.add(extractionUrlKey(url));
+	}
+	return read.size;
 }
 
 /** Reserve one slot per represented family without changing stored-order refs. */
@@ -135,6 +151,7 @@ export function mergeStreamResults(
 		text: texts.join("\n\n"),
 		providerKind: kinds[0],
 		providers: kinds,
+		...(parts.every(({ result }) => result.cached) ? { cached: true } : {}),
 		searchResults,
 		sources,
 		...(requestIds.length > 0 ? { requestId: requestIds.join(",") } : {}),

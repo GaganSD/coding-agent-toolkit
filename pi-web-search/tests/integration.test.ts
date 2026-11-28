@@ -120,27 +120,22 @@ test("independent code configuration cannot narrow both-scope research", () => w
 
 test("progress observers cannot fail retrieval or emit after completion/cancellation", () => withSettings({}, async () => {
 	let providerCalls = 0;
-	let lateUpdate: (() => void) | undefined;
-	const options = { availability: { exa: true }, transports: { exa: async (req: import("../src/providers/index.ts").SearchRequest) => {
+	const options = { availability: { exa: true }, transports: { exa: async () => {
 		providerCalls++;
-		lateUpdate = () => req.onUpdate?.({ content: [{ type: "text", text: "provider progress" }], details: {} });
-		lateUpdate();
 		return document;
 	} } };
 	let updates = 0;
 	const result = await search("id", { query: "test" }, undefined, () => { updates++; throw new Error("observer failure"); }, ctx, options);
 	assert.equal(result.details.resultCount, 1);
 	assert.equal(providerCalls, 1);
-	assert.equal(updates, 2);
-	lateUpdate?.();
-	assert.equal(updates, 2);
+	assert.equal(updates, 1);
 	const cancelled = new AbortController();
 	cancelled.abort();
 	const failed = await search("id", { query: "test" }, cancelled.signal, () => { updates++; }, ctx, options);
 	assert.equal(failed.isError, true);
 	assert.equal(failed.details.error?.code, "aborted");
 	assert.equal(providerCalls, 1);
-	assert.equal(updates, 2);
+	assert.equal(updates, 1);
 }));
 
 test("operation budget exhausted only during optional judging preserves retrieved evidence", () => withSettings({ timeoutMs: 1000, research: { enabled: true }, classifier: { enabled: true, provider: "typesafe", model: "jev-latest" } }, async () => {

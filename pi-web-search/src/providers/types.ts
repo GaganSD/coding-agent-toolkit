@@ -74,6 +74,12 @@ export interface StreamResult {
 	text: string;
 	sources?: Source[];
 	providerKind: EvidenceProvider;
+	/** UI-only coverage signals: no raw private or unverifiable result data. */
+	coverage?: SearchCoverage;
+	/** Provider response could not be interpreted; not a confirmed absence of matches. */
+	unreadable?: boolean;
+	/** Renderer-only marker for evidence returned from the session cache. */
+	cached?: boolean;
 	/** Every provider that contributed, when more than one ran. */
 	providers?: EvidenceProvider[];
 	searchResults?: SearchResultDetail[];
@@ -109,6 +115,12 @@ const CODES = [
 ] as const;
 
 export type ProviderErrorCode = (typeof CODES)[number];
+
+export interface SearchCoverage { withheld?: boolean; incomplete?: boolean }
+
+export type RetrievalEvent = { type: "started"; kinds: EvidenceProvider[] }
+	| { type: "failed"; kind: EvidenceProvider; code: ProviderErrorCode }
+	| { type: "empty" | "contributed" | "unreadable"; kind: EvidenceProvider; coverage?: SearchCoverage; unparsed?: boolean };
 
 /** Thrown by transports; `code` is stable and used for fallback + error details. */
 export interface ProviderError extends Error {

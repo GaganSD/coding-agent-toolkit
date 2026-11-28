@@ -1,25 +1,12 @@
-import type {
-	AgentToolResult,
-	ExtensionAPI,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
-import { VERSION } from "@earendil-works/pi-coding-agent";
-import {
-	handleWebSearchCommand,
-	WEB_SEARCH_COMMAND,
-	webSearchCompletions,
-} from "./command.ts";
+import { VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { handleWebSearchCommand, WEB_SEARCH_COMMAND, webSearchCompletions } from "./command.ts";
 import { enableStoredCredentials } from "./env.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
 import { maybeShowWelcome } from "./welcome.ts";
 import { evidenceOwner, evidenceStore } from "./evidence.ts";
 import { clearRetrievalCache } from "./providers/reuse.ts";
-import {
-	type SearchInput,
-	SearchSchema,
-	search,
-} from "./search.ts";
+import { SearchSchema, search } from "./search.ts";
+import { renderCall, renderResult, type TranscriptState } from "./ui/transcript.ts";
 
 /** Fail closed on unsupported or malformed host versions. */
 export function assertSupportedPiVersion(version: string): void {
@@ -39,10 +26,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 	enableStoredCredentials();
 
 	pi.on("session_start", async (event, ctx) => {
-		if (event.reason === "fork") {
-			return;
-		}
-		await maybeShowWelcome(ctx);
+		if (event.reason !== "fork") await maybeShowWelcome(ctx);
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
@@ -50,7 +34,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		if (owner) { evidenceStore.clear(owner); clearRetrievalCache(owner); }
 	});
 
-	pi.registerTool<typeof SearchSchema, WebSearchDetails>({
+	pi.registerTool<typeof SearchSchema, WebSearchDetails, TranscriptState>({
 		name: "search",
 		label: "Search",
 		description:
@@ -66,19 +50,8 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		outputSchema: SearchOutputSchema,
 		namespace: { name: "search", description: "Cited public web and code retrieval." },
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-		execute: (toolCallId, params, signal, onUpdate, ctx) =>
-			search(toolCallId, params, signal, onUpdate, ctx),
-		renderCall(args: SearchInput, theme) {
-			const target = args.query ?? args.ref ?? (args.urls?.length ? `${args.urls.length} URL(s)` : "…");
-			const scope = args.scope ?? "web";
-			const effort = args.effort ?? (scope === "both" ? "thorough" : "fast");
-			const mode = args.ref ? "local ref" : `${scope}/${effort}`;
-			return new Text(
-				`${theme.fg("toolTitle", theme.bold("search"))} ${theme.fg("accent", target)} ${theme.fg("muted", mode)}`,
-				0,
-				0,
-			);
-		},
+		execute: (id, params, signal, onUpdate, ctx) => search(id, params, signal, onUpdate, ctx),
+		renderCall,
 		renderResult,
 	});
 
@@ -91,53 +64,3 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 }
 
 export { availableClassifiers } from "./command.ts";
-
-type RenderTheme = {
-	fg: (color: "error" | "toolOutput" | "muted", text: string) => string;
-};
-
-function renderResult(
-	result: AgentToolResult<WebSearchDetails>,
-	{ expanded }: { expanded: boolean },
-	theme: RenderTheme,
-	context: { isError: boolean },
-) {
-	const output = result.content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
-	const isError = context.isError;
-	if (!expanded) {
-		// A collapsed successful search still shows a compact count, so a run is
-		// never an unexplained blank row.
-		const collapsed = isError ? output : result.details?.provider ? compactSummary(result.details) : output;
-		return new Text(theme.fg(isError ? "error" : "muted", collapsed), 0, 0);
-	}
-	return new Text(theme.fg(isError ? "error" : "toolOutput", output), 0, 0);
-}
-
-function compactSummary(details: WebSearchDetails | undefined): string {
-	if (!details) {
-		return "";
-	}
-	const parts: string[] = [];
-	const provider = details.providers?.length
-		? details.providers.join(", ")
-		: details.provider;
-	if (provider) {
-		parts.push(provider);
-	}
-	const count = details.resultCount ?? 0;
-	parts.push(`${count} result${count === 1 ? "" : "s"}`);
-	const warningCount = details.warnings?.length ?? 0;
-	if (warningCount > 0) {
-		parts.push(`${warningCount} warning${warningCount === 1 ? "" : "s"}`);
-	}
-	if (details.scope) {
-		parts.push(details.scope);
-	}
-	if (details.classifierStatus && details.classifierStatus !== "disabled") {
-		parts.push(`classifier ${details.classifierStatus}`);
-	}
-	return parts.join(" · ");
-}

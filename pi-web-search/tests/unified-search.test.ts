@@ -176,7 +176,9 @@ test("ref reads stay local, pass find/cursor through, and ignore broken settings
 			});
 			assert.equal(result.isError, false);
 			assert.deepEqual(seen, [{ ref: "opaque:2", find: "needle", cursor: "next" }]);
-			assert.equal(result, local, "direct content is returned exactly as the evidence reader produced it");
+			assert.deepEqual(result.content, local.content, "direct content is returned exactly as the evidence reader produced it");
+			assert.deepEqual(result.structuredContent, local.structuredContent);
+			assert.equal(typeof result.details.durationMs, "number");
 		} finally {
 			globalThis.fetch = priorFetch;
 		}
