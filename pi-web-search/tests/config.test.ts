@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	applyConfig, clampMaxResults, configureJudgment, defaultWebSearchConfigPath, parseJudgmentArgs,
-	readWebSearchConfig, resolveSettings, resolveSettingsSync,
+	readWebSearchConfig, resolveSettings,
 } from "../src/providers/config.ts";
 import { isProviderError } from "../src/providers/types.ts";
 
@@ -150,13 +150,12 @@ test("PI_WEB_SEARCH_CONFIG overrides the config path", () => withConfig({ web: {
 	}
 }));
 
-test("only research.enabled opts in, and both resolvers agree", async () => {
+test("only research.enabled opts in", async () => {
 	for (const research of [undefined, {}, { enabled: false }, { enabled: true }]) {
 		await withConfig(research ? { research } : {}, async (path) => {
-			const sync = resolveSettingsSync(path), asyncSettings = await resolveSettings(path);
-			assert.ok(!("error" in sync) && !("error" in asyncSettings));
-			assert.equal(sync.researchEnabled, research?.enabled === true);
-			assert.deepEqual(sync, asyncSettings);
+			const settings = await resolveSettings(path);
+			assert.ok(!("error" in settings));
+			assert.equal(settings.researchEnabled, research?.enabled === true);
 		});
 	}
 });
@@ -170,7 +169,6 @@ test("legacy classifier config is rejected without aliases", async () => {
 			const settings = await resolveSettings(path);
 			assert.ok("error" in settings);
 			assert.equal(settings.error.code, "invalid_config");
-			assert.ok("error" in resolveSettingsSync(path));
 		});
 	}
 });
@@ -228,7 +226,7 @@ test("concurrent setup preserves settings and existing config symlinks", () => w
 		if (alias !== path) assert.equal((await lstat(alias)).isSymbolicLink(), true);
 		const saved = JSON.parse(await readFile(path, "utf8"));
 		assert.equal(saved.maxResults, 3);
-		assert.equal(saved.research.enabled, true);
+		assert.equal(saved.research, undefined);
 		assert.deepEqual(saved.classifier.weights, { answers: 0.9 });
 		assert.equal(saved.classifier.safetyThreshold, 0.8);
 		assert.ok(["openrouter", "typesafe"].includes(saved.classifier.provider));

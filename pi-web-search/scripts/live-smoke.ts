@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	createAgentSession, createCodemodeExtension, createMcpExtension, DefaultResourceLoader,
+	createAgentSession, DefaultResourceLoader,
 	ModelRuntime, SessionManager, SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { isolatedEnvironment, runCommand, withTemporaryDirectory } from "./validation.ts";
@@ -35,7 +35,6 @@ if (process.argv[2] !== "--child") {
 	const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
 		noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
 		additionalExtensionPaths: [artifact],
-		extensionFactories: [createMcpExtension(), createCodemodeExtension()],
 	});
 	await loader.reload();
 	assert.deepEqual(loader.getExtensions().errors, []);
@@ -52,7 +51,7 @@ if (process.argv[2] !== "--child") {
 			{ name: "default code", tool: "search", provider: "grep", config: {}, args: { query: "useSyncExternalStore", scope: "code" } },
 			{ name: "scoped Sourcegraph", tool: "search", provider: "sourcegraph", config: { code: { provider: "sourcegraph", fallback: [] } },
 				args: { query: "createServer repo:nodejs/node", scope: "code" } },
-			{ name: "native Parallel search", tool: "search", provider: "parallel", config: { web: { provider: "parallel", fallback: [] } },
+			{ name: "direct Parallel search", tool: "search", provider: "parallel", config: { web: { provider: "parallel", fallback: [] } },
 				args: { query: "Node.js AbortSignal.timeout documentation" } },
 			{ name: "multi-source code", tool: "search", config: { research: { enabled: true } },
 				args: { query: "useSyncExternalStore", scope: "code", effort: "thorough" } },

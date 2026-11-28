@@ -27,6 +27,7 @@ export interface StoredHitSummary {
 	url?: string;
 	/** Stored excerpt length in UTF-16 code units. */
 	chars: number;
+	unparsed?: boolean;
 }
 
 export interface StoredListing { total: number; hits: StoredHitSummary[]; clipped: boolean }
@@ -102,6 +103,7 @@ export class EvidenceStore {
 			...(hit.title === undefined ? {} : { title: hit.title }),
 			...(hit.url === undefined ? {} : { url: hit.url }),
 			chars: hit.citedText?.length ?? 0,
+			...(hit.type === "unparsed" ? { unparsed: true } : {}),
 		}));
 		return { total: hits.length, hits: page, clipped: entry.clipped };
 	}

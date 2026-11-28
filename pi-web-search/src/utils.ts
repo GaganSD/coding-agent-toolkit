@@ -36,6 +36,7 @@ export function formatSearchError(tool: SearchToolName, error: unknown): AgentTo
 		const message = fullMessage.slice(0, end) + (truncated ? "\n[Truncated]" : "");
 		const output = formatResult(message, {
 			resultCount: 0, grounded: false, sources: [], searchResults: [],
+			...(provider?.parallelHttpStatus === undefined ? {} : { parallelHttpStatus: provider.parallelHttpStatus }),
 			warnings: [
 				...(truncated ? ["Error message truncated; the error code and status are unchanged."] : []),
 				...(path !== undefined && configPath === undefined ? ["Configuration path omitted: exceeds output budget."] : []),

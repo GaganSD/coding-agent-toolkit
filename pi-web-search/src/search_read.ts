@@ -151,7 +151,8 @@ function listRefEvidence(store: EvidenceStore, owner: string, id: string, cursor
 	});
 	const text = `${header}\n\n${lines.join("\n")}\n\n${caveat}${continuation}`;
 	store.refresh(owner, id);
-	return formatResult(text, details);
+	const unparsedRows = shown.flatMap((hit, i) => hit.unparsed ? [i] : []);
+	return formatResult(text, unparsedRows.length ? { ...details, unparsedRows } : details);
 }
 
 function readRefEvidence(store: EvidenceStore, owner: string, id: string, index: number, params: { find?: string; cursor?: string }) {
@@ -221,7 +222,8 @@ function readRefEvidence(store: EvidenceStore, owner: string, id: string, index:
 		}
 		passage = sliceText(window, lo);
 	}
-	let details = buildDetails(passage);
+	let details: WebSearchDetails = { ...buildDetails(passage), ...(hit.source ? { passageSource: hit.source } : {}),
+		...(hit.type === "unparsed" ? { unparsedRows: [0] } : {}) };
 	const nextOffset = offset + passage.length;
 	const more = nextOffset < text.length;
 	const cursor = more ? store.sealCursor(fullRef, nextOffset) : undefined;

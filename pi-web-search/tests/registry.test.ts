@@ -56,7 +56,7 @@ test("chain order is [provider, ...fallback]", () => {
 	}), ["parallel", "exa"]);
 });
 
-test("a missing PARALLEL_API_KEY retains the keyless native Parallel fallback", () => {
+test("a missing PARALLEL_API_KEY retains the keyless direct Parallel fallback", () => {
 	// Snapshot the whole credential alias set this assertion depends on, so an
 	// operator's populated environment cannot change the result.
 	const previousParallel = process.env.PARALLEL_API_KEY;

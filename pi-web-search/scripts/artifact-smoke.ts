@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { discoverAndLoadExtensions, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { discoverAndLoadExtensions, getAgentDir, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 const packageRoot = resolve(process.argv[2]);
-assert.ok(!existsSync(join(packageRoot, "node_modules")), "Smoke load must use only Pi's host-provided modules");
 const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
 const configPath = process.env.PI_WEB_SEARCH_CONFIG;
 assert.ok(configPath, "Smoke load requires an isolated config path");
@@ -21,5 +20,13 @@ for (const researchEnabled of [false, true]) {
 	assert.deepEqual([...extension.tools.keys()], ["search"]);
 	assert.ok(extension.commands.has("web-search"));
 	assert.equal(extension.commands.has("web-search-settings"), false);
+	// Standalone Pi's package directory contains assets, not a dependency tree.
+	process.env.PI_PACKAGE_DIR = process.env.HOME;
+	try {
+		await extension.commands.get("web-search")!.handler("off", {
+			mode: "tui", hasUI: true, ui: { notify: (text: string) => assert.match(text, /Saved/) },
+		} as ExtensionCommandContext);
+		assert.equal(JSON.parse(readFileSync(configPath, "utf8")).classifier.enabled, false);
+	} finally { delete process.env.PI_PACKAGE_DIR; }
 }
-console.log("Packed TypeScript entrypoint loads in Pi without local dependencies; unified search registration and codemode evidence pass.");
+console.log("Packed TypeScript entrypoint loads in Pi and saves settings with an asset-only PI_PACKAGE_DIR.");

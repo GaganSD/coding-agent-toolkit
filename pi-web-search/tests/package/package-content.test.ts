@@ -14,6 +14,7 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		files: [...packageAllowlist],
 		keywords: ["pi-package"],
 		pi: { extensions: ["./src/index.ts"] },
+		dependencies: { "cross-spawn": "7.0.6", "proper-lockfile": "4.1.2" },
 		peerDependenciesMeta: {
 			"@earendil-works/pi-ai": { optional: true },
 			"@earendil-works/pi-coding-agent": { optional: true },
@@ -78,6 +79,11 @@ test("package-content scanner progresses through hashes and template substitutio
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", prefix + 'import "./missing.ts";')), /missing local import/);
 });
 
+test("package-content distinguishes exported declarations from module re-exports", () => {
+	assert.doesNotThrow(() => validate(({ files }) => files.set("src/value.ts", "export function viewport(from: number) { return from; }")));
+	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'export type { X } from "./missing.ts";')), /missing local import/);
+});
+
 test("package-content rejects imports outside published source and nonliteral dynamic imports", () => {
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'export * from "../tests/helper.ts";')), /import escapes published source/);
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'const path = "./nested/other.ts"; import(path);')), /dynamic imports must use literal/);
@@ -89,7 +95,7 @@ test("package-content requires declared host imports and accepts their subpaths"
 });
 
 test("package-content prevents bundling or separately version-resolving host packages", () => {
-	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /no runtime dependencies/);
+	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /Unexpected runtime dependencies/);
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependencies["@earendil-works/pi-ai"] = ">=0.99.0"; }), /must be supplied by Pi/);
 	assert.throws(() => validate(({ manifest }) => { manifest.files.push("tests"); }));
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta.typebox.optional = false; }), /must not install automatically/);

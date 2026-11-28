@@ -6,9 +6,8 @@ import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { formatResult } from "../src/format.ts";
 import { CONFIG_PATH_ENV_VAR } from "../src/providers/config.ts";
-import { PARALLEL_MCP_SERVER } from "../src/providers/parallel.ts";
 import { providerError, type StreamResult } from "../src/providers/types.ts";
-import { SearchSchema, search, searchReachesTools } from "../src/search.ts";
+import { SearchSchema, search } from "../src/search.ts";
 
 const ctx = {} as ExtensionContext;
 
@@ -109,7 +108,6 @@ test("fast code query stays in the code family and never waits for MCP", async (
 		assert.equal(result.details.scope, "code");
 		assert.equal(result.details.provider, "grep");
 		assert.equal(webCalls, 0);
-		assert.deepEqual(searchReachesTools({ query: "AbortSignal.timeout", scope: "code" }), []);
 	});
 });
 
@@ -178,18 +176,11 @@ test("ref reads stay local, pass find/cursor through, and ignore broken settings
 			});
 			assert.equal(result.isError, false);
 			assert.deepEqual(seen, [{ ref: "opaque:2", find: "needle", cursor: "next" }]);
-			assert.equal(result, local, "direct content is returned exactly as the evidence reader produced it");
+			assert.deepEqual(result.content, local.content, "direct content is returned exactly as the evidence reader produced it");
+			assert.deepEqual(result.structuredContent, local.structuredContent);
+			assert.equal(typeof result.details.durationMs, "number");
 		} finally {
 			globalThis.fetch = priorFetch;
 		}
 	});
-});
-
-test("reachesTools is local for refs and code-only calls, MCP-aware for web retrieval", () => {
-	const mcp = `mcp__${PARALLEL_MCP_SERVER}`;
-	assert.deepEqual(searchReachesTools({ ref: "opaque:1" }), []);
-	assert.deepEqual(searchReachesTools({ query: "id", scope: "code" }), []);
-	assert.deepEqual(searchReachesTools({ query: "id" }), [mcp]);
-	assert.deepEqual(searchReachesTools({ query: "id", scope: "both" }), [mcp]);
-	assert.deepEqual(searchReachesTools({ urls: ["https://example.test"] }), [mcp]);
 });

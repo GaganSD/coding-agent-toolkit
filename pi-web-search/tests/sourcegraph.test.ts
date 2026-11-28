@@ -74,6 +74,7 @@ test("a Sourcegraph error after matches keeps the hits and warns", async () => {
 		settings: applyConfig("/tmp/c.json", { maxResults: 3 }),
 	}, { fetchImpl });
 	assert.equal(result.searchResults?.length, 1);
+	assert.deepEqual(result.coverage, { incomplete: true });
 	assert.match(result.warnings?.join(" ") ?? "", /incomplete.*shard failed/);
 });
 
