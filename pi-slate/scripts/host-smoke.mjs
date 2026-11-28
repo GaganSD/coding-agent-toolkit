@@ -481,6 +481,7 @@ try {
     await waitForWrite(before, /NEW-server/, "the recovered scheduler must paint the replacement sidebar row");
     clickServer("NEW-server");
     assert.equal(inspected.at(-1)?.title, "NEW-server");
+    ui.renderNow(true); // The click repaints the row with its "used … ago" hint.
     sidebar.setResources(catalog("NEW-server", "project"));
     clickServer("NEW-server");
     assert.match(inspected.at(-1)?.detail, /Source: project/, "identical painted rows can update their details immediately");
