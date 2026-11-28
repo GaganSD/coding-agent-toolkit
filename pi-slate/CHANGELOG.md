@@ -2,13 +2,11 @@
 
 ## Unreleased
 
-* `/theme` and `/shortcuts` share a two-pane focus model: sectioned rows, fixed value columns, palette/detail panes, and priorities for tiny terminals. `/theme` no longer shows a Current/Preview status row; errors stay in the footer. Remapped navigation, confirm, and cancel keys fall back to `Ctrl+→`/`Ctrl+Enter` (or a footer warning) instead of losing Open/Save.
-* Confirmed Slate themes write a namespaced fallback copy to `~/.pi/agent/themes/<theme>.json`, so the saved theme still loads when pi-slate is disabled or removed. The bundled theme stays authoritative while installed, with no theme-conflict warning; stock copies from earlier builds migrate in place.
-* Narrow session rails keep SPEED and CACHE side by side from 23 columns; stacked rails use the compact text rate, and partial speed sparklines anchor right.
-* CONTEXT sits above SPEED/CACHE with a blank row between the bar and the cards. The status row drops the Idle/Working label and lays turns, run/last time, and spend out as left, centre, and right columns that stay visible at every width.
-* Sidebar MCP rows show live session activity: an accent spinner in the status slot before the name during calls and a 60-second `!` there for real failures; click a row for last used, call count, and last error.
-* Added a `/shortcuts` panel for assigning keys to Slate actions, saved as `shortcuts.<action>` in `pi-slate.json`.
-* Focused mode now shows the thinking level beside the model on the composer's bottom edge, leaving context and MCP status on top.
+- Add `/shortcuts` menu to assign keys to Slate actions.
+- Re-designed `/theme` and `/prompts` menu.
+- Show live MCP calls, recent failures, and per-server activity. Thanks @myplixa for the idea (#179, #181).
+- Put the thinking level beside the model in focused mode. Thanks @myplixa for the layout fix (#172).
+- Misc. bug fixes with Slate themes & speed/cache cards (#171, #177).
 
 ## 0.4.1
 
