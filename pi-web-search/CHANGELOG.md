@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.5.0
-
-### Highlights
+## Unreleased
 
 - Read HTML, text, PDFs, and public GitHub pages directly. Jina Reader is a configurable fallback.
 - Search up to three queries per call and apply web recency and domain filters. Previews select passages that match each query.
