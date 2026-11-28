@@ -742,9 +742,12 @@ test("selected background survives clipped cells", () => {
   const selector = new ThemeSelector(choices, "long", { terminal: { rows: 30 } as TUI["terminal"], requestRender() {} },
     () => live, keys, () => undefined, () => {});
   const selected = selector.render(100).join("\n").split("\n").find(line => stripVTControlCharacters(line).includes("Mauve"))!;
-  const value = selected.indexOf("Mauve");
-  const lastReset = selected.lastIndexOf("\x1b[0m", value);
-  assert(selected.slice(lastReset).includes(live.getBgAnsi("selectedBg")), "background must continue through the value column");
+  const cell = selected.split("│")[1] ?? "";
+  const value = cell.indexOf("Mauve");
+  const bg = live.getBgAnsi("selectedBg");
+  assert(value >= 0, "clipped row keeps the palette value");
+  const reset = cell.lastIndexOf("\x1b[0m", value);
+  assert(reset < 0 ? cell.includes(bg) : cell.slice(reset).includes(bg), "background must continue through the value column");
 });
 
 test("non-terminal modes do not start a selector or change themes", async () => {

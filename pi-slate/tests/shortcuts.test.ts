@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyKey, loadShortcuts, parseShortcut, SHORTCUT_ACTIONS, shortcutKey } from "../extensions/pi-slate/shortcuts.ts";
+import { canonicalKey, classifyKey, keyTaken, loadShortcuts, parseShortcut, sameKeyName, SHORTCUT_ACTIONS, shortcutKey } from "../extensions/pi-slate/shortcuts.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 
 test("parseShortcut normalizes Pi chords without deciding which keys may be registered", () => {
@@ -81,6 +81,16 @@ test("classification uses resolved Pi remaps and gives reserved bindings precede
   assert.equal(classifyKey("F8", opts).kind, "reserved");
   assert.deepEqual(classifyKey("f9", opts), { kind: "moved", key: "f9", owners: ["theme"] });
   assert.deepEqual(classifyKey("F9", { ...opts, id: "theme" }), { kind: "pi", key: "f9", description: "Move selection up" });
+});
+
+test("panel occupancy follows the same key identity as shortcut conflicts", () => {
+  assert.equal(canonicalKey("ctrl+i"), "tab");
+  assert.equal(canonicalKey("ctrl+m"), "enter");
+  assert.equal(canonicalKey("Return"), "enter");
+  assert.equal(keyTaken("tab", ["ctrl+i"]), true);
+  assert.equal(keyTaken("delete", ["up", "down", "left", "escape"]), false);
+  assert.equal(keyTaken("backspace", ["ctrl+h"]), true);
+  assert.equal(sameKeyName("backspace", "ctrl+h"), false);
 });
 
 test("classification checks legacy aliases against resolved bindings, even for Kitty input", () => {

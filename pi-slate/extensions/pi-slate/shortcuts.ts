@@ -91,6 +91,28 @@ export function keysOverlap(a: string, b: string): boolean {
   return chord ? sameChord(chord, b) : false;
 }
 
+const TERMINAL_ALIASES: Record<string, string> = {
+  return: "enter", esc: "escape", del: "delete", ins: "insert", pgup: "pageup", pgdn: "pagedown",
+  "ctrl+i": "tab", "ctrl+m": "enter", "ctrl+[": "escape",
+};
+
+/** Pi key name with terminal aliases folded in. Ctrl+I is Tab. */
+export function canonicalKey(key: string): KeyId | undefined {
+  const aliased = TERMINAL_ALIASES[key.trim().toLowerCase()] ?? key.trim().toLowerCase();
+  return chordParts(aliased, true)?.key;
+}
+
+/** Same binding name after alias folding. Ctrl+H and Backspace share a byte but are not the same name. */
+export function sameKeyName(a: string, b: string): boolean {
+  const name = canonicalKey(a);
+  return name !== undefined && name === canonicalKey(b);
+}
+
+/** Whether `key` fires any occupied binding, including aliases and shared input bytes. */
+export function keyTaken(key: string, occupied: readonly string[]): boolean {
+  return occupied.some(binding => sameKeyName(key, binding) || keysOverlap(key, binding));
+}
+
 function sameChord(chord: Chord, value: string, data?: string): boolean {
   const other = chordParts(value);
   if (!other) return false;

@@ -1,7 +1,8 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, visibleWidth, type KeyId, type KeybindingsManager } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth, type KeybindingsManager } from "@earendil-works/pi-tui";
 import { fit, sectionRow, viewport } from "./picker-frame.ts";
-import { keysOverlap, parseShortcut, shortcutLabel } from "./shortcuts.ts";
+import { canonicalKey, keyTaken, sameKeyName, shortcutLabel } from "./shortcuts.ts";
 
 /** Right-align one cell inside a fixed column. */
 export function rightAlign(text: string, columns: number): string {
@@ -21,14 +22,15 @@ export function aligned(left: string, right: string, columns: number, gap: numbe
 
 /** A list row whose cursor stays visible in both panes: text when focused, muted when not. */
 export function focusRow(th: Theme, text: string, selected: boolean, focused: boolean, columns: number): string {
-  const marker = selected ? th.fg(focused ? "text" : "muted", "›") : " ";
-  const body = fit(text, Math.max(0, columns - 2));
-  const painted = selected ? th.style(body, { fg: "text", bold: focused }) : body;
-  const row = marker + " " + painted;
-  if (!selected) return row;
-  const paintedRow = th.style(row, { bg: "selectedBg" });
-  const bg = typeof th.getBgAnsi === "function" ? th.getBgAnsi("selectedBg") : "";
-  return bg ? paintedRow.replaceAll("\x1b[0m", `\x1b[0m${bg}`) : paintedRow;
+  const bodyWidth = Math.max(0, columns - 2);
+  if (!selected) return `  ${fit(text, bodyWidth)}`;
+  let body = fit(text, bodyWidth);
+  // Clipping styled text inserts a full reset, which would punch through selectedBg.
+  // Plain text keeps one background wrap across the whole row.
+  if (body.includes("\x1b[0m") || body.includes("\x1b[49m")) body = fit(stripVTControlCharacters(text), bodyWidth);
+  const marker = th.fg(focused ? "text" : "muted", "›");
+  const painted = th.style(body, { fg: "text", bold: focused });
+  return th.style(`${marker} ${painted}`, { bg: "selectedBg" });
 }
 
 /** Viewport over sectioned rows; callers supply only the item renderer. */
@@ -84,6 +86,11 @@ const KEY_LABELS: Record<string, string> = { up: "↑", down: "↓", left: "←"
 const LAST_RESORT_CONFIRM = "ctrl+enter";
 const LAST_RESORT_OPEN = "ctrl+right";
 
+function matchesBinding(data: string, key: string): boolean {
+  const id = canonicalKey(key);
+  return id !== undefined && matchesKey(data, id);
+}
+
 /** Host keybindings decoded once for both panels' actions and hints. */
 export function selectionKeys(keys: PanelKeys) {
   const bindings = {
@@ -92,52 +99,44 @@ export function selectionKeys(keys: PanelKeys) {
   };
   const label = (id: keyof typeof bindings) => bindings[id].map(key => KEY_LABELS[key] ?? shortcutLabel(key)).join("/");
   const up = label("up"), down = label("down");
+  const nav = [...bindings.up, ...bindings.down];
+  const back = ["left", "escape", "ctrl+c", ...bindings.cancel];
+  const occupied = [...nav, ...back];
+  const free = (key: string) => !keyTaken(key, occupied);
   const isNav = (data: string) => keys.matches(data, "tui.select.up") || keys.matches(data, "tui.select.down");
-  const overlaps = (key: string, id: keyof typeof bindings) => bindings[id].some(binding => keysOverlap(key, binding));
-  const navClash = (key: string) => overlaps(key, "up") || overlaps(key, "down");
-  const backClash = (key: string) => key === "left" || key === "escape" || key === "ctrl+c" || overlaps(key, "cancel");
-  const aliases: Record<string, string> = { return: "enter", esc: "escape", del: "delete", ins: "insert", pgup: "pageup", pgdn: "pagedown", "ctrl+i": "tab", "ctrl+m": "enter", "ctrl+[": "escape" };
-  const normalize = (key: string) => {
-    const alias = aliases[key.toLowerCase()] ?? key.toLowerCase();
-    const parsed = parseShortcut(alias);
-    return typeof parsed === "string" ? parsed : alias;
-  };
-  const navNames = new Set<string>([...bindings.up, ...bindings.down].map(normalize));
-  const backNames = new Set<string>(["left", "escape", ...bindings.cancel, "ctrl+c"].map(normalize));
-  const free = (key: string) => !navNames.has(normalize(key)) && !backNames.has(normalize(key)) && !navClash(key) && !backClash(key);
-  const freeName = (key: string) => !navNames.has(normalize(key)) && !backNames.has(normalize(key));
   const explicitConfirm = keys.getUserBindings()["tui.select.confirm"] !== undefined;
   const explicitKeys = explicitConfirm ? bindings.confirm : [];
-  const preferredConfirm = [...new Set([...explicitKeys, "enter", "space"])].filter(free);
-  const fallbackConfirm = ["tab"].filter(free);
-  const candidates = preferredConfirm.length ? preferredConfirm : fallbackConfirm.length ? fallbackConfirm : [LAST_RESORT_CONFIRM].filter(free);
-  const confirm = (data: string) => !isNav(data) && candidates.some(key => matchesKey(data, key as KeyId));
-  const winningConfirm = candidates[0];
-  const confirmLabel = winningConfirm ? (KEY_LABELS[winningConfirm] ?? shortcutLabel(winningConfirm)) : "—";
-  const removeKeys = ["delete", "backspace"].filter(freeName).filter(key => !explicitKeys.some(explicit => normalize(explicit) === normalize(key)));
-  const preferredOpen = [...new Set(["right", ...explicitKeys, "enter"])].filter(free);
-  const fallbackOpen = ["space", "tab"].filter(free);
-  const openCandidates = preferredOpen.length ? preferredOpen : fallbackOpen.length ? fallbackOpen : [LAST_RESORT_OPEN].filter(free);
-  const openKey = openCandidates[0];
-  const removeKey = removeKeys[0];
+  const choose = (preferred: string[], fallback: string[], last: string) => {
+    const primary = [...new Set(preferred)].filter(free);
+    if (primary.length) return primary;
+    const next = fallback.filter(free);
+    return next.length ? next : [last].filter(free);
+  };
+  const confirmKeys = choose([...explicitKeys, "enter", "space"], ["tab"], LAST_RESORT_CONFIRM);
+  const openKeys = choose(["right", ...explicitKeys, "enter"], ["space", "tab"], LAST_RESORT_OPEN);
+  // Removal keeps its own key even when a nav binding shares a legacy byte (Ctrl+H vs Backspace).
+  const named = (key: string, list: readonly string[]) => list.some(binding => sameKeyName(key, binding));
+  const removeKeys = ["delete", "backspace"].filter(key => !named(key, occupied) && !named(key, explicitKeys));
+  const shown = (key: string | undefined) => key ? (KEY_LABELS[key] ?? shortcutLabel(key)) : "—";
+  const leftTaken = nav.some(key => canonicalKey(key) === canonicalKey("left"));
   const cancel = (data: string) => matchesKey(data, "escape") || keys.matches(data, "tui.select.cancel");
   return {
     nav: up === "↑" && down === "↓" ? "↑↓" : `${up || "—"}/${down || "—"}`,
-    confirm: confirmLabel,
-    backLabel: navNames.has("left") ? (label("cancel") || "Esc") : "←",
-    confirmKeys: candidates,
-    confirmUnavailable: candidates.length === 0,
-    openUnavailable: openCandidates.length === 0,
-    openLabel: openKey ? (KEY_LABELS[openKey] ?? shortcutLabel(openKey)) : "—",
+    confirm: shown(confirmKeys[0]),
+    backLabel: leftTaken ? (label("cancel") || "Esc") : "←",
+    confirmKeys,
+    confirmUnavailable: confirmKeys.length === 0,
+    openUnavailable: openKeys.length === 0,
+    openLabel: shown(openKeys[0]),
     cancel: label("cancel") || "Esc",
     matchesUp: (data: string) => keys.matches(data, "tui.select.up"),
     matchesDown: (data: string) => keys.matches(data, "tui.select.down"),
     matchesCancel: cancel,
-    open: (data: string) => !isNav(data) && openCandidates.some(key => matchesKey(data, key as KeyId)),
-    confirms: confirm,
-    back: (data: string) => cancel(data) || (!navNames.has("left") && matchesKey(data, "left")),
+    open: (data: string) => !isNav(data) && openKeys.some(key => matchesBinding(data, key)),
+    confirms: (data: string) => !isNav(data) && confirmKeys.some(key => matchesBinding(data, key)),
+    back: (data: string) => cancel(data) || (!leftTaken && matchesKey(data, "left")),
     remove: removeKeys,
-    removeLabel: removeKey === "delete" ? "Del" : removeKey === "backspace" ? "Backspace" : undefined,
+    removeLabel: removeKeys[0] === "delete" ? "Del" : removeKeys[0] === "backspace" ? "Backspace" : undefined,
   };
 }
 

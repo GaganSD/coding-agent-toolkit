@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { allSlateThemes, ensureUserTheme, migrateUserThemeCopies, slateShikiTheme, slateTheme } from "../extensions/pi-slate/themes.ts";
+import { allSlateThemes, slateShikiTheme, slateTheme } from "../extensions/pi-slate/themes.ts";
+import { ensureUserTheme, migrateUserThemeCopies } from "../extensions/pi-slate/user-theme.ts";
 import { diffAppearance, diffColors } from "../extensions/pi-slate/diff-config.ts";
 import { mixHex } from "../extensions/pi-slate/theme-palette.ts";
 import { stripVTControlCharacters } from "node:util";
@@ -102,6 +103,11 @@ test("selected Slate themes are copied as namespaced fallback copies", () => {
     assert.equal(ensureUserTheme("tokyo-night", directory), true);
     assert.equal(JSON.parse(readFileSync(path, "utf8")).name, "slate-tokyo-night", "a namespaced copy is left alone");
 
+    const staleCopy = { ...bundled, name: "slate-tokyo-night", vars: { ...bundled.vars, accent: "#000000" } };
+    writeFileSync(path, `${JSON.stringify(staleCopy, null, 2)}\n`, "utf8");
+    assert.equal(ensureUserTheme("tokyo-night", directory), true);
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).vars.accent, bundled.vars.accent, "our fallback copy picks up palette updates");
+
     // A stock copy from the earlier same-name scheme is migrated in place.
     writeFileSync(path, `${JSON.stringify(bundled, null, 2)}\n`, "utf8");
     assert.equal(ensureUserTheme("tokyo-night", directory), true);
@@ -128,7 +134,8 @@ test("older same-name copies for unselected themes are migrated too", () => {
   const directory = mkdtempSync(join(tmpdir(), "slate-theme-migrate-"));
   const bundled = allSlateThemes().find(theme => theme.name === "black-metal")!;
   try {
-    writeFileSync(join(directory, "black-metal.json"), `${JSON.stringify(bundled, null, 2)}\n`, "utf8");
+    const drifted = { ...bundled, vars: { ...bundled.vars, accent: "#111111" } };
+    writeFileSync(join(directory, "black-metal.json"), `${JSON.stringify(drifted, null, 2)}\n`, "utf8");
     writeFileSync(join(directory, "custom.json"), `${JSON.stringify({ ...bundled, name: "custom" }, null, 2)}\n`, "utf8");
     migrateUserThemeCopies(directory);
     assert.equal(JSON.parse(readFileSync(join(directory, "black-metal.json"), "utf8")).name, "slate-black-metal");

@@ -82,7 +82,8 @@ import { SlateHeader } from "./header.ts";
 import { openExternalArgs } from "./bug.ts";
 import { ChatSurface, findChatContainer, layoutRootOf } from "./chat-surface.ts";
 import { persistTheme, SLATE_NATIVE_THEME } from "./install-defaults.ts";
-import { ensureUserTheme, migrateUserThemeCopies, slateTheme } from "./themes.ts";
+import { slateTheme } from "./themes.ts";
+import { ensureUserTheme, installUserThemes } from "./user-theme.ts";
 import { selectSlateTheme } from "./theme-selector.ts";
 import { classifyKey, loadShortcutKeys, loadShortcuts, mergeShortcuts, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 import { openShortcutsPanel } from "./shortcuts-panel.ts";
@@ -473,8 +474,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (ctx.mode === "tui") {
       cachedTheme = ctx.ui.theme;
-      migrateUserThemeCopies();
-      if (slateTheme(ctx.ui.theme.name) && !ensureUserTheme(ctx.ui.theme.name)) {
+      if (!installUserThemes(ctx.ui.theme.name)) {
         diagnostics.fallback("theme-fallback", "No fallback theme copy could be written; removing pi-slate may leave the selected theme unloadable.");
       }
     }

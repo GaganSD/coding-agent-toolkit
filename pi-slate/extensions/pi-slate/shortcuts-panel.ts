@@ -1,8 +1,8 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { isKeyRelease, isKeyRepeat, matchesKey, parseKey, visibleWidth, wrapTextWithAnsi, type Component, type KeyId, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
+import { isKeyRelease, isKeyRepeat, matchesKey, parseKey, visibleWidth, wrapTextWithAnsi, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
 import { compactPicker, fit, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY } from "./picker-frame.ts";
 import { aligned, cycle, focusRow, footerHints, moveAction, panelAction, priorityLines, rightAlign, sectionedViewport, selectionKeys, type PanelAction, type SelectionKeys } from "./panel-focus.ts";
-import { changedShortcuts, classifyKey, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type KeyClassification, type RecordedShortcut, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
+import { canonicalKey, changedShortcuts, classifyKey, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type KeyClassification, type RecordedShortcut, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 
 type Options = { ownsEditor: boolean };
 type PanelKeys = Pick<KeybindingsManager, "getDefinition" | "getKeys" | "getResolvedBindings" | "getUserBindings" | "matches">;
@@ -139,13 +139,30 @@ export class ShortcutsPanel implements Component {
     else this.armRemoval(data);
   }
 
+  private matchesListed(data: string, keys: readonly string[]): boolean {
+    return keys.some(key => {
+      const id = canonicalKey(key);
+      return id !== undefined && matchesKey(data, id);
+    });
+  }
+
+  private recordInput(data: string): void {
+    const result = classifyKey(parseKey(data) ?? "", { id: this.action.id, draft: this.bindings, keys: this.keys, ownsEditor: this.opts.ownsEditor, data });
+    if ("key" in result) {
+      this.message = undefined;
+      const next = { ...this.bindings, [this.action.id]: result.key };
+      if (result.kind === "moved") for (const owner of result.owners) next[owner] = false;
+      this.mode = { kind: "detail", option: "record" };
+      this.apply(next, { id: this.action.id, key: result.key, data }, result.kind === "moved" ? result : undefined);
+    } else this.message = `✕ ${shortcutStatus(result)}`;
+  }
+
   private actionTable(): PanelAction[] {
     const back = panelAction(this.controls.backLabel, "Back", 3, this.controls.back, () => this.leaveRight());
     const close = panelAction(this.controls.cancel, "Close", 3, data => this.controls.matchesCancel(data), () => this.finish());
-    const removeKeys = this.controls.remove;
-    const remove = this.key && removeKeys.length
+    const remove = this.key && this.controls.remove.length
       ? { ...panelAction(this.controls.removeLabel ?? "Remove", "Remove", 2,
-        data => removeKeys.some(key => matchesKey(data, key as KeyId)) && !this.controls.matchesUp(data) && !this.controls.matchesDown(data),
+        data => this.matchesListed(data, this.controls.remove) && !this.controls.matchesUp(data) && !this.controls.matchesDown(data),
         data => this.armRemoval(data)), optional: true }
       : undefined;
     const moveOption = (hint: number) => moveAction(this.controls, hint, () => {
@@ -153,46 +170,44 @@ export class ShortcutsPanel implements Component {
       this.removal = undefined;
       this.mode = { kind: "detail", option: next };
     });
+    const moveList = () => moveAction(this.controls, 0, step => { this.selectAction(step); });
+    const pending = this.removing;
 
-    if (this.recording) return [panelAction(this.controls.cancel, "Cancel", 0, data => this.controls.matchesCancel(data), () => {
-      this.mode = { kind: "detail", option: "record" };
-      this.message = undefined;
-    })];
+    if (this.recording) return [
+      panelAction(this.controls.cancel, "Cancel", 0, data => this.controls.matchesCancel(data), () => {
+        this.mode = { kind: "detail", option: "record" };
+        this.message = undefined;
+      }),
+      panelAction("—", "", 9, () => true, data => this.recordInput(data)),
+    ];
 
-    const options = this.optionKinds();
-    const active = this.currentOption();
-    if (this.removing) {
-      const actions = [
-        this.right ? back : close,
-        ...(this.right
-          ? options.length > 1 ? [moveOption(1)] : []
-          : [moveAction(this.controls, 0, step => { this.selectAction(step); })]),
-        panelAction(this.removing.label, "Confirm", 0, data => this.removing!.token === this.removalToken(data), () => this.confirmRemoval()),
-      ];
-      return actions;
-    }
+    if (pending) return [
+      this.right ? back : close,
+      ...(this.right ? this.optionKinds().length > 1 ? [moveOption(1)] : [] : [moveList()]),
+      panelAction(pending.label, "Confirm", 0, data => pending.token === this.removalToken(data), () => this.confirmRemoval()),
+    ];
 
     if (!this.right) {
       const actions = [
-        // Cancel/back is first so a remapped cancel wins over removal.
+        // Cancel is first so a remapped cancel wins over removal.
         close,
         panelAction(this.controls.openLabel, "Open", 1, this.controls.open, () => {
           this.mode = { kind: "detail", option: "record" };
         }),
       ];
       if (remove) actions.push(remove);
-      actions.push(moveAction(this.controls, 0, step => { this.selectAction(step); }));
+      actions.push(moveList());
       return actions;
     }
 
     const actions = [
       back,
       panelAction(this.controls.confirm, "Choose", 1, this.controls.confirms, data => {
-        this.chooseOption(active, data);
+        this.chooseOption(this.currentOption(), data);
       }),
     ];
     if (remove) actions.push(remove);
-    if (options.length > 1) actions.push(moveOption(0));
+    if (this.optionKinds().length > 1) actions.push(moveOption(0));
     return actions;
   }
 
@@ -213,7 +228,7 @@ export class ShortcutsPanel implements Component {
     if (matchesKey(data, "enter")) return "enter";
     if (matchesKey(data, "space")) return "space";
     if (matchesKey(data, "tab")) return "tab";
-    return this.controls.confirmKeys.find(key => matchesKey(data, key as KeyId)) ?? this.keyId(data);
+    return this.controls.confirmKeys.find(key => this.matchesListed(data, [key])) ?? this.keyId(data);
   }
 
   private removalLabel(key: string): string {
@@ -255,33 +270,10 @@ export class ShortcutsPanel implements Component {
     if (this.closed || isKeyRelease(data) || isKeyRepeat(data)) return;
     if (matchesKey(data, "ctrl+c")) { this.finish(); return; }
     const action = this.actionTable().find(candidate => candidate.matches(data));
-    if (action) {
-      action.run(data);
-      this.tui.requestRender();
-      return;
-    }
-    if (this.removal) {
-      this.removal = undefined;
-      this.tui.requestRender();
-      return;
-    }
-    switch (this.mode.kind) {
-      case "recording": {
-        const result = classifyKey(parseKey(data) ?? "", { id: this.action.id, draft: this.bindings, keys: this.keys, ownsEditor: this.opts.ownsEditor, data });
-        if ("key" in result) {
-          this.message = undefined;
-          const next = { ...this.bindings, [this.action.id]: result.key };
-          if (result.kind === "moved") for (const owner of result.owners) next[owner] = false;
-          this.mode = { kind: "detail", option: "record" };
-          this.apply(next, { id: this.action.id, key: result.key, data }, result.kind === "moved" ? result : undefined);
-        } else this.message = `✕ ${shortcutStatus(result)}`;
-        this.tui.requestRender();
-        return;
-      }
-      case "list":
-      case "detail":
-        return;
-    }
+    if (action) action.run(data);
+    else if (this.removal) this.removal = undefined;
+    else return;
+    this.tui.requestRender();
   }
 
   render(width: number): string[] {
@@ -375,22 +367,34 @@ export class ShortcutsPanel implements Component {
         ? focusRow(th, `${BADGES.recording.glyph ?? "◌"} Press a key…`, true, true, columns)
         : fieldLabel;
       const statusLine = detailLine ? "  " + fit(detailLine, Math.max(0, columns - 2)) : "";
-      const optionLines = optionRows.map(row =>
-        focusRow(th, columns < 28 ? row.option.label
+      const optionLines = [0, 1].map(index => {
+        const row = optionRows[index];
+        if (!row) return "";
+        return focusRow(th, columns < 28 ? row.option.label
           : aligned(row.option.label, this.statusCell(th, row.status), columns - 2, 2, statusWidth),
-        row.selected, this.right, columns));
-      while (optionLines.length < 2) optionLines.push("");
-      const desc = [description[0] ?? "", description[1] ?? ""];
-      if (this.recording) {
-        const prompt = focusRow(th, `${BADGES.recording.glyph ?? "◌"} Press a key…`, true, true, columns);
-        if (rows === 3) return compactPicker([prompt, optionLines[0] ?? "", statusLine], columns, rows);
-        if (rows === 4) return compactPicker([titleLine, prompt, optionLines[0] ?? "", statusLine], columns, rows);
-      }
-      if (rows >= 9) return compactPicker([titleLine, ...desc, command, "", field, ...optionLines, statusLine], columns, rows);
-      if (rows >= 7) return compactPicker([titleLine, description[0] ?? "", command, field, ...optionLines, statusLine], columns, rows);
-      if (rows >= 5) return compactPicker([titleLine, field, ...optionLines, statusLine], columns, rows);
-      if (rows === 4) return compactPicker([titleLine, ...optionLines, statusLine], columns, rows);
-      return compactPicker([...optionLines, statusLine], columns, rows);
+        row.selected, this.right, columns);
+      });
+      const prompt = focusRow(th, `${BADGES.recording.glyph ?? "◌"} Press a key…`, true, true, columns);
+      // Higher minRows shed first. Recording at 3–4 rows keeps the prompt instead of the field.
+      const slots = this.recording && rows <= 4
+        ? [
+          { text: titleLine, min: 4 },
+          { text: prompt, min: 1 },
+          { text: optionLines[0] ?? "", min: 1 },
+          { text: statusLine, min: 1 },
+        ]
+        : [
+          { text: titleLine, min: 4 },
+          { text: description[0] ?? "", min: 7 },
+          { text: description[1] ?? "", min: 9 },
+          { text: command, min: 7 },
+          { text: "", min: 9 },
+          { text: field, min: 5 },
+          { text: optionLines[0] ?? "", min: 1 },
+          { text: optionLines[1] ?? "", min: 1 },
+          { text: statusLine, min: 1 },
+        ];
+      return compactPicker(slots.filter(slot => rows >= slot.min).map(slot => slot.text), columns, rows);
     };
     const body = pickerBody(th, width, inner, bodyHeight, list, detail);
     return framedPicker(th, width, title, body, ["", hints, footer], this.recording ? "borderAccent" : "border");
