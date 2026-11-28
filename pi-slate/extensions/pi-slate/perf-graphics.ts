@@ -163,7 +163,7 @@ function speedSparkline(rates: readonly number[], width: number, rows = 1): stri
   const levels = shown.map(rate => peak > 0 ? Math.round(rate / peak * (rows * 8 - 1)) + 1 : 1);
   return Array.from({ length: rows }, (_, r) => {
     const base = (rows - 1 - r) * 8;
-    return levels.map(n => n > base ? "▁▂▃▄▅▆▇█"[Math.min(8, n - base) - 1] : " ").join("").padEnd(width);
+    return levels.map(n => n > base ? "▁▂▃▄▅▆▇█"[Math.min(8, n - base) - 1] : " ").join("").padStart(width);
   });
 }
 
@@ -267,7 +267,7 @@ function cacheCard(i: PerfInput): string[] {
 /** Null is a droppable separator; empty strings are reserved content rows. */
 export function perfRows(i: PerfInput): Array<Array<string | null>> {
   const columns = sidebarPerfColumns(i.inner);
-  if (!columns) return stackedPerfRows(i);
+  if (!columns) return stackedPerfRows({ ...i, tier: "compact" });
   const speed = speedCard({ ...i, inner: columns.speed });
   const cache = cacheCard({ ...i, inner: columns.cache });
   const rows = Array.from({ length: Math.max(speed.length, cache.length) }, (_, row) => {

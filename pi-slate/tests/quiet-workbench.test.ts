@@ -67,7 +67,7 @@ test("growing usage and money keep a stable label lane and value edge with the r
       const rows = sidebar.render(width).map(stripVTControlCharacters);
       assert(rows.every(row => visibleWidth(row) === width), `bounded rows at ${width} for ${value}`);
       const status = rows[1]!;
-      if (value !== null && value > 0) assert(status.includes(sidebarCost(value)), `${sidebarCost(value)} on the status line`);
+      if (value !== null) assert(status.includes(sidebarCost(value)), `${sidebarCost(value)} on the status line`);
       else assert(!status.includes("$"));
     }
   }
@@ -87,15 +87,13 @@ test("high context usage and cache reads follow live accent changes within the s
   sidebar.setThemeProvider(() => active);
   sidebar.setSession({ ...session, percent: 88 });
   const contextFill = "█".repeat(21) + "▏";
-  const cacheBar = () => sidebar.render(28).find(row => stripVTControlCharacters(row).includes("━".repeat(24)))!;
-  const reads = "━".repeat(18);
-  assert.equal(lavender.fg("success", reads), peach.fg("success", reads), "status color is fixed across these accents");
-  assert(cacheBar().includes(lavender.fg("accent", reads)));
+  const cacheBar = () => sidebar.render(28).find(row => stripVTControlCharacters(row).includes("━"))!;
   assert(sidebar.render(28).some(row => row.includes(lavender.fg("accent", contextFill))));
+  assert(cacheBar().includes(lavender.getFgAnsi("accent")));
   active = peach;
   const after = cacheBar();
-  assert(after.includes(peach.fg("accent", reads)));
-  assert(!after.includes(lavender.fg("accent", reads)));
+  assert(after.includes(peach.getFgAnsi("accent")));
+  assert(!after.includes(lavender.getFgAnsi("accent")));
   assert(sidebar.render(28).some(row => row.includes(peach.fg("accent", contextFill))));
   sidebar.dispose();
 });

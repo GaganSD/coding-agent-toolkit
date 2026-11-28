@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkedWheelScroll } from "../benchmarks/scroll/probe/index.ts";
+import { checkedWheelScroll } from "../../benchmarks/pi-slate/scroll/probe/index.ts";
 
 test("busy wheel validation catches a stuck viewport even as the stream grows", () => {
   const errors: string[] = [];

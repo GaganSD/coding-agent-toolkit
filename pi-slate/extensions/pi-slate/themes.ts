@@ -177,10 +177,20 @@ export function allSlateThemes(): SlateThemeJson[] {
   return [...SLATE_THEMES];
 }
 
-/** A shipped Slate theme by name, or undefined for external themes. */
-export function slateTheme(name: string | undefined): SlateThemeJson | undefined {
+/** Fallback copies use a namespaced internal name; Pi de-duplicates themes by name, not filename. */
+export const USER_THEME_PREFIX = "slate-";
+
+/** Bundled theme name for a shipped theme or its user-directory fallback copy. */
+export function slateThemeBase(name: string | undefined): string | undefined {
   if (!name) return undefined;
-  return allSlateThemes().find((theme) => theme.name === name);
+  const base = name.startsWith(USER_THEME_PREFIX) ? name.slice(USER_THEME_PREFIX.length) : name;
+  return SLATE_THEMES.some((theme) => theme.name === base) ? base : undefined;
+}
+
+/** A shipped Slate theme by name (or fallback-copy name), or undefined for external themes. */
+export function slateTheme(name: string | undefined): SlateThemeJson | undefined {
+  const base = slateThemeBase(name);
+  return base ? SLATE_THEMES.find((theme) => theme.name === base) : undefined;
 }
 
 /** Raw palette for a Slate theme, or undefined for external themes. */

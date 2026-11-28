@@ -319,22 +319,24 @@ export class Sidebar implements Component {
     const copyId = () => { if (s.id) this.actions?.copy(s.id); };
     const status: Row = (() => {
       const turns = s.turns === 1 ? "1 turn" : `${s.turns} turns`;
-      const left = s.working
-        ? this.paint("success", "● Working")
-        : this.paint("dim", "○ Idle") + (s.turns > 0 ? this.paint("muted", ` · ${turns}`) : "");
+      const left = this.paint("muted", turns);
       const started = s.turnStartedAt;
-      const timing = s.working
-        ? typeof started === "number" && Number.isFinite(started) ? this.paint("warning", formatCountdown(Math.max(0, this.now() - started))) : ""
-        : s.lastTurnMs !== null ? this.paint("dim", `last ${sidebarDuration(s.lastTurnMs)}`) : "";
+      const timingText = s.working
+        ? typeof started === "number" && Number.isFinite(started) ? formatCountdown(Math.max(0, this.now() - started)) : ""
+        : s.lastTurnMs !== null ? `last ${sidebarDuration(s.lastTurnMs)}` : "";
+      const tone = s.working ? "warning" : "dim";
+      const timing = timingText ? this.paint(tone, timingText) : "";
+      const compactTiming = timingText ? this.paint(tone, timingText.replace(/^last /, "")) : "";
       const cost = s.usingOAuth ? "—" : sidebarCost(s.usage.cost);
-      const spend = cost === "—" || cost === "$0.00" ? "" : this.paint("text", cost);
-      let right = spend || timing;
-      if (spend && timing) {
-        const both = spend + this.paint("dim", " · ") + timing;
-        // Preserve the status label when adding spend, and prioritize the live clock over spend.
-        right = visibleWidth(left) + 1 + visibleWidth(both) <= width ? both : s.working ? timing : spend;
-      }
-      return { text: this.pair(left, right, width) };
+      const spend = this.paint(cost === "—" ? "muted" : "text", cost);
+      const fits = (middle: string) => {
+        const middleWidth = visibleWidth(middle), rightWidth = visibleWidth(spend);
+        return visibleWidth(left) + middleWidth + rightWidth + (rightWidth ? 1 : 0) + 1 <= width;
+      };
+      // Keep turns, the live/last time and spend on the row at every width. The compact time
+      // drops only the "last " prefix so the three columns still have room to spread out.
+      const middle = fits(timing) ? timing : compactTiming;
+      return { text: this.trio(left, middle, spend, width) };
     })();
     const identity: Row = {
       text: this.pair(this.heading(name || "Session", name ? "accent" : "mdHeading"), showId ? this.paint("dim", shortId) : "", width),
@@ -458,6 +460,17 @@ export class Sidebar implements Component {
     const next = sidebarListOffset(this.offsets[list] + delta, this.resources[list].length, visible);
     if (next === this.offsets[list]) return false;
     this.offsets[list] = next; this.changed(); return true;
+  }
+  /** Left, centred and right columns; keeps one cell of breathing room around the middle. */
+  private trio(left: string, middle: string, right: string, width: number): string {
+    const leftWidth = visibleWidth(left), middleWidth = visibleWidth(middle), rightWidth = visibleWidth(right);
+    if (!middle) return this.pair(left, right, width);
+    const minStart = leftWidth + (leftWidth ? 1 : 0);
+    const maxStart = width - rightWidth - (rightWidth ? 1 : 0) - middleWidth;
+    if (maxStart < minStart) return this.pair(left, `${middle}${right ? ` ${right}` : ""}`, width);
+    const start = Math.max(minStart, Math.min(Math.floor((width - middleWidth) / 2), maxStart));
+    const end = start + middleWidth;
+    return `${left}${" ".repeat(start - leftWidth)}${middle}${" ".repeat(Math.max(0, width - rightWidth - end))}${right}`;
   }
   private pair(left: string, right: string, width: number): string {
     const r = truncateToWidth(right, Math.max(0, width - 1), "…");

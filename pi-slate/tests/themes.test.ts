@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { allSlateThemes, slateShikiTheme } from "../extensions/pi-slate/themes.ts";
+import { allSlateThemes, slateShikiTheme, slateTheme } from "../extensions/pi-slate/themes.ts";
+import { ensureUserTheme, migrateUserThemeCopies } from "../extensions/pi-slate/user-theme.ts";
 import { diffAppearance, diffColors } from "../extensions/pi-slate/diff-config.ts";
 import { mixHex } from "../extensions/pi-slate/theme-palette.ts";
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { ComposerEditor, type ComposerSource } from "../extensions/pi-slate/composer.ts";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
-import { loadThemeFromPath } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
+import { getThemeByName, loadThemeFromPath, setRegisteredThemes } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 
 const THEMES_DIR = join(import.meta.dirname, "..", "themes");
 const role = (theme: ReturnType<typeof allSlateThemes>[number], token: string) => theme.vars[theme.colors[token]!]!;
@@ -85,6 +87,85 @@ test("selected rows and body text clear WCAG on every theme", () => {
     // swatches only, because accent-on-selection falls to ~1.45:1 on Latte.
     assert.ok(contrast(role(theme, "text"), role(theme, "selectedBg")) >= 3, `${theme.name}: selected row`);
     assert.ok(contrast(role(theme, "text"), theme.export.pageBg) >= 4.5, `${theme.name}: body text`);
+  }
+});
+
+test("selected Slate themes are copied as namespaced fallback copies", () => {
+  const directory = mkdtempSync(join(tmpdir(), "slate-theme-"));
+  const bundled = allSlateThemes().find(theme => theme.name === "tokyo-night")!;
+  try {
+    assert.equal(ensureUserTheme("tokyo-night", directory), true);
+    const path = join(directory, "tokyo-night.json");
+    const copy = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(copy.name, "slate-tokyo-night", "namespaced so the package theme stays authoritative");
+    assert.deepEqual({ ...copy, name: bundled.name }, bundled, "fallback content matches the bundled theme");
+    assert.equal(existsSync(`${path}.${process.pid}.tmp`), false, "atomic write leaves no temporary file");
+    assert.equal(ensureUserTheme("tokyo-night", directory), true);
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).name, "slate-tokyo-night", "a namespaced copy is left alone");
+
+    const staleCopy = { ...bundled, name: "slate-tokyo-night", vars: { ...bundled.vars, accent: "#000000" } };
+    writeFileSync(path, `${JSON.stringify(staleCopy, null, 2)}\n`, "utf8");
+    assert.equal(ensureUserTheme("tokyo-night", directory), true);
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).vars.accent, bundled.vars.accent, "our fallback copy picks up palette updates");
+
+    // A stock copy from the earlier same-name scheme is migrated in place.
+    writeFileSync(path, `${JSON.stringify(bundled, null, 2)}\n`, "utf8");
+    assert.equal(ensureUserTheme("tokyo-night", directory), true);
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).name, "slate-tokyo-night");
+
+    // A customized user file wins and is never overwritten.
+    const custom = { ...bundled, name: "my-tokyo-night", vars: { ...bundled.vars, accent: "#123456" } };
+    writeFileSync(path, `${JSON.stringify(custom, null, 2)}\n`, "utf8");
+    assert.equal(ensureUserTheme("tokyo-night", directory), true);
+    assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), custom, "existing user theme wins");
+
+    // An unreadable file is reported instead of silently replaced.
+    writeFileSync(path, "custom", "utf8");
+    assert.equal(ensureUserTheme("tokyo-night", directory), false);
+    assert.equal(readFileSync(path, "utf8"), "custom");
+    assert.equal(ensureUserTheme("missing", directory), false);
+    assert.equal(slateTheme("slate-tokyo-night")?.name, "tokyo-night");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("older same-name copies for unselected themes are migrated too", () => {
+  const directory = mkdtempSync(join(tmpdir(), "slate-theme-migrate-"));
+  const bundled = allSlateThemes().find(theme => theme.name === "black-metal")!;
+  try {
+    const drifted = { ...bundled, vars: { ...bundled.vars, accent: "#111111" } };
+    writeFileSync(join(directory, "black-metal.json"), `${JSON.stringify(drifted, null, 2)}\n`, "utf8");
+    writeFileSync(join(directory, "custom.json"), `${JSON.stringify({ ...bundled, name: "custom" }, null, 2)}\n`, "utf8");
+    migrateUserThemeCopies(directory);
+    assert.equal(JSON.parse(readFileSync(join(directory, "black-metal.json"), "utf8")).name, "slate-black-metal");
+    assert.equal(JSON.parse(readFileSync(join(directory, "custom.json"), "utf8")).name, "custom");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("fallback copies keep the saved theme loadable after the package is removed", () => {
+  const directory = mkdtempSync(join(tmpdir(), "slate-theme-home-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = directory;
+  try {
+    const themesDirectory = join(directory, "themes");
+    assert.equal(ensureUserTheme("tokyo-night", themesDirectory), true);
+    // While the package is installed, Pi registers both files; the bundled name must win.
+    setRegisteredThemes([
+      loadThemeFromPath(join(THEMES_DIR, "tokyo-night.json")),
+      loadThemeFromPath(join(themesDirectory, "tokyo-night.json")),
+    ]);
+    assert.equal(getThemeByName("tokyo-night")?.name, "tokyo-night");
+    assert.equal(getThemeByName("slate-tokyo-night")?.name, "slate-tokyo-night");
+    // Removing pi-slate drops the package registration; the copy still serves the saved name.
+    setRegisteredThemes([]);
+    assert.equal(getThemeByName("tokyo-night")?.name, "slate-tokyo-night");
+  } finally {
+    setRegisteredThemes([]);
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

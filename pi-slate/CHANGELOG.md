@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-* Sidebar MCP rows show live session activity: an accent spinner in the status slot before the name during calls and a 60-second `!` there for real failures; click a row for last used, call count, and last error.
-* Added a `/shortcuts` panel for assigning keys to Slate actions, saved as `shortcuts.<action>` in `pi-slate.json`.
-* Focused mode now shows the thinking level beside the model on the composer's bottom edge, leaving context and MCP status on top.
+- Add `/shortcuts` menu to assign keys to Slate actions.
+- Re-designed `/theme` and `/prompts` menu.
+- Show live MCP calls, recent failures, and per-server activity. Thanks @myplixa for the idea (#179, #181).
+- Put the thinking level beside the model in focused mode. Thanks @myplixa for the layout fix (#172).
+- Misc. bug fixes with Slate themes & speed/cache cards (#171, #177).
 
 ## 0.4.1
 

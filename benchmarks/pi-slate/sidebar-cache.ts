@@ -3,9 +3,8 @@
  * Does NOT change the extension or session data. The legacy automatic basis is
  * restored only in a synthetic layout, using internal metadata for comparison.
  *
- * Run with Bun and installed peer dependencies, or reuse pi's dependencies:
- * NODE_PATH="$(npm root -g)/@earendil-works/pi-coding-agent/node_modules" \
- *   bun benchmarks/sidebar-cache.ts
+ * Run from the repository root after you install the pi-slate dependencies:
+ * NODE_PATH="$PWD/pi-slate/node_modules" bun benchmarks/pi-slate/sidebar-cache.ts
  * Optional COUNTS=100,500,2500 FRAMES=30 WARMUP=5 COLUMNS=140 ROWS=50
  *
  * Synthetic Markdown/terminal, not a live-session latency or memory benchmark.
@@ -25,8 +24,8 @@ import {
   type MarkdownTheme,
   type Terminal,
 } from "@earendil-works/pi-tui";
-import { installSidebarSplit } from "../extensions/pi-slate/sidebar-split.ts";
-import { workspaceColumnWidth } from "../extensions/pi-slate/layout.ts";
+import { installSidebarSplit } from "../../pi-slate/extensions/pi-slate/sidebar-split.ts";
+import { workspaceColumnWidth } from "../../pi-slate/extensions/pi-slate/layout.ts";
 
 const COLUMNS = Number(process.env.COLUMNS ?? 140);
 const ROWS = Number(process.env.ROWS ?? 50);

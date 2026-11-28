@@ -27,7 +27,7 @@ if os.name == "posix":
     import termios
 
 HERE = Path(__file__).resolve().parent
-SLATE = HERE.parent.parent
+SLATE = HERE.parents[2] / "pi-slate"
 RESULTS = HERE.parent / "results"
 SURFACES = ["header", "footer", "editor", "sidebar", "tool-cards", "transcript"]
 VARIANTS = {

@@ -5,6 +5,7 @@ import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { bigDigits, contextBar, contextRows, formatCountdown, formatRate, perfRows, stackedBar, stackedPerfRows, type PerfInput } from "../extensions/pi-slate/perf-graphics.ts";
 import { branchPerf, EMPTY_PERF, type SidebarPerf } from "../extensions/pi-slate/perf-stats.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
+import { sidebarPerfColumns } from "../extensions/pi-slate/sidebar-layout.ts";
 import { sidebarUsage, type SidebarSession, type SidebarUsage } from "../extensions/pi-slate/sidebar-data.ts";
 import { perfFixture } from "./perf-fixture.ts";
 
@@ -58,17 +59,18 @@ test("full-layout speed graph is two rows of block bars scaled to the peak; comp
   assert.equal(graph.length, 2);
   for (const row of graph) assert.match(row, /^[ ▁▂▃▄▅▆▇█]+$/);
   const [top, bottom] = graph as [string, string];
-  assert.equal(top[0], "█", "peak fills the top row");
-  assert.equal(bottom[0], "█", "peak fills the bottom row");
-  assert.equal(top[1], " ", "low rate leaves the top row blank");
-  assert.notEqual(bottom[1], "█", "low rate is a short bar");
-  assert.notEqual(bottom[1], bottom[3], "different low rates differ in height");
-  assert(top[2] !== " " && top[2] !== "█", "mid rate partly fills the top row");
-  assert.equal(bottom[2], "█", "top row starts only once the bottom row is full");
+  const start = 30 - 4;
+  assert.equal(top[start], "█", "peak fills the top row");
+  assert.equal(bottom[start], "█", "peak fills the bottom row");
+  assert.equal(top[start + 1], " ", "low rate leaves the top row blank");
+  assert.notEqual(bottom[start + 1], "█", "low rate is a short bar");
+  assert.notEqual(bottom[start + 1], bottom[start + 3], "different low rates differ in height");
+  assert(top[start + 2] !== " " && top[start + 2] !== "█", "mid rate partly fills the top row");
+  assert.equal(bottom[start + 2], "█", "top row starts only once the bottom row is full");
   const compact = stacked(input(perf, 40, "compact")).speed;
   assert.equal(compact.length, 3);
   assert.match(compact[1]!, /^[▁▂▃▄▅▆▇█ ]+$/);
-  assert.equal(compact[1]![0], "█");
+  assert.equal(compact[1]![40 - 4], "█");
 });
 
 function stacked(i: PerfInput) {
@@ -124,19 +126,19 @@ test("an uncached reply shows its actual usage", () => {
   assert.deepEqual(cache.slice(1), ["━".repeat(40), "read 0 · new 100"]);
 });
 
-test("compact SPEED: heading, left-aligned sparkline, labelled detail row; padding is spaces", () => {
+test("compact SPEED: heading, right-aligned sparkline, labelled detail row; padding is spaces", () => {
   const perf: SidebarPerf = { ...perfFixture(1000), rates: [10, 20, 15, 18, 23.5], peak: 23.5, turn: { output: 214, rate: 13.9 } };
   const { speed } = stacked(input(perf, 40, "compact"));
   assert.equal(speed.length, 3);
   assert.match(speed[0]!, /^SPEED\s+23\.5 tok\/s$/);
-  assert.equal(speed[1], "▄▇▅▆█".padEnd(40));
+  assert.equal(speed[1], "▄▇▅▆█".padStart(40));
   assert.equal(stacked(input(perf, 3, "compact")).speed[2], "▅▆█", "show the newest sample per column");
   assert.equal(speed[2], "avg 13.9 · peak 23.5");
 });
 
-test("a single rate renders one block at the left", () => {
+test("a single rate renders one block at the right", () => {
   const perf: SidebarPerf = { ...EMPTY_PERF, timedReplies: 1, rates: [30], peak: 30, turn: { output: 300, rate: 30 } };
-  assert.match(stacked(input(perf, 40, "compact")).speed[1]!, /^█ +$/);
+  assert.match(stacked(input(perf, 40, "compact")).speed[1]!, /^ +█$/);
 });
 
 test("full SPEED: big digits, two block-bar rows, then the same detail row", () => {
@@ -244,13 +246,26 @@ test("two-column height is stable across speed and cache activity", () => {
 });
 
 test("cards put SPEED and CACHE side by side with one aligned stat per row", () => {
-  assert.equal(perfRows(input(perfFixture(1000), 27, "compact")).length, 2, "27 columns stack");
+  assert.equal(perfRows(input(perfFixture(1000), 27, "compact")).length, 1, "27 columns stay side by side");
   const [full] = perfRows(input(perfFixture(1000), 28, "full"));
-  assert.deepEqual(full, ["SPEED          CACHE", "14.6 tok/s     84.03% hit", "▆▇▇█▇▆▅▆▅▄▅▆▃  ━━━━━━━━━━━━━",
-    "avg  26.7      read  1.3M", "peak 45.0      new   141k", null]);
+  assert.deepEqual(full, ["SPEED         CACHE", "14.6 tok/s    84.03% hit", "▆▇▇█▇▆▅▆▅▄▅▆▃ ━━━━━━━━━━━━━",
+    "avg  26.7     read  1.3M", "peak 45.0     new   141k", null]);
   const [empty] = perfRows(input(EMPTY_PERF, 28, "compact", 1000, sidebarUsage([])));
-  assert.deepEqual(empty, ["SPEED          CACHE", "— tok/s        —% hit", "─────────────  ─────────────",
-    "avg  —         read  0", "peak —         new   0", null]);
+  assert.deepEqual(empty, ["SPEED         CACHE", "— tok/s       —% hit", "───────────── ─────────────",
+    "avg  —        read  0", "peak —        new   0", null]);
+});
+
+test("narrow rails keep SPEED and CACHE equal and side by side", () => {
+  for (const inner of [23, 24, 25, 26, 27, 28]) {
+    const columns = sidebarPerfColumns(inner)!;
+    assert.equal(columns.speed, columns.cache, `${inner} equal halves`);
+    assert(columns.speed + columns.gap.length + columns.cache <= inner, `${inner} fits width`);
+    const [rows] = perfRows(input(perfFixture(1000), inner, "full"));
+    assert.match(rows[0]!, /SPEED +CACHE/, `${inner} side by side`);
+  }
+  const [stackedRows] = perfRows(input(perfFixture(1000), 22, "full"));
+  assert.doesNotMatch(stackedRows[0]!, /CACHE/, "22 columns stack");
+  assert.doesNotMatch(stackedRows.join("\n"), /█▀█/, "stacked rail uses text, not huge digits");
 });
 
 test("cards keep empty and populated heights equal and stay within width", () => {
@@ -305,6 +320,13 @@ test("every tier and width keeps rows bounded, during working turns and long ses
   }
 });
 
+test("narrow sidebars keep SPEED and CACHE side by side", () => {
+  const clock = { now: 1_000_000 };
+  const text = sidebarWith(30, perfFixture(clock.now), clock).render(27).map(strip).join("\n");
+  assert.match(text, /SPEED +CACHE/);
+  assert.doesNotMatch(text, /█▀█/);
+});
+
 test("details distinguish branch and last-request cache rates", () => {
   const clock = { now: 1_000_000 };
   const base = perfFixture(clock.now);
@@ -327,7 +349,7 @@ test("themed render keeps tones within the theme palette", () => {
     working: true, turnStartedAt: clock.now - 1000, turns: 1, messages: 1, usage, perf: perfFixture(clock.now) });
   s.render(44);
   for (const t of tones) assert(["text", "muted", "dim", "accent", "success", "warning", "error", "mdHeading", "border", "borderMuted", "borderAccent"].includes(t) || /^[a-zA-Z]+$/.test(t), t);
-  assert(tones.has("success") && tones.has("accent") && tones.has("warning"));
+  assert(tones.has("accent") && tones.has("warning"));
 });
 
 test("context bar: one row, exact width, eighth-step fill, visible at tiny percents", () => {

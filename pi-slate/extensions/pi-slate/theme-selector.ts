@@ -1,153 +1,216 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, parseColor, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { compactPicker, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY, sectionRow, selectedRow, viewport } from "./picker-frame.ts";
+import { isKeyRelease, isKeyRepeat, matchesKey, parseColor, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
+import { compactPicker, fit, framedPicker, pickerBody, pickerGeometry, PICKER_OVERLAY, viewport } from "./picker-frame.ts";
+import { aligned, cycle, focusRow, footerHints, moveAction, panelAction, priorityLines, rightAlign, sectionedViewport, selectionKeys, type PanelAction, type PanelKeys, type SelectionKeys } from "./panel-focus.ts";
 import {
   buildCatppuccinTheme, catppuccinThemeName, FLAVOR_LABELS, FLAVOR_SECTION,
   FLAVORS, STYLE_LABELS, stylesFor,
 } from "./catppuccin.ts";
 import { SLATE_NATIVE_THEME } from "./install-defaults.ts";
-import { slateThemeVars } from "./themes.ts";
+import { slateTheme, slateThemeVars } from "./themes.ts";
 
 export type ThemeVariant = { name: string; label: string; color?: string };
-export type ThemeChoice = { label: string; variants: ThemeVariant[]; section?: string };
+export type ThemeChoice = { label: string; variants: ThemeVariant[]; section?: string; family?: string };
 
 /** Catppuccin flavor rows: one theme per flavor, with every palette that flavor ships. */
 function flavorChoices(): ThemeChoice[] {
-  return FLAVORS.map((flavor) => ({
-    label: `Catppuccin ${FLAVOR_LABELS[flavor]}`,
-    section: FLAVOR_SECTION[flavor],
-    variants: stylesFor(flavor).map((style) => ({
+  return FLAVORS.map((flavor) => {
+    const variants = stylesFor(flavor).map((style) => ({
       name: catppuccinThemeName(flavor, style),
       label: STYLE_LABELS[style],
       color: buildCatppuccinTheme(flavor, style).vars.accent,
-    })),
-  }));
+    }));
+    return {
+      label: FLAVOR_LABELS[flavor],
+      family: "Catppuccin",
+      section: `Catppuccin · ${FLAVOR_SECTION[flavor]}`,
+      variants,
+    };
+  });
 }
 
 export function slateThemeChoices(initial?: string): ThemeChoice[] {
+  const selected = slateTheme(initial)?.name ?? initial;
   const choices: ThemeChoice[] = [
     { label: "System default", variants: [{ name: SLATE_NATIVE_THEME, label: "Terminal palette" }] },
     ...flavorChoices(),
-    { label: "Tokyo Night", section: "Dark", variants: [{ name: "tokyo-night", label: "Default", color: slateThemeVars("tokyo-night")?.accent }] },
-    { label: "Black Metal", section: "Dark", variants: [{ name: "black-metal", label: "Default", color: slateThemeVars("black-metal")?.accent }] },
+    { label: "Tokyo Night", section: "Other", variants: [{ name: "tokyo-night", label: "Default", color: slateThemeVars("tokyo-night")?.accent }] },
+    { label: "Black Metal", section: "Other", variants: [{ name: "black-metal", label: "Default", color: slateThemeVars("black-metal")?.accent }] },
   ];
   // A saved theme outside the shipped rows (an external theme) stays re-selectable.
-  if (initial && !choices.some(choice => choice.variants.some(variant => variant.name === initial))) {
-    choices.unshift({ label: initial, variants: [{ name: initial, label: "Current palette" }] });
+  if (selected && !choices.some(choice => choice.variants.some(variant => variant.name === selected))) {
+    choices.unshift({ label: selected, variants: [{ name: selected, label: "Current palette" }] });
   }
   return choices;
 }
 
-/** One navigable row of the themes list: a section header or a theme. */
-type ThemeRow = { kind: "header"; label: string } | { kind: "choice"; index: number };
-
-function themeRows(choices: ThemeChoice[]): ThemeRow[] {
-  const rows: ThemeRow[] = [];
-  let section: string | undefined;
-  choices.forEach((choice, index) => {
-    if (choice.section && choice.section !== section) {
-      rows.push({ kind: "header", label: choice.section });
-      section = choice.section;
-    }
-    rows.push({ kind: "choice", index });
-  });
-  return rows;
-}
+const themeTitle = (choice: ThemeChoice | undefined) => !choice ? "No themes" : choice.family ? `${choice.family} ${choice.label}` : choice.label;
 
 /** A single interaction; variant choices survive theme navigation without writing settings. */
 export class ThemeSelector implements Component {
   private selected = 0;
+  private right = false;
   private variants: number[];
   private error = "";
   private closed = false;
 
   private choices: ThemeChoice[];
-  private rows: ThemeRow[];
   private tui: Pick<TUI, "requestRender" | "terminal">;
   private theme: () => Theme;
-  private keys: Pick<KeybindingsManager, "matches">;
+  private controls: SelectionKeys;
   private preview: (name: string) => string | undefined;
   private done: (name: string | undefined) => void;
 
   constructor(
     choices: ThemeChoice[], initial: string | undefined,
     tui: Pick<TUI, "requestRender" | "terminal">,
-    theme: () => Theme, keys: Pick<KeybindingsManager, "matches">,
+    theme: () => Theme, keys: PanelKeys,
     preview: (name: string) => string | undefined,
     done: (name: string | undefined) => void,
   ) {
-    this.choices = choices; this.tui = tui; this.theme = theme; this.keys = keys;
+    this.choices = choices; this.tui = tui; this.theme = theme; this.controls = selectionKeys(keys);
     this.preview = preview; this.done = done;
-    this.rows = themeRows(choices);
-    this.variants = choices.map(choice => Math.max(0, choice.variants.findIndex(variant => variant.name === initial)));
-    this.selected = Math.max(0, choices.findIndex(choice => choice.variants.some(variant => variant.name === initial)));
+    const selected = slateTheme(initial)?.name ?? initial;
+    this.variants = choices.map(choice => Math.max(0, choice.variants.findIndex(variant => variant.name === selected)));
+    this.selected = Math.max(0, choices.findIndex(choice => choice.variants.some(variant => variant.name === selected)));
   }
 
   private current(): ThemeVariant | undefined { return this.choices[this.selected]?.variants[this.variants[this.selected] ?? 0]; }
+  private choice(): ThemeChoice | undefined { return this.choices[this.selected]; }
+
+  private finish(name?: string): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.done(name);
+  }
+
+  private previewCurrent(): void {
+    const current = this.current();
+    if (!current) { this.error = ""; return; }
+    this.error = this.preview(current.name) ?? "";
+  }
+
+  private moveTheme(step: number): void {
+    if (!this.choices.length) return;
+    this.selected = cycle(this.selected, step, this.choices.length);
+    this.previewCurrent();
+  }
+
+  private moveVariant(step: number): void {
+    const choice = this.choice();
+    if (!choice || choice.variants.length <= 1) return;
+    this.variants[this.selected] = cycle(this.variants[this.selected] ?? 0, step, choice.variants.length);
+    this.previewCurrent();
+  }
+
+  private actions(): PanelAction[] {
+    if (!this.right) {
+      const actions = [
+        panelAction(this.controls.cancel, "Close", 2, data => this.controls.matchesCancel(data), () => this.finish()),
+        panelAction(this.controls.openLabel, "Palettes", 1, this.controls.open, () => {
+          this.right = true;
+        }),
+      ];
+      if (this.choices.length > 1) actions.push(moveAction(this.controls, 0, step => this.moveTheme(step), true));
+      return actions;
+    }
+
+    const actions = [
+      panelAction(this.controls.backLabel, "Back", 2, this.controls.back, () => {
+        this.right = false;
+      }),
+      panelAction(this.controls.confirm, "Save", 1, this.controls.confirms, () => {
+        const current = this.current();
+        if (!this.error && current) this.finish(current.name);
+      }),
+    ];
+    if ((this.choice()?.variants.length ?? 0) > 1) actions.push(moveAction(this.controls, 0, step => this.moveVariant(step), true));
+    return actions;
+  }
+
+  private paletteRow(th: Theme, columns: number, index: number): string {
+    const variant = this.choice()?.variants[index];
+    if (!variant) return "";
+    const selected = index === (this.variants[this.selected] ?? 0);
+    const swatch = variant.color ? th.style("████", { fg: parseColor(variant.color) }) : th.fg("muted", "▒▒▒▒");
+    const showHex = columns >= 32 && !!variant.color;
+    const headWidth = Math.max(0, columns - 2 - 5);
+    const label = selected ? th.fg(this.right ? "text" : "dim", variant.label) : variant.label;
+    const cell = showHex ? aligned(label, th.fg("dim", variant.color!), headWidth, 2, 7) : fit(label, headWidth);
+    return focusRow(th, `${swatch} ${cell}`, selected, this.right, columns);
+  }
+
+  private paletteViewport(th: Theme, columns: number, rows: number): string[] {
+    const index = this.variants[this.selected] ?? 0;
+    const variants = this.choice()?.variants ?? [];
+    return viewport(th, "Palettes", index, variants.length, index, variants.length, columns, rows, i => this.paletteRow(th, columns, i));
+  }
 
   handleInput(data: string): void {
-    if (this.closed) return;
-    if (this.keys.matches(data, "tui.select.cancel") || matchesKey(data, "ctrl+c")) {
-      this.closed = true; this.done(undefined); return;
-    }
-    if (this.keys.matches(data, "tui.select.confirm")) {
-      const current = this.current();
-      if (!this.error && current) { this.closed = true; this.done(current.name); }
-      return;
-    }
-    if (!this.choices.length) return;
-    if (this.keys.matches(data, "tui.select.up")) this.selected = (this.selected + this.choices.length - 1) % this.choices.length;
-    else if (this.keys.matches(data, "tui.select.down")) this.selected = (this.selected + 1) % this.choices.length;
-    else if (matchesKey(data, "left") || matchesKey(data, "right")) {
-      const count = this.choices[this.selected]!.variants.length;
-      if (count <= 1) return;
-      this.variants[this.selected] = (this.variants[this.selected]! + (matchesKey(data, "right") ? 1 : count - 1)) % count;
-    } else return;
-    const current = this.current();
-    this.error = current ? this.preview(current.name) ?? "" : "No palettes available";
+    if (this.closed || isKeyRelease(data)) return;
+    if (matchesKey(data, "ctrl+c")) { this.finish(undefined); return; }
+    const action = this.actions().find(candidate => candidate.matches(data));
+    if (!action) return;
+    if (isKeyRepeat(data) && !action.repeatable) return;
+    action.run(data);
     this.tui.requestRender();
   }
 
   render(width: number): string[] {
     const th = this.theme();
-    const current = this.current();
-    const choice = this.choices[this.selected];
     const { height, tiny, inner, bodyHeight } = pickerGeometry(width, this.tui.terminal.rows);
-    const status = this.error || (!choice ? "No themes available" : !current ? "No palettes available" : "");
-    // Tiny screens trade the frame and list for identity and controls. Geometry
-    // still depends only on terminal size, never on names, counts, or errors.
+    const choice = this.choice();
+    const current = this.current();
+    const actions = this.actions();
+    const index = this.variants[this.selected] ?? 0;
+    const unavailable = this.right
+      ? this.controls.confirmUnavailable ? "No save key available; adjust tui.select keybindings" : ""
+      : this.controls.openUnavailable ? "No palette key available; adjust tui.select keybindings" : "";
+    const footer = unavailable ? th.fg("error", `✕ ${unavailable}`)
+      : !choice ? th.fg("error", "✕ No themes available")
+        : !current ? th.fg("error", "✕ No palettes available")
+          : this.error ? th.fg("error", `✕ ${this.error}`) : "";
+
     if (tiny) {
-      const lines = [
-        th.fg("accent", choice?.label ?? "No themes available"),
-        current ? `${(this.variants[this.selected] ?? 0) + 1}/${choice!.variants.length} · ${current.label}` : "No palettes available",
-        th.fg("dim", width < 28 ? "↵ save Esc undo" : "Enter save · Esc restore"),
-        status ? th.fg("error", status) : th.fg("dim", "↑↓ theme ←→ color"),
-        status ? th.fg("dim", "↑↓ theme ←→ color") : "",
-      ];
-      return compactPicker(lines, width, height);
+      const titleLine = this.right ? th.style(themeTitle(choice), { fg: "accent", bold: true }) : th.fg("muted", "Slate themes");
+      const paletteLabel = current?.label ?? "No palettes";
+      const fullLabel = `${themeTitle(choice)} · ${paletteLabel}`;
+      const shortLabel = `${choice?.label ?? themeTitle(choice)} · ${paletteLabel}`;
+      const shortIdentity = choice?.variants.length === 1 ? choice.label : `${index + 1}/${choice?.variants.length ?? 0}`;
+      const compactLabel = `${shortIdentity} · ${paletteLabel}`;
+      const compactFallback = choice?.variants.length === 1 && paletteLabel === "Default" ? choice.label : paletteLabel;
+      const active = this.right
+        ? focusRow(th, visibleWidth(compactLabel) <= width - 2 ? compactLabel : compactFallback, true, true, width)
+        : focusRow(th, visibleWidth(fullLabel) <= width - 2 ? fullLabel : shortLabel, true, true, width);
+      return compactPicker(priorityLines([
+        { text: titleLine, priority: 2 },
+        { text: active, priority: 7 },
+        ...(footer ? [{ text: footer, priority: 9 }] : []),
+        { text: footerHints(th, actions, width), priority: 5 },
+      ], height), width, height);
     }
-    const themeRowsViewport = (columns: number, rows: number) => {
-      const selectedRowIndex = Math.max(0, this.rows.findIndex(row => row.kind === "choice" && row.index === this.selected));
-      return viewport(th, "Themes", this.selected, this.choices.length, selectedRowIndex, this.rows.length, columns, rows,
-        (i) => {
-          const row = this.rows[i]!;
-          if (row.kind === "header") return sectionRow(th, row.label);
-          return selectedRow(th, this.choices[row.index]!.label, row.index === this.selected, columns);
-        });
-    };
-    const paletteRows = (columns: number, rows: number) => {
-      const index = this.variants[this.selected] ?? 0;
-      const variants = choice?.variants ?? [];
-      return viewport(th, "Palettes", index, variants.length, index, variants.length, columns, rows, i => {
-        const variant = variants[i]!;
-        const swatch = variant.color ? th.style("████", { fg: parseColor(variant.color) }) : th.fg("muted", "▒▒▒▒");
-        const label = `${swatch} ${variant.label}${columns >= 34 && variant.color ? `  ${th.fg("dim", variant.color)}` : ""}`;
-        return selectedRow(th, label, i === index, columns);
+
+    const hints = footerHints(th, actions, inner);
+    const themeViewport = (columns: number, rows: number) => {
+      const valueWidth = 16;
+      const showValues = columns >= 36;
+      return sectionedViewport(th, "Themes", this.choices, this.selected, columns, rows, (theme, index) => {
+        const selected = index === this.selected;
+        const value = theme.variants[this.variants[index] ?? 0]?.label ?? "—";
+        const valueCell = showValues ? rightAlign(selected ? value : th.fg("muted", value), valueWidth) : "";
+        const text = showValues ? aligned(theme.label, valueCell, columns - 2, 1, valueWidth) : theme.label;
+        return focusRow(th, text, selected, !this.right, columns);
       });
     };
-    const body = pickerBody(th, width, inner, bodyHeight, themeRowsViewport, paletteRows);
-    return framedPicker(th, width, "Slate themes", body, [th.fg("error", status), th.fg("dim", "↑↓ theme ←→ palette"),
-      th.fg("dim", width < 44 ? "Enter save/Esc undo" : "Enter save · Esc restore · Ctrl+C cancel")]);
+    const detail = (columns: number, rows: number) => {
+      if (!choice) return compactPicker([footer], columns, rows);
+      const titleLine = th.style(themeTitle(choice), { fg: "accent", bold: true });
+      if (rows < 5) return compactPicker([titleLine, this.paletteRow(th, columns, index)], columns, rows);
+      const lines = [titleLine, "", ...this.paletteViewport(th, columns, rows - 2)];
+      return compactPicker(lines, columns, rows);
+    };
+    const body = pickerBody(th, width, inner, bodyHeight, themeViewport, detail);
+    return framedPicker(th, width, "Slate themes", body, ["", hints, footer]);
   }
 
   invalidate(): void {} // Render uses the live theme and current terminal size; no styled cache.

@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { digest as hash, inventory, modelFingerprint } from "./runtime.mjs";
 
-const root = dirname(fileURLToPath(import.meta.url)), repo = dirname(root), cache = join(root, ".cache");
+const root = dirname(fileURLToPath(import.meta.url)), repo = dirname(dirname(root)), cache = join(root, ".cache");
 const config = JSON.parse(readFileSync(join(root, "config.json"), "utf8"));
 const configHash = hash(readFileSync(join(root, "config.json")));
 const localPath = join(root, "config.local.json");

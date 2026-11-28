@@ -4,7 +4,7 @@
   A minimal-TUI with rich-graphics support that adds zero-context bloat
 </p>
 
-![Slate workspace](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-overview.png)
+![Slate workspace](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-slate/assets/slate-overview.png)
 
 <p align="center"><sub><b>Start of a session</b></sub></p>
 
@@ -12,9 +12,9 @@
 
 <p align="center"><sub><b>Working</b>: grouped tool calls, a timed thinking row, GitHub callouts, and the live sidebar</sub></p>
 
-![Slate sidebar while working and once idle: context, speed, and cache](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/a78549b17b006af114ae878376f6b325c532d6aa/pi-slate/assets/slate-sidebar-states.png)
+![Three Slate sidebars showing context use, token speed, and cache hits for active and new sessions](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-slate/assets/slate-sidebar-states.png)
 
-<p align="center"><sub><b>Sidebar</b>: context use, token speed, and cache hits, while working and once idle</sub></p>
+<p align="center"><sub><b>Sidebar Stats</b>: context use, token speed, and cache hits</sub></p>
 
 ## Setup
 
@@ -22,91 +22,81 @@
 pi install npm:pi-slate
 ```
 
-Tested with Pi 1.4.0. Requires Pi Coding Agent and a terminal that renders the Kitty or iTerm2 image protocol, such as Ghostty or Warp. Keep other UI extensions enabled and select only the surfaces you want Slate to own; same-slot writers follow host precedence.
+- Use Pi 1.4.0 or later and a terminal that supports the Kitty or iTerm2 image protocol.
+- Keep other UI extensions enabled and select only the surfaces you want pi-slate to own.
 
-Explore settings with `/slate` after installation, and report a bug with `/slate bug`, which opens the [issue tracker](https://github.com/GaganSD/coding-agent-toolkit/issues). Releases: [CHANGELOG](CHANGELOG.md).
+## Performance Benchmarks
+
+Slate is repeatably benchmarked for performance to check for regression against native Pi. You can read more about Methodology, ablations and full results: [benchmarks](https://github.com/GaganSD/coding-agent-toolkit/tree/main/benchmarks/pi-slate).
+
+| 3,000-entry session · 200×50 terminal | Native Pi | Slate |
+|---|---:|---:|
+| Frames painted for 800 wheel events | 307 | 305 |
+| p95 frame time | 5.1 ms | 7.4 ms |
+| Slowest frame | 9 ms | 14 ms |
+| p95 frame while a reply streams | 10.2 ms | 8.4 ms |
+| CPU while idle (5 s) | 0.00 s | 0.03 s |
+| CPU while scrolling | 1.56 s | 2.30 s |
+
+Median of 3 runs per case, with a fixed seed. Apple M2 (8 GB) · macOS · Node.js 24 (24.22.1 for the streaming test) · 200×50 macOS pseudo-terminal (PTY) · Pi 1.6.0 fullscreen.
 
 ## Features
 
-Slate renders cleanly into your terminal and stays customizable without adding new model-facing tools, prompts, or model calls.
+### Focused/Vertical Mode
 
-### Quiet Workbench
-
-The header keeps the stock Pi data and builds on it. Fresh settings start focused (sidebar hidden); restore it with `/slate focused off`, or get the full workbench with `/slate surfaces full` then `/reload`. Below 100 columns or 30 rows, the rail hides and its facts move onto the prompt frame.
+Run `/slate focused on` to hide the sidebar.
 
 ![Slate focused mode with the sidebar hidden](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-focused.png)
 
-### GitHub Callouts
+### Themes
 
-GitHub alert blockquotes in assistant replies (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`) draw a thin theme-colored rail and a short bold title instead of a dim blockquote. Display-only: stored messages, copy, and export are unchanged. Needs Pi 1.5+.
+Open `/theme` to pick a theme and preview its palettes live.\
+Choose System default, Catppuccin (Latte, Frappé, Macchiato, or Mocha), Tokyo Night, or Black Metal.
+
+![Slate theme picker previewing the Lavender palette for Catppuccin Mocha](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-slate/assets/slate-theme-picker.png)
+
+### Rich Media Rendering
+
+> Move the cursor onto an `[image-N]` token to preview the image. Move it off the token to hide the preview. Use the image shelf to open or copy the image, or double-click the image to open it. Slate converts clipboard image paths from Pi into `[image-N]` tokens.
+
+![Chat with image tokens and the sidebar image preview](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-media.png)
 
 ### Working Indicator
 
-While the model runs, the composer edge shows a progress animation — `/slate progress` picks `waves` (default), `dna-helix`, `snake`, or `cylon-scanner`.
-
-Collapsed thinking rows in the transcript show `Thinking…` while a run streams, its observed duration (`Thought for 12s`) once complete, and `Thought` in restored sessions.
+Run `/slate progress` to set the animation that shows while the model works.
 
 ![Slate working indicator animation](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-working.gif)
 
+### Prompt Templates
+
+Run `/prompts` to find a prompt template and insert it into the composer.
+
+![Slate prompt template picker](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-slate/assets/slate-prompts.png)
+
+### Claude Code Tool Style
+
+Slate groups tool calls in collapsible lists and shows their duration and edit counts.
+
+![Slate Claude Code-style tool transcript with grouped calls, edit counts, and an intentional demo failure](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-claudecode-tools.png)
+
 ### Diff
 
-With `tool-cards` selected, `edit` and `write` results are syntax-highlighted in the transcript even while collapsed: the first 16 diff rows render inline (split view for edits when the row has 100+ columns), and expanding the tool shows the rest. Diffs keep folding into `Done (N tool calls)` groups like any other row.
+Enable `tool-cards` to show the first 16 lines of a syntax-highlighted diff for `edit` and `write`.\
+Expand the tool card to see the full diff.
 
 ![Split YAML edit with word-level emphasis](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-diff-yaml.png)
 
 ![Split Rust edit with syntax highlighting](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-diff-rust.png)
 
-### Claude Code Tool Style
-
-Slate's default tool style renders compact `✓ Name (args)` calls grouped into `Done (…)` trees, with durations and edit counts. Set `"toolStyle": "default"` in `~/.pi/agent/pi-slate.json` and `/reload` to restore Pi's native cards.
-
-![Slate Claude Code-style tool transcript with grouped calls, edit counts, and an intentional demo failure](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-claudecode-tools.png)
-
-### Rich Media Rendering
-
-Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
-
-> Usage: Caret-peek over image tokens to display. `[image-N]` is a single object — the caret cannot enter it, and the whole token highlights. Open or copy from the image shelf, or double-click the image to open it. The peek leaves when the caret does. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
-
-![Chat with image tokens and the sidebar image preview](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-media.png)
-
-### Session Dashboard
-
-The sidebar keeps session facts visible without sending them to a model: a live session title at the top in bold theme accent color (click to copy its full text), with the short session id beside it (click to copy the full id; the PID is in the details and, with `/slate pid on`, on the composer), model, context meter with cost and rate, foldable MCP/Skills/Prompts lists, plus an image preview while the caret is on an image token. Long titles use a width-aware ellipsis; unnamed sessions leave that row blank. Set a name with Pi's `/name <title>` or a naming extension; Slate displays it and follows renames without generating titles. Click the usage rows for the full title and accounting; focused and compact modes move the facts onto the prompt frame.
-
-![Slate session dashboard](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-session.png)
-
-MCP indicators show **requested configuration**, not schema validity or connection health. Slate reads enabled flags without importing Pi's MCP internals, validating transports/authentication, running credential commands, or connecting to servers. Unreadable/malformed files remain visible; unknown enabled state is a neutral `—`. Rows add session-scoped activity without changing that configuration glyph: an accent braille spinner between the glyph and the name while calls are in flight, and a warning `!` in that same slot for 60 seconds after a call that ran and failed. Click a row for last used, call count, and last error. Use `/mcp` for authoritative validation and live status.
-
 ### Subagents
 
-With `editor` and a fullscreen `sidebar` selected, Slate can lend the sidebar's chat slot to a pi-subagents worker conversation — a UI-only handshake with no new model tools — and restores the same surfaces on return. Without a compatible slot, pi-subagents uses its own fallback.
+Use the sidebar to view pi-subagents conversations. Enable `editor` and `sidebar` in fullscreen mode.
 
-### Themes
+### Shortcuts
 
-Open `/theme` for a larger, centered theme selector with live preview (`/theme slate` remains an alias):
+Open `/shortcuts` to assign keys to Slate actions.
 
-- **↑ / ↓** selects and immediately applies a theme; **← / →** changes its palette. Dedicated theme and color-swatch lists show selection, position, and overflow counts; both scroll without changing the dialog's shape.
-- Themes are grouped into **Light** and **Dark** sections. Light holds Catppuccin Latte and Frappé; Dark holds Macchiato, Mocha, Tokyo Night, and Black Metal. Frappé is a mid-dark palette shipped under Light by choice; its effort ramp behaves like the other dark flavors.
-- Wide terminals use two columns; narrow terminals stack the lists, and very small screens keep the selected identity and essential controls. The dialog resizes to fit the terminal, not the selected theme or palette.
-- Every Catppuccin flavor carries the same **15 palettes**: Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal, Sky, Sapphire, Blue, Lavender, and Default (a neutral frame that reuses the flavor's lavender accent). Each flavor remembers its palette while the selector is open, and Mocha additionally lists the legacy Quiet palette.
-- **Enter** confirms and saves; **Escape** (or **Ctrl+C**) restores the original visible theme without changing saved theme settings or Slate configuration.
-
-All colors come from the official Catppuccin palette (https://catppuccin.com/palette). Every bundled theme is generated from one registry, so `npm run themes` reproduces `themes/*.json` exactly.
-
-The selector requires interactive terminal mode. Pi 1.4 has no built-in `/theme` command; core theme selection remains in `/settings`. After previewing and cancelling, Pi's public theme-instance API restores the original palette but pauses automatic terminal-appearance following (including `system` and light/dark pairs) until `/reload`. Merely opening and cancelling without previewing does not affect appearance following.
-
-Saved names such as `catppuccin-latte-mauve` stay valid and can still be set directly through Pi's own `/settings`.
-
-Black Metal is an optional bundled theme, not an install default: pick it from `/theme` under Dark. Confirmed selections are saved and also appear in `/settings`.
-
-With `/slate effort-border on`, bundled themes use a restrained effort ramp from their neutral border toward their border accent: blue for Tokyo Night, the selected Catppuccin palette, cool grays for Quiet, and grayscale for Black Metal. Higher effort increases intensity instead of switching to unrelated hues; on light flavors the ramp deepens toward the accent instead of brightening. The effort label remains the precise cue. The sidebar stays neutral, bash mode keeps its separate color, and external themes retain their own effort colors. These are native theme tokens, so Pi's stock editor also uses the ramp when a bundled Slate theme is selected. Effort-colored Slate frames remain off by default.
-
-### Prompt Templates
-
-With `editor` selected, `/prompts` opens a searchable picker of Pi's prompt templates; Enter inserts at the composer cursor. To bind a key to the picker, see [Shortcuts](#shortcuts).
-
-![Slate prompt template picker](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/1e84be304270c8d859e04e7005dc3cf674fbd574/pi-slate/assets/slate-prompts.png)
+![Slate shortcuts panel with F8 assigned to Toggle sidebar](https://raw.githubusercontent.com/GaganSD/coding-agent-toolkit/main/pi-slate/assets/slate-shortcuts.png)
 
 ## Composer Keys
 
@@ -124,42 +114,25 @@ These work when `editor` is selected. No terminal configuration.
 
 ## Commands
 
-`/slate` with no args opens the settings picker. `/prompts` is registered only with `editor` selected. `/exit` always quits Pi, same as `/quit`.
-
-| Setting | Commands | Effect |
-| --- | --- | --- |
-| Surfaces | `/slate surfaces [set <names...>\|full\|none]` | Show or save the selected set; requires `/reload`. |
-| Focused | `/slate focused [on\|off]` | Set focused mode. Focused mode hides the sidebar; standard mode restores it. |
-| PID display | `/slate pid [on\|off]` | Show the agent process ID on the composer's top edge. Off by default; omitted when the frame is too narrow. |
-| Effort border color | `/slate effort-border [on\|off]` | Let Pi's native thinking-level and bash-mode colors paint the composer frame. Off by default: Slate keeps its neutral chrome. Applies immediately with `editor` selected. |
-| Working indicator | `/slate progress [waves\|dna-helix\|snake\|cylon-scanner]` | Animate the composer's working-status slot. `waves` is the default. |
-| Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%, up to 40 columns. |
-| Diagnostics | `/slate diagnostics` | Inspect optional feature availability, native fallbacks, and next steps without changing preferences or adding model context. |
-| Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
-| Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
-| Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. When the dashboard is hidden, context/MCP stays on the top edge, while the model and thinking level sit together below. Not footer-slot ownership. |
-| Header logo | `/logo [original\|minimal]` | Toggle the stock brand mark and the white monochrome mark, or set a style explicitly. |
-| Theme | `/theme` (or `/slate theme`) | Opens the Light/Dark picker: Latte and Frappé under Light, Macchiato, Mocha, Tokyo Night, and Black Metal under Dark. 15 palettes per Catppuccin flavor, live preview, no arguments. |
-| Shortcuts | `/shortcuts` | Assign keys to Slate actions. Also available in the `/slate` menu. |
-| Bugs | `/slate bug` | Open the GitHub issue tracker. |
-
-### Shortcuts
-
-Open `/shortcuts`. Use ↑↓ to select an action, Enter to record a key, and Del twice (or Backspace twice) to remove it. A different key cancels removal. Each accepted change saves immediately. If a save conflicts with another session, the panel keeps the previous binding and shows the reason. Esc or the remapped cancel key cancels recording or closes the panel; Ctrl+C closes from anywhere. If you saved any changes, Pi reloads once after the panel closes and Pi is idle.
-
-Pi-reserved keys, viewport keys, and Slate editor keys (when the editor surface is selected) are blocked. The panel labels other shared keys “Also bound in Pi”; those bindings may only apply in another view. Printable, navigation, and editing keys require Ctrl, Alt, or Cmd/Win; Shift alone isn't enough. There are no default Slate shortcut keys.
-
-F1–F12 work without a modifier on Pi 1.4 and 1.6. Ctrl/Alt+F-keys require Pi 1.6 or later. On a Mac, you may need to hold `fn` or enable “Use F1, F2, etc. keys as standard function keys”.
-
-Add this fragment to an existing `~/.pi/agent/pi-slate.json` and run `/reload`:
-
-```json
-{ "shortcuts": { "sidebar": "f8", "prompts": "ctrl+alt+." } }
-```
-
-If you're creating the file, include `"surfaces": ["editor", "sidebar", "tool-cards"]` to keep the fresh-install surfaces; omitting it enables all surfaces for legacy compatibility. Hand-edited keys are validated with a US layout, so record keys through `/shortcuts` on other layouts. Cmd/Win is stored as `super` for Pi; hand-edited keys also accept `cmd`, `command`, `win`, and `windows`.
-
-Action IDs: `sidebar` (focused mode), `prompts` (requires the editor surface), `theme`, `pid`, `effort-border`, `density`, and `footer` (composer metadata). Use `false`, `"none"`, or `""` to leave an action unbound. If hand-edited bindings overlap, the first action in the order above wins.
+| Command | What it does |
+| --- | --- |
+| `/slate` | Open Slate's settings menu. |
+| `/slate surfaces [set <names...>\|full\|none]` | With no arguments, show saved and active [surfaces](#independent-surfaces). Use `set` with space-separated names, `full` for all, or `none` for none. Changes require `/reload`. |
+| `/slate focused [on\|off]` | Hide the sidebar with `on`, restore it with `off`, or toggle with no argument. |
+| `/slate pid [on\|off]` | Show or hide the PID on the composer. With no argument, toggle it. Off by default; hidden when the composer is too narrow. |
+| `/slate effort-border [on\|off]` | Use Pi's thinking-level and bash-mode colors for the Slate composer frame. With no argument, toggle it. Off by default. |
+| `/slate progress [waves\|dna-helix\|snake\|cylon-scanner]` | Set the working animation, or open the picker with no argument. Default: `waves`. |
+| `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Set sidebar width and leave focused mode, or open the picker with no argument. Default: 20%, capped at 40 columns. Narrow uses the minimum; medium is 30%, wide is 40%. Custom widths accept `0`–`80`, with or without `%`; `0` means narrow. |
+| `/slate message-length [default\|all\|<count>]` | Set the visible chat window with the `transcript` surface enabled, or open the picker with no argument. Default: 100 messages. Accepts `1`–`2000`, or `all` (`unlimited`) to remove the limit. |
+| `/slate density [comfortable\|compact]` | Set composer spacing, or open the picker with no argument. |
+| `/slate footer [standard\|minimal]` | Set composer details, or open the picker with no argument. `minimal` hides the model and thinking level; this does not change ownership of the `footer` surface. |
+| `/logo [original\|minimal]` | Set the stock or white monochrome header mark. With no argument, toggle between them. |
+| `/theme` or `/slate theme` | Open the [theme picker](#themes) to preview and save a theme and palette. `/theme slate` is also accepted. |
+| `/shortcuts` | Open the [shortcuts panel](#shortcuts). Also available under **Shortcuts** in the `/slate` menu. |
+| `/prompts` | Search and insert a prompt template. Available only with the `editor` surface enabled. |
+| `/slate diagnostics` | Show which features are active or using fallbacks, with next steps. |
+| `/slate bug` | Open the GitHub issue tracker. |
+| `/exit` | Quit Pi, like `/quit`. |
 
 ## Independent Surfaces
 
@@ -178,33 +151,10 @@ Changes are saved and require `/reload`; appearance settings stay live. A fresh 
 
 ## Compatibility and diagnostics
 
-Slate treats an unavailable optional presentation feature as a **fallback**, not a server or application failure. Regular terminal mode, a missing renderer hook, or a later extension taking a layout slot no longer generates a startup warning. Real settings/file problems and failed copy/save/open actions remain visible.
-
-Run `/slate diagnostics` for feature-level `active` / `fallback` details. Adapter exceptions are isolated and quarantined for that session; `/reload` retries them. Reports retain fixed, actionable reasons—not exception text, credentials, raw configuration, or conversation contents. Fallbacks do not enable fullscreen, rewrite preferences, or take back another extension's slots.
-
-Compatibility boundaries:
-
-- Production imports only public Pi package entrypoints; an architecture test rejects private/computed host imports.
-- MCP is a read-only configuration projection. Pi owns server validation, authentication, and connections.
-- Sidebar layout uses root-identity leases, not intercepted setters or function-identity assumptions.
-- One chat-surface owner copies the visible message list and paints grouped or native rows without removing host components. Active work stays visible; grouping faults retain the window in the same frame. Unknown render/mouse owners are preserved, and cleanup is not dependent on wrapper order.
-- Editor adapters unwind in reverse installation order. Retained disposed wrappers become native delegates. Paste reveals require undo support and never collapse a buffer edited since the reveal.
-- Native notices and user/assistant messages are never discarded by matching their rendered text.
-
-Development checks retain the locked baseline host and separately exercise the **packed artifact with freshly resolved latest stable Pi**:
-
-```sh
-npm run test:unit
-npm run test:integration       # includes real baseline-host startup/rendering
-npm run build
-npm run test:compat:latest     # temporary latest host + packed Slate consumer
-```
-
-The real-host probe covers regular/fullscreen mode, default/no/full surfaces, initialization, rendering, session replacement, and shutdown. Each case runs in a fresh process with isolated settings/HOME, no provider credentials, and execution-time networking blocked. The latest-host canary runs in Slate's PR validation and a dedicated daily workflow. Optional UI tree/editor adapters still require contract coverage; these checks detect upstream drift rather than promising compatibility with every future host.
-
-## Performance
-
-Slate is benchmarked against native Pi by scrolling a synthetic 3,000-entry session in a real terminal. With every surface on, it paints frame-for-frame with native Pi and uses 0.03 CPU seconds over 5 s idle. See the [benchmark README](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-slate/benchmarks) for results, methodology, and `npm run bench:scroll`.
+- Use Pi 1.4.0 or later. GitHub callouts require Pi 1.5 or later.
+- If a Slate feature is not available, Slate leaves the Pi interface unchanged for that feature.
+- Run `/slate diagnostics` to see which features are active and why others are not available.
+- Run `/reload` to try again after a failure.
 
 ## License
 

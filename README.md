@@ -51,7 +51,7 @@ A monorepo of benchmarked/minimal overhead tools I've built for Pi & Herdr:
 | Package | Description | Install |
 | :--- | :--- | :--- |
 | [pi-slate](./pi-slate/) | Minimal full-screen terminal UI with split sidebars and media previews. Zero context bloat. | `pi install npm:pi-slate` |
-| [pi-subagents](./pi-subagents/) | Tiny, benchmarked subagent harness with 88% less token overhead ([benchmarks](./benchmarks/README.md)). | `pi install npm:@gagansd/pi-subagents` |
+| [pi-subagents](./pi-subagents/) | Tiny, benchmarked subagent harness with 88% less token overhead ([benchmarks](./benchmarks/pi-subagents/README.md)). | `pi install npm:@gagansd/pi-subagents` |
 | [pi-web-search](./pi-web-search/) | Cited public web and code search. Keyless by default with optional ranking. | `pi install npm:@gagansd/pi-web-search` |
 | [pi-ask](./pi-ask/) | Structured interactive TUI interviews for human-in-the-loop decisions. | `pi install npm:@gagansd/pi-ask` |
 | [pi-automode](./pi-automode/) (beta) | Permission gate for Pi: command/path rules, optional thresholded safety review, local approvals, and protected-path blocks. | `pi install npm:@gagansd/pi-automode` |
@@ -168,7 +168,7 @@ individual extensions.
 | **Avg Tokens (5 tasks · Kimi-K3)** | **331,346** | 638,964 | **48.14% fewer tokens** |
 | **Avg Tokens (5 tasks · Grok-4.6)** | **256,451** | 979,286 | **73.81% fewer tokens** |
 
-See [`benchmarks/README.md`](./benchmarks/README.md) for full benchmark methodology, runner scripts, and scoring criteria.
+See [`benchmarks/pi-subagents/README.md`](./benchmarks/pi-subagents/README.md) for full benchmark methodology, runner scripts, and scoring criteria.
 
 ---
 

@@ -1,41 +1,50 @@
 # pi-slate
 
-> Quiet focused-first TUI for the Pi coding agent. Adds no new model-facing tools, prompts, or model calls.
+> A terminal UI extension for the Pi coding agent. Slate adds a session sidebar, image previews, themes, and tool cards without adding model-facing tools, prompts, or model calls.
 
-Select independent surfaces from the closed set: header, footer, editor, sidebar, tool-cards, transcript. Unselected surfaces receive no setter, patch, watcher, or cleanup write. Fresh missing settings select editor + sidebar + tool-cards, with the sidebar hidden by focused mode. Valid legacy settings without surfaces migrate to all six, preserving appearance. Invalid JSON, unknown surfaces, or bad versions activate nothing and preserve the file.
+- Install: `pi install npm:pi-slate`
+- Compatibility: Pi 1.4.0 or later. GitHub callouts require Pi 1.5 or later. Image previews require a compatible terminal.
+- Scope: Slate can own the header, footer, editor, sidebar, tool cards, and transcript independently. A fresh install selects the editor, sidebar, and tool cards. Focused mode hides the sidebar at startup.
 
-`/slate surfaces` reports saved and active sets. `/slate surfaces set editor`, `/slate surfaces set header tool-cards`, `/slate surfaces full`, and `/slate surfaces none` save an explicit version-1 array and require `/reload`; appearance remains live. To use only cards, run `/slate surfaces set tool-cards` then `/reload`. Focus/width never enable a disabled sidebar.
+## Features
 
-GitHub alert blockquotes (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`) in assistant replies draw a theme-colored rail and short bold title on Pi 1.5+; display-only, with stored messages, copy, and export unchanged.
+- **Focused mode:** Hide the sidebar with `/slate focused on`. Restore it with `/slate focused off`.
+- **Session sidebar:** Show context use, token speed, cache hits, and session resources such as MCP servers, skills, and prompts.
+- **Themes:** Open `/theme` to preview and select palettes. Options include System default, Catppuccin Latte, Frappé, Macchiato, and Mocha, Tokyo Night, and Black Metal.
+- **Rich media:** Move the cursor onto an `[image-N]` token to preview the image. Open or copy it from the image shelf.
+- **Working indicator:** Run `/slate progress` to select an animation for active replies.
+- **Prompt templates:** Run `/prompts` to find a Pi prompt template and insert it into the composer. This requires the editor surface.
+- **Claude Code-style tool cards:** Group tool calls in collapsible lists with duration and edit counts.
+- **Diffs:** Show syntax-highlighted results for `edit` and `write` with the tool-cards surface enabled.
+- **Subagents:** View pi-subagents conversations in the sidebar with the editor and sidebar surfaces enabled in fullscreen mode.
+- **Shortcuts:** Run `/shortcuts` to assign keys to Slate actions.
+- **GitHub callouts:** Show styled alert blocks in assistant replies without changing stored or exported text.
 
-`/slate effort-border [on|off]` toggles or saves `effortBorderColor` (off by default; applies live without rebuilding the editor). With editor selected and this enabled, Pi's native thinking-level and bash-mode colors paint the composer frame; Slate does not change effort or theme settings. Bundled thinkingOff through thinkingMax tokens form a restrained neutral-border-to-borderAccent intensity ramp; Catppuccin follows its selected style, Quiet and Black Metal stay neutral. The exact effort label remains visible where space allows. These tokens also apply to Pi's stock editor with a bundled theme selected; external themes keep their own effort colors, and bashMode is unchanged.
+## npm downloads
 
-Theme and fullscreen remain user preferences, never automatic load actions. `/theme` (or `/slate theme`) opens the Light/Dark picker: Catppuccin Latte and Frappe under Light, Macchiato and Mocha under Dark, each with 15 palettes (rosewater, flamingo, pink, mauve, red, maroon, peach, yellow, green, teal, sky, sapphire, blue, lavender, default). The picker's System default row restores Pi's system theme; Tokyo Night and Black Metal sit under Dark. Installation preserves an existing selection. `/slate theme` takes no arguments and only opens that picker; `/slate style` no longer exists. Saved names like `catppuccin-latte-mauve` and the legacy Mocha Quiet palette stay valid and are still settable through Pi's `/settings`. `composerMetadata` replaces the in-memory footer setting; old `footer` files and `/slate footer` remain compatible (both keys are written). The footer surface hides Pi's footer using a zero-row component; composer git branch comes from an editor-only service.
+npm download counts for 2026-10-29 through 2026-11-27:
 
-MCP is a version-independent, read-only projection of requested configuration from the public registration API and trusted config files. Slate never imports Pi MCP internals, validates server schemas, connects, or evaluates credentials; /mcp owns validity and health. Rows add session-scoped activity only: an accent braille spinner in the status slot before the name during calls, a 60-second `!` in that slot after a real failure, and click details for last used, call count, and last error. Unknown flags are neutral, file parse/read errors remain visible, and BOM normalization never depends on host exports. Image handling patches only Slate's editor instance, never Editor.prototype or foreign editors. `/prompts` registers only with editor and has no default shortcut; `shortcuts.prompts` in pi-slate.json binds a chord (`false`/`"none"` for none) and needs `/reload`. `/exit` always. Tool-cards preserves native execution outside TUI and native model-facing results; grouped reads and highlighted diffs are rendering only. No stock-notice deletion.
+- [pi-slate](https://api.npmjs.org/downloads/point/last-month/pi-slate): 3,852 downloads.
+- [Coding Agent Toolkit](https://gagansd.github.io/coding-agent-toolkit/badges/npm-downloads.svg): 11,354 combined downloads across the toolkit's npm packages, including pi-slate.
 
-Chrome is last-writer-wins; tools are first-registration-wins, with losses recorded in /slate diagnostics and no repair engine. Missing optional UI capabilities and adapter faults use quiet native fallbacks, never server-health/startup warnings. Real config/file failures and failed user actions remain visible. Sidebar/transcript use a namespaced zero-row below-editor TUI handle and need a compatible fullscreen host without forcing fullscreen or overlaying. The sidebar uses a root-identity lease, never intercepts setLayoutRoot, and yields to a replaced root. One chat-surface owner handles render/mouse routing: it copies the visible message list, then uses a grouping painter or native rows. Canonical host children stay intact, active work is not windowed, and grouping faults retain the window in the same frame. Unknown render/mouse owners are preserved; disposed wrappers delegate. Shutdown releases only owned slots; /reload retries faulted capabilities.
+## Performance: native Pi vs pi-slate
 
-Observed TUI thinking adds elapsed seconds and available token rate to the composer-edge working word (`Pondering · 7s · ↑↓42`). With the transcript or tool-cards chat painter active, collapsed thinking rows show `Thinking…` while streaming, the observed `Thought for Ns` after a live run, and `Thought` in restored sessions; clicking still toggles them.
+The benchmark uses Pi 1.6.0 in fullscreen mode, a 3,000-entry session, and a 200×50 macOS pseudo-terminal on an Apple M2. Values are medians of three runs.
 
-Claude Code-style tool cards are the default with tool-cards selected; `toolStyle: "default"` in pi-slate.json plus /reload restores Slate's original cards. Uses Pi registerToolRenderer (tested 1.3.0), compact status/args/result/duration/timeout/diff rows and scoped consecutive-tool trees on compatible fullscreen hosts. No tool re-registration for styling, global prototype patches, session replay or extra timers. Legacy read grouper is disabled in this mode. Expanded original renderers/state, native thinking visibility and schemas remain intact; images, assistant text, unsupported tools and visible thoughts break groups. Missing renderer hooks keep Slate default cards with an on-demand diagnostic, not a startup warning.
+| Metric | Native Pi | pi-slate |
+|---|---:|---:|
+| Frames painted for 800 wheel events | 307 | 305 |
+| p95 frame time | 5.1 ms | 7.4 ms |
+| Slowest frame | 9 ms | 14 ms |
+| CPU time while idle (5 s) | 0.00 s | 0.03 s |
+| CPU time while scrolling | 1.56 s | 2.30 s |
+| p95 frame time while scrolling down during a reply | 10.2 ms | 8.4 ms |
 
-Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. They follow the active Slate theme. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
+Both builds show the full history in the idle scenario. In the separate streaming scenario, native Pi shows the full history and Slate uses its configured transcript window. Frame time measures Pi rendering, not terminal emulator drawing.
 
-Header uses the stock Pi mark plus version, model, and session dir as ~/<name>. Composer keeps project/branch on the bottom left, focused ctx/resources on the top edge, and model on the bottom right, with square corners matching the fully bordered sidebar. Completed turns add a UI-only elapsed-time receipt with local finish time (Worked for 54s • 09:37). Image placeholders are a single caret object. The rail starts with a live session title in bold theme accent color (click copies the full plain-text title; width-aware ellipsis only affects painting; unnamed sessions leave a blank row), with the short session id beside it (click copies the full ID; the PID is in the details, or on the composer with /slate pid on). Titles come from Pi's /name <title> or a naming extension; Slate never generates them. Renames update the title through session_info_changed. Click CONTEXT to open branch usage details. The rail shows session spend when applicable, context, SPEED (last timed reply, turn average, peak), CACHE (branch hit rate, cache reads, uncached input), and folded MCP/Skills/Prompts (Enabled/Loaded counts, MCP error counts in red). Commands stay behind /. The image preview appears only while the caret is on an image token. Below 100 columns or 30 rows the rail hides without changing preferences; focused ctx/resources, project/branch, and model return to the composer. Session/root ownership protections remain intact.
+## Links
 
-## Documentation
-
-- [README](README.md): install, features, commands (`/exit` aliases `/quit`), themes, composer keys
-- [Extension entry](extensions/pi-slate/index.ts): selected-surface installers and commands
-- [Callouts](extensions/pi-slate/callouts.ts): display-only GitHub alert rails
-- [Surfaces](extensions/pi-slate/surfaces.ts): closed enum, parsing, migration
-- [Diff](extensions/pi-slate/diff.ts): edit/write rendering
-- [Read groups](extensions/pi-slate/read-group.ts): consecutive-read compaction
-- [Tool style](extensions/pi-slate/tool-style.ts): presentation-only compact cards
-- [Chat surface](extensions/pi-slate/chat-surface.ts): one display-projection and mouse-routing owner
-- [Tool groups](extensions/pi-slate/tool-groups.ts): grouping painter for an explicit display list
-- [Thinking status](extensions/pi-slate/thinking-fold.ts): live composer timing, native transcript fallback
-- [Tokyo Night theme](themes/tokyo-night.json): bundled explicit theme choice
-- [Black Metal theme](themes/black-metal.json): optional theme, not an install default; selectable from the `/theme` picker under Dark
-- [Package manifest](package.json): `npm:pi-slate`
+- [Slate README](https://github.com/GaganSD/coding-agent-toolkit/tree/main/pi-slate): Setup, screenshots, and commands.
+- [npm package](https://www.npmjs.com/package/pi-slate): Releases and installation.
+- [Slate benchmarks](https://github.com/GaganSD/coding-agent-toolkit/tree/main/benchmarks/pi-slate): Test methods and results.
+- [Coding Agent Toolkit](https://github.com/GaganSD/coding-agent-toolkit): Related Pi extensions.
