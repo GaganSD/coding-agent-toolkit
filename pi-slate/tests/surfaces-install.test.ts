@@ -49,6 +49,8 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   const choices: string[] = [];
   const inspected: string[] = [];
   const extraCommands: Array<{ name: string; source: string; sourceInfo: { path: string; scope: string } }> = [];
+  const eventHandlers = new Map<string, Set<(value: unknown) => void>>();
+  const eventEmissions: Array<{ name: string; value: unknown }> = [];
   let draft = "existing draft";
   const shortcuts: string[] = [];
   const shortcutHandlers = new Map<string, (ctx: ExtensionContext) => Promise<void> | void>();
@@ -71,10 +73,16 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
     ],
     exec: async () => { calls.push("branch-git"); return { code: 0, stdout: "test-branch\n", stderr: "", killed: false }; },
     events: {
-      on(name: string) {
+      on(name: string, handler: (value: unknown) => void) {
         const prefix = name === "subagent:ui-host-request" ? "navigation" : "async";
         calls.push(`${prefix}-subscribe`);
-        return () => calls.push(`${prefix}-dispose`);
+        const listeners = eventHandlers.get(name) ?? new Set();
+        listeners.add(handler); eventHandlers.set(name, listeners);
+        return () => { listeners.delete(handler); calls.push(`${prefix}-dispose`); };
+      },
+      emit(name: string, value: unknown) {
+        eventEmissions.push({ name, value });
+        for (const handler of eventHandlers.get(name) ?? []) handler(value);
       },
     },
   } as unknown as ExtensionAPI;
@@ -151,7 +159,9 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
   assert.equal(Editor.prototype.insertTextAtCursor, originalInsert);
   assert.equal(Reflect.get(Editor.prototype, "handlePaste"), originalPaste);
   assert.equal(foreign.insertTextAtCursor, foreignInsert);
-  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, shortcutHandlers, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
+  return { pi, invalidate: () => { stale = true; }, calls, notices, notifications, commands, tools, shortcuts, shortcutHandlers, emit, ctx, path, imagePath, chat, root, tui, composer, foreign, choices, inspected, extraCommands, manager, eventEmissions,
+    publishEvent: (name: string, value: unknown) => (pi.events as { emit(name: string, value: unknown): void }).emit(name, value),
+    draft: () => draft, header: () => header, setForeignEditor: () => { editorFactory = () => foreign; } };
 }
 
 for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["header"], ["tool-cards"], ["sidebar"], ["transcript"], ["footer"]] as Surface[][]) {
@@ -227,6 +237,39 @@ test("focused composer shows ctx and resources on top without duplicating them b
   assert.match(bottom, new RegExp(`${basename(f.ctx.cwd)} / test-branch`));
   assert.match(bottom, /no model/);
   assert.doesNotMatch(bottom, /ctx 10%/);
+});
+
+test("background task snapshots request current state, stay session scoped, and clear on replacement", async (t) => {
+  const f = await fixture(t, JSON.stringify({ version: 1, surfaces: ["editor", "sidebar"], focused: true }));
+  const owner = f.manager.getSessionId();
+  assert(f.eventEmissions.some(event => event.name === "pi:background-tasks:request"
+    && (event.value as { version?: number; sessionId?: string }).version === 1
+    && (event.value as { sessionId?: string }).sessionId === owner
+    && !("source" in (event.value as object))));
+  const publication = { version: 1, source: "pi-subagents", sessionId: owner, tasks: [
+    { id: "run-a", kind: "subagent", label: "reviewer: inspect parser", state: "running", detail: "public detail" },
+  ] };
+  f.publishEvent("pi:background-tasks", publication);
+  assert.match(f.composer!.render(100)[0]!, /1 subagent/);
+  assert.match(railOf(f).render(40).join("\n"), /Subagents.*1 Active/);
+
+  f.publishEvent("pi:background-tasks", { ...publication, source: "compatible-publisher" });
+  assert.match(f.composer!.render(100)[0]!, /2 subagents/);
+  assert.match(railOf(f).render(40).join("\n"), /Subagents.*2 Active/);
+
+  f.publishEvent("pi:background-tasks", { ...publication, tasks: [] });
+  assert.match(f.composer!.render(100)[0]!, /1 subagent/);
+  assert.match(railOf(f).render(40).join("\n"), /Subagents.*1 Active/);
+
+  f.publishEvent("pi:background-tasks", { ...publication, sessionId: "foreign", tasks: [] });
+  assert.match(railOf(f).render(40).join("\n"), /Subagents.*1 Active/);
+
+  const nextManager = SessionManager.inMemory(f.ctx.cwd);
+  const next = { ...f.ctx, sessionManager: nextManager } as ExtensionContext;
+  await f.emit("session_start", {}, next);
+  assert.doesNotMatch(railOf(f).render(40).join("\n"), /reviewer: inspect parser|Subagents.*1 Active/);
+  assert(f.eventEmissions.some(event => event.name === "pi:background-tasks:request"
+    && (event.value as { sessionId?: string }).sessionId === nextManager.getSessionId()));
 });
 
 test("focused composer retries unchanged metadata on the next poll after both schedulers fail", async (t) => {
@@ -1112,7 +1155,7 @@ test("live MCP activity drives the sidebar spinner and warning, then stops its t
     await writeFile(join(agentDir, "mcp.json"), '{"mcpServers":{"docs":{"command":"docs"}}}');
   });
   const sidebar = railOf(f);
-  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  sidebar.setFolds({ subagents: false, mcp: true, skills: false, prompts: false });
   const rows = () => sidebar.render(40).map(unstyled).join("\n");
   const ticks = t.mock.method(sidebar, "tick");
   const start = (id: string, context = f.ctx) => f.emit("tool_execution_start", { toolCallId: id, toolName: "mcp__docs__search", args: {} }, context);
@@ -1125,11 +1168,11 @@ test("live MCP activity drives the sidebar spinner and warning, then stops its t
   let count = ticks.mock.callCount();
   t.mock.timers.tick(WAVE_STEP_MS);
   assert.equal(ticks.mock.callCount(), count + 1, "the active MCP timer ticks the sidebar");
-  sidebar.setFolds({ mcp: false, skills: false, prompts: false });
+  sidebar.setFolds({ subagents: false, mcp: false, skills: false, prompts: false });
   count = ticks.mock.callCount();
   t.mock.timers.tick(WAVE_STEP_MS);
   assert.equal(ticks.mock.callCount(), count, "a folded MCP section stops the timer");
-  sidebar.setFolds({ mcp: true, skills: false, prompts: false });
+  sidebar.setFolds({ subagents: false, mcp: true, skills: false, prompts: false });
   count = ticks.mock.callCount();
   t.mock.timers.tick(WAVE_STEP_MS);
   assert.equal(ticks.mock.callCount(), count + 1, "expanding restarts the timer while the call is active");
@@ -1183,7 +1226,7 @@ test("fold save preserves external sibling state, unknown section keys and unkno
   const saved = JSON.parse(await readFile(f.path, "utf8"));
   assert.deepEqual(saved.sidebarSections, { skills: true, future: "keep", mcp: true });
   assert.deepEqual(saved.modelDisplay, { providerSuffix: true, future: "keep" }); assert.deepEqual(saved.unrelated, { nested: true });
-  assert.deepEqual(railOf(f).getFolds(), { skills: true, mcp: true, prompts: false });
+  assert.deepEqual(railOf(f).getFolds(), { subagents: false, skills: true, mcp: true, prompts: false });
 });
 
 test("root yield stops dashboard clock/subscriptions and retained panes cannot repaint", async t => {

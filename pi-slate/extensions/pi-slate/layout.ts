@@ -107,11 +107,14 @@ export function formatFocusedContextResources(
   percent: number | null | undefined,
   estimated: boolean,
   mcpCount: number | null,
+  subagentCount = 0,
 ): string {
   const serverCount = mcpCount === null ? 0 : Math.max(0, Math.round(mcpCount));
+  const activeSubagents = Math.max(0, Math.round(subagentCount));
 
   const parts = [`ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)}`];
   if (serverCount > 0) parts.push(`${serverCount} mcp`);
+  if (activeSubagents > 0) parts.push(`${activeSubagents} ${activeSubagents === 1 ? "subagent" : "subagents"}`);
   return parts.join(" · ");
 }
 

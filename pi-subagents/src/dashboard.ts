@@ -1,6 +1,9 @@
 import type { RunRecord } from "./types.ts";
 import { measuredUsage, usageTotals } from "./usage.ts";
 
+const MAX_DISPLAY_NAME = 160;
+const MAX_DISPLAY_TASK = 8192;
+
 /** Optional display-only snapshot. No native sessions, credentials, or control authority leave the manager. */
 export function backgroundTaskSnapshot(sessionId: string, records: readonly RunRecord[]) {
   // Settled runs remain accounting evidence, not display occupancy.
@@ -13,7 +16,8 @@ export function backgroundTaskSnapshot(sessionId: string, records: readonly RunR
     tasks: visible.slice(0, 64).map(record => {
       const usage = measuredUsage(record.usage);
       return {
-        id: record.id, label: `${record.agent}: ${record.task.replace(/\s+/g, " ").slice(0, 160)}`,
+        id: record.id, label: `${record.agent}: ${record.task.replace(/\s+/g, " ")}`.slice(0, 160),
+        name: record.agent.slice(0, MAX_DISPLAY_NAME), task: record.task.slice(0, MAX_DISPLAY_TASK),
         kind: "subagent" as const, state: record.state === "waiting_for_agent" ? "waiting" : record.state,
         startedAt: Date.parse(record.startedAt),
         ...(usage ? { usage, ...(record.usagePartial ? { usagePartial: true as const } : {}) } : {}),

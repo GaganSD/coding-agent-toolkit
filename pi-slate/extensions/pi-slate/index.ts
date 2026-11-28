@@ -32,7 +32,7 @@ import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
 import { Sidebar } from "./sidebar.ts";
 import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
-import { inspectSidebarText } from "./sidebar-inspector.ts";
+import { inspectSidebarText, type SidebarInspectorText } from "./sidebar-inspector.ts";
 import { SlateDiagnostics } from "./diagnostics.ts";
 import { TurnCompletion } from "./turn-completion.ts";
 import { ContextUsageCache } from "./context-usage.ts";
@@ -86,6 +86,7 @@ import { selectSlateTheme } from "./theme-selector.ts";
 import { classifyKey, loadShortcutKeys, loadShortcuts, mergeShortcuts, SHORTCUT_ACTIONS, shortcutKey, shortcutLabel, shortcutStatus, type ShortcutActionId, type SlateShortcuts } from "./shortcuts.ts";
 import { openShortcutsPanel } from "./shortcuts-panel.ts";
 import { createCalloutPalette, decorateCallouts } from "./callouts.ts";
+import { BackgroundTaskShelf, type BackgroundTask } from "./background-tasks.ts";
 
 const PROGRESS_LABELS: Record<ProgressStyle, string> = {
   waves: "Waves",
@@ -248,6 +249,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
   let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage>; perf: ReturnType<typeof branchPerf> } | undefined;
   let inspectingSidebar = false;
+  let subagentTasks: BackgroundTask[] = [];
   let sidebarYielded = false;
   let sessionEpoch = 0;
   let pendingShortcutReload: Promise<void> | undefined;
@@ -322,13 +324,34 @@ export default function piSlate(pi: ExtensionAPI): void {
   let requestRender = (_force = false) => {};
   let contextRepaintPending = false;
   const updateContextEdge = (next: Pick<typeof contextEdge, "percent" | "window" | "estimated">): void => {
-    const label = formatFocusedContextResources(next.percent, next.estimated, resources.mcp.filter(server => server.enabled === true).length);
+    const label = formatFocusedContextResources(next.percent, next.estimated, resources.mcp.filter(server => server.enabled === true).length, subagentTasks.length);
     contextRepaintPending ||= label !== contextEdge.resources;
     contextEdge = { ...next, resources: label };
     if (!contextRepaintPending || !activeTui || !activeEditor) return;
     try {
       if (editorActive()) contextRepaintPending = activeEditor.needsContextRepaint() && !requestNecessaryRender(activeTui);
     } catch { /* Keep the check pending if the host is temporarily unavailable. */ }
+  };
+  const subagentShelf = new BackgroundTaskShelf(tasks => {
+    subagentTasks = [...tasks];
+    if (owns("sidebar") && !sidebarYielded) sidebar.setSubagents(subagentTasks);
+    updateContextEdge(contextEdge);
+  });
+  let unsubscribeBackgroundTasks: (() => void) | undefined;
+  const startBackgroundTasks = (ctx: ExtensionContext): void => {
+    const enabled = ctx.mode === "tui" && (owns("sidebar") || owns("editor"));
+    const sessionId = enabled ? ctx.sessionManager.getSessionId?.() : undefined;
+    subagentShelf.switchSession(typeof sessionId === "string" ? sessionId : undefined);
+    if (!enabled || typeof sessionId !== "string") return;
+    if (!unsubscribeBackgroundTasks) {
+      unsubscribeBackgroundTasks = pi.events?.on?.("pi:background-tasks", value => { subagentShelf.accept(value); });
+    }
+    try { pi.events?.emit?.("pi:background-tasks:request", { version: 1, sessionId }); } catch { /* Optional display publishers cannot break Slate. */ }
+  };
+  const stopBackgroundTasks = (): void => {
+    subagentShelf.clear();
+    try { unsubscribeBackgroundTasks?.(); } catch { /* Runtime may already be disposed. */ }
+    unsubscribeBackgroundTasks = undefined;
   };
 
   const thinkingRowState = () => ({ active: thinkingFold.active(), durations: thinkingDurations });
@@ -438,7 +461,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   const stopDashboard = (): void => {
     clearInterval(dashboardClock); dashboardClock = undefined;
   };
-  const inspect = (ctx: ExtensionContext, title: string, text: string): void => {
+  const inspect = (ctx: ExtensionContext, title: string, text: SidebarInspectorText): void => {
     if (inspectingSidebar || ctx.mode !== "tui") return;
     inspectingSidebar = true;
     void inspectSidebarText(ctx, sidebarText(title), text).catch(() => { try { ctx.ui.notify("Sidebar details unavailable", "warning"); } catch { /* Session UI may be gone. */ } })
@@ -470,6 +493,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     invalidateSession(); sidebarYielded = false;
     const mountedEpoch = sessionEpoch;
     currentContext = ctx;
+    startBackgroundTasks(ctx);
     if (ctx.mode === "tui") cachedTheme = ctx.ui.theme;
     const mountedContext = (): ExtensionContext | undefined =>
       mountedEpoch === sessionEpoch ? liveContext() : undefined;
@@ -523,6 +547,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       sidebar.setThemeProvider(liveTheme);
       sidebar.setFolds(config.sidebarSections);
       sidebar.setResources(resources);
+      sidebar.setSubagents(subagentTasks);
       sidebar.setPreferredWidth(config.sidebarPercent);
       sidebar.setHidden(config.focused === true);
       sidebar.setActions({
@@ -813,6 +838,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("session_tree", (_event, ctx) => {
     currentContext = ctx;
+    startBackgroundTasks(ctx);
     contextUsage.reset();
     thinkingFold.stop();
     if (owns("sidebar") && ctx.mode === "tui") {
@@ -832,6 +858,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       tokenRate.dispose();
       selection.dispose();
       images?.dispose();
+      stopBackgroundTasks();
       stopDashboard();
       mcpFiles.clear();
       branch.dispose();

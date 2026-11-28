@@ -30,3 +30,16 @@ for (const rows of [2, 3, 5, 24, 27, 28, 29, 30, 40]) {
     f.input("\x1b"); await pending;
   });
 }
+
+test("inspector re-reads text getters on every render", async () => {
+  const f = overlay(24);
+  let text = "first transcript"; let reads = 0;
+  const pending = inspectSidebarText(f.ctx, "Details", () => { reads++; return text; });
+  assert.match(f.render().join("\n"), /first transcript/);
+  text = "updated transcript";
+  const updated = f.render().join("\n");
+  assert.match(updated, /updated transcript/);
+  assert(!updated.includes("first transcript"));
+  assert.equal(reads, 2);
+  f.input("\x1b"); await pending;
+});

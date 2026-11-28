@@ -290,6 +290,8 @@ test("focused context resources lead with ctx and use lowercase mcp", () => {
   assert.equal(formatFocusedContextResources(10, true, 0), "ctx ~10%");
   assert.equal(formatFocusedContextResources(10, false, 1), "ctx 10% · 1 mcp");
   assert.equal(formatFocusedContextResources(10, false, 2), "ctx 10% · 2 mcp");
+  assert.equal(formatFocusedContextResources(10, false, 2, 1), "ctx 10% · 2 mcp · 1 subagent");
+  assert.equal(formatFocusedContextResources(10, false, 0, 3), "ctx 10% · 3 subagents");
 });
 
 test("files widget stays compact and never exceeds five lines", () => {

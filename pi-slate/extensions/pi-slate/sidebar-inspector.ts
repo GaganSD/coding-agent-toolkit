@@ -3,8 +3,10 @@ import { sidebarText } from "./sidebar-data.ts";
 import { matchesKey, wrapTextWithAnsi, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { SIDEBAR_DIALOG_OPTIONS, sidebarDialogBudget, sidebarDialogRows } from "./sidebar-dialog.ts";
 
+export type SidebarInspectorText = string | (() => string);
+
 /** Read-only details, separate from the image shelf and from model-facing messages. */
-export async function inspectSidebarText(ctx: ExtensionContext, title: string, text: string): Promise<void> {
+export async function inspectSidebarText(ctx: ExtensionContext, title: string, text: SidebarInspectorText): Promise<void> {
   if (ctx.mode !== "tui") return;
   await ctx.ui.custom<void>((tui, theme, _keys, done) => {
     let offset = 0; let height = 1; let count = 0;
@@ -16,7 +18,8 @@ export async function inspectSidebarText(ctx: ExtensionContext, title: string, t
     return {
       render(width: number): string[] {
         const bodyWidth = Math.max(1, width - 4);
-        const lines = text.split("\n").flatMap(line => wrapTextWithAnsi(sidebarText(line, 2000), bodyWidth));
+        const current = typeof text === "function" ? text() : text;
+        const lines = current.split("\n").flatMap(line => wrapTextWithAnsi(sidebarText(line, 2000), bodyWidth));
         const budget = sidebarDialogBudget(tui.terminal.rows);
         height = budget.body; count = lines.length;
         offset = Math.min(offset, Math.max(0, count - height));

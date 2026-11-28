@@ -9,6 +9,7 @@
 
 ### Added
 
+- Add separate `name` and `task` fields to optional `pi:background-tasks` v1 rows while retaining the existing `label`. Display snapshots do not read private native session transcripts.
 - Preserve cumulative accounting across transient telemetry errors and failed resume startup; validate reopened identity before exposing accounting. Mark retained final-read failures partial, publish late evidence updates, and avoid duplicate stats scans and clock-only dashboard publication. Generic v1 snapshot fields are available to any dashboard consumer; no particular dashboard is assumed.
 - Report host-measured run tokens, cost and elapsed time in finish notices/status and conversation headers; refresh live accounting at finalized SDK boundaries. Add display-only v1 snapshot totals including settled spend and measured-run coverage.
 - A bundled starter guide (`skills/pi-subagents/template.md`) with worker and reviewer archetypes, exact verification metrics, and a skeleton to copy into either folder.

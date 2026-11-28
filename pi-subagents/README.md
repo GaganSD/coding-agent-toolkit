@@ -185,8 +185,9 @@ For any compatible dashboard consumer, sub-agents publish optional
 `pi:background-tasks:request` events. Settled runs leave that shelf (64 live rows
 per source), but their spend remains in the optional v1 `totals` aggregate with
 measured/total run coverage. No particular dashboard or display is required.
-Snapshots include exact run IDs, state and shared host PID, not native session objects, private questions or run
-control. Use `/subagents` for authoritative inspection and control. Listener
+Snapshots include exact run IDs, state, shared host PID, backward-compatible `label`,
+and separate bounded `name` and `task` fields. They do not include native session objects,
+private questions, transcript file reads, or run control. Use `/subagents` for authoritative inspection and control. Listener
 failures cannot change run outcomes; reload/shutdown clears the source.
 
 Finish notices and `status` include host-measured `usage` (input/output/cache
