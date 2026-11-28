@@ -1,6 +1,8 @@
 import {
 	type FetchLike,
 	awaitWithSignal,
+	credentialRedactor,
+	safeMessage,
 	postSseJson,
 	withTimeout,
 } from "./http.ts";
@@ -214,8 +216,8 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 				void response.body?.cancel().catch(() => {});
 			} catch (error) {
 				throw providerError("network_error", `MCP close failed: ${
-					error instanceof Error ? error.message : String(error)
-				}`, { retryable: true, cause: error });
+					safeMessage(error, credentialRedactor(options.headers))
+				}`, { retryable: true });
 			} finally {
 				deadline.dispose();
 			}

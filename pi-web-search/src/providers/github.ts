@@ -43,8 +43,9 @@ export async function githubSearch(
 		signal: req.signal,
 		timeoutMs: req.settings.timeoutMs,
 		fetchImpl: options.fetchImpl,
-		onResponse: (response) => {
-			requestId = response.headers.get("x-github-request-id") ?? undefined;
+		onResponse: (response, redact) => {
+			const rawId = response.headers.get("x-github-request-id");
+			requestId = rawId === null ? undefined : redact?.(rawId) ?? rawId;
 		},
 	});
 	if (!isRecord(raw) || !Array.isArray(raw.items)) {
